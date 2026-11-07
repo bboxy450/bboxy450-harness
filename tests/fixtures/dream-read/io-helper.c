@@ -13,6 +13,7 @@
 #include <signal.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -36,6 +37,15 @@ static int file(const char *name,const char *data,size_t len) {
 }
 static void held(void) {
     for(;;)pause(); // Blocking does not acknowledge STOP; the real controller must.
+}
+static int burn(long long duration) {
+    struct timespec at,now;
+    if(clock_gettime(CLOCK_PROCESS_CPUTIME_ID,&at))return 81;
+    for(;;) {
+        if(clock_gettime(CLOCK_PROCESS_CPUTIME_ID,&now))return 81;
+        long long ns=(long long)(now.tv_sec-at.tv_sec)*1000000000LL+now.tv_nsec-at.tv_nsec;
+        if(ns>=duration)return 0;
+    }
 }
 int main(int argc,char **argv) {
     if(argc<2)return 81;
@@ -63,6 +73,28 @@ int main(int argc,char **argv) {
         int fd=open("ticks",O_WRONLY|O_CREAT|O_EXCL,0600);
         if(fd<0)return 81;
         for(;;)if(output(fd,"x",1))return 81;
+    }
+    // Finite passive workload only. The production Rust controller owns QoS,
+    // samples, caps, debt and settlement; these modes contain no controller.
+    if(!strcmp(argv[1],"burn")&&argc==2)return burn(260000000LL);
+    if(!strcmp(argv[1],"burn-live")&&argc==2)return burn(500000000LL);
+    if(!strcmp(argv[1],"wait-burn-short")&&argc==2) {
+        if(file("ready","ready",5))return 81;
+        for(unsigned n=0;n<2500;n++) {
+            if(access("release",F_OK)==0)return burn(20000000LL);
+            struct timespec nap={0,1000000};(void)nanosleep(&nap,NULL);
+        }
+        return 81;
+    }
+    if(!strcmp(argv[1],"pair-burn")&&argc==2) {
+        pid_t child=fork();
+        if(child<0)return 81;
+        if(child==0)_exit(burn(260000000LL));
+        char pid[32];int n=snprintf(pid,sizeof(pid),"%d\n",child);
+        if(n<=0||(size_t)n>=sizeof(pid)||file("descendant",pid,(size_t)n))return 81;
+        int status=0;pid_t joined;
+        do {joined=waitpid(child,&status,0);}while(joined<0&&errno==EINTR);
+        return joined==child&&WIFEXITED(status)&&WEXITSTATUS(status)==0?0:81;
     }
     if(!strcmp(argv[1],"pair")&&argc==2) {
         pid_t child=fork(); // One source-known fork; no child exec or further fork.

@@ -8,17 +8,11 @@
 //! bytes, signatures, bounded process IO and allocator behavior remain witnesses.
 use super::*;
 
-/// Decision66050 refines one already-consumed STOP in the existing controller.
-/// The immutable profile selects independent observations, never an errno cause.
-/// Owner: original unreaped leader/group. Bounds: one grant, at most two members,
-/// exact/replaced token classes, failed-call endpoint1 and positive endpoint2. Q classes
-/// 1/2 mean within/over the unchanged1ms bound; debt1 means the full fresh9x rest.
-/// Native observations are not fair. Only enabled local classification/payment
-/// is weakly fair; explicit deadline preserves ownership in quarantine.
-/// The identity fact abstracts current live-token/image/RI checks and sticky
-/// observed exec refusal. RI v1 has no terminal pidversion: final-image exit
-/// continuity also depends on the existing reviewed no-further-exec premise.
-/// An unobserved transient exec is not independently excluded by this model.
+/// Decision66050/66074 raw failed foreground/final signal and SAME original
+/// physical custody. No external helper window or per-grant CPU is modeled.
+/// The controller/pipe/retirement fields describe its OWN65086 ordinary unit:
+/// complete measured cutoff, inclusive CPU<=1ms and fresh9x debt remain hard.
+/// External CPU/caps/debt are Q2HelperTotalBudget. No native success is fair.
 pub fn failed_stop_terminal(control: u8) -> Model {
     let suffix = ["", "ErrnoAck", "RetryStop", "Resume", "LeaderOnly", "Roster",
         "Identity", "FailedEndpoint", "Controller", "Pipe", "Late", "Quantum",
@@ -27,9 +21,9 @@ pub fn failed_stop_terminal(control: u8) -> Model {
         ("phase", 6, 0), ("profile", 13, 0), ("rawErrnoEpermEsrch", 2, 0),
         ("consumedStopAttempts", 2, 0), ("leaderWnowaitOriginal", 1, 0),
         ("everyMemberPositiveExit", 1, 0), ("causallyClosedRoster", 1, 0),
-        ("exactRetainedIncarnation", 1, 0), ("windowEndFailedOrPositive", 2, 0),
+        ("exactRetainedIncarnation", 1, 0), ("ownControllerUnitEndFailedOrMeasured", 2, 0),
         ("controllerIncluded", 1, 0), ("pipeIncluded", 1, 0),
-        ("lateAndRetiredIncluded", 1, 0), ("qWithinOrOver1ms", 2, 0),
+        ("ownRetirementObservationCostIncluded", 1, 0), ("ownControllerUnitWithinOrOver1ms", 2, 0),
         ("clockKnownOrdered", 1, 0), ("freshRestDebt", 1, 0),
         ("actualExactWait4AndGroupSettlement", 1, 0),
         ("stoppedAck", 1, 0), ("continueCount", 1, 0), ("proofOrPayloadWork", 1, 0),
@@ -53,7 +47,7 @@ pub fn failed_stop_terminal(control: u8) -> Model {
     }
     // A failed signal alone changes none of the independent physical facts.
     // Profiles cover runnable leader, live descendant, unknown slot, replaced
-    // token/exec, failed endpoint, omissions, overrun, clock and unavailable reap.
+    // token/exec, unclosed own-unit cutoff, controller/pipe/retirement cost omissions, own-unit overrun, clock and unavailable reap.
     for profile in 0..=13 {
         act(&mut m, &format!("ObserveIndependentOriginalTerminalFacts{profile}"),
             all([eq(P, 1), eq(CASE, profile)]), &[
@@ -501,372 +495,6 @@ mod quarantine_owner_tests {
                 checked.states.len(),
                 checked.edges.iter().map(Vec::len).sum::<usize>(),
                 checked
-                    .violations
-                    .iter()
-                    .map(|v| &v.property)
-                    .collect::<Vec<_>>()
-            );
-            if let Some(root) = &output {
-                super::helper_observer_lowering_export::export(
-                    model,
-                    if control == 0 { "pass" } else { "safety" },
-                    root,
-                    &mut manifest,
-                )
-                .unwrap();
-            }
-        }
-        if let Some(root) = output {
-            std::fs::write(root.join("manifest.tsv"), manifest).unwrap();
-        }
-    }
-}
-
-/// Initial creation admission only: three raw TASK states (quiescent, exact
-/// SSTOP/one-thread/one-running kernel tail, invalid), two independent queries
-/// and at most one fresh full-query generation. The eight lifecycle profiles
-/// are initial, settled, ready, running, grant-open, user-growth, expired and
-/// unknown final native cost. Runtime STOP sampling is modeled separately by
-/// MemberWindow; these profiles test misuse of INITIAL pending authority.
-/// OS success/deadline/clock observations are not fair. A pending second query
-/// must return to a fresh first query, retaining this original effect and cost.
-pub fn initial_quiescence(control: u8) -> Model {
-    let suffix = ["", "AcceptPending", "RuntimePending", "SkipFresh"][control as usize];
-    let mut m = base(
-        &format!("DreamReadInitialQuiescence{suffix}"),
-        control != 0,
-        &[
-            ("phase", 5, 0),
-            ("lifecycleProfile", 7, 0),
-            ("profileCaptured", 1, 0),
-            ("firstRaw", 3, 0),
-            ("secondRaw", 3, 0),
-            ("firstGeneration", 1, 0),
-            ("secondGeneration", 1, 0),
-            ("queryGeneration", 1, 0),
-            ("pendingSeen", 1, 0),
-            ("originalOwner", 1, 1),
-            ("userGrowthBeforeAdmission", 1, 0),
-            ("originalDeadlineExpired", 1, 0),
-            ("acknowledged", 1, 0),
-            ("continued", 1, 0),
-            ("fullCreationDebt", 1, 1),
-            ("nativeCostKnownWithin", 1, 1),
-            ("originalUnreapedPin", 1, 1),
-        ],
-    );
-    const P: usize = 0;
-    const CTX: usize = 1;
-    const SELECTED: usize = 2;
-    const FIRST: usize = 3;
-    const SECOND: usize = 4;
-    const FG: usize = 5;
-    const SG: usize = 6;
-    const GEN: usize = 7;
-    const PENDING: usize = 8;
-    const OWNER: usize = 9;
-    const USER: usize = 10;
-    const DEADLINE: usize = 11;
-    const ACK: usize = 12;
-    const CONT: usize = 13;
-    const DEBT: usize = 14;
-    const KNOWN: usize = 15;
-    const PIN: usize = 16;
-    let initial = eq(CTX, 0).or(eq(CTX, 7));
-    let eligible = all([
-        initial.clone(),
-        eq(USER, 0),
-        eq(DEADLINE, 0),
-        eq(OWNER, 1),
-        eq(PIN, 1),
-    ]);
-    for profile in 0..=7 {
-        act(
-            &mut m,
-            &format!("CaptureOriginalCreationContext{profile}"),
-            all([eq(P, 0), eq(SELECTED, 0)]),
-            &[
-                (CTX, Int(profile)),
-                (SELECTED, Int(1)),
-                (USER, Int(i64::from(profile == 5))),
-                (DEADLINE, Int(i64::from(profile == 6))),
-                (KNOWN, Int(i64::from(profile != 7))),
-            ],
-        );
-    }
-    let first = all([eq(P, 0), eq(SELECTED, 1), eq(DEADLINE, 0)]);
-    act(
-        &mut m,
-        "ObserveFirstRawQuiescent",
-        first.clone(),
-        &[(P, Int(1)), (FIRST, Int(1)), (FG, Var(GEN))],
-    );
-    act(
-        &mut m,
-        "ObserveFirstExactKernelTailAsPending",
-        all([first.clone(), eligible.clone()]),
-        &[
-            (P, Int(2)),
-            (FIRST, Int(2)),
-            (FG, Var(GEN)),
-            (PENDING, Int(1)),
-        ],
-    );
-    act(
-        &mut m,
-        "RefuseFirstKernelTailWithoutInitialAuthority",
-        all([first.clone(), eligible.clone().negate()]),
-        &[(P, Int(5)), (FIRST, Int(2)), (FG, Var(GEN))],
-    );
-    act(
-        &mut m,
-        "RefuseInvalidFirstRawTuple",
-        first.clone(),
-        &[(P, Int(5)), (FIRST, Int(3)), (FG, Var(GEN))],
-    );
-    let second = all([eq(P, 1), eq(DEADLINE, 0)]);
-    act(
-        &mut m,
-        "ObserveIndependentSecondQuiescentAndAcknowledge",
-        all([second.clone(), eligible.clone()]),
-        &[(P, Int(3)), (SECOND, Int(1)), (SG, Var(GEN)), (ACK, Int(1))],
-    );
-    act(
-        &mut m,
-        "RefuseSecondQuiescenceWithoutCreationAuthority",
-        all([second.clone(), eligible.clone().negate()]),
-        &[(P, Int(5)), (SECOND, Int(1)), (SG, Var(GEN))],
-    );
-    act(
-        &mut m,
-        "ObserveSecondExactKernelTailWithoutAck",
-        all([second.clone(), eligible.clone()]),
-        &[
-            (P, Int(2)),
-            (SECOND, Int(2)),
-            (SG, Var(GEN)),
-            (PENDING, Int(1)),
-        ],
-    );
-    act(
-        &mut m,
-        "RefuseRuntimeOrUserGrowthSecondKernelTail",
-        all([second.clone(), eligible.clone().negate()]),
-        &[(P, Int(5)), (SECOND, Int(2)), (SG, Var(GEN))],
-    );
-    act(
-        &mut m,
-        "RefuseInvalidSecondRawTuple",
-        second.clone(),
-        &[(P, Int(5)), (SECOND, Int(3)), (SG, Var(GEN))],
-    );
-    act(
-        &mut m,
-        "PendingRequiresFreshFullFirstAndSecondQueries",
-        all([eq(P, 2), eq(GEN, 0), eligible.clone()]),
-        &[
-            (P, Int(0)),
-            (GEN, Int(1)),
-            (FIRST, Int(0)),
-            (SECOND, Int(0)),
-        ],
-    );
-    act(
-        &mut m,
-        "OriginalDeadlineRefusesWithoutExtensionOrReplacement",
-        all([eq(SELECTED, 1), Var(P).lt(Int(4))]),
-        &[(P, Int(5)), (DEADLINE, Int(1))],
-    );
-    act(
-        &mut m,
-        "ExpiredContextKeepsOriginalOwnedRefusal",
-        all([eq(P, 0), eq(SELECTED, 1), eq(DEADLINE, 1)]),
-        &[(P, Int(5))],
-    );
-    act(
-        &mut m,
-        "UnknownNativeCreationCostCannotGrantExecution",
-        all([eq(P, 3), eq(KNOWN, 0)]),
-        &[(P, Int(5))],
-    );
-    let pay = m.actions.len();
-    act(
-        &mut m,
-        "PayFullFreshCreationDebtAfterObservedValidPair",
-        all([eq(P, 3), eq(KNOWN, 1), eq(DEBT, 1), eq(DEADLINE, 0)]),
-        &[(DEBT, Int(0))],
-    );
-    let cont = m.actions.len();
-    act(
-        &mut m,
-        "ContinueOnlyAfterFullAdmissionAndPaidKnownCost",
-        all([
-            eq(P, 3),
-            eq(ACK, 1),
-            eq(KNOWN, 1),
-            eq(DEBT, 0),
-            eligible.clone(),
-        ]),
-        &[(P, Int(4)), (CONT, Int(1))],
-    );
-    if control == 1 {
-        act(
-            &mut m,
-            "BrokenFirstKernelTailIsAcknowledged",
-            all([first, eligible.clone()]),
-            &[(P, Int(3)), (FIRST, Int(2)), (FG, Var(GEN)), (ACK, Int(1))],
-        );
-        act(
-            &mut m,
-            "BrokenSecondKernelTailIsAcknowledged",
-            all([second.clone(), eligible.clone()]),
-            &[(P, Int(3)), (SECOND, Int(2)), (SG, Var(GEN)), (ACK, Int(1))],
-        );
-    }
-    if control == 2 {
-        act(
-            &mut m,
-            "BrokenRuntimeKernelTailBorrowsInitialPendingAuthority",
-            all([second, initial.clone().negate(), eq(USER, 0)]),
-            &[
-                (P, Int(2)),
-                (SECOND, Int(2)),
-                (SG, Var(GEN)),
-                (PENDING, Int(1)),
-            ],
-        );
-    }
-    if control == 3 {
-        act(
-            &mut m,
-            "BrokenOnlyFreshSecondQueryReusesCachedFirst",
-            all([eq(P, 2), eq(FIRST, 1), eq(GEN, 0), eligible.clone()]),
-            &[
-                (P, Int(3)),
-                (GEN, Int(1)),
-                (SECOND, Int(1)),
-                (SG, Int(1)),
-                (ACK, Int(1)),
-            ],
-        );
-    }
-    safe(
-        &mut m,
-        "InitialAckRequiresFreshFullQuiescence",
-        eq(ACK, 0).or(all([
-            eq(FIRST, 1),
-            eq(SECOND, 1),
-            Var(FG).eq(Var(GEN)),
-            Var(SG).eq(Var(GEN)),
-            eq(PENDING, 0).or(eq(GEN, 1)),
-            initial.clone(),
-            eq(USER, 0),
-        ])),
-    );
-    safe(
-        &mut m,
-        "KernelTailPendingRequiresInitialZeroUserOwner",
-        eq(P, 2).negate().or(eligible),
-    );
-    safe(
-        &mut m,
-        "ExecutionRequiresKnownPaidAdmission",
-        eq(CONT, 0).or(all([
-            eq(ACK, 1),
-            eq(DEBT, 0),
-            eq(KNOWN, 1),
-            eq(DEADLINE, 0),
-        ])),
-    );
-    safe(
-        &mut m,
-        "OriginalEffectAndUnreapedPinNeverReleasedByPendingOrRefusal",
-        all([eq(OWNER, 1), eq(PIN, 1)]),
-    );
-    m.weak_fair.push(vec![pay]);
-    m.weak_fair.push(vec![cont]);
-    m
-}
-
-#[cfg(test)]
-mod initial_quiescence_tests {
-    use super::*;
-    #[test]
-    fn pending_creation_requires_fresh_full_quiescence_and_retains_original_owner() {
-        let output =
-            std::env::var_os("DREAM_INITIAL_QUIESCENCE_FORMAL_OUT").map(std::path::PathBuf::from);
-        if let Some(root) = &output {
-            std::fs::create_dir_all(root).unwrap();
-        }
-        let mut manifest = String::new();
-        for control in 0..=3 {
-            let model = initial_quiescence(control);
-            let graph = model.check(100_000).unwrap();
-            assert!(graph.violations.iter().all(|v| v.property != "TypeOK"));
-            if control == 0 {
-                assert!(graph.violations.is_empty());
-                assert!(
-                    graph
-                        .states
-                        .iter()
-                        .any(|s| s[0] == 2 && s[3] == 2 && s[12] == 0)
-                );
-                assert!(
-                    graph
-                        .states
-                        .iter()
-                        .any(|s| s[0] == 2 && s[3] == 1 && s[4] == 2 && s[12] == 0)
-                );
-                assert!(graph.states.iter().any(|s| s[0] == 3
-                    && s[8] == 1
-                    && s[7] == 1
-                    && s[5] == 1
-                    && s[6] == 1));
-                assert!(
-                    graph
-                        .states
-                        .iter()
-                        .any(|s| s[0] == 5 && s[1] == 1 && s[4] == 2 && s[12] == 0)
-                );
-                assert!(
-                    graph
-                        .states
-                        .iter()
-                        .any(|s| s[0] == 5 && s[11] == 1 && s[9] == 1 && s[16] == 1)
-                );
-                assert!(
-                    graph
-                        .states
-                        .iter()
-                        .any(|s| s[0] == 5 && s[1] == 7 && s[13] == 0)
-                );
-                assert!(
-                    graph
-                        .states
-                        .iter()
-                        .any(|s| s[0] == 4 && s[14] == 0 && s[15] == 1)
-                );
-            } else {
-                let property = if control == 2 {
-                    "KernelTailPendingRequiresInitialZeroUserOwner"
-                } else {
-                    "InitialAckRequiresFreshFullQuiescence"
-                };
-                assert_eq!(
-                    graph
-                        .violations
-                        .iter()
-                        .map(|v| v.property.as_str())
-                        .collect::<Vec<_>>(),
-                    vec![property]
-                );
-            }
-            println!(
-                "initial_quiescence control={control} model={} states={} labelled_edges={} named_verdicts={:?}",
-                model.name,
-                graph.states.len(),
-                graph.edges.iter().map(Vec::len).sum::<usize>(),
-                graph
                     .violations
                     .iter()
                     .map(|v| &v.property)
@@ -1699,989 +1327,479 @@ pub fn snapshot(control: u8) -> Model {
     m
 }
 
-/// Decision d93377961365126: one original helper effect and its retained
-/// creation ticket. Attempt classes 0/1/2 mean empty/near-bound/exhausted at the
-/// production 256 boundary; signature creation consumes two attempts up front.
-/// Debt is a normalized positive rest obligation, never elapsed wall time. Real
-/// 250us/1ms, native 2ms/25ms/raw3ms and 9*max(1ms,C) witnesses remain concrete.
+/// Independent65086/65126 admission, native effect and original custody model.
+/// The external helper never becomes an own-thread quantum. Native birth
+/// 2ms/25ms/3ms, ordinary controller/application1ms, effect retention and their
+/// own9x debt stay; helper terminal CPU/debt is Q2HelperTotalBudget separately.
+/// Attempt0/1/2 classes represent empty/near256/exhausted consumed capacity.
 pub fn helper(control: u8) -> Model {
     helper_observer(control, false)
 }
-
 fn helper_observer(control: u8, full_observer: bool) -> Model {
-    let name = match control {
-        1 => "DreamReadHelperAttempt",
-        2 => "DreamReadHelperMember",
-        3 => "DreamReadHelperExecutable",
-        4 => "DreamReadHelperAba",
-        5 => "DreamReadHelperInitialStop",
-        6 => "DreamReadHelperStopAck",
-        7 => "DreamReadHelperDescendantCharge",
-        8 => "DreamReadHelperControllerCharge",
-        9 => "DreamReadHelperMainOverlap",
-        10 => "DreamReadHelperDebtReset",
-        11 => "DreamReadHelperApplicationLabel",
-        12 => "DreamReadHelperNativeCpu",
-        13 => "DreamReadHelperNativeWall",
-        14 => "DreamReadHelperNativeInclusive",
-        15 => "DreamReadHelperRunnableCharge",
-        16 => "DreamReadHelperEffectError",
-        17 => "DreamReadHelperCoverage",
-        18 => "DreamReadHelperEarlyTrust",
-        19 => "DreamReadHelperClockRelease",
-        20 => "DreamReadHelperPanicRelease",
-        21 => "DreamReadHelperRevokeRelease",
-        22 => "DreamReadHelperStopRetry",
-        _ => "DreamReadHelper",
+    let suffix = match control {
+        0 => "",
+        1 => "Attempt",
+        2 => "Member",
+        3 => "Executable",
+        4 => "Aba",
+        9 => "MainOverlap",
+        10 => "DebtReset",
+        11 => "ApplicationLabel",
+        12 => "NativeCpu",
+        13 => "NativeWall",
+        14 => "NativeInclusive",
+        16 => "EffectError",
+        17 => "Coverage",
+        18 => "EarlyTrust",
+        19 => "ClockRelease",
+        20 => "PanicRelease",
+        21 => "RevokeRelease",
+        22 => "StopRetry",
+        _ => panic!("superseded external-grant control"),
     };
-    const ST: usize = 0;
+    const P: usize = 0;
     const INC: usize = 1;
     const CAP: usize = 2;
     const ATT: usize = 3;
-    const TICKET: usize = 4;
-    const MEMBERS: usize = 5;
-    const EXTRA: usize = 6;
-    const OWNER: usize = 7;
-    const DEBT: usize = 8;
-    const OWED: usize = 9;
-    const FG: usize = 10;
-    const DEADLINE: usize = 11;
-    const COVER: usize = 12;
-    const TRUST: usize = 13;
-    const CONSUMED: usize = 14;
-    const EFFECTS: usize = 15;
-    const PLAN: usize = 16;
-    const STOP: usize = 17;
-    const REQUEST: usize = 18;
+    const RESERVED: usize = 4;
+    const EFFECT: usize = 5;
+    const EFFECTS: usize = 6;
+    const EXEC: usize = 7;
+    const CASE: usize = 8;
+    const CERT: usize = 9;
+    const DEBT: usize = 10;
+    const OWED: usize = 11;
+    const LABEL: usize = 12;
+    const SPAN: usize = 13;
+    const OWNER: usize = 14;
+    const MEMBERS: usize = 15;
+    const EXTRA: usize = 16;
+    const COVER: usize = 17;
+    const TRUST: usize = 18;
     const RETIRED: usize = 19;
-    const REAPED: usize = 20;
-    const SPAN: usize = 21;
-    const CASE: usize = 22;
-    const LABEL: usize = 23;
-    const GRANTS: usize = 24;
-    const FAULT: usize = 25;
-    const RELEASED: usize = 26;
-    const RESERVED: usize = 27;
-    const NATIVE: usize = 28;
-    const CHARGED: usize = 29;
-    const CONTROLLER: usize = 30;
-    const DESCENDANT: usize = 31;
-    const SPAN_MEMBERS: usize = 32;
-    const KNOWN: usize = 33;
-    const READY: usize = 34;
-    const OUTPUT: usize = 35;
-    const APP_USED: usize = 36;
-    const CONFIG: usize = 37;
-    const REFUSED: usize = 38;
-    const INVALID: usize = 39;
+    const REAP: usize = 20;
+    const GONE: usize = 21;
+    const RELEASE: usize = 22;
+    const FAULT: usize = 23;
+    const MAIN: usize = 24;
+    const STOP: usize = 25;
+    const RAW: usize = 26;
+    const APP: usize = 27;
+    const CONFIG: usize = 28;
+    const RAW_COVER: usize = 29;
     let mut m = base(
-        name,
+        &format!("DreamReadHelper{suffix}"),
         control != 0,
         &[
-            ("state", 7, 0),
-            ("incarnationA1B2A3", 2, 0),
-            ("effectIncarnation", 2, 0),
-            ("creationAttempts", 2, 0),
-            ("creationTicket", 2, 0),
-            ("members", 2, 0),
-            ("unadmittedMember", 1, 0),
-            ("workOwnerMainHelperNone", 2, 0),
-            ("debt", 2, 0),
-            ("observedUnrestedCharge", 2, 0),
-            ("foreground", 1, 0),
-            ("deadline", 1, 0),
-            ("coverage", 1, 0),
-            ("outputTrusted", 1, 0),
-            ("originalEffectConsumed", 1, 0),
-            ("actualOriginalEffects", 2, 0),
-            ("approvedMemberLimit", 2, 1),
-            ("allStoppedOrExited", 1, 1),
             (
-                "stopOperationUnusedConsumedRawOkEsrchVerdictRefusedErrorRetried",
-                6,
+                "phaseAbsentReservedBornNativePaidAttachedRetiredReapedQuarantine",
+                7,
                 0,
             ),
-            ("controllerRetired", 1, 0),
-            ("allActuallyReaped", 1, 0),
-            ("spanNoneNativeHelperApplication", 3, 0),
-            ("inputCase", 9, 0),
+            ("currentIncarnationA1B2A3", 2, 0),
+            ("capturedEffectIncarnation", 2, 0),
+            ("consumedCreationCapacityClass", 2, 0),
+            ("actualCreationReserved", 1, 0),
+            ("originalEffectRetained", 1, 0),
+            ("actualEffects", 2, 0),
+            ("exactExecutableCapability", 1, 1),
+            ("inputProfile", 14, 0),
+            ("nativeBirthCertified", 1, 0),
+            ("ownThreadDebtClass", 3, 0),
+            ("observedOwnThreadDebtClass", 3, 0),
             ("labelNoneApplicationNative", 2, 0),
-            ("hasGranted", 1, 0),
-            ("faultNoneClockPanicRevokeEffectResourceMember", 6, 0),
+            ("spanNoneNativeApplication", 2, 0),
+            ("originalOwnerHeld", 1, 0),
+            ("members", 2, 0),
+            ("actualUnadmittedMember", 1, 0),
+            ("sourceCoverageClaimed", 1, 0),
+            ("trusted", 1, 0),
+            ("retired", 1, 0),
+            ("actualOwnReaped", 1, 0),
+            ("actualGroupGone", 1, 0),
             ("ownershipReleased", 1, 0),
-            ("lastCreationReserved", 1, 0),
-            ("nativeCreationCertified", 1, 0),
-            ("spanCharged", 1, 0),
-            ("controllerCharged", 1, 0),
-            ("descendantCharged", 1, 0),
-            ("membersAtSpan", 2, 0),
-            ("accountingKnown", 1, 1),
-            ("actualReapReady", 1, 0),
-            ("outputObserved", 1, 0),
-            ("applicationSpanUsed", 1, 0),
+            ("faultNoneClockPanicRevokeResourceMemberCoverage", 6, 0),
+            ("mainExpensiveWork", 1, 0),
+            ("foregroundStopUnusedConsumedRetried", 2, 0),
+            ("rawStopNoneOkEpermEsrch", 3, 0),
+            ("ordinaryApplicationUsed", 1, 0),
             ("configured", 1, 0),
-            ("staleReplyRefused", 1, 0),
-            ("invalidated", 1, 0),
+            ("actualSourceCoverageKnown", 1, 1),
         ],
     );
-    let exact = Var(INC).eq(Var(CAP));
-    let admitted = if control == 4 {
-        exact.clone().or(all([eq(INC, 2), eq(CAP, 0)]))
-    } else {
-        exact.clone()
-    };
-    let native_ok = all([
-        eq(CASE, 3).negate(),
-        eq(CASE, 4).negate(),
-        eq(CASE, 5).negate(),
-    ]);
-    let native_guard = native_ok.clone().or(match control {
-        12 => eq(CASE, 3),
-        13 => eq(CASE, 4),
-        14 => eq(CASE, 5),
-        _ => Bool(false),
-    });
-    let quiet = eq(MEMBERS, 0).or(eq(STOP, 1));
-    let idle = all([eq(DEBT, 0), eq(OWED, 0), eq(SPAN, 0)]);
-    // One input class at a time keeps the complete graph finite and tractable.
-    // Classes cover wrong executable/suspend capability, native CPU/wall/raw,
-    // ordinary application overrun, runnable-window overrun and attempt edges.
-    for case in 0..=9 {
+    for profile in 0..=14 {
         act(
             &mut m,
-            &format!("ConfigureCase{case}"),
-            all([eq(CONFIG, 0), eq(ST, 0)]),
+            &format!("ConfigureIndependentAdmission{profile}"),
+            eq(CONFIG, 0),
             &[
-                (CASE, Int(case)),
                 (CONFIG, Int(1)),
+                (CASE, Int(profile)),
+                (EXEC, Int(i64::from(profile != 9))),
                 (
                     ATT,
-                    Int(if case == 8 {
-                        2
-                    } else if case == 9 {
+                    Int(if profile == 10 {
                         1
+                    } else if profile == 11 {
+                        2
                     } else {
                         0
                     }),
                 ),
+                (RAW_COVER, Int(i64::from(profile != 12))),
+                (EXTRA, Int(i64::from(profile == 8))),
             ],
         );
     }
-    for need in 1..=2 {
-        for before in 0..=2 {
-            let valid = before + need <= 2;
-            act(
-                &mut m,
-                &format!("ReserveAttempt{before}Need{need}"),
-                all([
-                    eq(CONFIG, 1),
-                    eq(ST, 0),
-                    eq(TICKET, 0),
-                    eq(CONSUMED, 0),
-                    eq(FAULT, 0),
-                    eq(ATT, before),
-                    eq(FG, 0),
-                    eq(DEADLINE, 0),
-                    idle.clone(),
-                    if valid || control == 1 {
-                        Bool(true)
-                    } else {
-                        Bool(false)
-                    },
-                ]),
-                &[
-                    (ATT, Int((before + need).min(2))),
-                    (TICKET, Int(need)),
-                    (PLAN, Int(need)),
-                    (CAP, Var(INC)),
-                    (RESERVED, Int(i64::from(valid))),
-                ],
-            );
-        }
-    }
-    for cost in 1..=2 {
-        for initially_stopped in 0..=1 {
-            act(
-                &mut m,
-                &format!("CreateSuspendedCost{cost}Stopped{initially_stopped}"),
-                all([
-                    eq(ST, 0),
-                    eq(CONFIG, 1),
-                    eq(TICKET, 0).negate(),
-                    eq(CONSUMED, 0),
-                    eq(MEMBERS, 0),
-                    eq(DEADLINE, 0),
-                    eq(FAULT, 0),
-                    eq(FG, 0),
-                    admitted.clone(),
-                    idle.clone(),
-                    if control == 3 {
-                        Bool(true)
-                    } else {
-                        eq(CASE, 1).negate()
-                    },
-                    if control == 5 {
-                        Bool(true)
-                    } else {
-                        eq(CASE, 2).negate()
-                    },
-                    if initially_stopped == 0 {
-                        eq(CASE, 2)
-                    } else {
-                        eq(CASE, 2).negate()
-                    },
-                    if cost == 1 {
-                        native_ok.clone()
-                    } else {
-                        native_ok.clone().negate()
-                    },
-                    Var(EFFECTS).lt(Int(2)),
-                ]),
-                &[
-                    (ST, Int(1)),
-                    (MEMBERS, Int(1)),
-                    (OWNER, Int(0)),
-                    (STOP, Int(initially_stopped)),
-                    (CONSUMED, Int(1)),
-                    (EFFECTS, Var(EFFECTS).plus(Int(1))),
-                    (TICKET, Int(0)),
-                    (SPAN, Int(1)),
-                    (LABEL, Int(2)),
-                    (OWED, Int(cost)),
-                    (CHARGED, Int(0)),
-                    (COVER, Int(0)),
-                    (NATIVE, Int(0)),
-                ],
-            );
-        }
-    }
-    act(
-        &mut m,
-        "AttachExactSuspendedIdentityBeforeGrant",
-        all([
-            eq(ST, 1),
-            eq(STOP, 1),
-            admitted.clone(),
-            eq(FAULT, 0),
-            eq(DEADLINE, 0),
-        ]),
-        &[(ST, Int(2))],
-    );
-    for cost in 1..=2 {
+    let needed = |two: bool| if two { 2 } else { 1 };
+    for two in [false, true] {
         act(
             &mut m,
-            &format!("ChargeNativeInclusiveScope{cost}"),
+            if two {
+                "ReserveSignatureAndImplicitChildBeforeBirth"
+            } else {
+                "ReserveOneBeforeBirth"
+            },
             all([
-                eq(ST, 2),
-                eq(SPAN, 1),
-                eq(CHARGED, 0),
-                eq(OWED, cost),
-                eq(KNOWN, 1),
-                native_guard.clone(),
-                eq(STOP, 1),
+                eq(CONFIG, 1),
+                eq(P, 0),
+                if two {
+                    eq(CASE, 7).or(eq(CASE, 10))
+                } else {
+                    eq(CASE, 7).or(eq(CASE, 10)).negate()
+                },
+                Var(ATT).plus(Int(needed(two))).lt(Int(3)),
             ]),
             &[
-                (DEBT, Int(cost)),
-                (CHARGED, Int(1)),
-                (OWNER, Int(2)),
-                (COVER, Int(1)),
-                (NATIVE, Int(1)),
-                (CONTROLLER, Int(1)),
-                (DESCENDANT, Int(1)),
+                (ATT, Var(ATT).plus(Int(needed(two)))),
+                (RESERVED, Int(1)),
+                (P, Int(1)),
+                (CAP, Var(INC)),
             ],
         );
     }
     act(
         &mut m,
-        "GrantOneBoundedGroupQuantum",
-        all([
-            eq(ST, 2).or(eq(ST, 4)),
-            eq(STOP, 1),
-            eq(OWNER, 2),
-            idle.clone(),
-            eq(FG, 0),
-            eq(DEADLINE, 0),
-            eq(FAULT, 0),
-            eq(KNOWN, 1),
-            eq(NATIVE, 1),
-            admitted.clone(),
-        ]),
+        "NativeBirthRetainsOriginalEffectBeforeVerdict",
+        all([eq(P, 1), eq(EXEC, 1), eq(RESERVED, 1), eq(EFFECT, 0)]),
         &[
-            (ST, Int(3)),
-            (STOP, Int(0)),
-            (REQUEST, Int(0)),
+            (P, Int(2)),
+            (EFFECT, Int(1)),
+            (EFFECTS, Int(1)),
             (OWNER, Int(1)),
-            (GRANTS, Int(1)),
-            (SPAN, Int(2)),
-            (LABEL, Int(1)),
-            (KNOWN, Int(0)),
-            (CHARGED, Int(0)),
-            (CONTROLLER, Int(0)),
-            (DESCENDANT, Int(0)),
+            (MEMBERS, Int(1)),
         ],
+    );
+    if control == 1 {
+        act(
+            &mut m,
+            "BrokenBirthWithoutConsumedReservation",
+            all([eq(P, 0), eq(CONFIG, 1), eq(EFFECT, 0)]),
+            &[
+                (P, Int(2)),
+                (EFFECT, Int(1)),
+                (EFFECTS, Int(1)),
+                (OWNER, Int(1)),
+                (MEMBERS, Int(1)),
+            ],
+        );
+    }
+    if control == 3 {
+        act(
+            &mut m,
+            "BrokenBirthForeignExecutable",
+            all([eq(P, 1), eq(EXEC, 0)]),
+            &[
+                (P, Int(2)),
+                (EFFECT, Int(1)),
+                (EFFECTS, Int(1)),
+                (OWNER, Int(1)),
+                (MEMBERS, Int(1)),
+            ],
+        );
+    }
+    for profile in 0..=14 {
+        let native_ok = !matches!(profile, 2..=5);
+        let certified = native_ok
+            || (control == 12 && profile == 2)
+            || (control == 13 && profile == 3)
+            || (control == 14 && profile == 4);
+        let cost = if matches!(profile, 2..=5) { 3 } else { 1 };
+        let fault = if profile == 5 {
+            1
+        } else if matches!(profile, 2..=4) {
+            4
+        } else if matches!(profile, 6 | 13) {
+            2
+        } else if profile == 14 {
+            3
+        } else {
+            0
+        };
+        act(
+            &mut m,
+            &format!("CloseActualNativeUnitAfterRetainedEffectProfile{profile}"),
+            all([eq(P, 2), eq(CASE, profile)]),
+            &[
+                (P, Int(3)),
+                (CERT, Int(i64::from(certified))),
+                (DEBT, Int(cost)),
+                (OWED, Int(cost)),
+                (SPAN, Int(1)),
+                (LABEL, Int(2)),
+                (FAULT, Int(fault)),
+            ],
+        );
+    }
+    let exact = Var(INC).eq(Var(CAP));
+    act(
+        &mut m,
+        "AttachExactOriginalWithoutAnyExternalQuantum",
+        all([
+            eq(P, 3),
+            eq(CERT, 1),
+            eq(FAULT, 0),
+            eq(DEBT, 0),
+            eq(OWED, 0),
+            exact.clone(),
+        ]),
+        &[(P, Int(4)), (COVER, Int(1))],
     );
     act(
         &mut m,
-        "ApprovedImplicitGpgAppears",
-        all([eq(ST, 3), eq(STOP, 0), eq(PLAN, 2), eq(MEMBERS, 1)]),
-        &[(MEMBERS, Int(2))],
+        "ObserveUnadmittedMemberRefuses",
+        all([eq(P, 4), eq(CASE, 8), eq(FAULT, 0)]),
+        &[(EXTRA, Int(1)), (COVER, Int(0)), (FAULT, Int(5))],
     );
-    for count in 1..=2 {
-        let mut updates = vec![(MEMBERS, Int(2)), (EXTRA, Int(1))];
-        if control != 2 {
-            updates.extend([
-                (ST, Int(7)),
-                (FAULT, Int(6)),
-                (KNOWN, Int(0)),
+    act(
+        &mut m,
+        "ObserveMissingCoverageRefuses",
+        all([eq(P, 4), eq(CASE, 12), eq(COVER, 1)]),
+        &[(COVER, Int(0)), (FAULT, Int(6))],
+    );
+    for inc in 0..2 {
+        act(
+            &mut m,
+            &format!("ObserveOriginalAuthorityChange{inc}"),
+            all([
+                eq(OWNER, 1),
+                eq(INC, inc),
+                Int(2).lt(Var(P)),
+                eq(RELEASE, 0),
+            ]),
+            &[
+                (INC, Int(inc + 1)),
+                (P, Int(7)),
                 (COVER, Int(0)),
-            ]);
+                (FAULT, Int(3)),
+            ],
+        );
+    }
+    if control == 4 {
+        act(
+            &mut m,
+            "BrokenA3AttachesOldA1Effect",
+            all([eq(OWNER, 1), eq(INC, 2), eq(CAP, 0)]),
+            &[(P, Int(4))],
+        );
+    }
+    if control == 16 {
+        act(
+            &mut m,
+            "BrokenReplayAfterNativeReportedError",
+            all([eq(CASE, 6), eq(EFFECTS, 1), eq(OWNER, 1)]),
+            &[(EFFECTS, Int(2))],
+        );
+    }
+    for cost in 1..=2 {
+        let mut updates = vec![
+            (APP, Int(1)),
+            (SPAN, Int(2)),
+            (LABEL, Int(if control == 11 { 2 } else { 1 })),
+            (DEBT, Int(cost)),
+            (OWED, Int(cost)),
+        ];
+        if cost == 2 && control != 11 {
+            updates.extend([(FAULT, Int(4)), (COVER, Int(0))]);
         }
         act(
             &mut m,
-            &format!("ObserveMemberBeyondAdmittedLimit{count}"),
-            all([eq(ST, 3), eq(MEMBERS, count), eq(PLAN, count), eq(EXTRA, 0)]),
+            &format!("OneOrdinaryApplicationControllerUnit{cost}"),
+            all([
+                eq(P, 4),
+                eq(APP, 0),
+                eq(DEBT, 0),
+                eq(OWED, 0),
+                if cost == 2 {
+                    eq(CASE, 1)
+                } else {
+                    eq(CASE, 1).negate()
+                },
+            ]),
             &updates,
         );
     }
-    act(
-        &mut m,
-        "ConsumeStopOperationBeforeNativeEffect",
-        all([eq(ST, 3), eq(REQUEST, 0)]),
-        &[(REQUEST, Int(1))],
-    );
-    // One selected logical STOP operation, not the total signals in a job.
-    // New roster/audit-version recipients have distinct retained operations;
-    // HelperExec covers their current-token stop custody. No send result alone
-    // establishes physical STOP, endpoint closure or coverage.
-    act(
-        &mut m,
-        "ObserveConsumedStopNativeRawSuccess",
-        all([eq(ST, 3), eq(REQUEST, 1), eq(RETIRED, 0)]),
-        &[(REQUEST, Int(2))],
-    );
-    act(
-        &mut m,
-        "ObserveConsumedStopEsrchWithPositiveRetainedLeaderExit",
-        all([
-            eq(ST, 3),
-            eq(REQUEST, 1),
-            eq(RETIRED, 0),
-            eq(CASE, 0),
-            eq(PLAN, 1),
-        ]),
-        &[(REQUEST, Int(3))],
-    );
-    act(
-        &mut m,
-        "RefuseStopVerdictAfterRetainedActualKernelSuccess",
-        all([
-            eq(ST, 3),
-            eq(REQUEST, 2),
-            eq(RETIRED, 0),
-            eq(CASE, 0),
-            eq(PLAN, 1),
-        ]),
-        &[
-            (REQUEST, Int(4)),
-            (ST, Int(7)),
-            (FAULT, Int(6)),
-            (COVER, Int(0)),
-            (TRUST, Int(0)),
-        ],
-    );
-    act(
-        &mut m,
-        "ObserveConsumedStopNativeFailureOrUnknownOutcome",
-        all([
-            eq(ST, 3),
-            eq(REQUEST, 1),
-            eq(RETIRED, 0),
-            eq(CASE, 0),
-            eq(PLAN, 1),
-        ]),
-        &[
-            (REQUEST, Int(5)),
-            (ST, Int(7)),
-            (FAULT, Int(6)),
-            (COVER, Int(0)),
-            (TRUST, Int(0)),
-        ],
-    );
-    if control == 22 {
+    if control == 10 {
         act(
             &mut m,
-            "BrokenRejectRetriesAlreadyConsumedStopAfterNativeVerdictRefusal",
-            all([
-                eq(ST, 7),
-                eq(REQUEST, 4).or(eq(REQUEST, 5)),
-                eq(RETIRED, 0),
-                eq(RELEASED, 0),
-                eq(EFFECTS, 1),
-            ]),
-            &[(REQUEST, Int(6))],
+            "BrokenResetOwnThreadDebt",
+            Int(0).lt(Var(DEBT)),
+            &[(DEBT, Int(0))],
         );
     }
-    act(
-        &mut m,
-        "ObserveAllMembersStoppedOrExited",
-        all([eq(ST, 3), eq(REQUEST, 2).or(eq(REQUEST, 3)), eq(STOP, 0)]),
-        &[(STOP, Int(1))],
-    );
-    for count in 1..=2 {
+    for debt in 1..=3 {
         act(
             &mut m,
-            &format!("ConfirmStoppedMembers{count}"),
-            all([
-                eq(ST, 3),
-                eq(REQUEST, 2).or(eq(REQUEST, 3)),
-                eq(MEMBERS, count),
-                if control == 6 {
-                    Bool(true)
-                } else {
-                    eq(STOP, 1)
-                },
-            ]),
-            &[
-                (ST, Int(4)),
-                (OWNER, Int(2)),
-                (OWED, Int(count)),
-                (SPAN_MEMBERS, Int(count)),
-                (KNOWN, Int(1)),
-                (SPAN, Int(2)),
-                (LABEL, Int(1)),
-                (CHARGED, Int(0)),
-            ],
-        );
-    }
-    for count in 1..=2 {
-        let omit_descendant = control == 7 && count == 2;
-        let omit_controller = control == 8;
-        act(
-            &mut m,
-            &format!("ChargeFullRunnableWallMembersAndController{count}"),
-            all([
-                eq(ST, 4),
-                eq(STOP, 1),
-                eq(SPAN, 2),
-                eq(CHARGED, 0),
-                eq(KNOWN, 1),
-                eq(OWED, count),
-                if control == 15 {
-                    Bool(true)
-                } else {
-                    eq(CASE, 7).negate()
-                },
-            ]),
-            &[
-                (
-                    DEBT,
-                    Int(count - i64::from(omit_descendant || omit_controller)),
-                ),
-                (CHARGED, Int(1)),
-                (COVER, Int(1)),
-                (CONTROLLER, Int(i64::from(!omit_controller))),
-                (DESCENDANT, Int(i64::from(!omit_descendant))),
-            ],
-        );
-    }
-    for cost in 1..=2 {
-        act(
-            &mut m,
-            &format!("OrdinaryApplicationSpan{cost}"),
-            all([
-                eq(CONFIG, 1),
-                eq(APP_USED, 0),
-                eq(FAULT, 0),
-                eq(DEADLINE, 0),
-                eq(FG, 0),
-                if control == 9 {
-                    idle.clone().or(all([eq(ST, 3), eq(DEBT, 0), eq(OWED, 0)]))
-                } else {
-                    idle.clone()
-                },
-                if control == 9 {
-                    eq(ST, 2).or(eq(ST, 3)).or(eq(ST, 4))
-                } else {
-                    all([
-                        eq(ST, 2).or(eq(ST, 4)),
-                        quiet.clone(),
-                        eq(OWNER, 1).negate(),
-                    ])
-                },
-                if cost == 2 {
-                    eq(CASE, 6)
-                } else {
-                    eq(CASE, 6).negate()
-                },
-            ]),
-            &[
-                (OWNER, Int(0)),
-                (OWED, Int(cost)),
-                (SPAN, Int(3)),
-                (LABEL, Int(1)),
-                (CHARGED, Int(0)),
-                (APP_USED, Int(1)),
-            ],
-        );
-        act(
-            &mut m,
-            &format!("ChargeOrdinaryApplication{cost}"),
-            all([
-                eq(SPAN, 3),
-                eq(CHARGED, 0),
-                eq(OWED, cost),
-                eq(KNOWN, 1),
-                if control == 11 {
-                    Bool(true)
-                } else {
-                    eq(CASE, 6).negate()
-                },
-            ]),
-            &[
-                (DEBT, Int(cost)),
-                (CHARGED, Int(1)),
-                (OWNER, Int(2)),
-                (LABEL, Int(if control == 11 && cost == 2 { 2 } else { 1 })),
-                (CONTROLLER, Int(1)),
-                (DESCENDANT, Int(1)),
-            ],
-        );
-    }
-    let mut settle = vec![];
-    for debt in 1..=2 {
-        settle.push(m.actions.len());
-        act(
-            &mut m,
-            &format!("RestAfterConfirmedWork{debt}"),
-            all([
-                eq(DEBT, debt),
-                eq(OWED, debt),
-                eq(CHARGED, 1),
-                eq(OWNER, 2),
-                eq(KNOWN, 1),
-                quiet.clone(),
-            ]),
+            &format!("PayOwnNativeApplicationDebt{debt}"),
+            all([eq(DEBT, debt), eq(OWED, debt)]),
             &[(DEBT, Int(debt - 1)), (OWED, Int(debt - 1))],
         );
     }
     act(
         &mut m,
-        "ReconcilePaidSpanWithoutResettingAnotherDebt",
-        all([
-            eq(DEBT, 0),
-            eq(OWED, 0),
-            eq(CHARGED, 1),
-            eq(OWNER, 2),
-            quiet.clone(),
-        ]),
-        &[
-            (SPAN, Int(0)),
-            (LABEL, Int(0)),
-            (CHARGED, Int(0)),
-            (CONTROLLER, Int(0)),
-            (DESCENDANT, Int(0)),
-            (SPAN_MEMBERS, Int(0)),
-            (APP_USED, Int(0)),
-        ],
+        "ConsumeOneForegroundStopBeforeOutcome",
+        all([eq(P, 4), eq(STOP, 0)]),
+        &[(STOP, Int(1))],
     );
-    for foreground in 0..=1 {
+    for raw in 1..=3 {
         act(
             &mut m,
-            &format!("ObserveForeground{foreground}WithoutDebtReset"),
-            all([
-                eq(RELEASED, 0),
-                eq(FG, foreground).negate(),
-                eq(ST, 2)
-                    .or(eq(ST, 3))
-                    .or(eq(ST, 4))
-                    .or(eq(ST, 5).and(eq(DEBT, 0).negate())),
-            ]),
-            &[(FG, Int(foreground))],
+            &format!("RetainRawForegroundStopOutcome{raw}"),
+            all([eq(STOP, 1), eq(RAW, 0)]),
+            &[(RAW, Int(raw))],
+        );
+    }
+    if control == 22 {
+        act(
+            &mut m,
+            "BrokenRetryConsumedForegroundStop",
+            all([eq(STOP, 1), Int(0).lt(Var(RAW))]),
+            &[(STOP, Int(2))],
+        );
+    }
+    if control == 9 {
+        act(
+            &mut m,
+            "BrokenMainProofWhileOriginalHelperLives",
+            all([eq(OWNER, 1), eq(REAP, 0)]),
+            &[(MAIN, Int(1))],
         );
     }
     act(
         &mut m,
-        "IoCompletionKeepsDebt",
-        all([
-            eq(RELEASED, 0),
-            eq(DEBT, 0).negate(),
-            eq(ST, 2).or(eq(ST, 4)),
-        ]),
-        &[],
-    );
-    if control == 10 {
-        act(
-            &mut m,
-            "BrokenForegroundOrIoDebtReset",
-            all([eq(CHARGED, 1), eq(DEBT, 0).negate()]),
-            &[(DEBT, Int(0)), (FG, Int(1))],
-        );
-    }
-    act(
-        &mut m,
-        "ObserveOriginalOutputBeforeSettlement",
-        all([
-            eq(ST, 3).or(eq(ST, 4)),
-            Var(GRANTS).lt(Int(1)).negate(),
-            eq(FAULT, 0),
-        ]),
-        &[(OUTPUT, Int(1))],
+        "RetireSameOriginalEffect",
+        all([eq(OWNER, 1), eq(RETIRED, 0), Int(2).lt(Var(P))]),
+        &[(RETIRED, Int(1)), (P, Int(5))],
     );
     act(
         &mut m,
-        "ObserveDeadline",
-        all([eq(RELEASED, 0), eq(DEADLINE, 0)]),
-        &[(DEADLINE, Int(1))],
-    );
-    for fault in 1..=3 {
-        let mut updates = vec![
-            (ST, Int(7)),
-            (FAULT, Int(fault)),
-            (COVER, Int(0)),
-            (TRUST, Int(0)),
-            (KNOWN, Int(if fault == 3 { 1 } else { 0 })),
-        ];
-        if fault != 3 {
-            // Unknown accounting is terminal for content. Quotient only dead
-            // span annotations; retain every outstanding debt/ownership fact.
-            updates.extend([
-                (SPAN, Int(0)),
-                (LABEL, Int(0)),
-                (CHARGED, Int(0)),
-                (CONTROLLER, Int(0)),
-                (DESCENDANT, Int(0)),
-                (SPAN_MEMBERS, Int(0)),
-                (NATIVE, Int(0)),
-                (OUTPUT, Int(0)),
-                (GRANTS, Int(0)),
-                (APP_USED, Int(0)),
-            ]);
-        }
-        act(
-            &mut m,
-            &format!("ObserveClockPanicRevoke{fault}"),
-            all([
-                Var(ST).lt(Int(6)),
-                eq(RELEASED, 0),
-                eq(FAULT, 0),
-                eq(CONFIG, 1),
-                eq(EFFECTS, 1),
-            ]),
-            &updates,
-        );
-    }
-    act(
-        &mut m,
-        "NativeEffectThenReportedError",
-        all([
-            eq(ST, 2),
-            eq(DEBT, 0),
-            eq(OWED, 0),
-            eq(FAULT, 0),
-            eq(CONSUMED, 1),
-            eq(GRANTS, 0),
-            eq(APP_USED, 0),
-        ]),
+        "ObserveActualOwnWait4AndGroupGone",
+        all([eq(OWNER, 1), eq(RETIRED, 1), eq(REAP, 0)]),
         &[
-            (ST, Int(7)),
-            (FAULT, Int(4)),
-            (COVER, Int(0)),
-            (TRUST, Int(0)),
-            (CONSUMED, Int(if control == 16 { 0 } else { 1 })),
-        ],
-    );
-    let overrun = eq(SPAN, 1)
-        .and(native_ok.clone().negate())
-        .or(eq(SPAN, 2).and(eq(CASE, 7)))
-        .or(eq(SPAN, 3).and(eq(CASE, 6)));
-    settle.push(m.actions.len());
-    act(
-        &mut m,
-        "RefuseMeasuredOverrunWithoutCertifyingOutput",
-        all([overrun, eq(CHARGED, 0), eq(FAULT, 0), eq(RELEASED, 0)]),
-        &[
-            (ST, Int(7)),
-            (FAULT, Int(5)),
-            (COVER, Int(0)),
-            (TRUST, Int(0)),
-        ],
-    );
-    for cost in 1..=2 {
-        act(
-            &mut m,
-            &format!("ChargeKnownRejectedSpan{cost}"),
-            all([
-                eq(ST, 7),
-                eq(FAULT, 5),
-                eq(KNOWN, 1),
-                eq(CHARGED, 0),
-                eq(OWED, cost),
-                quiet.clone(),
-            ]),
-            &[
-                (DEBT, Int(cost)),
-                (CHARGED, Int(1)),
-                (OWNER, Int(2)),
-                (COVER, Int(0)),
-                (CONTROLLER, Int(1)),
-                (DESCENDANT, Int(1)),
-            ],
-        );
-    }
-    settle.push(m.actions.len());
-    act(
-        &mut m,
-        "DeadlineRetainsOwnedQuarantine",
-        all([eq(DEADLINE, 1), Var(ST).lt(Int(5)), eq(RELEASED, 0)]),
-        &[(ST, Int(7)), (COVER, Int(0)), (TRUST, Int(0))],
-    );
-    // Invalidate/restart preserve the original effect and the old pinned owner.
-    // A3 repeats the label A, never its incarnation or original authority.
-    act(
-        &mut m,
-        "InvalidateWithoutReleasingOldOwner",
-        all([
-            eq(INVALID, 0),
-            Var(INC).lt(Int(2)),
-            eq(RELEASED, 0),
-            eq(CONFIG, 1),
-            eq(FAULT, 0).or(all([eq(FAULT, 3), eq(ST, 7), eq(INC, 1), eq(KNOWN, 1)])),
-        ]),
-        &[
-            (INVALID, Int(1)),
-            (ST, Int(7)),
-            (FAULT, Int(3)),
-            (COVER, Int(0)),
-            (TRUST, Int(0)),
-        ],
-    );
-    act(
-        &mut m,
-        "RestartA1B2A3",
-        all([eq(INVALID, 1), Var(INC).lt(Int(2))]),
-        &[(INC, Var(INC).plus(Int(1))), (INVALID, Int(0))],
-    );
-    act(
-        &mut m,
-        "RefuseOldIncarnationReply",
-        all([exact.clone().negate(), eq(ST, 7)]),
-        &[(REFUSED, Int(1))],
-    );
-    if control == 4 {
-        act(
-            &mut m,
-            "ReplayOldAReplyIntoA3",
-            all([
-                eq(ST, 7),
-                eq(INC, 2),
-                eq(CAP, 0),
-                eq(MEMBERS, 0).negate(),
-                eq(STOP, 1),
-                eq(NATIVE, 1),
-                eq(DEBT, 0),
-                eq(OWED, 0),
-            ]),
-            &[
-                (ST, Int(2)),
-                (FAULT, Int(0)),
-                (COVER, Int(1)),
-                (OWNER, Int(2)),
-            ],
-        );
-    }
-    settle.push(m.actions.len());
-    act(
-        &mut m,
-        "RetireControllerBeforePinnedLeaderFinalSignal",
-        all([
-            eq(ST, 1).or(eq(ST, 2)).or(eq(ST, 4)).or(eq(ST, 7)),
-            eq(RETIRED, 0),
-        ]),
-        &[(ST, Int(5)), (RETIRED, Int(1))],
-    );
-    // OS completion is observed, not a fairness assumption. A never-returning
-    // observation has an explicit owned quarantine disposition below.
-    act(
-        &mut m,
-        "ObserveActualAllMemberReapReady",
-        all([eq(ST, 5), eq(RETIRED, 1), eq(READY, 0)]),
-        &[(READY, Int(1))],
-    );
-    settle.push(m.actions.len());
-    act(
-        &mut m,
-        "ActuallyReapAllMembersAfterControllerRetirement",
-        all([eq(ST, 5), eq(RETIRED, 1), eq(READY, 1)]),
-        &[
-            (ST, Int(6)),
+            (REAP, Int(1)),
+            (GONE, Int(1)),
             (MEMBERS, Int(0)),
-            (REAPED, Int(1)),
-            (STOP, Int(1)),
-            (OWNER, Int(2)),
+            (P, Int(6)),
         ],
     );
-    settle.push(m.actions.len());
     act(
         &mut m,
-        "UnavailableSettlementKeepsOwnedQuarantine",
-        all([eq(ST, 5), eq(READY, 0), eq(DEADLINE, 1)]),
-        &[(ST, Int(7)), (COVER, Int(0)), (TRUST, Int(0))],
-    );
-    act(
-        &mut m,
-        "RetryOnlyUnconsumedOriginalEffect",
+        "ReleaseOnlyPhysicallySettledAndPaid",
         all([
-            eq(ST, 6),
-            eq(FAULT, 4),
-            eq(CONSUMED, 0),
+            eq(REAP, 1),
+            eq(GONE, 1),
+            eq(RETIRED, 1),
             eq(DEBT, 0),
             eq(OWED, 0),
-            eq(RELEASED, 0),
         ]),
-        &[
-            (ST, Int(0)),
-            (FAULT, Int(0)),
-            (RETIRED, Int(0)),
-            (REAPED, Int(0)),
-            (READY, Int(0)),
-            (NATIVE, Int(0)),
-            (COVER, Int(0)),
-            (SPAN, Int(0)),
-            (LABEL, Int(0)),
-        ],
+        &[(OWNER, Int(0)), (RELEASE, Int(1))],
     );
     act(
         &mut m,
-        "CoverageReceiptUnavailable",
-        all([eq(ST, 6), eq(COVER, 1), eq(RELEASED, 0)]),
-        &[(COVER, Int(0)), (TRUST, Int(0))],
-    );
-    let fully_reaped = all([eq(ST, 6), eq(MEMBERS, 0), eq(RETIRED, 1), eq(REAPED, 1)]);
-    act(
-        &mut m,
-        "TrustOnlyCoveredSettledOriginalOutput",
+        "TrustOnlyOriginalCurrentCoveredReapedOutput",
         all([
-            if control == 18 {
-                Bool(true)
-            } else {
-                fully_reaped.clone()
-            },
-            if control == 17 {
-                Bool(true)
-            } else {
-                eq(COVER, 1)
-            },
+            eq(RELEASE, 1),
+            eq(REAP, 1),
+            eq(GONE, 1),
+            eq(FAULT, 0),
+            eq(COVER, 1),
+            exact.clone(),
             if control == 2 {
                 Bool(true)
             } else {
                 eq(EXTRA, 0)
             },
-            eq(NATIVE, 1),
-            eq(KNOWN, 1),
-            eq(FAULT, 0),
-            eq(DEBT, 0),
-            eq(OWED, 0),
-            eq(OWNER, 2),
-            eq(OUTPUT, 1),
-            eq(FG, 0),
-            eq(DEADLINE, 0),
-            admitted.clone(),
-            eq(CONSUMED, 1),
-            eq(TRUST, 0),
+            if control == 17 {
+                Bool(true)
+            } else {
+                eq(RAW_COVER, 1)
+            },
         ]),
         &[(TRUST, Int(1))],
     );
-    settle.push(m.actions.len());
-    act(
-        &mut m,
-        "ReleaseOnlyActuallySettledKnownOwnership",
-        all([
-            fully_reaped.clone(),
-            eq(KNOWN, 1),
-            eq(DEBT, 0),
-            eq(OWED, 0),
-            eq(OWNER, 2),
-            eq(RELEASED, 0),
-        ]),
-        &[(RELEASED, Int(1))],
-    );
-    for (mode, fault) in [(19, 1), (20, 2), (21, 3)] {
-        if control == mode {
+    if control == 18 {
+        act(
+            &mut m,
+            "BrokenTrustBeforeOwnReap",
+            eq(P, 4),
+            &[(TRUST, Int(1))],
+        );
+    }
+    for (mutant, fault) in [(19, 1), (20, 2), (21, 3)] {
+        if control == mutant {
             act(
                 &mut m,
-                &format!("BrokenReleaseOnFault{fault}"),
-                all([eq(ST, 7), eq(FAULT, fault), eq(RELEASED, 0)]),
-                &[(RELEASED, Int(1)), (OWNER, Int(2))],
+                "BrokenFaultReleasesOriginalUnreapedEffect",
+                all([eq(OWNER, 1), eq(REAP, 0), eq(FAULT, fault)]),
+                &[(OWNER, Int(0)), (RELEASE, Int(1))],
             );
         }
     }
+    act(
+        &mut m,
+        "RetainOwnedQuarantineWhenSettlementUnavailable",
+        all([eq(OWNER, 1), eq(REAP, 0), Int(2).lt(Var(P))]),
+        &[(P, Int(7))],
+    );
     safe(
         &mut m,
         "NativeEffectRequiresReservedAttempt",
-        eq(EFFECTS, 0).or(eq(RESERVED, 1)),
+        eq(EFFECT, 0).or(eq(RESERVED, 1)),
     );
     safe(
         &mut m,
         "NativeEffectRequiresExactExecutableCapability",
-        eq(EFFECTS, 0).or(eq(CASE, 1).negate()),
-    );
-    safe(
-        &mut m,
-        "NoUserCodeBeforeInitialSuspension",
-        eq(EFFECTS, 0).or(eq(CASE, 2).negate()),
+        eq(EFFECT, 0).or(eq(EXEC, 1)),
     );
     safe(
         &mut m,
         "AttachedWorkKeepsExactIncarnation",
-        all([
-            eq(ST, 1).negate(),
-            eq(ST, 2).negate(),
-            eq(ST, 3).negate(),
-            eq(ST, 4).negate(),
-        ])
-        .or(exact.clone()),
-    );
-    safe(
-        &mut m,
-        "StoppedStateRequiresAllMemberConfirmation",
-        eq(ST, 4).negate().or(eq(STOP, 1)),
+        eq(P, 4).negate().or(exact),
     );
     safe(
         &mut m,
         "MainProofCannotOverlapRunnableGroup",
-        eq(MEMBERS, 0).or(eq(STOP, 1)).or(eq(OWNER, 0).negate()),
+        eq(MAIN, 0).or(eq(REAP, 1)),
     );
     safe(
         &mut m,
         "DebtCoversWholeObservedUnrestedSpan",
-        eq(CHARGED, 0).or(Var(DEBT).lt(Var(OWED)).negate()),
-    );
-    safe(
-        &mut m,
-        "HelperChargeIncludesDescendantsAndController",
-        eq(CHARGED, 0).or(eq(SPAN, 2).negate()).or(all([
-            eq(CONTROLLER, 1),
-            Var(SPAN_MEMBERS).lt(Int(2)).or(eq(DESCENDANT, 1)),
-        ])),
+        Var(DEBT).lt(Var(OWED)).negate(),
     );
     safe(
         &mut m,
         "OrdinaryApplicationCannotUseNativeLabel",
-        eq(LABEL, 2).negate().or(eq(SPAN, 1)),
+        eq(SPAN, 2).negate().or(eq(LABEL, 2).negate()),
     );
     safe(
         &mut m,
         "CertifiedNativeCreationMeetsCpuWallInclusiveBounds",
-        eq(NATIVE, 0).or(native_ok),
-    );
-    safe(
-        &mut m,
-        "CoveredRunnableChargeMeetsWholeGroupWindow",
-        eq(SPAN, 2)
-            .negate()
-            .or(eq(CHARGED, 0))
-            .or(eq(COVER, 0))
-            .or(eq(CASE, 7).negate()),
+        eq(CERT, 0).or(all([
+            eq(CASE, 2).negate(),
+            eq(CASE, 3).negate(),
+            eq(CASE, 4).negate(),
+            eq(CASE, 5).negate(),
+        ])),
     );
     safe(
         &mut m,
@@ -2690,71 +1808,39 @@ fn helper_observer(control: u8, full_observer: bool) -> Model {
     );
     safe(
         &mut m,
-        "TrustedOutputHasCompleteCoverage",
-        eq(TRUST, 0).or(eq(COVER, 1)),
-    );
-    safe(
-        &mut m,
-        "TrustedOutputHasActualReapAndRetirement",
-        eq(TRUST, 0).or(fully_reaped.clone()),
-    );
-    safe(
-        &mut m,
         "TrustedOutputHasOnlyAdmittedMembers",
         eq(TRUST, 0).or(eq(EXTRA, 0)),
     );
     safe(
         &mut m,
-        "TrustedOutputKeepsOriginalIncarnation",
-        eq(TRUST, 0).or(exact),
+        "TrustedOutputHasCompleteCoverage",
+        eq(TRUST, 0).or(eq(RAW_COVER, 1)),
+    );
+    safe(
+        &mut m,
+        "TrustedOutputHasActualReapAndRetirement",
+        eq(TRUST, 0).or(all([eq(REAP, 1), eq(GONE, 1), eq(RETIRED, 1)])),
     );
     safe(
         &mut m,
         "FaultCannotReleaseUnsettledOwnership",
-        eq(RELEASED, 0).or(all([
-            fully_reaped,
-            eq(MEMBERS, 0),
-            eq(DEBT, 0),
-            eq(OWED, 0),
-            eq(KNOWN, 1),
-        ])),
+        eq(RELEASE, 0).or(all([eq(REAP, 1), eq(GONE, 1), eq(DEBT, 0), eq(OWED, 0)])),
     );
     safe(
         &mut m,
         "StopAttemptIsNotRetriedAfterAnyNativeOutcome",
-        eq(REQUEST, 6).negate(),
-    );
-    progress(
-        &mut m,
-        "ControlHasOwnedSettlementOrQuarantineDisposition",
-        eq(DEADLINE, 1),
-        Var(ST).lt(Int(5)).negate(),
-        settle,
+        eq(STOP, 2).negate(),
     );
     if control != 0 {
-        // Keep the original full observer for exact finite equivalence. Each
-        // control can violate only these safety boundaries; all invariants are
-        // still declared and checked. Boolean value guards prevent TLC from
-        // multiplying next-state branches for state-only disjunctions.
-        let relevant: &[&str] = match control {
+        let names: &[&str] = match control {
             1 => &["NativeEffectRequiresReservedAttempt"],
             2 => &["TrustedOutputHasOnlyAdmittedMembers"],
             3 => &["NativeEffectRequiresExactExecutableCapability"],
             4 => &["AttachedWorkKeepsExactIncarnation"],
-            5 => &[
-                "NoUserCodeBeforeInitialSuspension",
-                "MainProofCannotOverlapRunnableGroup",
-            ],
-            6 => &["StoppedStateRequiresAllMemberConfirmation"],
-            7 | 8 => &[
-                "DebtCoversWholeObservedUnrestedSpan",
-                "HelperChargeIncludesDescendantsAndController",
-            ],
             9 => &["MainProofCannotOverlapRunnableGroup"],
             10 => &["DebtCoversWholeObservedUnrestedSpan"],
             11 => &["OrdinaryApplicationCannotUseNativeLabel"],
             12..=14 => &["CertifiedNativeCreationMeetsCpuWallInclusiveBounds"],
-            15 => &["CoveredRunnableChargeMeetsWholeGroupWindow"],
             16 => &["OriginalNativeEffectNeverReplayed"],
             17 => &["TrustedOutputHasCompleteCoverage"],
             18 => &["TrustedOutputHasActualReapAndRetirement"],
@@ -2762,26 +1848,23 @@ fn helper_observer(control: u8, full_observer: bool) -> Model {
             22 => &["StopAttemptIsNotRetriedAfterAnyNativeOutcome"],
             _ => unreachable!(),
         };
-        assert!(relevant
-            .iter()
-            .all(|name| m.invariants.iter().any(|i| i.name == *name)));
-        let valid_prefix = all(m
+        let valid = all(m
             .invariants
             .iter()
-            .filter(|i| full_observer || relevant.contains(&i.name.as_str()))
+            .filter(|i| full_observer || names.contains(&i.name.as_str()))
             .map(|i| i.condition.clone()));
-        for action in &mut m.actions {
-            let guard = action.guard.clone().and(valid_prefix.clone());
-            action.guard = if full_observer {
+        for a in &mut m.actions {
+            let guard = a.guard.clone().and(valid.clone());
+            a.guard = if full_observer {
                 guard
             } else {
                 guard.eq(Bool(true))
             };
         }
-        let failed = valid_prefix.negate();
+        let failed = valid.negate();
         act(
             &mut m,
-            "ControlObserverStopsAtFailedBoundary",
+            "ObserverStopsAtFailedAdmissionBoundary",
             if full_observer {
                 failed
             } else {
@@ -2793,10 +1876,13 @@ fn helper_observer(control: u8, full_observer: bool) -> Model {
     m
 }
 
-/// One logical descendant can exec from the admitted Git fork image into GPG
-/// within an already charged group quantum. Darwin changes its audit task
-/// version while PID/birth/PPID/PGID remain fixed; old receipts are read-only.
-/// This separate refinement does not multiply the whole helper lifecycle graph.
+
+
+/// Conditional foreground-pause/current-incarnation refinement. It starts
+/// from an actually observed paused clone, not mandatory suspended birth.
+/// Resume and exec invalidate old control receipts; retained old tokens are
+/// read-only. Debt here is OWN controller observation work, never helper CPU.
+/// Unsliced helper lifetime/caps/terminal debt are Q2HelperTotalBudget.
 pub fn helper_exec(control: u8) -> Model {
     let name = match control {
         1 => "DreamReadHelperExecStaleStop",
@@ -2846,9 +1932,9 @@ pub fn helper_exec(control: u8) -> Model {
             ("retainedOldReadOnlyToken", 1, 0),
             ("stopReceiptVersion", 2, 0),
             ("actualCurrentStopped", 1, 0),
-            ("groupQuantumRunning", 1, 0),
+            ("sourceHelperRunning", 1, 0),
             ("stopRequestVersion", 2, 0),
-            ("unrestedQuantum", 1, 0),
+            ("ownControllerObservationDebt", 1, 0),
             ("actualGpgObserved", 1, 0),
             ("currentImageCoverage", 1, 0),
             ("execEvidenceTrusted", 1, 0),
@@ -2861,13 +1947,13 @@ pub fn helper_exec(control: u8) -> Model {
             ("lastSignalToken", 2, 0),
             ("currentAtSignal", 2, 0),
             ("capturedAtSignal", 2, 0),
-            ("versionAtGrantAdmission", 2, 0),
-            ("receiptAtGrantAdmission", 2, 0),
-            ("stoppedAtGrantAdmission", 1, 0),
+            ("versionAtForegroundResume", 2, 0),
+            ("receiptAtForegroundResume", 2, 0),
+            ("stoppedAtForegroundResume", 1, 0),
             ("versionAtRest", 2, 0),
             ("receiptAtRest", 2, 0),
             ("stoppedAtRest", 1, 0),
-            ("capturedAtGrantAdmission", 2, 0),
+            ("capturedAtForegroundResume", 2, 0),
         ],
     );
     let current_captured = Var(CAP).eq(Var(CUR));
@@ -2892,7 +1978,7 @@ pub fn helper_exec(control: u8) -> Model {
     );
     act(
         &mut m,
-        "GrantGroupQuantumFromCurrentStopReceipt",
+        "ResumeForegroundPauseFromCurrentStopReceipt",
         all([
             eq(PH, 1).or(eq(PH, 2)),
             active.clone(),
@@ -2911,11 +1997,10 @@ pub fn helper_exec(control: u8) -> Model {
             (GCAP, Var(CAP)),
         ],
     );
-    // This transition requires no prior GPG stop: the already admitted clone
-    // quantum owns execution through this one-way native exec boundary.
+    // This transition requires no prior GPG stop: the original running source owns execution through this one-way native exec boundary.
     act(
         &mut m,
-        "KernelExecCloneToExactGpgWithinAdmittedQuantum",
+        "KernelExecCloneToExactGpgWhileRunning",
         all([eq(PH, 1), eq(CUR, 1), eq(RUN, 1), active.clone()]),
         &[
             (PH, Int(2)),
@@ -2992,7 +2077,7 @@ pub fn helper_exec(control: u8) -> Model {
     if control == 1 {
         act(
             &mut m,
-            "BrokenRestOrRegrantUsesReadOnlyOldStopSeal",
+            "BrokenResumeUsesReadOnlyOldStopSeal",
             all([eq(PH, 2), eq(CUR, 2), eq(SEAL, 1), eq(RUN, 1), eq(QUAR, 0)]),
             &[(RCUR, Var(CUR)), (RSEAL, Var(SEAL)), (RACK, Var(STOP))],
         );
@@ -3120,7 +2205,7 @@ pub fn helper_exec(control: u8) -> Model {
     );
     safe(
         &mut m,
-        "GroupGrantUsesCurrentSealAtAdmission",
+        "ForegroundResumeUsesCurrentSealAtAdmission",
         eq(GCUR, 0).or(all([
             Var(GCUR).eq(Var(GSEAL)),
             Var(GCUR).eq(Var(GCAP)),
@@ -3162,1247 +2247,1875 @@ pub fn helper_exec(control: u8) -> Model {
     m
 }
 
-/// Decision d93377961365489 legacy window geometries, extended by66236 below:
-/// unequal post-call endpoints and a reserved slot whose birth stays unknown.
-/// Legacy costs0..3 use an immutable profile's250us/500us tick. Accepted ordinary
-/// charges owe9ms; the1.5ms overrun profile conservatively retains18ms. Three
-/// accepted observed charges fit additive debt0..27ms. No OS timing is proved.
-pub fn member_window(control: u8) -> Model {
-    member_window_observer(control, false)
+/// Decision66280 replaces EXTERNAL per-grant windows with one original
+/// background helper and authoritative terminal totals. Numeric classes are
+/// cpu0..4/cap2, job0..5/cap4, debt0..36 and live reservations0..2.
+/// Three sequential command representatives expose the separate job cap;
+/// the independent admission model retains the consumed256-reservation rule.
+/// Actual priority4,250ms/3s,+1us rounding,50ms samples,100ms pause and16MiB
+/// terminal RSS remain source-bound API/process witnesses, not numeric theorems.
+/// Helper/clock/ACK/exit/wait4/group-gone success is NEVER fair. Only enabled
+/// local kill/disposition work is weakly fair. Rest observations are not fair.
+/// Quarantine retains original pins.
+pub fn total_budget(control: u8) -> Model {
+    total_budget_observer(control, false, true)
 }
 
-fn member_window_observer(control: u8, full_observer: bool) -> Model {
-    member_window_projection(control, full_observer, true, true)
-}
+fn total_budget_observer(control: u8, full_observer: bool, boundary: bool) -> Model {
+    const H: usize = 0;
+    const QOS: usize = 1;
+    const CPU: usize = 2;
+    const JOB: usize = 3;
+    const DEBT: usize = 4;
+    const RES: usize = 5;
+    const FG: usize = 6;
+    const KILL: usize = 7;
+    const GONE: usize = 8;
+    const SETTLED: usize = 9;
+    const UNKNOWN: usize = 10;
+    const TRUST: usize = 11;
+    const WAIT: usize = 12;
+    const ACCOUNTED: usize = 13;
+    const SELFCPU: usize = 14;
+    const CHILDCPU: usize = 15;
+    const REAP: usize = 16; // Control has consumed the retained native receipt; raw return is stage2.
+    const OWNER: usize = 17;
+    const DEADLINE: usize = 18;
+    const SAMPLE: usize = 19; // Exact cap-class quotient; raw sample remains in action label.
+    const OVER: usize = 20;
+    const REPORTED_JOB: usize = 21;
+    const DUE: usize = 22;
+    const PAID: usize = 23;
+    const NEXT: usize = 24;
+    const CMD: usize = 25;
+    const ACK: usize = 26;
+    const USER: usize = 27;
+    const PAUSE_USER: usize = 28;
+    const STOPS: usize = 29;
+    const RESUMES: usize = 30;
+    const FG_USED: usize = 31;
+    const PRI: usize = 32;
+    const QCHECK: usize = 33;
+    const CHILD_SEEN: usize = 34;
+    const CHILD_QCHECK: usize = 35;
+    const PENDING: usize = 36;
+    const RACE: usize = 37;
+    const REFUSED: usize = 38;
+    const SLOTS: usize = 39;
+    const RSS: usize = 40;
+    const PIPE: usize = 41;
+    const COUNTER_UNKNOWN: usize = 42;
+    const TERMINAL_USER: usize = 43;
+    const MONITOR: usize = 44;
+    const TRAJECTORY: usize = 45;
+    const LEADER_TERMINAL: usize = 46;
+    const CHILD_STATE: usize = 47;
+    const CENSUS_TERMINAL: usize = 48;
+    const NO_ATTEMPT: usize = 49;
+    const ESCAPE_ATTEMPT: usize = 50;
+    const CHILD_UNPROVEN: usize = 51;
+    const CLEANUP_CHECKED: usize = 52;
+    const ESCAPE_RAW: usize = 53;
+    const CHILD_RAW_CPU: usize = 54;
+    const ROLLUP_QUALIFIED: usize = 55;
+    const CHILD_EXIT_RI: usize = 56;
+    const RAW_CHILD_U: usize = 57;
+    const RAW_CHILD_S: usize = 58;
+    const ROLLED_U: usize = 59;
+    const ROLLED_S: usize = 60;
+    const ROLLUP_READ: usize = 61;
+    const ROLLUP_SOURCE: usize = 62;
+    const SOLE_CHILD: usize = 63;
+    const CHILD_EDGE_EMPTY: usize = 64;
+    const ROLLUP_CASE: usize = 65;
+    const CHILD_EDGE_KNOWN: usize = 66;
+    const GROUP_QUERY_OBS: usize = 67;
+    const GROUP_QUERY_KNOWN: usize = 68;
+    const GROUP_RAW_EMPTY: usize = 69;
+    const GROUP_ERROR_RETAINED: usize = 70;
+    const CENSUS_QUERY_KNOWN: usize = 71;
+    const CENSUS_RAW_EMPTY: usize = 72;
+    const REAP_STAGE: usize = 73;
+    const POST_SEAL_EFFECT: usize = 74;
+    const CPU_RAW_UNKNOWN: usize = 75;
+    const JOB_RAW_UNKNOWN: usize = 76;
+    const RSS_RAW_UNKNOWN: usize = 77;
+    const END_DRAIN: usize = 78;
+    const END_EOF_READY: usize = 79;
+    const END_OWN_DEBT: usize = 80;
+    const INPUT_REMAINING: usize = 81;
 
-fn member_window_projection(
-    control: u8,
-    full_observer: bool,
-    measured_law: bool,
-    forged_terminal_control: bool,
-) -> Model {
     let suffix = [
         "",
-        "UnequalStop",
-        "BackdatedBirth",
-        "StaleExec",
-        "Transient",
-        "BlockedStop",
-        "RequiredController",
-        "ActiveOverWindow",
-        "LateKernel",
-        "OmitPipe",
-        "DoublePipe",
-        "OmitRollup",
-        "DoubleRollup",
-        "RetiredCoverage",
-        "DebtReset",
-        "ContinueOverlap",
-        "MainOverlap",
-        "ClockRelease",
-        "StopRelease",
-        "RevokeRelease",
-        "CancelRelease",
-        "PanicRelease",
-        "Aba",
-        "OverLimit",
-        "LateKernelReplay",
-        "FailedAdmissionSample",
-        "InitialCreation",
-        "InitialDebt",
-        "AccountingTailDebt",
-        "MeasuredOpenSlot",
-        "PreAckCounters",
-        "MeasuredOmitRollup",
-        "MeasuredRawTicks",
-        "MeasuredNoWallGate",
-        "MeasuredMultiThread",
-        "MixedChildRollup",
-        "PreExitRollup",
-        "DoubleCountRollup",
-        "InitialCorroborationUnpaidStage",
-        "InitialTerminalObservationSkipped",
-        "TeardownOverCeiling",
-        "UnchargedTeardownResidual",
-        "Wait4DerivedTeardownCeiling",
-        "UnprovenChildTeardownCount",
-        "EarlyBornUnpaidPhysicalReap",
-        "FixedOversizeRunWindow",
-        "MinLiveStopLatency",
-        "ExitOrFailedStopGrowth",
-        "WindowBasisNoDecrease",
-        "PendingSecondGrantCommit",
-    ];
-    let name = format!("DreamReadMemberWindow{}", suffix[control as usize]);
-    const PH: usize = 0;
-    const CASE: usize = 1;
-    const CONFIG: usize = 2;
-    const ATT: usize = 3;
-    const EFFECT: usize = 4;
-    const INC: usize = 5;
-    const CAP: usize = 6;
-    const S0: usize = 7;
-    const S1: usize = 8;
-    const CLOCK: usize = 9;
-    const START0: usize = 10;
-    const START1: usize = 11;
-    const END0: usize = 12;
-    const END1: usize = 13;
-    const ACK0: usize = 14;
-    const ACK1: usize = 15;
-    const CUR: usize = 16;
-    const TOKEN: usize = 17;
-    const ROSTER: usize = 18;
-    const REQUIRED: usize = 19;
-    const SEAL: usize = 20;
-    const W: usize = 21;
-    const A: usize = 22;
-    const C: usize = 23;
-    const Q: usize = 24;
-    const KNOWN: usize = 25;
-    const COVER: usize = 26;
-    const DEBT: usize = 27;
-    const OWED: usize = 28;
-    const POST: usize = 29;
-    const LATE: usize = 30;
-    const EXPLAIN: usize = 31;
-    const REVALID: usize = 32;
-    const WORK: usize = 33;
-    const TRUST: usize = 34;
-    const FG: usize = 35;
-    const DEADLINE: usize = 36;
-    const FAULT: usize = 37;
-    const RETIRED: usize = 38;
-    const EXIT: usize = 39;
-    const REAP: usize = 40;
-    const OWN: usize = 41;
-    const UNCERTAIN: usize = 42;
-    const PIPE: usize = 43;
-    const ROLL: usize = 44;
-    const LATESEEN: usize = 45;
-    const POSTDONE: usize = 46;
-    const PROCESSED: usize = 47;
-    const TOTAL: usize = 48;
-    const GRANTS: usize = 49;
-    const SUPPORT: usize = 50;
-    const QUAR: usize = 51;
-    const CREATION: usize = 52;
-    const OBSERVE: usize = 53;
+        "NoQos",
+        "LiveOnlyTrust",
+        "DropChildRollup",
+        "NoLiveKill",
+        "SkipDebt",
+        "ForegroundResume",
+        "EpermSettled",
+        "StaleUnknown",
+        "TerminalPauseUser",
+        "NoAttemptLiveChild",
+        "SkipEscapedCleanup",
+        "LeaderOnlySettlement",
+        "UnqualifiedRollup",
+        "DropNativeErrno",
+        "ReapSeal",
+        "UnknownCpuRelease",
+        "UnknownRssTrust",
+        "BlockedExitDrain",
+    ][control as usize];
     let mut m = base(
-        &name,
+        "Q2HelperTotalBudget",
         control != 0,
         &[
             (
-                "phaseNoneReservedBornAttachedRunningTentativeClosedChargedRetiringReaped",
-                9,
+                "helperAbsentRunningPausedKilledExitedReapedQuarantined",
+                6,
                 0,
             ),
-            ("immutableGeometryProfile", 10, 0),
-            ("configured", 1, 0),
-            ("consumedAttempts", 2, 0),
-            ("originalEffect", 1, 0),
-            ("epochA1B2A3", 2, 0),
-            ("originalEffectEpoch", 2, 0),
-            ("slot0AbsentPossibleRunningAckStoppedAckExitedUnknown", 5, 0),
-            ("slot1AbsentPossibleRunningAckStoppedAckExitedUnknown", 5, 0),
-            ("checkedGrantRelativeClock", 3, 0),
-            ("slot0WindowStart", 3, 0),
-            ("slot1WindowStart", 3, 0),
-            ("slot0TentativeEndpoint", 3, 0),
-            ("slot1TentativeEndpoint", 3, 0),
-            ("slot0CurrentStopExitProof", 1, 0),
-            ("slot1CurrentStopExitOrClosedAbsenceProof", 1, 0),
-            ("slot1CurrentExecTask", 2, 1),
-            ("capturedExecTask", 2, 1),
-            ("sameGrantRosterClosed", 1, 0),
-            ("allRequiredControllerPredicatesComplete", 1, 0),
-            ("stableStoppedRosterSeal", 1, 0),
-            ("windowUnionCost", 3, 0),
-            ("observedActiveCpu", 3, 0),
-            ("activeControllerAndPipeCpu", 3, 0),
-            ("inclusiveQuantumCost", 3, 0),
-            ("allCostKnown", 1, 1),
-            ("coverage", 1, 0),
-            ("unpaidDebtMs", 27, 0),
-            ("observedOutstandingDebtMs", 27, 0),
-            ("stoppedOrdinaryCpu", 3, 0),
-            ("lateKernelChargeCount", 2, 0),
-            ("sameIncarnationStableUserKernelExplained", 1, 1),
-            ("sealRevalidatedAfterLateCpu", 1, 1),
-            ("workOwnerNoneHelperMain", 2, 0),
-            ("outputTrusted", 1, 0),
+            ("qosBackgroundOther", 1, 0),
+            ("cpu", 4, 0),
+            ("jobCpu", 5, 0),
+            ("debt", 36, 0),
+            ("reservations", 2, 0),
             ("foreground", 1, 0),
+            ("killResultNoneOkEpermEsrch", 3, 0),
+            ("groupGone", 1, 0),
+            ("settled", 1, 0),
+            ("unknownRecorded", 1, 0),
+            ("trusted", 1, 0),
+            ("actualOwnWait4Cpu", 4, 0),
+            ("terminalVerdictCpu", 4, 0),
+            ("selfCpu", 4, 0),
+            ("reapedChildCpu", 4, 0),
+            ("actualOwnReaped", 1, 0),
+            ("originalOwnerHeld", 1, 0),
             ("deadline", 1, 0),
-            ("faultNoneClockStopRevokeCancelPanicCoverage", 6, 0),
-            ("controllerRetired", 1, 0),
-            ("actualExit", 1, 0),
-            ("actualReap", 1, 0),
-            ("originalEffectOwned", 1, 0),
-            ("unaccountedTransient", 1, 0),
-            ("pipeAttributionCount", 2, 0),
-            ("rollupAttributionCount", 2, 0),
-            ("lateCpuObserved", 1, 0),
-            ("postClosureCorroborationDone", 1, 0),
-            ("lateObservationReconciled", 1, 0),
-            ("cumulativeGrantAndPostDebtMs", 27, 0),
-            ("grantCount", 2, 0),
-            ("provisionedWholeCommandSupport", 1, 1),
-            ("ownedUnavailableQuarantine", 1, 0),
-            ("canonicalCreationOwnershipSettled", 1, 0),
-            ("ordinaryAdmissionNoneValidFailedUnsettledUnpaid", 4, 0),
+            ("lastLiveSampleCapClass", 4, 0),
+            ("liveOverCapObserved", 1, 0),
+            ("reportedJobCpu", 5, 0),
+            ("actualHelperDebtDue", 36, 0),
+            ("actualHelperRestPaid", 36, 0),
+            ("nextExpensiveAdmitted", 1, 0),
+            ("commandCount", 3, 0),
+            ("positiveIdentityBoundPauseAck", 1, 0),
+            ("actualUserCpu", 4, 0),
+            ("userAtPauseAck", 4, 0),
+            ("foregroundStopCount", 1, 0),
+            ("foregroundResumeCount", 1, 0),
+            ("foregroundEpisodeUsed", 1, 0),
+            ("actualBasePriority", 31, 0),
+            ("leaderPriorityChecked", 1, 0),
+            ("uniqueChildObserved", 1, 0),
+            ("observedChildPriorityChecked", 1, 0),
+            ("finalKillPendingTerminal", 1, 0),
+            ("groupKillRacedExit", 1, 0),
+            ("resourceOrCoverageRefused", 1, 0),
+            ("currentReservedMembers", 2, 0),
+            ("terminalRssWithinOver16MiB", 1, 0),
+            ("pipeServicedAfterLatestMembership", 1, 0),
+            ("liveCounterUnavailableRetained", 1, 0),
+            ("actualOwnWait4UserCpu", 4, 0),
+            ("pauseMonitorActiveWithheldExternalContBurned", 3, 0),
+            (
+                "sameOwnerTrajectoryWithSealedReapUnknownResourcesAndExitDrain",
+                19,
+                0,
+            ),
+            ("positiveOriginalLeaderWnowait", 1, 0),
+            (
+                "retainedChildUnobservedLiveTerminalEscapedUnknownDisappearedPositiveTerminalUnrolled",
+                6,
+                0,
+            ),
+            ("sameCurrentCensusPositivelyTerminal", 1, 0),
+            ("groupKillExplicitlyNotAttemptedTerminal", 1, 0),
+            ("actualEscapedCurrentTokenKillAttempt", 1, 0),
+            ("retainedChildCostUnproven", 1, 0),
+            ("finalChildCleanupDecisionChecked", 1, 0),
+            ("escapedKillRawResultNoneOkEpermEsrch", 3, 0),
+            ("retainedChildRawCpuRepresentative", 1, 0),
+            ("qualifiedSoleChildRollupProven", 1, 0),
+            ("positiveOriginalChildExitRiKnown", 1, 0),
+            ("rawExitedChildUser", 1, 0),
+            ("rawExitedChildSystem", 1, 0),
+            ("laterSameLeaderChildUser", 1, 0),
+            ("laterSameLeaderChildSystem", 1, 0),
+            ("laterLeaderRollupReadObserved", 1, 0),
+            ("exactChildAndFreshSameLeaderSourceBinding", 1, 0),
+            ("reviewedUniqueAdmittedChild", 1, 0),
+            ("freshOriginalChildEdgeEmpty", 1, 0),
+            (
+                "correlatedRollupInputUnsetValidUserSystemIdentitySoleEdgeUnknownZeroZeroChildAndEdgeEio",
+                10,
+                0,
+            ),
+            ("childEdgeNativeQueryKnownOk", 1, 0),
+            ("nativeGroupQueryObserved", 1, 0),
+            ("nativeGroupQueryKnownOk", 1, 0),
+            ("nativeGroupRawZero", 1, 0),
+            ("nativeGroupZeroErrorRetained", 1, 0),
+            ("sameCurrentCensusNativeKnownOk", 1, 0),
+            ("sameCurrentCensusRawZero", 1, 0),
+            ("reapStageUnsealedAuthorizedReturnedAccounted", 3, 0),
+            ("nativeEffectDispatchedAfterReapSeal", 1, 0),
+            ("authoritativeWait4CpuRawMax", 1, 0),
+            ("authoritativeJobCpuRawMax", 1, 0),
+            ("authoritativeWait4RssRawMax", 1, 0),
+            ("endingDrainPendingAttemptedComplete", 2, 0),
+            ("terminalOutputEofAvailable", 1, 0),
+            ("ownAccountingDrainFreshRestRemaining", 9, 0),
+            ("terminalPreparedInputIncomplete", 1, 0),
         ],
     );
-    let exact = Var(INC).eq(Var(CAP));
-    let quiet = all([
-        eq(SEAL, 1),
-        eq(ROSTER, 1),
-        eq(REQUIRED, 1),
-        eq(ACK0, 1),
-        eq(ACK1, 1),
-        Var(CUR).eq(Var(TOKEN)),
-        eq(UNCERTAIN, 0),
-        eq(SUPPORT, 1),
+    m.name = format!(
+        "{}Q2HelperTotalBudget{suffix}",
+        if control == 0 { "" } else { "Broken" }
+    );
+    let active = eq(H, 1).or(eq(H, 2));
+    let cap = all([
+        Var(ACCOUNTED).lt(Int(3)),
+        Var(REPORTED_JOB).lt(Int(5)),
+        eq(RSS, 0),
     ]);
-    let available = all([
-        eq(KNOWN, 1),
-        eq(SUPPORT, 1),
-        eq(FAULT, 0),
-        eq(FG, 0),
-        eq(DEADLINE, 0),
-        eq(RETIRED, 0),
-        exact.clone(),
-    ]);
-    for case in 0..=10 {
+    let complete = all([eq(REAP, 1), eq(GONE, 1)]);
+    // Immutable same-owner representatives replace the failed independent
+    // Cartesian product. Every core guard/update/property remains present:
+    // 1 single-member CPU/sample/cap; 2 unseen/observed child + raw rollup;
+    // 3 exact command/job boundaries across2+2+1 sequential command classes;
+    // 4 lawful pause/kernel/resume; 5 withheld-monitor terminal user breach;
+    // 6 all raw final-kill outcomes; 7 unknown live counter; 8 terminal RSS.
+    // 9 leader-terminal/live child;10 all-terminal with separate rollup proof;
+    // 11 escaped exact token;12 unavailable group proof;13 unavailable escape.
+    // Deadline can interrupt EVERY representative at its current raw cost;
+    // missing OS success still keeps the original owned quarantine.
+    // Sources independently exercise mixed/native physical geometry; this
+    // model does not claim the Cartesian product of all independent histories.
+    for trajectory in 1..=19 {
         act(
             &mut m,
-            &format!("ConfigureRepresentativeGeometry{case}"),
-            all([eq(CONFIG, 0), eq(PH, 0)]),
+            &format!("SelectImmutableSameOwnerTrajectory{trajectory}"),
+            all([eq(H, 0), eq(TRAJECTORY, 0)]),
+            &[(TRAJECTORY, Int(trajectory))],
+        );
+    }
+    let job_target = all([eq(CMD, 3), eq(CPU, 1)]).or(all([Var(CMD).lt(Int(3)), eq(CPU, 2)]));
+    let sample_trajectory = eq(TRAJECTORY, 1)
+        .or(eq(TRAJECTORY, 2))
+        .or(eq(TRAJECTORY, 3))
+        .or(eq(TRAJECTORY, 4));
+    for slots in 1..=2 {
+        // Atomic spawn attr and original effect retention precede any verdict.
+        // RES is ACTIVE capacity, not the separately bounded consumed counter.
+        act(
+            &mut m,
+            &format!("SpawnAtomicBackgroundOriginalMembers{slots}"),
+            all([
+                eq(H, 0).or(all([eq(SETTLED, 1), eq(NEXT, 1), eq(TRAJECTORY, 3)])),
+                Int(0).lt(Var(TRAJECTORY)),
+                if slots == 2 {
+                    eq(TRAJECTORY, 2).or(Int(8)
+                        .lt(Var(TRAJECTORY))
+                        .and(Var(TRAJECTORY).lt(Int(16)))
+                        .and(eq(TRAJECTORY, 14).negate()))
+                } else {
+                    eq(TRAJECTORY, 2)
+                        .negate()
+                        .and(Var(TRAJECTORY).lt(Int(9)))
+                        .or(eq(TRAJECTORY, 14))
+                        .or(Int(15).lt(Var(TRAJECTORY)))
+                },
+                eq(RES, 0),
+                eq(DEBT, 0),
+                eq(FG, 0),
+                eq(DEADLINE, 0),
+                eq(REFUSED, 0),
+                Var(CMD).lt(Int(3)),
+            ]),
             &[
-                (CASE, Int(case)),
-                (CONFIG, Int(1)),
-                (SUPPORT, Int(i64::from(case != 9))),
-                (UNCERTAIN, Int(i64::from(case == 4))),
-                (EXPLAIN, Int(i64::from(case != 8))),
+                (H, Int(1)),
+                (QOS, Int(i64::from(control == 1))),
+                (PRI, Int(if control == 1 { 31 } else { 4 })),
+                (OWNER, Int(1)),
+                (RES, Int(slots)),
+                (SLOTS, Int(slots)),
+                (CMD, Var(CMD).plus(Int(1))),
+                (CPU, Int(0)),
+                (SELFCPU, Int(0)),
+                (CHILDCPU, Int(0)),
+                (USER, Int(0)),
+                (WAIT, Int(0)),
+                (ACCOUNTED, Int(0)),
+                (REAP, Int(0)),
+                (GONE, Int(0)),
+                (SETTLED, Int(0)),
+                (UNKNOWN, Int(0)),
+                (TRUST, Int(0)),
+                (KILL, Int(0)),
+                (PENDING, Int(0)),
+                (RACE, Int(0)),
+                (SAMPLE, Int(0)),
+                (OVER, Int(0)),
+                (NEXT, Int(0)),
+                (DUE, Int(0)),
+                (PAID, Int(0)),
+                (PAUSE_USER, Int(0)),
+                (ACK, Int(0)),
+                (STOPS, Int(0)),
+                (RESUMES, Int(0)),
+                (FG_USED, Int(0)),
+                (QCHECK, Int(0)),
+                (CHILD_SEEN, Int(0)),
+                (CHILD_QCHECK, Int(0)),
+                (RSS, Int(0)),
+                (PIPE, Int(0)),
+                (COUNTER_UNKNOWN, Int(0)),
+                (TERMINAL_USER, Int(0)),
+                (MONITOR, Int(0)),
+                (LEADER_TERMINAL, Int(0)),
+                (CHILD_STATE, Int(0)),
+                (CENSUS_TERMINAL, Int(0)),
+                (NO_ATTEMPT, Int(0)),
+                (ESCAPE_ATTEMPT, Int(0)),
+                (CHILD_UNPROVEN, Int(0)),
+                (CLEANUP_CHECKED, Int(0)),
+                (ESCAPE_RAW, Int(0)),
+                (CHILD_RAW_CPU, Int(0)),
+                (ROLLUP_QUALIFIED, Int(0)),
+                (CHILD_EXIT_RI, Int(0)),
+                (RAW_CHILD_U, Int(0)),
+                (RAW_CHILD_S, Int(0)),
+                (ROLLED_U, Int(0)),
+                (ROLLED_S, Int(0)),
+                (ROLLUP_READ, Int(0)),
+                (ROLLUP_SOURCE, Int(0)),
+                (SOLE_CHILD, Int(0)),
+                (CHILD_EDGE_EMPTY, Int(0)),
+                (ROLLUP_CASE, Int(0)),
+                (CHILD_EDGE_KNOWN, Int(0)),
+                (GROUP_QUERY_OBS, Int(0)),
+                (GROUP_QUERY_KNOWN, Int(0)),
+                (GROUP_RAW_EMPTY, Int(0)),
+                (GROUP_ERROR_RETAINED, Int(0)),
+                (CENSUS_QUERY_KNOWN, Int(0)),
+                (CENSUS_RAW_EMPTY, Int(0)),
+                (REAP_STAGE, Int(0)),
+                (POST_SEAL_EFFECT, Int(0)),
+                (CPU_RAW_UNKNOWN, Int(0)),
+                (RSS_RAW_UNKNOWN, Int(0)),
+                (END_DRAIN, Int(0)),
+                (END_EOF_READY, Int(0)),
+                (END_OWN_DEBT, Int(0)),
+                (INPUT_REMAINING, Int(0)),
             ],
         );
     }
     act(
         &mut m,
-        "ReserveBothPossibleSlotsBeforeAnyEffect",
-        all([eq(CONFIG, 1), eq(PH, 0), eq(ATT, 0), eq(SUPPORT, 1)]),
-        &[(ATT, Int(2)), (PH, Int(1)), (CAP, Var(INC))],
+        "ObserveLeaderPriority4BeforePipe",
+        all([active.clone(), eq(QCHECK, 0), eq(PRI, 4)]),
+        &[(QCHECK, Int(1))],
     );
     act(
         &mut m,
-        "CreateStoppedRetainsOriginalEffect",
-        all([eq(PH, 1), eq(ATT, 2), available.clone()]),
+        "PriorityMismatchKillsAndRefuses",
+        all([active.clone(), eq(PRI, 4).negate(), eq(KILL, 0)]),
+        &[(H, Int(3)), (KILL, Int(1)), (REFUSED, Int(1))],
+    );
+    act(
+        &mut m,
+        "ObserveUniqueInheritedChildBeforeItsPipeService",
+        all([eq(H, 1), eq(SLOTS, 2), eq(CHILD_SEEN, 0), eq(KILL, 0)]),
+        &[(CHILD_SEEN, Int(1)), (PIPE, Int(0))],
+    );
+    act(
+        &mut m,
+        "ObserveInheritedChildPriority4",
+        all([
+            active.clone(),
+            eq(OWNER, 1),
+            eq(REAP_STAGE, 0),
+            eq(CHILD_SEEN, 1),
+            eq(CHILD_QCHECK, 0),
+            eq(PRI, 4),
+        ]),
+        &[(CHILD_QCHECK, Int(1))],
+    );
+    act(
+        &mut m,
+        "OrdinaryBoundedPipeServiceAfterPriorityGates",
+        all([
+            eq(H, 1),
+            eq(FG, 0),
+            eq(KILL, 0),
+            eq(REFUSED, 0),
+            eq(QCHECK, 1),
+            eq(CHILD_SEEN, 0).or(eq(CHILD_QCHECK, 1)),
+        ]),
+        &[(PIPE, Int(1))],
+    );
+    let room = all([Var(CPU).lt(Int(4)), Var(JOB).plus(Var(CPU)).lt(Int(5))]);
+    for child in [false, true] {
+        act(
+            &mut m,
+            if child {
+                "BurnAdmittedChildUserCpu"
+            } else {
+                "BurnLeaderUserCpu"
+            },
+            all([
+                eq(H, 1),
+                room.clone(),
+                eq(MONITOR, 0),
+                if child {
+                    all([eq(SLOTS, 2), eq(TRAJECTORY, 2)])
+                } else {
+                    eq(TRAJECTORY, 1)
+                        .or(all([
+                            eq(TRAJECTORY, 3),
+                            all([Var(CMD).lt(Int(3)), Var(CPU).lt(Int(2))])
+                                .or(all([eq(CMD, 3), eq(CPU, 0)])),
+                        ]))
+                        .or(all([
+                            eq(TRAJECTORY, 4),
+                            eq(RESUMES, 1),
+                            Var(CPU).lt(Int(2)),
+                        ]))
+                        .or(all([
+                            eq(TRAJECTORY, 6)
+                                .or(eq(TRAJECTORY, 7))
+                                .or(eq(TRAJECTORY, 8))
+                                .or(Int(8).lt(Var(TRAJECTORY))),
+                            eq(CPU, 0),
+                        ]))
+                },
+            ]),
+            &[
+                (CPU, Var(CPU).plus(Int(1))),
+                (
+                    if child { CHILDCPU } else { SELFCPU },
+                    Var(if child { CHILDCPU } else { SELFCPU }).plus(Int(1)),
+                ),
+                (USER, Var(USER).plus(Int(1))),
+            ],
+        );
+    }
+    // Late system work is real terminal CPU, even while user execution is
+    // positively paused. There is no n*paused-wall bill or extra grant debt.
+    act(
+        &mut m,
+        "RetainActualKernelCpuWithoutUserGrowth",
+        all([
+            active.clone().or(eq(H, 3)),
+            room,
+            eq(MONITOR, 0),
+            eq(TRAJECTORY, 4),
+            eq(H, 2),
+            eq(CPU, 0),
+        ]),
         &[
-            (PH, Int(2)),
-            (EFFECT, Int(1)),
-            (OWN, Int(1)),
-            (S0, Int(3)),
-            (S1, Int(1)),
+            (CPU, Var(CPU).plus(Int(1))),
+            (SELFCPU, Var(SELFCPU).plus(Int(1))),
         ],
     );
     act(
         &mut m,
-        "AttachCurrentStoppedBirth",
-        eq(PH, 2),
-        &[(PH, Int(3))],
+        "UnavailableLiveCounterRetainsRefusalAndKills",
+        all([
+            active.clone(),
+            eq(KILL, 0),
+            eq(MONITOR, 0),
+            eq(TRAJECTORY, 7),
+        ]),
+        &[
+            (COUNTER_UNKNOWN, Int(1)),
+            (REFUSED, Int(1)),
+            (H, Int(3)),
+            (KILL, Int(1)),
+        ],
     );
-    // The separate Helper graph supplies native charge/rest/reconciliation.
-    // This boundary imports its successful ownership handoff; it does not
-    // infer settlement from suspended birth or from an idle controller tick.
+    let mut controller = vec![];
+    // SAMPLE is only tested by the stale-live control as SAMPLE<3. Values
+    // 0/1/2 therefore share representative0, and3/4 representative3. Every
+    // raw observation remains exact in the guard and labelled action; CPU,
+    // USER, terminal wait4/job/debt and all numeric hard caps remain exact.
+    // This coordinate quotient preserves every SAMPLE predicate and update,
+    // not an assertion that raw native counters may be clamped or discarded.
+    for observed in 0..=4 {
+        let sample_class = if observed < 3 { 0 } else { 3 };
+        let sample = eq(CHILD_SEEN, 1).or(eq(SLOTS, 1));
+        let exact = sample
+            .clone()
+            .and(eq(CPU, observed))
+            .or(sample.negate().and(eq(SELFCPU, observed)));
+        let over = Int(2)
+            .lt(Int(observed))
+            .or(Int(4).lt(Var(JOB).plus(Int(observed))));
+        let mut u = vec![
+            (SAMPLE, Int(sample_class)),
+            (OVER, Int(1)),
+            (REFUSED, Int(1)),
+        ];
+        if control != 4 {
+            u.extend([(H, Int(3)), (KILL, Int(1))]);
+        }
+        act(
+            &mut m,
+            &format!("SampleKnownMembersAndKillOverCap{observed}"),
+            all([
+                active.clone(),
+                eq(KILL, 0),
+                eq(OVER, 0),
+                exact.clone(),
+                over.clone(),
+                eq(MONITOR, 0),
+                sample_trajectory.clone(),
+            ]),
+            &u,
+        );
+        act(
+            &mut m,
+            &format!("SampleKnownMembersWithinCap{observed}"),
+            all([
+                active.clone(),
+                eq(KILL, 0),
+                exact,
+                over.negate(),
+                eq(MONITOR, 0),
+                sample_trajectory.clone(),
+            ]),
+            &[(SAMPLE, Int(sample_class))],
+        );
+    }
     act(
         &mut m,
-        "ConfirmCanonicalCreationOwnershipAndBothDebtsSettled",
+        "ForegroundRequestsOneGroupStop",
         all([
-            eq(PH, 3),
-            eq(CREATION, 0),
-            eq(OBSERVE, 0),
-            eq(DEBT, 0),
-            eq(OWED, 0),
-            available.clone(),
+            eq(REAP_STAGE, 0),
+            eq(H, 1),
+            eq(FG_USED, 0),
+            eq(KILL, 0),
+            eq(DEADLINE, 0),
+            eq(TRAJECTORY, 4).or(eq(TRAJECTORY, 5)),
+            eq(CPU, 0),
+            eq(USER, 0),
         ]),
-        &[(CREATION, Int(1))],
+        &[(FG, Int(1)), (FG_USED, Int(1)), (STOPS, Int(1))],
+    );
+    // This is an independent positive current-identity stopped observation,
+    // not fair signal delivery and not an ACK inferred from successful kill.
+    act(
+        &mut m,
+        "ObserveIdentityBoundPauseAckWithinGate",
+        all([
+            eq(H, 1),
+            eq(FG, 1),
+            eq(STOPS, 1),
+            eq(ACK, 0),
+            eq(DEADLINE, 0),
+            eq(KILL, 0),
+        ]),
+        &[(H, Int(2)), (ACK, Int(1)), (PAUSE_USER, Var(USER))],
     );
     act(
         &mut m,
-        "ObserveOrdinaryControllerTailBeforeInitialCorroboration",
-        all([
-            eq(PH, 3),
-            eq(CREATION, 1),
-            eq(OBSERVE, 0),
-            eq(DEBT, 0),
-            eq(OWED, 0),
-            available.clone(),
-        ]),
-        &[(DEBT, Int(9)), (OWED, Int(9))],
+        "ObserveForegroundActivityCleared",
+        eq(FG, 1),
+        &[(FG, Int(0))],
     );
-    for settled in 0..=1 {
-        for paid in 0..=1 {
+    act(
+        &mut m,
+        "ResumeOnceAfterCurrentActivityAdmission",
+        all([
+            eq(REAP_STAGE, 0),
+            eq(H, 2),
+            eq(FG, 0),
+            eq(ACK, 1),
+            eq(RESUMES, 0),
+            eq(DEADLINE, 0),
+            eq(KILL, 0),
+        ]),
+        &[
+            (H, Int(1)),
+            (ACK, Int(0)),
+            (RESUMES, Int(1)),
+            (MONITOR, Int(0)),
+        ],
+    );
+    // One correlated adversarial native trace: the original helper was
+    // positively paused, but the monitor cannot sample again before an
+    // external CONT and natural exit. This is physical violating behavior,
+    // never an accepted pause observation or a controller resume permission.
+    // Its raw terminal user total is independent of the immutable ACK cut.
+    // Restricting this representative to command1/single-slot/zero CPU avoids
+    // a Cartesian replay of timing geometry already covered by the main law.
+    act(
+        &mut m,
+        "WithholdPauseMonitorAfterOriginalPositiveAck",
+        all([
+            eq(H, 2),
+            eq(ACK, 1),
+            eq(FG, 1),
+            eq(MONITOR, 0),
+            eq(CMD, 1),
+            eq(SLOTS, 1),
+            eq(CPU, 0),
+            eq(USER, 0),
+            eq(JOB, 0),
+            eq(PIPE, 1),
+            eq(KILL, 0),
+            eq(TRAJECTORY, 5),
+        ]),
+        &[(MONITOR, Int(1))],
+    );
+    act(
+        &mut m,
+        "ExternalContOfExactOwnedPausedGroupWithoutControllerResume",
+        all([eq(H, 2), eq(MONITOR, 1), eq(ACK, 1), eq(FG, 1), eq(KILL, 0)]),
+        &[(H, Int(1)), (MONITOR, Int(2))],
+    );
+    act(
+        &mut m,
+        "UnobservedPausedUserBurnBelowCommandCap",
+        all([
+            eq(H, 1),
+            eq(MONITOR, 2),
+            eq(ACK, 1),
+            eq(CPU, 0),
+            eq(USER, 0),
+            eq(KILL, 0),
+        ]),
+        &[
+            (CPU, Int(1)),
+            (SELFCPU, Int(1)),
+            (USER, Int(1)),
+            (MONITOR, Int(3)),
+        ],
+    );
+    // Ordinary live work/sample actions require MONITOR0. The existing actual
+    // leader-exit observation and own-wait4 retain the complete late raw total.
+    if control == 6 {
+        act(
+            &mut m,
+            "BrokenResumeWhileForegroundPauseProtected",
+            all([eq(H, 2), eq(FG, 1), eq(ACK, 1), eq(RESUMES, 0), eq(KILL, 0)]),
+            &[(H, Int(1)), (RESUMES, Int(1))],
+        );
+    }
+    act(
+        &mut m,
+        "ObservePauseGateExpiredRefuses",
+        all([eq(H, 1), eq(FG, 1), eq(STOPS, 1), eq(ACK, 0)]),
+        &[(DEADLINE, Int(1)), (REFUSED, Int(1))],
+    );
+    // Source-qualified normal exit includes Git's actual reap of its unique
+    // admitted child. Missing/escaped-child proof belongs to the unchanged
+    // qualification/quarantine contracts; it never grants trusted totals.
+    act(
+        &mut m,
+        "ObserveOriginalLeaderExitAndQualifiedChildRollup",
+        all([
+            active.clone().or(eq(H, 3)).or(eq(H, 6)),
+            eq(REAP, 0),
+            Var(TRAJECTORY)
+                .lt(Int(9))
+                .or(eq(TRAJECTORY, 14))
+                .or(Int(15).lt(Var(TRAJECTORY))),
+            eq(TRAJECTORY, 3)
+                .negate()
+                .or(job_target)
+                .or(eq(DEADLINE, 1)),
+        ]),
+        &[(H, Int(4))],
+    );
+    act(
+        &mut m,
+        "ObserveJobDeadline",
+        all([Int(0).lt(Var(H)), eq(TRUST, 0)]),
+        &[(DEADLINE, Int(1))],
+    );
+    // These bounded trajectories distinguish physical absence, exact child
+    // source/counter proof, attempted effects, and numeric terminal coverage.
+    // Own WNOWAIT pins only the original leader; it never exits a live child.
+    for input in 1..=10 {
+        act(
+            &mut m,
+            &format!("CaptureOriginalExitedChildRiInput{input}"),
+            all([
+                eq(TRAJECTORY, 10),
+                eq(H, 1),
+                eq(LEADER_TERMINAL, 0),
+                eq(CPU, 1),
+                eq(ROLLUP_CASE, 0),
+                eq(CHILD_SEEN, 1),
+                eq(CHILD_QCHECK, 1),
+                eq(OWNER, 1),
+                eq(REAP, 0),
+            ]),
+            &[
+                (ROLLUP_CASE, Int(input)),
+                (CHILD_STATE, Int(2)),
+                (CHILD_RAW_CPU, Int(i64::from(input != 8 && input != 9))),
+                (CHILD_EXIT_RI, Int(i64::from(input != 7))),
+                (
+                    RAW_CHILD_U,
+                    Int(i64::from(input != 3 && input != 8 && input != 9)),
+                ),
+                (RAW_CHILD_S, Int(i64::from(input == 3))),
+            ],
+        );
+        act(
+            &mut m,
+            &format!("ReadLaterSameLeaderChildRollupInput{input}"),
+            all([
+                eq(TRAJECTORY, 10),
+                eq(H, 1),
+                eq(LEADER_TERMINAL, 0),
+                eq(ROLLUP_CASE, input),
+                eq(ROLLUP_READ, 0),
+            ]),
+            &[
+                (ROLLUP_READ, Int(1)),
+                (ROLLED_U, Int(i64::from(input != 2 && input != 8))),
+                (ROLLED_S, Int(i64::from(input == 2))),
+                (ROLLUP_SOURCE, Int(i64::from(input != 4))),
+                (SOLE_CHILD, Int(i64::from(input != 5))),
+                (CHILD_EDGE_EMPTY, Int(i64::from(input != 6))),
+                (CHILD_EDGE_KNOWN, Int(i64::from(input != 10))),
+            ],
+        );
+    }
+    let qualified_child_source = all([
+        eq(CHILD_EXIT_RI, 1),
+        eq(ROLLUP_READ, 1),
+        eq(ROLLUP_SOURCE, 1),
+        eq(SOLE_CHILD, 1),
+        eq(CHILD_EDGE_EMPTY, 1),
+        eq(CHILD_EDGE_KNOWN, 1),
+        Int(0).lt(Var(ROLLED_U).plus(Var(ROLLED_S))),
+        Var(ROLLED_U).lt(Var(RAW_CHILD_U)).negate(),
+        Var(ROLLED_S).lt(Var(RAW_CHILD_S)).negate(),
+    ]);
+    act(
+        &mut m,
+        "BindQualifiedExitedSoleChildRollupExactlyOnce",
+        all([
+            eq(TRAJECTORY, 10),
+            eq(H, 1),
+            eq(LEADER_TERMINAL, 0),
+            eq(ROLLUP_READ, 1),
+            eq(ROLLUP_QUALIFIED, 0),
+            eq(CHILD_STATE, 2),
+            if control == 13 {
+                Bool(true)
+            } else if control == 14 {
+                all([
+                    eq(CHILD_EXIT_RI, 1),
+                    eq(ROLLUP_READ, 1),
+                    eq(ROLLUP_SOURCE, 1),
+                    eq(SOLE_CHILD, 1),
+                    eq(CHILD_EDGE_EMPTY, 1),
+                    Int(0).lt(Var(ROLLED_U).plus(Var(ROLLED_S))),
+                    Var(ROLLED_U).lt(Var(RAW_CHILD_U)).negate(),
+                    Var(ROLLED_S).lt(Var(RAW_CHILD_S)).negate(),
+                ])
+            } else {
+                qualified_child_source.clone()
+            },
+        ]),
+        &[
+            (ROLLUP_QUALIFIED, Int(1)),
+            (CHILDCPU, Var(ROLLED_U).plus(Var(ROLLED_S))),
+            (CPU, Var(SELFCPU).plus(Var(ROLLED_U)).plus(Var(ROLLED_S))),
+            (USER, Var(USER).plus(Var(ROLLED_U))),
+        ],
+    );
+    for trajectory in [9, 10, 11, 12, 13, 15] {
+        let child = match trajectory {
+            9 => 1,
+            10 => 2,
+            11 | 13 => 3,
+            12 | 15 => 4,
+            _ => unreachable!(),
+        };
+        let census_terminal = matches!(trajectory, 10 | 11 | 13);
+        // Profile10 can reach leader exit with a missing/invalid rollup proof:
+        // physical all-terminal still permits no group effect, but never
+        // numeric child coverage or release. Only the separate proof above
+        // puts the child's raw1 class into the known subtree wait4 total.
+        let cost_unknown = if trajectory == 10 {
+            eq(ROLLUP_QUALIFIED, 0)
+        } else {
+            Bool(true)
+        };
+        for unknown in [false, true] {
             act(
                 &mut m,
-                &format!("InitialCorroborationCreationSettled{settled}DebtsPaid{paid}"),
+                &format!("ObserveOriginalLeaderWnowaitRetainedChild{trajectory}Unknown{unknown}"),
                 all([
-                    eq(PH, 3),
-                    eq(OBSERVE, 0),
-                    eq(CREATION, settled),
-                    available.clone(),
-                    if settled == 1 || control == 26 {
+                    eq(TRAJECTORY, trajectory),
+                    eq(OWNER, 1),
+                    eq(REAP, 0),
+                    eq(LEADER_TERMINAL, 0),
+                    active.clone().or(eq(H, 3)).or(eq(H, 6)),
+                    Int(0).lt(Var(CPU)).or(eq(DEADLINE, 1)),
+                    if trajectory == 10 {
+                        Int(0).lt(Var(ROLLUP_CASE))
+                    } else {
+                        Bool(true)
+                    },
+                    if trajectory == 12 {
                         Bool(true)
                     } else {
-                        Bool(false)
+                        all([eq(CHILD_SEEN, 1), eq(CHILD_QCHECK, 1)])
                     },
-                    if paid == 1 {
-                        all([eq(DEBT, 0), eq(OWED, 0)])
+                    if unknown {
+                        cost_unknown.clone()
                     } else {
-                        all([eq(DEBT, 9), eq(OWED, 9)])
-                    },
-                    if paid == 1 || control == 27 {
-                        Bool(true)
-                    } else {
-                        Bool(false)
+                        cost_unknown.clone().negate()
                     },
                 ]),
                 &[
+                    (H, Int(4)),
+                    (LEADER_TERMINAL, Int(1)),
                     (
-                        OBSERVE,
-                        Int(if settled == 0 {
-                            3
-                        } else if paid == 0 {
-                            4
+                        CHILD_STATE,
+                        Int(if trajectory == 10 && !unknown {
+                            6
                         } else {
-                            1
+                            child
                         }),
                     ),
-                    (DEBT, Var(DEBT).plus(Int(9))),
-                    (OWED, Var(OWED).plus(Int(9))),
+                    (CENSUS_TERMINAL, Int(i64::from(census_terminal))),
+                    (
+                        CENSUS_QUERY_KNOWN,
+                        Int(i64::from(trajectory != 12 && trajectory != 15)),
+                    ),
+                    (CENSUS_RAW_EMPTY, Int(i64::from(trajectory == 15))),
+                    (
+                        CHILD_RAW_CPU,
+                        if trajectory == 10 {
+                            Var(CHILD_RAW_CPU)
+                        } else {
+                            Int(1)
+                        },
+                    ),
+                    (
+                        CHILD_UNPROVEN,
+                        if unknown { Int(1) } else { Var(CHILD_UNPROVEN) },
+                    ),
+                    (REFUSED, if unknown { Int(1) } else { Var(REFUSED) }),
                 ],
             );
         }
     }
-    let open = [
-        (PH, Int(4)),
-        (CLOCK, Int(1)),
-        (START0, Int(1)),
-        (START1, Int(1)),
-        (END0, Int(0)),
-        (END1, Int(0)),
-        (ACK0, Int(0)),
-        (ACK1, Int(0)),
-        (ROSTER, Int(0)),
-        (REQUIRED, Int(0)),
-        (SEAL, Int(0)),
-        (COVER, Int(0)),
-        (WORK, Int(1)),
-        (S0, Int(2)),
-        (S1, Int(1)),
-    ];
-    let mut first = open.to_vec();
-    first.push((GRANTS, Int(1)));
     act(
         &mut m,
-        "CheckedT0OpensEveryReservedSlotBeforeCont",
+        "ObservePositiveExactRetainedChildTerminalWithoutQualifiedRollup",
         all([
-            eq(PH, 3),
-            available.clone(),
-            eq(DEBT, 0),
-            eq(OWED, 0),
-            eq(CREATION, 1),
-            eq(OBSERVE, 1),
+            eq(OWNER, 1),
+            eq(REAP, 0),
+            eq(REAP_STAGE, 0),
+            eq(LEADER_TERMINAL, 1),
+            eq(CHILD_STATE, 1)
+                .or(eq(CHILD_STATE, 2))
+                .or(eq(CHILD_STATE, 3))
+                .or(eq(CHILD_STATE, 4)),
+            all([
+                eq(TRAJECTORY, 9).or(eq(TRAJECTORY, 15)),
+                eq(KILL, 0).negate(),
+            ])
+            .or(all([eq(TRAJECTORY, 10), eq(NO_ATTEMPT, 1)]))
+            .or(all([eq(TRAJECTORY, 11), eq(ESCAPE_ATTEMPT, 1)])),
         ]),
-        &first,
+        &[(CHILD_STATE, Int(6))],
     );
-    for failed in 0..=1 {
-        // An admission event abstracts entering ordinary expensive validation,
-        // not an external OS transition or mandatory retirement token custody.
+    for result in 1..=3 {
+        let local = m.actions.len();
         act(
             &mut m,
-            &format!("OrdinaryExpensiveObservationAdmissionFailed{failed}"),
+            &format!("ActualGroupFinalKillWithTerminalLeaderLiveChildRaw{result}"),
             all([
-                eq(EFFECT, 1),
-                eq(OWN, 1),
-                eq(RETIRED, 0),
-                eq(CREATION, 1),
-                eq(OBSERVE, 1),
-                eq(DEBT, 0),
-                eq(OWED, 0),
-                if failed == 0 {
-                    eq(FAULT, 0)
+                eq(REAP_STAGE, 0),
+                eq(TRAJECTORY, 9).or(eq(TRAJECTORY, 15)),
+                eq(LEADER_TERMINAL, 1),
+                eq(CHILD_STATE, 1).or(eq(CHILD_STATE, 4)),
+                eq(CENSUS_TERMINAL, 0),
+                eq(OWNER, 1),
+                eq(REAP, 0),
+                eq(KILL, 0),
+                eq(NO_ATTEMPT, 0),
+                eq(CLEANUP_CHECKED, 0),
+            ]),
+            &[
+                (KILL, Int(result)),
+                (PENDING, Int(i64::from(result != 1))),
+                (CLEANUP_CHECKED, Int(1)),
+                (CHILD_UNPROVEN, Int(1)),
+                (REFUSED, Int(1)),
+            ],
+        );
+        controller.push(local);
+    }
+    for trajectory in [10, 11, 13] {
+        let local = m.actions.len();
+        act(
+            &mut m,
+            &format!("NoGroupAttemptOnlyAfterSamePositiveTerminalCensus{trajectory}"),
+            all([
+                eq(TRAJECTORY, trajectory),
+                eq(LEADER_TERMINAL, 1),
+                eq(CENSUS_TERMINAL, 1),
+                eq(CENSUS_QUERY_KNOWN, 1),
+                eq(OWNER, 1),
+                eq(REAP, 0),
+                eq(KILL, 0),
+                eq(NO_ATTEMPT, 0),
+            ]),
+            &[
+                (NO_ATTEMPT, Int(1)),
+                (CLEANUP_CHECKED, Int(i64::from(trajectory == 10))),
+            ],
+        );
+        controller.push(local);
+    }
+    for raw in [0, 2, 3] {
+        let local = m.actions.len();
+        act(
+            &mut m,
+            &format!("ActualEscapedCurrentBirthTokenFinalKillRaw{raw}"),
+            all([
+                eq(REAP_STAGE, 0),
+                eq(TRAJECTORY, 11),
+                eq(LEADER_TERMINAL, 1),
+                eq(CHILD_STATE, 3),
+                eq(OWNER, 1),
+                eq(REAP, 0),
+                eq(NO_ATTEMPT, 1),
+                eq(ESCAPE_ATTEMPT, 0),
+                eq(CLEANUP_CHECKED, 0),
+            ]),
+            &[
+                (ESCAPE_ATTEMPT, Int(1)),
+                (ESCAPE_RAW, Int(raw)),
+                (CLEANUP_CHECKED, Int(1)),
+                (CHILD_UNPROVEN, Int(1)),
+                (REFUSED, Int(1)),
+            ],
+        );
+        controller.push(local);
+    }
+    for unavailable in [0, 12, 13] {
+        let local = m.actions.len();
+        act(
+            &mut m,
+            &format!("UnavailableChildCleanupRetainsOriginalPins{unavailable}"),
+            all([
+                Int(8)
+                    .lt(Var(TRAJECTORY))
+                    .and(Var(TRAJECTORY).lt(Int(16)))
+                    .and(eq(TRAJECTORY, 14).negate()),
+                eq(OWNER, 1),
+                eq(REAP, 0),
+                eq(CLEANUP_CHECKED, 0),
+                if unavailable == 0 {
+                    all([eq(DEADLINE, 1), eq(LEADER_TERMINAL, 0), eq(H, 6).negate()])
+                } else if unavailable == 12 {
+                    all([eq(TRAJECTORY, 12), eq(LEADER_TERMINAL, 1)])
                 } else {
-                    eq(FAULT, 0).negate()
-                },
-                if failed == 0 || control == 25 {
-                    Bool(true)
-                } else {
-                    Bool(false)
+                    all([
+                        eq(TRAJECTORY, 13),
+                        eq(LEADER_TERMINAL, 1),
+                        eq(NO_ATTEMPT, 1),
+                    ])
                 },
             ]),
-            &[(OBSERVE, Int(if failed == 0 { 1 } else { 2 }))],
+            &[
+                (H, Int(6)),
+                (UNKNOWN, Int(1)),
+                (CHILD_UNPROVEN, Int(1)),
+                (REFUSED, Int(1)),
+                (CLEANUP_CHECKED, Int(i64::from(unavailable != 0))),
+            ],
+        );
+        controller.push(local);
+    }
+    if control == 10 {
+        act(
+            &mut m,
+            "BrokenLeaderWnowaitAloneSkipsLiveChildGroupKill",
+            all([
+                eq(TRAJECTORY, 9),
+                eq(LEADER_TERMINAL, 1),
+                eq(CHILD_STATE, 1),
+                eq(CENSUS_TERMINAL, 0),
+                eq(REAP, 0),
+                eq(OWNER, 1),
+                eq(KILL, 0),
+                eq(NO_ATTEMPT, 0),
+                eq(CLEANUP_CHECKED, 0),
+            ]),
+            &[(NO_ATTEMPT, Int(1)), (CLEANUP_CHECKED, Int(1))],
+        );
+    }
+    if control == 11 {
+        act(
+            &mut m,
+            "BrokenNoGroupAttemptReturnsBeforeEscapedTokenEffect",
+            all([
+                eq(TRAJECTORY, 11),
+                eq(LEADER_TERMINAL, 1),
+                eq(CHILD_STATE, 3),
+                eq(NO_ATTEMPT, 1),
+                eq(REAP, 0),
+                eq(OWNER, 1),
+                eq(ESCAPE_ATTEMPT, 0),
+                eq(CLEANUP_CHECKED, 0),
+            ]),
+            &[(CLEANUP_CHECKED, Int(1))],
         );
     }
     act(
         &mut m,
-        "OpenUnknownImplicitSlotWithoutInventingBirthTime",
-        all([eq(PH, 4), eq(S1, 1)]),
-        &[(S1, Int(5))],
+        "ObserveRetainedChildDisappearanceWithoutQualifiedRollup",
+        all([
+            eq(REAP, 1),
+            eq(OWNER, 1),
+            eq(CHILD_UNPROVEN, 1),
+            eq(ROLLUP_QUALIFIED, 0),
+            eq(CHILD_STATE, 1)
+                .or(eq(CHILD_STATE, 3))
+                .or(eq(CHILD_STATE, 4))
+                .or(eq(CHILD_STATE, 6)),
+        ]),
+        &[(CHILD_STATE, Int(5))],
     );
-    act(
-        &mut m,
-        "DiscoverReservedLogicalChildKeepsWindowFromT0",
-        all([eq(PH, 4), eq(S1, 5), eq(CASE, 2).negate(), eq(FAULT, 0)]),
-        &[(S1, Int(2))],
-    );
-    act(
-        &mut m,
-        "ForkExecChangesCurrentTaskButNotLogicalWindow",
-        all([eq(PH, 4), eq(CASE, 3), eq(S1, 2), eq(CUR, 1)]),
-        &[(CUR, Int(2)), (ACK1, Int(0)), (END1, Int(0))],
-    );
-    act(
-        &mut m,
-        "CaptureNewExecTaskBeforeItsStopPredicate",
-        all([eq(PH, 4), eq(CUR, 2), eq(TOKEN, 1)]),
-        &[(TOKEN, Int(2))],
-    );
-    // The preceding identity capture can also retain a late real effect for
-    // cleanup after refusal. It grants no ordinary admission, ACK, seal or
-    // coverage; external fork/exec likewise remains possible until real stop.
-    act(
-        &mut m,
-        "StopRequestAloneClosesNoWindow",
-        all([eq(PH, 4), eq(FAULT, 0)]),
-        &[],
-    );
-    for case in 0..=10 {
-        let late_endpoint = matches!(case, 0 | 2 | 3 | 4);
-        let end1 = if late_endpoint { 3 } else { 2 };
-        let w = 1 + (end1 - 1);
-        let a = if case == 5 {
-            3
-        } else if late_endpoint || case == 6 {
-            2
-        } else {
-            1
-        };
-        let c = if matches!(case, 1 | 6 | 7 | 8 | 9) {
-            1
-        } else {
-            0
-        };
-        assert!(w <= 3 && a <= 3 && w.max(a) + c <= 3);
-        let bad_ack = control == 5;
-        let bad_exec = control == 3 && case == 3;
-        act(
-            &mut m,
-            &format!("AckMember0AfterCurrentStopPredicatesCase{case}"),
-            all([eq(PH, 4), eq(CASE, case), eq(END0, 0), eq(FAULT, 0)]),
-            &[
-                (CLOCK, Int(2)),
-                (END0, Int(2)),
-                (ACK0, Int(i64::from(!bad_ack))),
-                (S0, Int(3)),
-            ],
-        );
-        act(
-            &mut m,
-            &format!("AckKnownMember1AfterCheckedHostClockCase{case}"),
-            all([
-                eq(PH, 4),
-                eq(CASE, case),
-                eq(END0, 2),
-                eq(END1, 0),
-                eq(S1, 2),
-                eq(FAULT, 0),
-                if case == 3 { eq(CUR, 2) } else { Bool(true) },
-                if bad_exec {
-                    Bool(true)
-                } else {
-                    Var(CUR).eq(Var(TOKEN))
-                },
-            ]),
-            &[
-                (CLOCK, Int(end1)),
-                (END1, Int(end1)),
-                (ACK1, Int(1)),
-                (S1, Int(3)),
-                (PH, Int(5)),
-            ],
-        );
-        if case == 2 {
+
+    for result in 1..=3 {
+        for already_exited in [false, true] {
+            let i = m.actions.len();
             act(
                 &mut m,
-                "UnknownSlotAwaitsCompleteSameGrantExclusion",
-                all([eq(PH, 4), eq(CASE, 2), eq(END0, 2), eq(S1, 5)]),
-                &[(PH, Int(5))],
-            );
-        }
-        let close_guard = all([
-            eq(PH, 5),
-            eq(CASE, case),
-            eq(FAULT, 0),
-            exact.clone(),
-            if control == 4 {
-                Bool(true)
-            } else {
-                eq(UNCERTAIN, 0)
-            },
-            eq(SUPPORT, 1),
-            if bad_ack { Bool(true) } else { eq(ACK0, 1) },
-            if case == 2 { eq(END1, 0) } else { eq(ACK1, 1) },
-            if bad_exec {
-                Bool(true)
-            } else {
-                Var(CUR).eq(Var(TOKEN))
-            },
-        ]);
-        let mut closed = vec![
-            (PH, Int(6)),
-            (CLOCK, Int(3)),
-            (ROSTER, Int(1)),
-            (REQUIRED, Int(i64::from(control != 6))),
-            (SEAL, Int(1)),
-            (WORK, Int(0)),
-        ];
-        if case == 2 {
-            closed.extend([(END1, Int(3)), (ACK1, Int(1)), (S1, Int(0))]);
-        }
-        act(
-            &mut m,
-            &format!("CompleteRequiredPredicatesThenCloseSameGrantRoster{case}"),
-            close_guard,
-            &closed,
-        );
-        if control == 2 && case == 2 {
-            act(
-                &mut m,
-                "BrokenBackdateUnknownSlotToItsLaterDiscovery",
-                all([eq(PH, 5), eq(CASE, 2)]),
-                &[(START1, Int(2))],
-            );
-        }
-        let actual_w = if control == 1 && late_endpoint {
-            w - 1
-        } else {
-            w
-        };
-        let actual_a = if control == 11 {
-            a - 1
-        } else if control == 12 && !late_endpoint && a < 3 {
-            a + 1
-        } else {
-            a
-        };
-        let actual_c = if control == 9 && c > 0 {
-            c - 1
-        } else if control == 10 && c > 0 {
-            c + 1
-        } else {
-            c
-        };
-        let actual_q = actual_w.max(actual_a).saturating_add(actual_c).min(3);
-        let within = case != 6;
-        let cover = (a <= w || control == 7) && (within || control == 23);
-        let debt = if case == 6 { 18 } else { 9 };
-        act(
-            &mut m,
-            &format!("ChargeExactWindowActiveAndAllControllerCase{case}"),
-            all([
-                eq(PH, 6),
-                eq(CASE, case),
-                eq(SEAL, 1),
-                eq(TOTAL, 18).or(Var(TOTAL).lt(Int(18))),
-                eq(FAULT, 0),
-                exact.clone(),
-            ]),
-            &[
-                (PH, Int(7)),
-                (W, Int(actual_w)),
-                (A, Int(actual_a)),
-                (C, Int(actual_c)),
-                (Q, Int(actual_q)),
-                (
-                    PIPE,
-                    Int(if c == 0 || control == 9 {
-                        0
-                    } else if control == 10 {
-                        2
+                &format!("FinalGroupKillRetainsRawResult{result}ExitKnown{already_exited}"),
+                all([
+                    eq(REAP, 0),
+                    eq(OWNER, 1),
+                    eq(KILL, 0),
+                    Var(TRAJECTORY)
+                        .lt(Int(9))
+                        .or(eq(TRAJECTORY, 14))
+                        .or(Int(15).lt(Var(TRAJECTORY))),
+                    eq(REAP_STAGE, 0),
+                    eq(TRAJECTORY, 19)
+                        .negate()
+                        .or(eq(END_DRAIN, 2))
+                        .or(eq(DEADLINE, 1)),
+                    if result == 1 {
+                        Bool(true)
                     } else {
-                        1
-                    }),
-                ),
-                (
-                    ROLL,
-                    Int(if control == 11 {
-                        0
-                    } else if control == 12 {
-                        2
+                        eq(TRAJECTORY, 6)
+                    },
+                    if already_exited {
+                        eq(H, 4)
                     } else {
-                        1
-                    }),
-                ),
-                (COVER, Int(i64::from(cover))),
-                (FAULT, Int(if cover { 0 } else { 6 })),
-                (DEBT, Var(DEBT).plus(Int(debt))),
-                (OWED, Var(OWED).plus(Int(debt))),
-                (TOTAL, Var(TOTAL).plus(Int(debt))),
-                (POSTDONE, Int(i64::from(!matches!(case, 7 | 8)))),
-            ],
-        );
+                        all([eq(H, 4).negate(), eq(DEADLINE, 1)])
+                    },
+                ]),
+                &[
+                    (KILL, Int(result)),
+                    (PENDING, Int(i64::from(result != 1))),
+                    // A signal never discards an already retained positive exit.
+                    (
+                        H,
+                        if result == 1 && !already_exited {
+                            Int(3)
+                        } else {
+                            Var(H)
+                        },
+                    ),
+                ],
+            );
+            controller.push(i);
+        }
+    }
+    if control == 7 {
         act(
             &mut m,
-            &format!("FailedClosureStillRecordsQuantumAndDebtCase{case}"),
-            all([
-                eq(PH, 6),
-                eq(CASE, case),
-                eq(SEAL, 1),
-                eq(TOTAL, 18).or(Var(TOTAL).lt(Int(18))),
-                eq(FAULT, 0).negate(),
-            ]),
-            &[
-                (PH, Int(7)),
-                (W, Int(w)),
-                (A, Int(a)),
-                (C, Int(c)),
-                (Q, Int(w.max(a) + c)),
-                (COVER, Int(0)),
-                (PIPE, Int(i64::from(c > 0))),
-                (ROLL, Int(1)),
-                (DEBT, Var(DEBT).plus(Int(debt))),
-                (OWED, Var(OWED).plus(Int(debt))),
-                (TOTAL, Var(TOTAL).plus(Int(debt))),
-                (POSTDONE, Int(i64::from(!matches!(case, 7 | 8)))),
-            ],
-        );
-        safe(
-            &mut m,
-            &format!("WindowUnionRetainsEveryReservedIntervalCase{case}"),
-            eq(CASE, case).negate().or(eq(PH, 7).negate()).or(eq(W, w)),
-        );
-        safe(
-            &mut m,
-            &format!("ObservedActiveCpuHasNoOmissionOrRollupDuplicationCase{case}"),
-            eq(CASE, case).negate().or(eq(PH, 7).negate()).or(eq(A, a)),
-        );
-        safe(
-            &mut m,
-            &format!("AllActiveControllerAndPipeCpuCountExactlyOnceCase{case}"),
-            eq(CASE, case).negate().or(eq(PH, 7).negate()).or(eq(C, c)),
-        );
-        safe(
-            &mut m,
-            &format!("QuantumIsMaxWindowOrActivePlusControllerCase{case}"),
-            eq(CASE, case)
-                .negate()
-                .or(eq(PH, 7).negate())
-                .or(eq(Q, w.max(a) + c)),
+            "BrokenEpermAsSettledWithoutPhysicalProof",
+            all([eq(KILL, 2), eq(REAP, 0), eq(GONE, 0)]),
+            &[(SETTLED, Int(1)), (OWNER, Int(0))],
         );
     }
     act(
         &mut m,
-        "UnsupportedCapabilityRefusesBeforeAnyNativeEffect",
-        all([eq(CONFIG, 1), eq(SUPPORT, 0), eq(EFFECT, 0)]),
+        "ObserveOriginalOnlyPositiveTerminalCensusBeforeReapSeal",
+        all([
+            eq(TRAJECTORY, 16),
+            eq(H, 4),
+            eq(OWNER, 1),
+            eq(REAP, 0),
+            eq(REAP_STAGE, 0),
+            eq(LEADER_TERMINAL, 0),
+        ]),
         &[
-            (FAULT, Int(6)),
-            (KNOWN, Int(0)),
-            (COVER, Int(0)),
-            (QUAR, Int(1)),
+            (LEADER_TERMINAL, Int(1)),
+            (CENSUS_TERMINAL, Int(1)),
+            (CENSUS_QUERY_KNOWN, Int(1)),
+            (NO_ATTEMPT, Int(1)),
+            (CLEANUP_CHECKED, Int(1)),
         ],
     );
     act(
         &mut m,
-        "RefuseMissingWholeCommandOrTransientCoverage",
+        "ObserveExitedOriginalOutputEofAndIncompleteInput",
         all([
-            eq(EFFECT, 1),
-            eq(FAULT, 0),
-            eq(UNCERTAIN, 1).or(eq(SUPPORT, 0)),
+            eq(TRAJECTORY, 19),
+            eq(H, 4),
+            eq(OWNER, 1),
+            eq(REAP_STAGE, 0),
+            eq(END_EOF_READY, 0),
         ]),
-        &[(FAULT, Int(6)), (KNOWN, Int(0)), (COVER, Int(0))],
+        &[(END_EOF_READY, Int(1)), (INPUT_REMAINING, Int(1))],
     );
+    let end_drain = m.actions.len();
     act(
         &mut m,
-        "ObserveNewLateCpuInvalidatesOldStoppedSeal",
+        "AccountingOnlyExitDrainPollWhilePayloadStaysBlocked",
         all([
-            eq(PH, 7),
-            eq(CASE, 7).or(eq(CASE, 8)),
-            eq(LATESEEN, 0),
-            eq(FAULT, 0),
+            eq(TRAJECTORY, 19),
+            eq(H, 4),
+            eq(OWNER, 1),
+            eq(REAP_STAGE, 0),
+            eq(END_EOF_READY, 1),
+            eq(END_DRAIN, 0),
+            if control == 18 {
+                Bool(false)
+            } else {
+                Bool(true)
+            },
         ]),
-        &[(LATESEEN, Int(1)), (SEAL, Int(0)), (REVALID, Int(0))],
+        &[(END_DRAIN, Int(1)), (END_OWN_DEBT, Int(9))],
     );
-    let late_count = if control == 8 {
-        0
-    } else if control == 24 {
-        2
-    } else {
-        1
-    };
-    let late_debt = if control == 8 {
-        0
-    } else if control == 24 {
-        18
-    } else {
-        9
-    };
-    for explained in 0..=1 {
+    for rest in 1..=9 {
         act(
             &mut m,
-            &format!("ReconcileLateKernelOnceWithFreshAdditiveDebtExplained{explained}"),
-            all([
-                eq(PH, 7),
-                eq(LATESEEN, 1),
-                eq(PROCESSED, 0),
-                Var(TOTAL).lt(Int(19)),
-                eq(EXPLAIN, explained),
-                eq(DEBT, 0),
-                eq(OWED, 0),
-            ]),
-            &[
-                (LATE, Int(late_count)),
-                (PROCESSED, Int(1)),
-                (POST, Int(1)),
-                (COVER, if explained == 0 { Int(0) } else { Var(COVER) }),
-                (FAULT, if explained == 0 { Int(6) } else { Var(FAULT) }),
-                (DEBT, Var(DEBT).plus(Int(late_debt))),
-                (OWED, Var(OWED).plus(Int(9))),
-                (TOTAL, Var(TOTAL).plus(Int(late_debt))),
-            ],
+            &format!("ObserveActualFreshAccountingDrainRest{rest}"),
+            all([eq(TRAJECTORY, 19), eq(END_DRAIN, 1), eq(END_OWN_DEBT, rest)]),
+            &[(END_OWN_DEBT, Int(rest - 1))],
         );
     }
+    let finish_end_drain = m.actions.len();
     act(
         &mut m,
-        "UnexplainedLateUserOrIncarnationGrowthRefuses",
-        all([eq(PROCESSED, 1), eq(EXPLAIN, 0), eq(FAULT, 0)]),
-        &[(FAULT, Int(6)), (COVER, Int(0))],
-    );
-    act(
-        &mut m,
-        "RevalidateCurrentStoppedRosterAfterExplainedLateKernel",
+        "ConsumeKnownTerminalEofAndRefuseIncompletePreparedInput",
         all([
-            eq(PH, 7),
-            eq(PROCESSED, 1),
-            eq(EXPLAIN, 1),
-            eq(LATE, 1),
-            eq(FAULT, 0),
-            eq(ROSTER, 1),
-            eq(REQUIRED, 1),
-            eq(ACK0, 1),
-            eq(ACK1, 1),
-            exact.clone(),
-            Var(CUR).eq(Var(TOKEN)),
+            eq(TRAJECTORY, 19),
+            eq(H, 4),
+            eq(END_DRAIN, 1),
+            eq(END_OWN_DEBT, 0),
+            eq(END_EOF_READY, 1),
         ]),
-        &[(SEAL, Int(1)), (REVALID, Int(1))],
+        &[(END_DRAIN, Int(2)), (REFUSED, Var(INPUT_REMAINING))],
     );
-    act(
+    progress(
         &mut m,
-        "GenuinelyPostSealCorroborationAndFinalizationAreSeparateOrdinaryUnit",
+        "PositiveExitGetsAccountingOnlyDrainOrOwnedQuarantine",
         all([
-            eq(PH, 7),
-            eq(POSTDONE, 0),
-            eq(PROCESSED, 1),
-            eq(REVALID, 1),
-            eq(DEBT, 0),
-            eq(FAULT, 0),
-            quiet.clone(),
-            Var(TOTAL).lt(Int(19)),
+            eq(TRAJECTORY, 19),
+            eq(H, 4),
+            eq(END_EOF_READY, 1),
+            eq(END_DRAIN, 0),
+            eq(DEADLINE, 0),
         ]),
-        &[
-            (POST, Int(1)),
-            (POSTDONE, Int(1)),
-            (DEBT, Int(if control == 28 { 0 } else { 9 })),
-            (OWED, Int(9)),
-            (TOTAL, Var(TOTAL).plus(Int(9))),
-        ],
+        Int(0).lt(Var(END_DRAIN)).or(all([eq(H, 6), eq(OWNER, 1)])),
+        vec![end_drain, finish_end_drain],
     );
-    let rest = m.actions.len();
-    for debt in 1..=27 {
-        act(
-            &mut m,
-            &format!("ObserveRestAfterWorkEndWithoutIdleCredit{debt}"),
-            all([
-                eq(DEBT, debt),
-                eq(OWED, debt),
-                eq(WORK, 0),
-                eq(PH, 6).negate(),
-            ]),
-            &[(DEBT, Int(debt - 1)), (OWED, Int(debt - 1))],
-        );
-    }
-    if control == 14 {
-        act(
-            &mut m,
-            "BrokenSleepOrIoDebtDeadlineReset",
-            all([eq(DEBT, 0).negate(), eq(WORK, 0)]),
-            &[(DEBT, Int(0))],
-        );
-    }
-    let can_work = all([
-        quiet.clone(),
-        eq(DEBT, 0),
-        eq(OWED, 0),
-        eq(POSTDONE, 1),
-        eq(REVALID, 1),
-        eq(COVER, 1),
-        available.clone(),
+    // A deadline may immediately choose the same-owner quarantine below,
+    // but cannot seal away an already-owned accounting drain obligation.
+    // No EOF or rest success is made fair: missing evidence/payment holds pins.
+    let physical_ready = all([
+        eq(H, 4),
+        eq(OWNER, 1),
+        eq(REAP, 0),
+        eq(REAP_STAGE, 0),
+        eq(TRAJECTORY, 19)
+            .negate()
+            .or(all([eq(END_DRAIN, 2), eq(END_OWN_DEBT, 0)])),
+        Var(TRAJECTORY)
+            .lt(Int(9))
+            .or(eq(TRAJECTORY, 14))
+            .or(all([
+                Int(15).lt(Var(TRAJECTORY)),
+                eq(TRAJECTORY, 16).negate().or(eq(NO_ATTEMPT, 1)),
+            ]))
+            .or(all([
+                eq(LEADER_TERMINAL, 1),
+                eq(CLEANUP_CHECKED, 1),
+                eq(CHILD_STATE, 6),
+                all([
+                    eq(TRAJECTORY, 9).or(eq(TRAJECTORY, 15)),
+                    eq(KILL, 0).negate(),
+                ])
+                .or(all([eq(TRAJECTORY, 10), eq(NO_ATTEMPT, 1)]))
+                .or(all([eq(TRAJECTORY, 11), eq(ESCAPE_ATTEMPT, 1)])),
+            ])),
     ]);
-    let mut next = open.to_vec();
-    next.push((GRANTS, Int(2)));
+    let authorize = m.actions.len();
     act(
         &mut m,
-        "ContinueOnlyAfterClosureCorroborationAndAllDebt",
-        all([
-            eq(PH, 7),
-            eq(GRANTS, 1),
-            eq(CASE, 7).negate(),
-            eq(CASE, 8).negate(),
-            can_work.clone(),
-        ]),
-        &next,
+        "AuthorizeOriginalReapAndSealEveryFutureNativeEffect",
+        physical_ready,
+        &[(REAP_STAGE, Int(1))],
+    );
+    controller.push(authorize);
+    act(
+        &mut m,
+        "PureOriginalTerminalReadRetryEintrOrZeroHasNoNewEffects",
+        all([eq(REAP_STAGE, 1), eq(OWNER, 1), eq(REAP, 0)]),
+        &[],
     );
     if control == 15 {
         act(
             &mut m,
-            "BrokenContinueWhileClosureOrDebtPending",
-            all([eq(PH, 7), eq(DEBT, 0).negate(), eq(FAULT, 0)]),
-            &[(WORK, Int(1))],
-        );
-    }
-    if control == 16 {
-        act(
-            &mut m,
-            "BrokenMainProofOverlapsOpenHelperWindow",
-            eq(PH, 4),
-            &[(WORK, Int(2))],
-        );
-    }
-    for fault in 1..=5 {
-        let broken = control == fault + 16;
-        act(
-            &mut m,
-            &format!("ObserveClockStopRevokeCancelPanic{fault}"),
-            all([eq(EFFECT, 1), eq(EXIT, 0), eq(FAULT, 0), eq(OWN, 1)]),
-            &[
-                (FAULT, Int(i64::from(fault))),
-                (KNOWN, Int(i64::from(fault != 1))),
-                (COVER, Int(0)),
-                (OWN, Int(i64::from(!broken))),
-                (TRUST, Int(0)),
-            ],
-        );
-    }
-    for foreground in 0..=1 {
-        act(
-            &mut m,
-            &format!("ObserveForegroundFence{foreground}WithoutDebtReset"),
+            "BrokenNativeGroupDispatchAfterReapAuthorizationBeforeActualReturn",
             all([
-                eq(EFFECT, 1),
-                eq(OWN, 1),
-                eq(EXIT, 0),
-                eq(FG, foreground).negate(),
-                eq(CASE, 1),
+                eq(TRAJECTORY, 16),
+                eq(REAP_STAGE, 1),
+                eq(REAP, 0),
+                eq(OWNER, 1),
+                eq(KILL, 0),
             ]),
-            &[(FG, Int(foreground)), (TRUST, Int(0)), (WORK, Int(0))],
+            &[(KILL, Int(1)), (POST_SEAL_EFFECT, Int(1))],
+        );
+    }
+    for rss in 0..=1 {
+        act(
+            &mut m,
+            &format!("ActualOriginalOwnWait4ReturnsImmutableUsageRss{rss}"),
+            all([
+                eq(REAP_STAGE, 1),
+                eq(OWNER, 1),
+                eq(REAP, 0),
+                eq(TRAJECTORY, 17).negate(),
+                eq(TRAJECTORY, 18).negate(),
+                if rss == 1 {
+                    eq(TRAJECTORY, 8)
+                } else {
+                    eq(TRAJECTORY, 8).negate()
+                },
+            ]),
+            &[
+                (REAP_STAGE, Int(2)),
+                (WAIT, Var(CPU)),
+                (TERMINAL_USER, Var(USER)),
+                (RSS, Int(rss)),
+                (CPU_RAW_UNKNOWN, Int(0)),
+                (RSS_RAW_UNKNOWN, Int(0)),
+            ],
         );
     }
     act(
         &mut m,
-        "ObserveDeadlineRetainsDebtAndOriginalEffect",
+        "ActualOriginalWait4ReturnsUnknownCpuRawMax",
         all([
-            eq(EFFECT, 1),
-            eq(OWN, 1),
-            eq(EXIT, 0),
-            eq(DEADLINE, 0),
-            eq(CASE, 10),
+            eq(TRAJECTORY, 17),
+            eq(REAP_STAGE, 1),
+            eq(OWNER, 1),
+            eq(REAP, 0),
         ]),
         &[
-            (DEADLINE, Int(1)),
-            (FAULT, Int(4)),
-            (COVER, Int(0)),
-            (TRUST, Int(0)),
+            (REAP_STAGE, Int(2)),
+            (CPU_RAW_UNKNOWN, Int(1)),
+            (WAIT, Int(0)),
+            (TERMINAL_USER, Int(0)),
+            (RSS, Int(0)),
         ],
     );
-    for current in 0..2 {
+    act(
+        &mut m,
+        "ActualOriginalWait4ReturnsKnownCpuUnknownRssRawMax",
+        all([
+            eq(TRAJECTORY, 18),
+            eq(REAP_STAGE, 1),
+            eq(OWNER, 1),
+            eq(REAP, 0),
+        ]),
+        &[
+            (REAP_STAGE, Int(2)),
+            (CPU_RAW_UNKNOWN, Int(0)),
+            (WAIT, Var(CPU)),
+            (TERMINAL_USER, Var(USER)),
+            (RSS, Int(0)),
+            (RSS_RAW_UNKNOWN, Int(1)),
+        ],
+    );
+    // The two tagged unknown results are explicit rawMAX facts, never finite0
+    // authority. Separate known-only and MAX native return actions below.
+    for rss in 0..=1 {
+        let verdict = if control == 3 { Var(SELFCPU) } else { Var(CPU) };
+        let u = vec![
+            (H, Int(5)),
+            (REAP, Int(1)),
+            (REAP_STAGE, Int(3)),
+            (WAIT, Var(CPU)),
+            (TERMINAL_USER, Var(USER)),
+            (ACCOUNTED, verdict.clone()),
+            (JOB, Var(JOB).plus(Var(CPU))),
+            (REPORTED_JOB, Var(REPORTED_JOB).plus(verdict.clone())),
+            (RSS, Int(rss)),
+            (PAID, Int(0)),
+            (NEXT, Int(0)),
+        ];
+        // Exact debt classes, including CPU0's ordinary1-unit floor. All raw
+        // terminal CPU is retained even for a refusing command or broken cap.
+        for cpu in 0..=4 {
+            let due = 9 * cpu.max(1);
+            let bad = Int(2)
+                .lt(verdict.clone())
+                .or(Int(4).lt(Var(REPORTED_JOB).plus(verdict.clone())))
+                .or(Bool(rss == 1))
+                .or(if control == 17 {
+                    Bool(false)
+                } else {
+                    eq(RSS_RAW_UNKNOWN, 1)
+                })
+                .or(if control == 9 {
+                    Bool(false)
+                } else {
+                    eq(ACK, 1).and(Var(PAUSE_USER).lt(Var(USER)))
+                });
+            for refuse in [false, true] {
+                let mut uu = u.clone();
+                uu.extend([
+                    (DUE, Int(due)),
+                    (
+                        DEBT,
+                        if control == 5 {
+                            Var(DEBT)
+                        } else {
+                            Var(DEBT).plus(Int(due))
+                        },
+                    ),
+                ]);
+                if refuse {
+                    uu.push((REFUSED, Int(1)));
+                }
+                let callback = m.actions.len();
+                act(
+                    &mut m,
+                    &format!("OwnWait4TerminalCpu{cpu}Rss{rss}Refuse{refuse}"),
+                    all([
+                        eq(REAP_STAGE, 2),
+                        eq(REAP, 0),
+                        eq(OWNER, 1),
+                        eq(CPU_RAW_UNKNOWN, 0),
+                        eq(CPU, cpu),
+                        eq(WAIT, cpu),
+                        eq(RSS, rss),
+                        if rss == 1 {
+                            eq(TRAJECTORY, 8)
+                        } else {
+                            eq(TRAJECTORY, 8).negate()
+                        },
+                        if refuse {
+                            bad.clone()
+                        } else {
+                            bad.clone().negate()
+                        },
+                    ]),
+                    &uu,
+                );
+                controller.push(callback);
+            }
+        }
+    }
+    let unknown_callback = m.actions.len();
+    act(
+        &mut m,
+        "ConsumeUnknownAuthoritativeCpuOnceRetainsRawMaxAndFallbackPacingOnly",
+        all([
+            eq(TRAJECTORY, 17),
+            eq(REAP_STAGE, 2),
+            eq(REAP, 0),
+            eq(OWNER, 1),
+            eq(CPU_RAW_UNKNOWN, 1),
+        ]),
+        &[
+            (REAP_STAGE, Int(3)),
+            (H, Int(5)),
+            (REAP, Int(1)),
+            (JOB_RAW_UNKNOWN, Int(1)),
+            (ACCOUNTED, Int(0)),
+            (DUE, Int(27)),
+            (DEBT, Int(if control == 5 { 0 } else { 27 })),
+            (PAID, Int(0)),
+            (REFUSED, Int(1)),
+        ],
+    );
+    controller.push(unknown_callback);
+    // Source wrapper returns one known-native/count verdict in this same
+    // observation. Keep the actual query and its local interpretation atomic;
+    // successful native proof is not fair and gains no extra free unit.
+    let mut group_error = vec![
+        (GROUP_QUERY_OBS, Int(1)),
+        (GROUP_QUERY_KNOWN, Int(0)),
+        (GROUP_RAW_EMPTY, Int(1)),
+        (GROUP_ERROR_RETAINED, Int(1)),
+    ];
+    if control != 14 {
+        group_error.push((UNKNOWN, Int(1)));
+    } // pending physical proof is not a sticky CPU-budget failure
+    act(
+        &mut m,
+        "ObserveNativeGroupRawZeroPlusEioDependencyFailure",
+        all([eq(TRAJECTORY, 14), eq(REAP, 1), eq(GROUP_QUERY_OBS, 0)]),
+        &group_error,
+    );
+    if control == 14 {
         act(
             &mut m,
-            &format!("RestartOriginalEffectA1B2A3From{current}"),
-            all([eq(EFFECT, 1), eq(INC, current), eq(OWN, 1), eq(EXIT, 0)]),
+            "BrokenNativeCensusZeroErrorMintsAllTerminalNoAttempt",
+            all([
+                eq(TRAJECTORY, 15),
+                eq(LEADER_TERMINAL, 1),
+                eq(CENSUS_QUERY_KNOWN, 0),
+                eq(CENSUS_RAW_EMPTY, 1),
+                eq(OWNER, 1),
+                eq(REAP, 0),
+                eq(KILL, 0),
+                eq(NO_ATTEMPT, 0),
+                eq(CLEANUP_CHECKED, 0),
+            ]),
             &[
-                (INC, Int(current + 1)),
-                (FAULT, Int(3)),
-                (COVER, Int(0)),
-                (TRUST, Int(0)),
+                (CENSUS_TERMINAL, Int(1)),
+                (NO_ATTEMPT, Int(1)),
+                (CLEANUP_CHECKED, Int(1)),
             ],
         );
-    }
-    if control == 22 {
         act(
             &mut m,
-            "BrokenA3ReusesA1WindowAndCurrentnessSeal",
-            all([eq(INC, 2), eq(CAP, 0), eq(EFFECT, 1), eq(EXIT, 0)]),
-            &[(COVER, Int(1)), (SEAL, Int(1)), (FAULT, Int(0))],
+            "BrokenNativeGroupZeroErrorAsKnownEmptyClaim",
+            all([
+                eq(TRAJECTORY, 14),
+                eq(REAP, 1),
+                eq(GONE, 0),
+                eq(GROUP_QUERY_OBS, 1),
+                eq(GROUP_QUERY_KNOWN, 0),
+                eq(GROUP_RAW_EMPTY, 1),
+                eq(GROUP_ERROR_RETAINED, 1),
+            ]),
+            &[(GONE, Int(1)), (UNKNOWN, Int(0)), (PENDING, Int(0))],
         );
     }
-    let retire = m.actions.len();
-    act(
-        &mut m,
-        "RetireRetainsOriginalWindowsAndSignalingCustody",
-        all([eq(EFFECT, 1), eq(RETIRED, 0), eq(OWN, 1)]),
-        &[(RETIRED, Int(1)), (PH, Int(8)), (WORK, Int(0))],
-    );
-    if control == 13 {
-        act(
-            &mut m,
-            "BrokenRetiredTokenOrAbsentCensusCertifiesCoverage",
-            all([eq(RETIRED, 1), eq(EXIT, 0), eq(ROSTER, 0)]),
-            &[(COVER, Int(1)), (SEAL, Int(1))],
-        );
+    for raced in [false, true] {
+        for recovery in [false, true] {
+            act(
+                &mut m,
+                &format!("ObserveActualNativeKnownGroupGoneRace{raced}Recovery{recovery}"),
+                all([
+                    eq(REAP, 1),
+                    eq(GONE, 0),
+                    if recovery {
+                        all([
+                            eq(TRAJECTORY, 14),
+                            eq(GROUP_QUERY_OBS, 1),
+                            eq(GROUP_ERROR_RETAINED, 1),
+                        ])
+                    } else {
+                        all([eq(TRAJECTORY, 14).negate(), eq(GROUP_QUERY_OBS, 0)])
+                    },
+                    if raced {
+                        eq(KILL, 2).or(eq(KILL, 3))
+                    } else {
+                        eq(KILL, 2).or(eq(KILL, 3)).negate()
+                    },
+                ]),
+                &[
+                    (GROUP_QUERY_OBS, Int(1)),
+                    (GROUP_QUERY_KNOWN, Int(1)),
+                    (GROUP_RAW_EMPTY, Int(1)),
+                    (GONE, Int(1)),
+                    (PENDING, Int(0)),
+                    (UNKNOWN, if control == 8 { Var(UNKNOWN) } else { Int(0) }),
+                    (RACE, Int(i64::from(raced))),
+                ],
+            );
+        }
     }
+
+    let settle = m.actions.len();
     act(
         &mut m,
-        "ObserveExactOriginalExitAndRetainedUsage",
-        all([eq(RETIRED, 1), eq(EXIT, 0), eq(OWN, 1)]),
-        &[(EXIT, Int(1)), (S0, Int(4)), (S1, Int(4))],
-    );
-    act(
-        &mut m,
-        "ActuallyReapOriginalGroupAfterRetirement",
-        all([eq(RETIRED, 1), eq(EXIT, 1), eq(REAP, 0), eq(OWN, 1)]),
-        &[(REAP, Int(1)), (PH, Int(9))],
-    );
-    act(
-        &mut m,
-        "ReleaseOnlyAfterRealReapAndEveryKnownDebt",
+        "SettleOnlyActualOwnReapAndGroupGone",
         all([
-            eq(RETIRED, 1),
-            eq(REAP, 1),
-            eq(OWN, 1),
+            complete.clone(),
+            eq(SETTLED, 0),
+            eq(OWNER, 1),
             eq(DEBT, 0),
-            eq(OWED, 0),
+            if control == 16 {
+                Bool(true)
+            } else {
+                eq(CPU_RAW_UNKNOWN, 0)
+            },
+            if control == 12 {
+                Bool(true)
+            } else {
+                eq(CHILD_UNPROVEN, 0)
+            },
         ]),
-        &[(OWN, Int(0))],
+        &[
+            (SETTLED, Int(1)),
+            (OWNER, Int(0)),
+            (RES, Int(0)),
+            (PENDING, Int(0)),
+        ],
     );
+    controller.push(settle);
+    // Physical completeness and authoritative CPU/child-cost knowledge are
+    // independent. A known ownwait4+groupgone remains physically complete even
+    // when raw CPU_MAX, unrolled child cost or unpaid known helper debt keeps
+    // this same owner quarantined. Clock/rest success remains unfair; a deadline
+    // can retain that exact outstanding bill without waiting for it to be paid.
+    // Only the native group proof clears a pre-existing physical UNKNOWN;
+    // the stale-unknown control8 must still retain its omitted clear.
+    for physical_complete in [false, true] {
+        let quarantine = m.actions.len();
+        act(
+            &mut m,
+            if physical_complete {
+                "DeadlineKeepsSameOwnerForUnknownCostAfterPhysicalCompletion"
+            } else {
+                "DeadlineKeepsSameOwnerInQuarantine"
+            },
+            all([
+                eq(DEADLINE, 1),
+                eq(SETTLED, 0),
+                eq(H, 6).negate(),
+                eq(OWNER, 1),
+                if physical_complete {
+                    complete.clone().and(
+                        eq(CHILD_UNPROVEN, 1)
+                            .or(eq(CPU_RAW_UNKNOWN, 1))
+                            .or(Int(0).lt(Var(DEBT))),
+                    )
+                } else {
+                    complete.clone().negate()
+                },
+                eq(KILL, 0)
+                    .negate()
+                    .or(eq(REAP, 1))
+                    .or(eq(NO_ATTEMPT, 1))
+                    .or(Int(0).lt(Var(REAP_STAGE))),
+            ]),
+            &[
+                (H, Int(6)),
+                (
+                    UNKNOWN,
+                    if physical_complete {
+                        Var(UNKNOWN)
+                    } else {
+                        Int(1)
+                    },
+                ),
+                (REFUSED, Int(1)),
+            ],
+        );
+        controller.push(quarantine);
+    }
+    for debt in 1..=36 {
+        act(
+            &mut m,
+            &format!("PayActualPostReapHelperRest{debt}"),
+            all([eq(REAP, 1), eq(DEBT, debt)]),
+            &[(DEBT, Int(debt - 1)), (PAID, Var(PAID).plus(Int(1)))],
+        );
+    }
     act(
         &mut m,
-        "ResumeMainOnlyAfterFullSettlementAndPaidCoverage",
+        "AdmitNextHelperOrMainOnlyAfterSettlementAndCurrentDebt",
         all([
-            eq(OWN, 0),
-            eq(REAP, 1),
-            eq(COVER, 1),
-            eq(SEAL, 1),
-            eq(POSTDONE, 1),
-            eq(REVALID, 1),
+            eq(SETTLED, 1),
             eq(DEBT, 0),
-            eq(OWED, 0),
-            eq(KNOWN, 1),
-            eq(FAULT, 0),
-            exact.clone(),
-            eq(FG, 0),
+            eq(NEXT, 0),
+            eq(REFUSED, 0),
             eq(DEADLINE, 0),
+            eq(FG, 0),
+            eq(RES, 0),
         ]),
-        &[(WORK, Int(2))],
+        &[(NEXT, Int(1))],
     );
     act(
         &mut m,
-        "TrustOnlyClosedQualifiedActuallySettledAccounting",
+        "TrustTerminalAuthoritativeTotalsAfterPaidMainAdmission",
         all([
-            eq(WORK, 2),
-            eq(COVER, 1),
             eq(REAP, 1),
-            eq(OWN, 0),
+            eq(SETTLED, 1),
+            eq(NEXT, 1),
             eq(DEBT, 0),
-            eq(KNOWN, 1),
-            eq(FAULT, 0),
-            eq(POSTDONE, 1),
-            eq(REVALID, 1),
-            exact.clone(),
+            eq(REFUSED, 0),
+            cap,
+            eq(PIPE, 1),
         ]),
         &[(TRUST, Int(1))],
     );
-    let quarantine = m.actions.len();
-    act(
+    if control == 2 {
+        act(
+            &mut m,
+            "BrokenTrustFromOldLiveSampleWithoutOwnWait4",
+            all([
+                eq(H, 1),
+                eq(REAP, 0),
+                eq(PIPE, 1),
+                Var(SAMPLE).lt(Int(3)),
+                Int(2).lt(Var(CPU)),
+            ]),
+            &[(TRUST, Int(1))],
+        );
+    }
+    safe(
         &mut m,
-        "LocalUnavailableDispositionRetainsOriginalEffect",
-        all([
-            eq(FAULT, 0).negate().or(eq(RETIRED, 1)),
-            eq(OWN, 1),
-            eq(REAP, 0),
-        ]),
-        &[(COVER, Int(0)), (TRUST, Int(0)), (QUAR, Int(1))],
+        "BackgroundOnly",
+        eq(H, 0).or(all([eq(QOS, 0), eq(PRI, 4)])),
     );
     safe(
         &mut m,
-        "NativeEffectRequiresSupportedCapabilityAtAdmission",
-        eq(EFFECT, 0).or(eq(SUPPORT, 1)),
-    );
-    safe(
-        &mut m,
-        "StickyFailedAdmissionForbidsOrdinaryExpensiveObservation",
-        eq(OBSERVE, 2).negate(),
-    );
-    safe(
-        &mut m,
-        "InitialCorroborationRequiresSettledCreationOwnership",
-        eq(OBSERVE, 3).negate(),
-    );
-    safe(
-        &mut m,
-        "InitialCorroborationRequiresBothPriorDebtsPaid",
-        eq(OBSERVE, 4).negate(),
-    );
-    safe(
-        &mut m,
-        "BothPossibleWindowsOpenAtOriginalCheckedT0",
-        eq(GRANTS, 0).or(all([eq(START0, 1), eq(START1, 1)])),
-    );
-    safe(
-        &mut m,
-        "TentativeEndpointsNeedPositiveCurrentTaskAcknowledgement",
-        all([
-            eq(END0, 0).or(eq(ACK0, 1)),
-            eq(END1, 0).or(all([eq(ACK1, 1), Var(CUR).eq(Var(TOKEN))])),
-        ]),
-    );
-    safe(
-        &mut m,
-        "UsableSealFollowsEveryRequiredClosedRosterPredicate",
-        eq(SEAL, 0).or(all([
-            eq(ROSTER, 1),
-            eq(REQUIRED, 1),
-            eq(UNCERTAIN, 0),
-            eq(SUPPORT, 1),
-            eq(ACK0, 1),
-            eq(ACK1, 1),
-            Var(CUR).eq(Var(TOKEN)),
-        ])),
-    );
-    safe(
-        &mut m,
-        "UnexplainedActiveCpuOverWindowCannotCertify",
-        eq(COVER, 0).or(Var(W).lt(Var(A)).negate()),
-    );
-    safe(
-        &mut m,
-        "KnownOverOneMsQuantumCannotCertify",
-        eq(COVER, 0).or(eq(CASE, 6).negate()),
-    );
-    safe(
-        &mut m,
-        "LateKernelAttributionIsExplainedAndChargedOnce",
-        eq(PROCESSED, 0).or(all([eq(LATE, 1), eq(EXPLAIN, 1).or(eq(COVER, 0))])),
-    );
-    safe(
-        &mut m,
-        "DebtNeverDropsObservedOutstandingWork",
-        Var(DEBT).lt(Var(OWED)).negate(),
-    );
-    safe(
-        &mut m,
-        "NoNewContinuationWhileClosedDebtIsPending",
-        eq(PH, 7).negate().or(eq(WORK, 1).negate()),
-    );
-    safe(
-        &mut m,
-        "MainProofNeverOverlapsOriginalLiveHelper",
-        eq(WORK, 2)
-            .negate()
-            .or(all([eq(OWN, 0), eq(REAP, 1), eq(DEBT, 0), eq(OWED, 0)])),
-    );
-    safe(
-        &mut m,
-        "FailureCannotReleaseUnreapedOriginalEffect",
-        eq(EFFECT, 0)
-            .or(eq(OWN, 1))
-            .or(all([eq(REAP, 1), eq(EXIT, 1), eq(RETIRED, 1)])),
-    );
-    safe(
-        &mut m,
-        "CoverageKeepsOriginalEpochAndCompleteRoster",
-        eq(COVER, 0).or(all([
-            exact,
-            eq(ROSTER, 1),
-            eq(REQUIRED, 1),
-            eq(UNCERTAIN, 0),
-            eq(SUPPORT, 1),
-        ])),
-    );
-    safe(
-        &mut m,
-        "UnknownCostNeverCertifiesFiniteAccounting",
-        eq(KNOWN, 1).or(eq(COVER, 0)),
-    );
-    safe(
-        &mut m,
-        "TrustRequiresCompleteCurrentPaidActualSettlement",
+        "TrustWithinCap",
         eq(TRUST, 0).or(all([
-            eq(COVER, 1),
-            eq(KNOWN, 1),
-            eq(FAULT, 0),
             eq(REAP, 1),
-            eq(OWN, 0),
-            eq(DEBT, 0),
-            eq(OWED, 0),
-            eq(POSTDONE, 1),
-            eq(REVALID, 1),
-            eq(SEAL, 1),
+            eq(H, 5),
+            Var(WAIT).lt(Int(3)),
+            Var(JOB).lt(Int(5)),
+            eq(RSS, 0),
+            eq(RSS_RAW_UNKNOWN, 0),
+            eq(CPU_RAW_UNKNOWN, 0),
+            eq(JOB_RAW_UNKNOWN, 0),
         ])),
     );
-    // OS exit is not fair; local stop/refusal and retirement remain available.
+    safe(
+        &mut m,
+        "NoBurnWhilePaused",
+        all([
+            // Accepted live pause observations must preserve the ACK cut.
+            // The explicit withheld-monitor native trace has no fresh live
+            // observation certificate; raw violating behavior stays visible.
+            eq(ACK, 0)
+                .or(eq(FG, 0))
+                .or(eq(MONITOR, 0).negate())
+                .or(Var(USER).eq(Var(PAUSE_USER))),
+            // Terminal output cannot certify a violated unresolved pause,
+            // including when foreground clears only after natural exit.
+            eq(TRUST, 0)
+                .or(eq(ACK, 0))
+                .or(Var(TERMINAL_USER).eq(Var(PAUSE_USER))),
+        ]),
+    );
+    safe(
+        &mut m,
+        "TerminalPauseUserViolationRetainsRawCostAndRefuses",
+        eq(REAP, 0)
+            .or(eq(ACK, 0))
+            .or(Var(PAUSE_USER).lt(Var(TERMINAL_USER)).negate())
+            .or(all([
+                eq(REFUSED, 1),
+                eq(TRUST, 0),
+                Var(TERMINAL_USER).eq(Var(USER)),
+                Var(WAIT).eq(Var(CPU)),
+                Var(DEBT).plus(Var(PAID)).lt(Var(DUE)).negate(),
+            ])),
+    );
+    safe(
+        &mut m,
+        "DebtBeforeNext",
+        eq(NEXT, 0).or(all([eq(DEBT, 0), Var(PAID).lt(Var(DUE)).negate()])),
+    );
+    safe(
+        &mut m,
+        "SettlementHonest",
+        all([
+            eq(SETTLED, 0).or(all([
+                eq(REAP, 1),
+                eq(GONE, 1),
+                eq(CHILD_UNPROVEN, 0),
+                eq(GROUP_QUERY_KNOWN, 1),
+                eq(GROUP_RAW_EMPTY, 1),
+                eq(CPU_RAW_UNKNOWN, 0),
+                eq(JOB_RAW_UNKNOWN, 0),
+            ])),
+            eq(UNKNOWN, 0).or(eq(REAP, 1).and(eq(GONE, 1)).negate()),
+        ]),
+    );
+    safe(
+        &mut m,
+        "GroupNoAttemptNeedsOriginalAndSamePositiveTerminalCensus",
+        eq(NO_ATTEMPT, 0).or(all([
+            eq(LEADER_TERMINAL, 1),
+            eq(CENSUS_TERMINAL, 1),
+            eq(CENSUS_QUERY_KNOWN, 1),
+        ])),
+    );
+    safe(
+        &mut m,
+        "EscapedCurrentTokenCleanupNeedsItsOwnEffectOrUnavailablePins",
+        eq(CLEANUP_CHECKED, 0)
+            .or(eq(CHILD_STATE, 3).negate())
+            .or(eq(ESCAPE_ATTEMPT, 1))
+            .or(all([eq(TRAJECTORY, 13), eq(H, 6), eq(OWNER, 1)])),
+    );
+    safe(
+        &mut m,
+        "UnrolledChildCostCannotSettleOrTrust",
+        eq(CHILD_UNPROVEN, 0).or(all([
+            eq(OWNER, 1),
+            eq(SETTLED, 0),
+            eq(TRUST, 0),
+            eq(REFUSED, 1),
+        ])),
+    );
+    safe(
+        &mut m,
+        "KnownLeaderWait4CostRetainedWithoutInventedChildCredit",
+        eq(CHILD_UNPROVEN, 0).or(eq(REAP, 0)).or(all([
+            Var(WAIT).eq(Var(CPU)),
+            Var(DEBT).plus(Var(PAID)).lt(Var(DUE)).negate(),
+            eq(ROLLUP_QUALIFIED, 1).or(all([eq(CHILDCPU, 0), Var(CPU).eq(Var(SELFCPU))])),
+        ])),
+    );
+    safe(
+        &mut m,
+        "QualifiedChildRollupNeedsExitedRiSameSourceAndComponentwiseCoverage",
+        eq(ROLLUP_QUALIFIED, 0).or(qualified_child_source),
+    );
+    safe(
+        &mut m,
+        "NativeZeroAbsenceClaimsRequireKnownStatus",
+        all([
+            eq(GONE, 0).or(all([
+                eq(GROUP_QUERY_OBS, 1),
+                eq(GROUP_QUERY_KNOWN, 1),
+                eq(GROUP_RAW_EMPTY, 1),
+            ])),
+            eq(CENSUS_TERMINAL, 0).or(eq(CENSUS_QUERY_KNOWN, 1)),
+            eq(ROLLUP_QUALIFIED, 0).or(eq(CHILD_EDGE_KNOWN, 1)),
+        ]),
+    );
+    safe(
+        &mut m,
+        "ReapAuthorizationIsNotActualReturnOrBudgetConsumption",
+        all([
+            eq(REAP, 0).or(eq(REAP_STAGE, 3)),
+            Var(REAP_STAGE)
+                .lt(Int(2))
+                .negate()
+                .or(all([eq(REAP, 0), eq(TRUST, 0)])),
+        ]),
+    );
+    safe(
+        &mut m,
+        "NoNativeEffectsAfterReapAuthorization",
+        eq(POST_SEAL_EFFECT, 0),
+    );
+    safe(
+        &mut m,
+        "UnknownAuthoritativeCpuCannotGetFiniteCreditOrRelease",
+        eq(CPU_RAW_UNKNOWN, 0).or(all([
+            eq(OWNER, 1),
+            eq(SETTLED, 0),
+            eq(TRUST, 0),
+            eq(REAP, 0).or(all([eq(JOB_RAW_UNKNOWN, 1), eq(REFUSED, 1)])),
+        ])),
+    );
+    safe(
+        &mut m,
+        "ObservedExitDrainNeverAuthorizesPayloadContOrMainProof",
+        eq(TRAJECTORY, 19)
+            .negate()
+            .or(eq(END_EOF_READY, 0))
+            .or(all([eq(RESUMES, 0), eq(NEXT, 0), eq(TRUST, 0)])),
+    );
+    safe(
+        &mut m,
+        "LiveOverCapTriggersKill",
+        eq(OVER, 0).or(eq(KILL, 0).negate()),
+    );
+    safe(
+        &mut m,
+        "ObservedPriorityBeforePipe",
+        eq(PIPE, 0).or(all([
+            eq(QCHECK, 1),
+            eq(PRI, 4),
+            eq(CHILD_SEEN, 0).or(eq(CHILD_QCHECK, 1)),
+        ])),
+    );
+    safe(
+        &mut m,
+        "RawWait4AndJobCpuNeverClamp",
+        eq(REAP, 0).or(eq(CPU_RAW_UNKNOWN, 1)).or(all([
+            Var(WAIT).eq(Var(CPU)),
+            Var(TERMINAL_USER).eq(Var(USER)),
+            Var(CPU).eq(Var(SELFCPU).plus(Var(CHILDCPU))),
+        ])),
+    );
+    safe(
+        &mut m,
+        "UnknownLiveCounterNeverGetsNumericAuthority",
+        eq(COUNTER_UNKNOWN, 0).or(all([eq(REFUSED, 1), eq(TRUST, 0)])),
+    );
+    safe(
+        &mut m,
+        "OriginalCustodyUntilPhysicalSettlement",
+        eq(H, 0)
+            .or(eq(OWNER, 1))
+            .or(all([eq(REAP, 1), eq(GONE, 1), eq(SETTLED, 1)])),
+    );
     progress(
         &mut m,
-        "FaultHasRetirementOrOwnedUnavailableDisposition",
-        eq(FAULT, 0).negate(),
-        eq(RETIRED, 1).or(eq(REAP, 1)).or(eq(QUAR, 1)),
-        vec![retire, quarantine, rest],
+        "DeadlineGetsSettledOrOwnedQuarantine",
+        eq(DEADLINE, 1),
+        eq(SETTLED, 1).or(all([eq(H, 6), eq(OWNER, 1)])),
+        controller,
     );
-    if measured_law {
-        extend_member_window_measured_law(&mut m, control, forged_terminal_control);
-        extend_member_window_adaptive_grants(&mut m, control);
-        extend_adaptive_latency_provenance(&mut m, control);
-    }
-    if control != 0 {
-        // TLC otherwise expands the state-only ORs as alternative next-state
-        // branches, producing duplicate states/edges for every true disjunct.
-        // Select every potentially failed boundary and force one Boolean value.
-        // Every invariant and reachable state/labelled edge remains unchanged;
-        // the test compares this with the original branching observer exactly.
-        let relevant: &[&str] = match control {
-            1 => &[
-                "QuantumIsMaxWindowOrActivePlusControllerCase0",
-                "QuantumIsMaxWindowOrActivePlusControllerCase2",
-                "QuantumIsMaxWindowOrActivePlusControllerCase3",
-                "WindowUnionRetainsEveryReservedIntervalCase0",
-                "WindowUnionRetainsEveryReservedIntervalCase2",
-                "WindowUnionRetainsEveryReservedIntervalCase3",
+    if control != 0 && control != 18 && boundary {
+        let names: &[&str] = match control {
+            1 => &["BackgroundOnly"],
+            2 | 3 => &["TrustWithinCap"],
+            4 => &["LiveOverCapTriggersKill"],
+            5 => &[
+                "DebtBeforeNext",
+                "TerminalPauseUserViolationRetainsRawCostAndRefuses",
+                "KnownLeaderWait4CostRetainedWithoutInventedChildCredit",
             ],
-            2 => &["BothPossibleWindowsOpenAtOriginalCheckedT0"],
-            3 => &["TentativeEndpointsNeedPositiveCurrentTaskAcknowledgement"],
-            4 => &["UsableSealFollowsEveryRequiredClosedRosterPredicate"],
-            5 => &["TentativeEndpointsNeedPositiveCurrentTaskAcknowledgement"],
-            6 => &["UsableSealFollowsEveryRequiredClosedRosterPredicate"],
-            7 => &["UnexplainedActiveCpuOverWindowCannotCertify"],
-            8 => &[
-                "DebtNeverDropsObservedOutstandingWork",
-                "LateKernelAttributionIsExplainedAndChargedOnce",
+            6 => &["NoBurnWhilePaused"],
+            7 => &["SettlementHonest", "OriginalCustodyUntilPhysicalSettlement"],
+            8 => &["SettlementHonest"],
+            9 => &["TerminalPauseUserViolationRetainsRawCostAndRefuses"],
+            10 => &["GroupNoAttemptNeedsOriginalAndSamePositiveTerminalCensus"],
+            11 => &["EscapedCurrentTokenCleanupNeedsItsOwnEffectOrUnavailablePins"],
+            12 => &["SettlementHonest", "UnrolledChildCostCannotSettleOrTrust"],
+            13 => &["QualifiedChildRollupNeedsExitedRiSameSourceAndComponentwiseCoverage"],
+            14 => &["NativeZeroAbsenceClaimsRequireKnownStatus"],
+            15 => &["NoNativeEffectsAfterReapAuthorization"],
+            16 => &[
+                "SettlementHonest",
+                "UnknownAuthoritativeCpuCannotGetFiniteCreditOrRelease",
             ],
-            9 => &[
-                "AllActiveControllerAndPipeCpuCountExactlyOnceCase1",
-                "AllActiveControllerAndPipeCpuCountExactlyOnceCase6",
-                "AllActiveControllerAndPipeCpuCountExactlyOnceCase7",
-                "AllActiveControllerAndPipeCpuCountExactlyOnceCase8",
-                "QuantumIsMaxWindowOrActivePlusControllerCase1",
-                "QuantumIsMaxWindowOrActivePlusControllerCase6",
-                "QuantumIsMaxWindowOrActivePlusControllerCase7",
-                "QuantumIsMaxWindowOrActivePlusControllerCase8",
-            ],
-            10 => &[
-                "AllActiveControllerAndPipeCpuCountExactlyOnceCase1",
-                "AllActiveControllerAndPipeCpuCountExactlyOnceCase6",
-                "AllActiveControllerAndPipeCpuCountExactlyOnceCase7",
-                "AllActiveControllerAndPipeCpuCountExactlyOnceCase8",
-            ],
-            11 => &[
-                "ObservedActiveCpuHasNoOmissionOrRollupDuplicationCase0",
-                "ObservedActiveCpuHasNoOmissionOrRollupDuplicationCase1",
-                "ObservedActiveCpuHasNoOmissionOrRollupDuplicationCase10",
-                "ObservedActiveCpuHasNoOmissionOrRollupDuplicationCase2",
-                "ObservedActiveCpuHasNoOmissionOrRollupDuplicationCase3",
-                "ObservedActiveCpuHasNoOmissionOrRollupDuplicationCase5",
-                "ObservedActiveCpuHasNoOmissionOrRollupDuplicationCase6",
-                "ObservedActiveCpuHasNoOmissionOrRollupDuplicationCase7",
-                "ObservedActiveCpuHasNoOmissionOrRollupDuplicationCase8",
-                "QuantumIsMaxWindowOrActivePlusControllerCase5",
-            ],
-            12 => &[
-                "ObservedActiveCpuHasNoOmissionOrRollupDuplicationCase1",
-                "ObservedActiveCpuHasNoOmissionOrRollupDuplicationCase10",
-                "ObservedActiveCpuHasNoOmissionOrRollupDuplicationCase6",
-                "ObservedActiveCpuHasNoOmissionOrRollupDuplicationCase7",
-                "ObservedActiveCpuHasNoOmissionOrRollupDuplicationCase8",
-            ],
-            13 => &[
-                "CoverageKeepsOriginalEpochAndCompleteRoster",
-                "KnownOverOneMsQuantumCannotCertify",
-                "UnknownCostNeverCertifiesFiniteAccounting",
-                "UsableSealFollowsEveryRequiredClosedRosterPredicate",
-            ],
-            14 => &["DebtNeverDropsObservedOutstandingWork"],
-            15 => &["NoNewContinuationWhileClosedDebtIsPending"],
-            16 => &["MainProofNeverOverlapsOriginalLiveHelper"],
-            17 => &["FailureCannotReleaseUnreapedOriginalEffect"],
-            18 => &["FailureCannotReleaseUnreapedOriginalEffect"],
-            19 => &["FailureCannotReleaseUnreapedOriginalEffect"],
-            20 => &["FailureCannotReleaseUnreapedOriginalEffect"],
-            21 => &["FailureCannotReleaseUnreapedOriginalEffect"],
-            22 => &[
-                "CoverageKeepsOriginalEpochAndCompleteRoster",
-                "KnownOverOneMsQuantumCannotCertify",
-                "LateKernelAttributionIsExplainedAndChargedOnce",
-                "UnexplainedActiveCpuOverWindowCannotCertify",
-                "UnknownCostNeverCertifiesFiniteAccounting",
-                "UsableSealFollowsEveryRequiredClosedRosterPredicate",
-            ],
-            23 => &["KnownOverOneMsQuantumCannotCertify"],
-            24 => &["LateKernelAttributionIsExplainedAndChargedOnce"],
-            25 => &["StickyFailedAdmissionForbidsOrdinaryExpensiveObservation"],
-            26 => &["InitialCorroborationRequiresSettledCreationOwnership"],
-            27 => &["InitialCorroborationRequiresBothPriorDebtsPaid"],
-            28 => &["DebtNeverDropsObservedOutstandingWork"],
-            29 | 30 => &["MeasuredNeedsClosure"],
-            31 | 32 => &[
-                "ChargedCoversBurned",
-                "ConservationFailureRetainsRawAndRefusesTrust",
-            ],
-            33 => &["WallBounded"],
-            34 => &["MeasuredNeedsClosure", "PerSlotMeasuredCpuFitsWindow"],
-            35 => &["MeasuredNeedsClosure", "RollupRequiresUniqueAdmittedChild"],
-            36 => &["MeasuredNeedsClosure", "RollupNeedsCausalExitAndLeaderAck"],
-            37 => &["MeasuredNeedsClosure", "RollupCountedOnce"],
-            38 => &["InitialCorroborationStageRequiresFreshPaidRest"],
-            39 => &["InitialEligibleTerminalRiAttemptPrecedesOwnWait4"],
-            40 => &[
-                "ChargedCoversBurned",
-                "ConservationFailureRetainsRawAndRefusesTrust",
-            ],
-            41 => &["TerminalResidualIsFullyChargedOutsideConservationCredit"],
-            42 => &["TeardownCeilingIsIndependentFixedPerActualReap"],
-            43 => &["TeardownChildCountNeedsQualifiedRetainedReapProof"],
-            44 => &["BornStoppedCreationFaultReapNeedsPaidOriginalPhysicalLatch"],
-            45 => &["IssuedAdaptiveGrantUsesMeasuredCostAndStopLatencyCap"],
-            46 => &["AdaptiveLatencyRetainsMaximumValidLiveAck"],
-            47 => &[
-                "AdaptiveLatencyRetainsMaximumValidLiveAck",
-                "AdaptiveGrowthNeedsMeasuredLiveSuccessfulStopAck",
-            ],
-            48 => &["WindowBasisAboveNewTargetHalvesPriorRun"],
-            49 => &[
-                "PendingDirectExitCannotAdmitExpensiveWorkOrTrust",
-                "SecondDirectGrantCommitNeedsOwnWait4AndPriorCredit",
-            ],
+            17 => &["TrustWithinCap"],
             _ => unreachable!(),
         };
-        assert!(
-            relevant
-                .iter()
-                .all(|name| m.invariants.iter().any(|i| i.name == *name))
-        );
         let valid = all(m
             .invariants
             .iter()
-            .filter(|i| full_observer || relevant.contains(&i.name.as_str()))
+            .filter(|i| full_observer || names.contains(&i.name.as_str()))
             .map(|i| i.condition.clone()));
         for action in &mut m.actions {
-            let guard = action.guard.clone().and(valid.clone());
-            action.guard = if full_observer {
-                guard
-            } else {
-                guard.eq(Bool(true))
-            };
+            let g = action.guard.clone().and(valid.clone());
+            action.guard = if full_observer { g } else { g.eq(Bool(true)) };
         }
         let failed = valid.negate();
         act(
             &mut m,
-            "ControlObserverStopsAtFailedBoundary",
+            "ObserverStopsAtFirstFailedContract",
             if full_observer {
                 failed
             } else {
@@ -4414,3503 +4127,925 @@ fn member_window_projection(
     m
 }
 
-/// Decision66236 adds correlated numeric observations to the SAME two-slot
-/// owner, grant, ACK, roster, debt, retirement and actual-reap actions above.
-/// Profile0 retains every65489 geometry/control with counters unavailable and
-/// window basis. The appended profiles use explicit ns constants, not a larger
-/// product of independently chosen CPU/clock/counter values. Original variable
-/// bounds, two grants, A1/B2/A3, one late observation and one post unit remain.
-/// Startup125us and member late250us are finite accounting projections, not OS
-/// timing guarantees. Debt rounds UP to whole abstract ms, never below9*Q.
-/// Counter-read provenance and one-thread/source closure remain premises with
-/// real API/process witnesses; the125/3 profile does not prove Mach arithmetic.
-fn extend_member_window_measured_law(m: &mut Model, control: u8, forged_terminal_control: bool) {
-    const LAW: usize = 54;
-    const BASIS: usize = 55;
-    const READ0: usize = 56;
-    const READ1: usize = 57;
-    const BURNED: usize = 58;
-    const CHARGED: usize = 59;
-    const WALL: usize = 60;
-    const A0: usize = 61;
-    const A1: usize = 62;
-    const W0: usize = 63;
-    const W1: usize = 64;
-    const MONOTONIC: usize = 65;
-    const CONVERTED: usize = 66;
-    const TERMINAL: usize = 67;
-    const CHECKED: usize = 68;
-    const QNS: usize = 69;
-    const REPORTED: usize = 70;
-    const SEEN: usize = 71;
-    const EXCESS: usize = 72;
-    const BASIS_EPOCH: usize = 73;
-    const CREATED_DEBT: usize = 74;
-    const TERMINAL_DEBT: usize = 75;
-    const ORIGIN0: usize = 76;
-    const ORIGIN1: usize = 77;
-    const PENDING: usize = 78;
-    const WAIT4: usize = 79;
-    const COMMITTED: usize = 80;
-    const ROLL_UNIQUE: usize = 81;
-    const ROLL_MIXED: usize = 82;
-    const ROLL_EXIT: usize = 83;
-    const ROLL_ACK: usize = 84;
-    const ROLL_COUNT: usize = 85;
-    const ROLL_CUMULATIVE: usize = 86;
-    const ROLL_BASELINE: usize = 87;
-    const PRIOR_LIVE: usize = 88;
-    const ROLL_DUPLICATE: usize = 89;
-    const RAW_Q: usize = 90;
-    const RAW_BASIS: usize = 91;
-    const ROLL_PENDING: usize = 92;
-    const ROLL_VALIDATED: usize = 93;
-    const ROLL_REVOKED: usize = 94;
-    const FALLBACK_Q: usize = 95;
-    const ROLL_DELTA: usize = 96;
-    const FALLBACK_DEBT: usize = 97;
-    const ROLL_ZERO_CHILDREN: usize = 98;
-    const INITIAL_STAGE: usize = 99;
-    const INITIAL_CPU: usize = 100;
-    const INITIAL_PRIOR_DEBT: usize = 101;
-    const INITIAL_READY: usize = 102;
-    const STARTUP_KNOWN: usize = 103;
-    const STARTUP_CLOSED: usize = 104;
-    const STARTUP_PAID: usize = 105;
-    const STARTUP_TIMEBASE: usize = 106;
-    const STARTUP_CHARGED: usize = 107;
-    const INITIAL_ATTEMPT: usize = 108;
-    const INITIAL_READ_KNOWN: usize = 109;
-    const INITIAL_RAW_SYSTEM: usize = 110;
-    const INITIAL_L: usize = 111;
-    const INITIAL_REST_PAID: usize = 112;
-    const INITIAL_LAST_CPU: usize = 113;
-    const INITIAL_COST_BOUND: usize = 114;
-    const INITIAL_ATTEMPT_DEBT: usize = 115;
-    const INITIAL_UNKNOWN: usize = 116;
-    const INITIAL_UNKNOWN_DEBT: usize = 117;
-    const ACTUAL_REAPS: usize = 118;
-    const TEARDOWN_LIMIT: usize = 119;
-    const TEARDOWN_ALLOWANCE: usize = 120;
-    const RESIDUAL: usize = 121;
-    const RESIDUAL_CHARGED: usize = 122;
-    const RESIDUAL_TOTAL: usize = 123;
-    const RESIDUAL_OBSERVED: usize = 124;
-    const RESIDUAL_PAID: usize = 125;
-    const RESIDUAL_KNOWN: usize = 126;
-    const INDEPENDENT_AT_BILL: usize = 127;
-    const QUALIFIED_CHILD_REAP: usize = 128;
-    const BORN_LATCH: usize = 129;
-    const BORN_SOURCE: usize = 130;
-    const BORN_COST_SEEN: usize = 131;
-    const BORN_COST_RETAINED: usize = 132;
-    const BORN_BIRTH_CLOCKS: usize = 133;
-    const BORN_COST_PAID: usize = 134;
-    const BORN_NATIVE_COST: usize = 135;
-    const BORN_NATIVE_DEBT: usize = 136;
-    const BORN_EXPECTED_SLOTS: usize = 137;
-    const BORN_CHILD_ACTIVATED: usize = 138;
-    const BORN_FRESH_SOURCE: usize = 139;
-    const BORN_PHYSICAL: usize = 140;
-    const BORN_ATTEMPT_RETAINED: usize = 141;
-    const BORN_ATTEMPT_END_CLOCKS: usize = 142;
-    const BORN_ACCOUNTING_UNKNOWN: usize = 143;
-    const BORN_RAW_NATIVE_KNOWN: usize = 144;
-    assert_eq!(m.variables.len(), LAW);
-    for (name, max) in [
-        ("measuredLawProfile", 46),
-        ("basisWindowMeasured", 1),
-        ("slot0CountersReadNonePreAckPostAckRetainedWait4", 3),
-        (
-            "slot1CountersReadNonePreAckPostAckRetainedWait4LeaderRollup",
-            4,
-        ),
-        ("cpuBurned", 8_000_000),
-        ("cpuCharged", 8_000_000),
-        ("wall", 30_000_000),
-        ("slot0ActualCpuNs", 2_000_000),
-        ("slot1ActualCpuNs", 2_000_000),
-        ("slot0WindowNs", 25_000_000),
-        ("slot1WindowNs", 25_000_000),
-        ("counterMonotonicMask", 3),
-        ("counterConversionMask", 3),
-        ("terminalConservationPendingPassedRefused", 2),
-        ("conservationChecked", 1),
-        ("basisQuantumNs", 3_000_000),
-        ("reportedMemberCpuNs", 3_000_000),
-        ("currentGrantCpuObserved", 1),
-        ("conservationExcessNs", 8_000_000),
-        ("basisCapturedEpoch", 2),
-        ("createdGrantDebtMs", 27),
-        ("terminalReconciliationDebtMs", 21),
-        ("slot0CounterEndpointNoneStoppedExitedClosedAbsence", 3),
-        ("slot1CounterEndpointNoneStoppedExitedClosedAbsence", 3),
-        ("directExitAccountingPending", 1),
-        ("actualWait4CpuNs", 8_000_000),
-        ("committedGrantCount", 2),
-        ("rollupUniqueAdmittedChild", 1),
-        ("rollupMixedUnadmittedChild", 1),
-        ("rollupChildExitProvenBeforeRead", 1),
-        ("rollupLeaderAckBeforeRead", 1),
-        ("qualifiedChildRollupAttributionCount", 2),
-        // Profile43 retains actual first-grant live300us, then cumulative
-        // child350us with that SAME300us baseline and a50us nonduplicate delta.
-        ("rollupCumulativeChildNs", 350_000),
-        ("rollupBaselineChildNs", 300_000),
-        ("priorLiveChildCreditNs", 300_000),
-        ("rollupDuplicateLiveChildNs", 125_000),
-        ("rawGrantQuantumNs", 3_000_000),
-        ("rawGrantBasisWindowMeasured", 1),
-        ("rollupConservationPending", 1),
-        ("rollupConservationValidated", 1),
-        ("rollupBasisRevoked", 1),
-        ("retainedFallbackQuantumNs", 3_000_000),
-        ("rollupCurrentDeltaNs", 250_000),
-        ("retainedFallbackDebtMs", 27),
-        ("rollupLeaderChildCountZeroBeforeRead", 1),
-        ("initialStoppedCorroborationStage", 5),
-        ("initialStoppedCorroborationInclusiveCpuNs", 1_164_833),
-        ("initialStoppedCorroborationPriorDebtMs", 9),
-        ("initialStoppedCorroborationPaidSeal", 1),
-        ("initialStartupRawBaselineKnown", 1),
-        ("initialStartupOriginalRosterClosed", 1),
-        ("initialStartupRetainedPaidEvidence", 1),
-        ("initialStartupRetainedTimebaseKnownUnchanged", 1),
-        ("initialStartupCreditCommitted", 1),
-        ("initialTerminalRiAttemptedBeforeWait4", 1),
-        ("initialTerminalRiKnown", 1),
-        ("initialTerminalIndependentRawSystemDeltaNs", 75_000),
-        ("initialTerminalCreditedKernelNs", 75_000),
-        ("initialTerminalObservationCostPaidBeforeWait4", 1),
-        ("initialStoppedCorroborationLastInclusiveCpuNs", 1_000_000),
-        ("initialTerminalRetainedCostBoundNs", 3_000_000),
-        ("initialTerminalRetainedAttemptDebtMs", 27),
-        ("initialTerminalConservationUnknown", 1),
-        ("initialTerminalUnknownVerdictDebtMs", 27),
-        ("actualProvenReapedProcessCount", 2),
-        ("fixedExitTeardownLimitPerProcessNs", 3_000_000),
-        ("separateExitTeardownConservationAllowanceNs", 6_000_000),
-        ("actualTerminalResidualCpuNs", 8_000_000),
-        ("terminalResidualChargedAsCostNs", 8_000_000),
-        ("terminalResidualInclusiveCostBoundNs", 8_250_000),
-        ("terminalResidualCostObserved", 1),
-        ("terminalResidualFullCostPaid", 1),
-        ("terminalResidualCostKnown", 1),
-        ("independentMemberCreditsBeforeResidualBillNs", 8_000_000),
-        ("qualifiedUniqueGitReapedChildCountedOnce", 1),
-        ("bornStoppedOriginalPhysicalLatch", 1),
-        ("bornStoppedExactSourceAtAttach", 1),
-        ("bornStoppedNativeCostObserved", 1),
-        ("bornStoppedNativeCostRetainedFunded", 1),
-        ("bornStoppedReceiptClosingClocksKnown", 1),
-        ("bornStoppedNativeCostPaidReceipt", 1),
-        ("bornStoppedNativeInclusiveCostBoundNs", 3_000_000),
-        ("bornStoppedNativeCreatedDebtMs", 27),
-        ("bornStoppedRetainedExpectedMembers", 2),
-        ("bornStoppedImplicitReservedSlotActivated", 1),
-        ("bornStoppedFreshOriginalTerminalSourceKnown", 1),
-        ("bornStoppedFreshPhysicalClosureValidated", 1),
-        ("bornStoppedTerminalAttemptRetained", 1),
-        ("bornStoppedTerminalAttemptClosingClocksKnown", 1),
-        ("bornStoppedStartupAccountingUnproven", 1),
-        ("bornStoppedOriginalNativeAdmissionCostKnown", 1),
-    ] {
-        m.variables.push(Variable::new(name, 0, max, 0));
-    }
-    {
-        // Native vectors address fields by index; TLA export and test lookup
-        // address them by name. A duplicate could disagree silently between
-        // those consumers even though native full/reduced graphs are equal.
-        let names = m
-            .variables
-            .iter()
-            .map(|v| v.name.as_str())
-            .collect::<std::collections::BTreeSet<_>>();
-        assert_eq!(
-            names.len(),
-            m.variables.len(),
-            "MemberWindow TLA variable names must be unique"
-        );
-    }
-    let new_law = eq(LAW, 0).negate();
-    let initial_only = Int(19).lt(Var(LAW)).and(Var(LAW).lt(Int(38)));
-    let initial_eligible = all([
-        initial_only.clone(),
-        eq(49, 0),
-        eq(INITIAL_READY, 1),
-        eq(STARTUP_CHARGED, 1),
-        eq(STARTUP_KNOWN, 1),
-        eq(STARTUP_CLOSED, 1),
-        eq(STARTUP_PAID, 1),
-        eq(STARTUP_TIMEBASE, 1),
-        Var(5).eq(Var(6)),
-    ]);
-    let early_born = Int(28).lt(Var(LAW)).and(Var(LAW).lt(Int(38)));
-    // Physical custody is independent of numerical startup/L credit. Expected
-    // member2 is an UNACTIVATED reservation under the reviewed no-CONT source
-    // law, not proof of an actual child or a count-zero absence inference.
-    let born_original = all([
-        early_born.clone(),
-        eq(BORN_LATCH, 1),
-        eq(BORN_SOURCE, 1),
-        eq(BORN_EXPECTED_SLOTS, 1).or(eq(BORN_EXPECTED_SLOTS, 2)),
-        eq(BORN_CHILD_ACTIVATED, 0),
-        eq(49, 0),
-        eq(BORN_COST_SEEN, 1),
-        eq(BORN_COST_RETAINED, 1),
-        eq(BORN_BIRTH_CLOCKS, 1),
-        eq(BORN_COST_PAID, 1),
-        eq(BORN_ACCOUNTING_UNKNOWN, 1),
-        Var(5).eq(Var(6)),
-        Var(16).eq(Var(17)),
-    ]);
-    let born_reap_ready = all([
-        born_original.clone(),
-        eq(BORN_FRESH_SOURCE, 1),
-        eq(BORN_PHYSICAL, 1),
-        eq(INITIAL_ATTEMPT, 1),
-        eq(BORN_ATTEMPT_RETAINED, 1),
-        eq(BORN_ATTEMPT_END_CLOCKS, 1),
-        eq(INITIAL_REST_PAID, 1),
-        eq(INITIAL_COST_BOUND, 3_000_000),
-        eq(INITIAL_ATTEMPT_DEBT, 27),
-    ]);
-    let unknown_conservation_route = all([
-        eq(LAW, 21),
-        initial_eligible.clone(),
-        eq(INITIAL_READ_KNOWN, 0),
-    ])
-    .or(born_reap_ready.clone());
-    let mut direct_exit = None;
-    let mut implicit_exit = None;
-    let mut unexpected_wait4 = None;
-    let mut excessive_wait4 = None;
-    let mut excessive_rollup_wait4 = None;
-    let mut rollup_continue = None;
-    let mut initial_exit = None;
-    let mut within_grant_unknown = None;
-    let mut early_birth = None;
-    let mut early_attach = None;
-    // All physical lifecycle actions are shared. Only the numeric charge
-    // projection has separate alternatives; neither path can mint a new owner.
-    for action in &mut m.actions {
-        if action.name == "ConfirmCanonicalCreationOwnershipAndBothDebtsSettled" {
-            action.guard = action.guard.clone().and(early_born.clone().negate());
-        }
-        if action.name == "AttachCurrentStoppedBirth" {
-            let mut attached = action.clone();
-            attached.name = "RetainExactBornStoppedPhysicalLatchBeforeAttachCallbackReturns".into();
-            attached.guard = attached.guard.and(early_born.clone());
-            attached.updates.push((BORN_LATCH, Var(BORN_SOURCE)));
-            early_attach = Some(attached);
-            action.guard = action.guard.clone().and(early_born.clone().negate());
-        }
-        if action.name == "OpenUnknownImplicitSlotWithoutInventingBirthTime" {
-            // Profile3's unknown/unaccounted reserved child is observed DURING
-            // the original admitted grant, after honest stopped startup. It
-            // must not poison creation/stopped-stage admission beforehand.
-            // Keep the same original pre-CONT slot start and no child ACK.
-            let mut unknown = action.clone();
-            unknown.name = "OpenWithinGrantUnknownImplicitSlotRetainsOriginalWindow".into();
-            unknown.guard = unknown.guard.and(eq(LAW, 3));
-            unknown.updates.push((42, Int(1)));
-            within_grant_unknown = Some(unknown);
-            action.guard = action.guard.clone().and(eq(LAW, 3).negate());
-        }
-        if action
-            .name
-            .starts_with("InitialCorroborationCreationSettled")
-        {
-            action.guard = action.guard.clone().and(eq(LAW, 0));
-        }
-        if action.name == "ObserveOrdinaryControllerTailBeforeInitialCorroboration" {
-            action.guard = action
-                .guard
-                .clone()
-                .and(eq(LAW, 0).or(eq(INITIAL_STAGE, 0)));
-        }
-        // Correlated profiles select one observation trajectory. LAW0 alone
-        // retains the complete independent legacy fault/foreground product;
-        // duplicating it for every numeric constant proves no additional law.
-        // Profile12 separately retains A1/B2/A3 while direct exit is pending.
-        if action.name.starts_with("ObserveClockStopRevokeCancelPanic")
-            || action.name.starts_with("ObserveForegroundFence")
-            || action
-                .name
-                .starts_with("OrdinaryExpensiveObservationAdmissionFailed")
-            || action.name == "ObserveDeadlineRetainsDebtAndOriginalEffect"
-            || action.name == "RefuseMissingWholeCommandOrTransientCoverage"
-        {
-            action.guard = action.guard.clone().and(eq(LAW, 0));
-        }
-        if action.name.starts_with("RestartOriginalEffectA1B2A3From") {
-            action.guard = action.guard.clone().and(eq(LAW, 0).or(all([
-                eq(LAW, 12),
-                eq(PENDING, 1),
-                eq(0, 6),
-                eq(40, 0),
-            ])));
-        }
-        if action.name == "UnknownSlotAwaitsCompleteSameGrantExclusion" {
-            action.guard = action.guard.clone().and(eq(LAW, 3).negate());
-        }
-        if action.name == "RetireRetainsOriginalWindowsAndSignalingCustody" {
-            action.guard = action.guard.clone().and(
-                eq(LAW, 0).or(all([
-                    eq(27, 0),
-                    eq(28, 0),
-                    all([initial_eligible.clone(), eq(49, 0), eq(0, 3)])
-                        .or(all([born_original.clone(), eq(0, 3)]))
-                        .or(all([eq(LAW, 12).or(eq(LAW, 44)), eq(PENDING, 1)]))
-                        .or(all([
-                            Int(0).lt(Var(QNS)),
-                            eq(46, 1),
-                            eq(LAW, 1).or(eq(LAW, 15)).negate().or(eq(49, 2)),
-                        ])),
-                ])),
-            );
-        }
-        if action.name == "ObserveExactOriginalExitAndRetainedUsage"
-            || action.name == "ActuallyReapOriginalGroupAfterRetirement"
-        {
-            // This chooses when the controller observes an external outcome;
-            // it does not claim the kernel waits for payment or is fair.
-            action.guard = action
-                .guard
-                .clone()
-                .and(eq(LAW, 0).or(all([eq(27, 0), eq(28, 0)])));
-        }
-        if action.name == "LocalUnavailableDispositionRetainsOriginalEffect" {
-            // A refusal can occur with fresh debt still pending. Record the
-            // owned unavailable disposition immediately; it pays no debt,
-            // releases no effect and grants no stopped/measurement authority.
-            // Requiring retirement first disabled every fair local response
-            // while its selected observation waited for that same debt.
-            action.guard = action.guard.clone().and(eq(LAW, 0).or(eq(37, 0).negate()));
-        }
-        if action
-            .name
-            .starts_with("ChargeExactWindowActiveAndAllControllerCase")
-            || action
-                .name
-                .starts_with("FailedClosureStillRecordsQuantumAndDebtCase")
-        {
-            action.guard = action.guard.clone().and(eq(LAW, 0));
-        }
-        if action.name == "ObserveExactOriginalExitAndRetainedUsage" {
-            let mut observed = action.clone();
-            observed.name = "ObserveUngrantOriginalExitWithIndependentRawKernelTruth".into();
-            observed.guard = observed.guard.and(initial_only.clone()).and(
-                early_born
-                    .clone()
-                    .negate()
-                    .or(all([born_original.clone(), eq(BORN_FRESH_SOURCE, 1)])),
-            );
-            observed.updates.push((BORN_PHYSICAL, Int(1)));
-            observed.updates.retain(|(slot, _)| *slot != 8);
-            observed.updates.extend([
-                (8, Int(0)),
-                (BURNED, Var(BURNED).plus(Var(INITIAL_RAW_SYSTEM))),
-            ]);
-            initial_exit = Some(observed);
-            action.guard = action.guard.clone().and(initial_only.clone().negate());
-        }
-        if action.name == "CreateStoppedRetainsOriginalEffect" {
-            action
-                .updates
-                .extend([(BURNED, Int(125_000)), (CHARGED, Int(125_000))]);
-            let mut born = action.clone();
-            born.name = "CreateOriginalSuspendedEffectWithoutClaimingStartupCredit".into();
-            born.guard = born.guard.and(early_born.clone());
-            for (slot, value) in &mut born.updates {
-                if *slot == CHARGED {
-                    *value = Int(0);
-                }
-            }
-            early_birth = Some(born);
-            action.guard = action.guard.clone().and(early_born.clone().negate());
-        }
-        if action.name == "CheckedT0OpensEveryReservedSlotBeforeCont"
-            || action.name == "ContinueOnlyAfterClosureCorroborationAndAllDebt"
-        {
-            action.updates.extend([
-                (READ0, Int(0)),
-                (READ1, Int(0)),
-                (BASIS, Int(0)),
-                (SEEN, Int(0)),
-                (QNS, Int(0)),
-                (REPORTED, Int(0)),
-                (ORIGIN0, Int(0)),
-                (ORIGIN1, Int(0)),
-            ]);
-            action.guard = action.guard.clone().and(eq(PENDING, 0));
-            if action.name == "CheckedT0OpensEveryReservedSlotBeforeCont" {
-                action.guard = action
-                    .guard
-                    .clone()
-                    .and(initial_only.clone().negate())
-                    .and(eq(LAW, 0).or(eq(INITIAL_READY, 1)));
-            }
-        }
-        if action.name == "ContinueOnlyAfterClosureCorroborationAndAllDebt" {
-            let mut second = action.clone();
-            second.name = "ContinueQualifiedRollupSecondGrantRetainsPriorLiveCredit".into();
-            second.guard = second.guard.and(eq(LAW, 15));
-            second.updates.extend([
-                (A0, Int(250_000)),
-                (A1, Int(125_000)),
-                (W0, Int(375_000)),
-                (W1, Int(375_000)),
-                (WALL, Int(750_000)),
-                (ROLL_UNIQUE, Int(1)),
-                (ROLL_MIXED, Int(0)),
-                (ROLL_CUMULATIVE, Int(250_000)),
-                (ROLL_BASELINE, Var(PRIOR_LIVE)),
-                (ROLL_COUNT, Int(0)),
-                (ROLL_EXIT, Int(0)),
-                (ROLL_ACK, Int(0)),
-                (ROLL_ZERO_CHILDREN, Int(0)),
-                (ROLL_DELTA, Int(0)),
-                (RAW_Q, Int(0)),
-                (RAW_BASIS, Int(0)),
-            ]);
-            rollup_continue = Some(second);
-            // Profile1 supplies the two-grant accumulation witness. Each
-            // remaining correlated profile focuses one grant plus its selected
-            // terminal/late/post observation, retaining the global two bound.
-            action.guard = action
-                .guard
-                .clone()
-                .and(eq(LAW, 0).or(eq(LAW, 1)).or(Int(37).lt(Var(LAW))));
-        }
-        if action
-            .name
-            .starts_with("AckMember0AfterCurrentStopPredicatesCase")
-        {
-            action.guard = action.guard.clone().and(eq(LAW, 0).or(eq(SEEN, 1)));
-            action.guard = action
-                .guard
-                .clone()
-                .and(eq(LAW, 4).negate().or(eq(READ0, 1)));
-            if action.name.ends_with("Case2") {
-                let mut exited = action.clone();
-                exited.name = "ObserveDirectOriginalExitRetainsIdentityBeforeOwnWait4".into();
-                let direct_profile = eq(LAW, 12).or(all([eq(LAW, 44), eq(49, 2)]));
-                exited.guard = exited.guard.and(direct_profile.clone());
-                for (slot, value) in &mut exited.updates {
-                    if *slot == 7 {
-                        *value = Int(4);
-                    }
-                }
-                exited.updates.push((ORIGIN0, Int(2)));
-                direct_exit = Some(exited);
-                action.guard = action.guard.clone().and(direct_profile.negate());
-            }
-        }
-        if action.name == "AckKnownMember1AfterCheckedHostClockCase1" {
-            action.guard = action
-                .guard
-                .clone()
-                .and(eq(LAW, 17).negate().or(eq(READ1, 4)));
-            let exited_profile = eq(LAW, 13)
-                .or(all([eq(LAW, 15), eq(49, 2)]))
-                .or(all([Int(15).lt(Var(LAW)), Var(LAW).lt(Int(20))]))
-                .or(all([eq(LAW, 43), eq(49, 2)]));
-            let mut exited = action.clone();
-            exited.name = "ObserveImplicitChildExitWithoutInventingOwnWait4".into();
-            exited.guard = exited.guard.and(exited_profile.clone());
-            for (slot, value) in &mut exited.updates {
-                if *slot == 8 {
-                    *value = Int(4);
-                }
-            }
-            exited.updates.push((ORIGIN1, Int(2)));
-            implicit_exit = Some(exited);
-            action.guard = action.guard.clone().and(exited_profile.negate());
-        }
-        if action.name == "ActuallyReapOriginalGroupAfterRetirement" {
-            let attempted = initial_eligible
-                .clone()
-                .negate()
-                .or(all([eq(INITIAL_ATTEMPT, 1), eq(INITIAL_REST_PAID, 1)]))
-                .or(Bool(control == 39));
-            action.guard = action
-                .guard
-                .clone()
-                .and(attempted)
-                .and(early_born.clone().negate().or(born_reap_ready.clone()));
-            // N starts with actual original own wait4, never expected slots,
-            // census or residual. The separately qualified child alternative
-            // below may add exactly one original Git-reaped GPG once.
-            action.updates.extend([
-                (ACTUAL_REAPS, Int(1)),
-                (TEARDOWN_ALLOWANCE, Var(TEARDOWN_LIMIT)),
-            ]);
-            let mut rollup_over = action.clone();
-            rollup_over.name =
-                "ActualWait4IndependentlyRevealsOverTwoCeilingsRollupTeardownCpu".into();
-            rollup_over.guard = rollup_over.guard.and(eq(LAW, 19));
-            rollup_over.updates.extend([
-                (WAIT4, Var(BURNED).plus(Int(400_000))),
-                (BURNED, Var(BURNED).plus(Int(400_000))),
-            ]);
-            excessive_rollup_wait4 = Some(rollup_over);
-            let mut over = action.clone();
-            over.name = "ActualWait4IndependentlyRevealsOverCeilingTeardownCpu".into();
-            over.guard = over.guard.and(eq(LAW, 28));
-            over.updates.extend([
-                (WAIT4, Var(BURNED).plus(Int(250_000))),
-                (BURNED, Var(BURNED).plus(Int(250_000))),
-            ]);
-            excessive_wait4 = Some(over);
-            let mut independent = action.clone();
-            independent.name = "ActualWait4IndependentlyRevealsUnchargedCpu".into();
-            independent.guard = independent.guard.and(eq(LAW, 14).or(eq(LAW, 22)));
-            independent.updates.extend([
-                (WAIT4, Var(BURNED).plus(Int(125_000))),
-                (BURNED, Var(BURNED).plus(Int(125_000))),
-            ]);
-            unexpected_wait4 = Some(independent);
-            action.guard = action.guard.clone().and(
-                eq(LAW, 14)
-                    .or(eq(LAW, 19))
-                    .or(eq(LAW, 22))
-                    .or(eq(LAW, 28))
-                    .negate(),
-            );
-            action.updates.push((WAIT4, Var(BURNED)));
-        }
-        if action
-            .name
-            .starts_with("OrdinaryExpensiveObservationAdmissionFailed")
-        {
-            action.guard = action.guard.clone().and(eq(PENDING, 0));
-        }
-        if action.name == "ReleaseOnlyAfterRealReapAndEveryKnownDebt" {
-            action.guard = action.guard.clone().and(eq(LAW, 0).or(eq(CHECKED, 1)));
-        }
-        if action.name == "ResumeMainOnlyAfterFullSettlementAndPaidCoverage"
-            || action.name == "TrustOnlyClosedQualifiedActuallySettledAccounting"
-        {
-            action.guard = action
-                .guard
-                .clone()
-                .and(eq(LAW, 0).or(all([eq(CHECKED, 1), eq(TERMINAL, 1)])));
-        }
-        // Only actual member late-kernel CPU enters member conservation.
-        // The separate post-corroboration/controller unit still pays its own
-        // existing debt, but creates NO member CPU credit or raw member burn.
-        if action
-            .name
-            .starts_with("ReconcileLateKernelOnceWithFreshAdditiveDebtExplained")
-        {
-            action.updates.extend([
-                (BURNED, Var(BURNED).plus(Int(250_000))),
-                (CHARGED, Var(CHARGED).plus(Int(250_000))),
-            ]);
-        }
-    }
-    m.actions.extend([
-        direct_exit.expect("shared direct exit action"),
-        implicit_exit.expect("shared implicit exit action"),
-        unexpected_wait4.expect("shared actual wait4 action"),
-        excessive_wait4.expect("shared over-ceiling actual wait4 action"),
-        excessive_rollup_wait4.expect("shared over-two-ceilings rollup actual wait4 action"),
-        rollup_continue.expect("shared second-grant continuation"),
-        initial_exit.expect("shared initial original exit"),
-        within_grant_unknown.expect("shared running-grant unknown-slot observation"),
-        early_birth.expect("shared retained suspended original birth"),
-        early_attach.expect("shared original stopped attachment"),
-    ]);
-    // Clarification2/11:45: at most ONE unique admitted child is counted
-    // without a fabricated controller-owned child wait4. Original retired
-    // identity/closed child-count-zero, leader ACK before qualified rollup,
-    // exclusive nonduplicated child delta and actual original LEADER wait4
-    // prove Git already reaped that child. No expected slot/unknown birth,
-    // census alone, repeated grant/read or CPU residual can add N.
-    let qualified_child_reap = all([
-        eq(READ1, 4),
-        eq(ORIGIN1, 2),
-        eq(8, 4),
-        eq(18, 1),
-        eq(19, 1),
-        eq(ROLL_UNIQUE, 1),
-        eq(ROLL_MIXED, 0),
-        eq(ROLL_EXIT, 1),
-        eq(ROLL_ACK, 1),
-        eq(ROLL_ZERO_CHILDREN, 1),
-        eq(ROLL_COUNT, 1),
-        eq(ROLL_DUPLICATE, 0),
-        Var(ROLL_DELTA).eq(Var(ROLL_CUMULATIVE).minus(Var(ROLL_BASELINE))),
-        Var(ROLL_BASELINE).eq(Var(PRIOR_LIVE)),
-        Var(REPORTED).eq(Var(A0).plus(Var(ROLL_DELTA))),
-        Var(5).eq(Var(6)),
-    ]);
-    let mut reaped_children = vec![];
-    for action in &mut m.actions {
-        if action.name == "ActuallyReapOriginalGroupAfterRetirement"
-            || action.name.starts_with("ActualWait4IndependentlyReveals")
-        {
-            let mut child = action.clone();
-            child.name.push_str("WithExactlyOneQualifiedGitReapedChild");
-            child.guard = child.guard.and(qualified_child_reap.clone());
-            child
-                .updates
-                .retain(|(slot, _)| ![ACTUAL_REAPS, TEARDOWN_ALLOWANCE].contains(slot));
-            child.updates.extend([
-                (ACTUAL_REAPS, Int(2)),
-                (QUALIFIED_CHILD_REAP, Int(1)),
-                (
-                    TEARDOWN_ALLOWANCE,
-                    Var(TEARDOWN_LIMIT).plus(Var(TEARDOWN_LIMIT)),
-                ),
-            ]);
-            reaped_children.push(child);
-            action.guard = action
-                .guard
-                .clone()
-                .and(qualified_child_reap.clone().negate());
-        }
-    }
-    m.actions.extend(reaped_children);
-    // Representative five-slice refinement of already-proved STOPPED work.
-    // The C implementation has at most11 checkpoints plus one separate kernel
-    // accounting unit (12 total; its single-member control uses8+1). This is
-    // NOT that maximum: these five correlated costs retain the observed total
-    // 1_164_833ns while each nominal slice is <=500us and the hard gate stays1ms.
-    // No open/running grant is split. Every new slice invalidates the seal and
-    // records its OWN fresh9ms debt; first CONT waits for the final paid seal.
-    act(
-        m,
-        "ObserveInitialOriginalStoppedSingleSlotAndClosedChildAbsence",
-        all([
-            initial_only.clone(),
-            eq(0, 3),
-            eq(52, 1),
-            eq(7, 3),
-            eq(8, 1),
-            eq(STARTUP_CLOSED, 1),
-            eq(49, 0),
-            eq(27, 0),
-            eq(28, 0),
-            eq(37, 0),
-            Var(5).eq(Var(6)),
-        ]),
-        &[
-            (8, Int(0)),
-            (14, Int(1)),
-            (15, Int(1)),
-            (18, Int(1)),
-            (19, Int(1)),
-        ],
-    );
-    let slices = [250_000, 250_000, 250_000, 250_000, 164_833];
-    for (stage, cpu) in slices.into_iter().enumerate() {
-        let stage = stage as i64;
-        assert!(cpu <= 500_000, "stopped slice nominal must remain <=0.5ms");
-        act(
-            m,
-            &format!("InitialStoppedCorroborationMeasuredSlice{stage}"),
-            all([
-                new_law.clone(),
-                eq(0, 3),
-                eq(52, 1),
-                eq(53, 0),
-                initial_only.clone().negate().or(all([
-                    eq(8, 0),
-                    eq(18, 1),
-                    eq(STARTUP_KNOWN, 1),
-                    eq(STARTUP_PAID, 1),
-                    eq(STARTUP_TIMEBASE, 1),
-                ])),
-                eq(INITIAL_STAGE, stage),
-                eq(7, 3),
-                eq(49, 0),
-                eq(37, 0),
-                eq(38, 0),
-                eq(42, 0),
-                Var(5).eq(Var(6)),
-                all([eq(27, 0), eq(28, 0)]).or(all([
-                    Bool(control == 38 && stage == 1),
-                    eq(27, 9),
-                    eq(28, 9),
-                ])),
-            ]),
-            &[
-                (INITIAL_STAGE, Int(stage + 1)),
-                (INITIAL_CPU, Var(INITIAL_CPU).plus(Int(cpu))),
-                (INITIAL_LAST_CPU, Int(cpu)),
-                (INITIAL_PRIOR_DEBT, Var(27)),
-                (INITIAL_READY, Int(0)),
-                (STARTUP_CHARGED, Int(1)),
-                (27, Var(27).plus(Int(9))),
-                (28, Var(28).plus(Int(9))),
-            ],
-        );
-    }
-    act(
-        m,
-        "SealInitialStoppedCorroborationOnlyAfterEverySlicePaid",
-        all([
-            new_law.clone(),
-            eq(0, 3),
-            eq(52, 1),
-            eq(53, 0),
-            eq(INITIAL_STAGE, 5),
-            eq(27, 0),
-            eq(28, 0),
-            eq(7, 3),
-            eq(49, 0),
-            eq(37, 0),
-            eq(38, 0),
-            Var(5).eq(Var(6)),
-        ]),
-        &[(INITIAL_READY, Int(1)), (53, Int(1))],
-    );
-    for profile in 20..=28 {
-        // One original stopped helper, no child, no grant and no CONT. Missing
-        // baseline/roster/payment/timebase are retained independent premises;
-        // they are never repaired from terminal wait4 or controller CPU.
-        act(
-            m,
-            &format!("ConfigureUngrantStartupTerminalProfile{profile}"),
-            all([eq(2, 0), eq(0, 0)]),
-            &[
-                (LAW, Int(profile)),
-                (TEARDOWN_LIMIT, Int(150_000)),
-                (1, Int(2)),
-                (2, Int(1)),
-                (STARTUP_KNOWN, Int(i64::from(profile != 23))),
-                (STARTUP_CLOSED, Int(i64::from(profile != 24))),
-                (STARTUP_PAID, Int(i64::from(profile != 25))),
-                (STARTUP_TIMEBASE, Int(i64::from(profile != 26))),
-                (
-                    INITIAL_RAW_SYSTEM,
-                    Int(if profile == 27 { 0 } else { 75_000 }),
-                ),
-            ],
-        );
-    }
-    // The SAME created/attached owner is retained across an Attach callback
-    // panic BEFORE creation settlement/first corroboration. Its fixed public
-    // source forbids an implicit child before CONT; expected2 is kept consumed.
-    for profile in 29..=37 {
-        act(
-            m,
-            &format!("ConfigureEarlyBornStoppedCreationFaultProfile{profile}"),
-            all([eq(2, 0), eq(0, 0)]),
-            &[
-                (LAW, Int(profile)),
-                (TEARDOWN_LIMIT, Int(150_000)),
-                (1, Int(2)),
-                (2, Int(1)),
-                (BORN_SOURCE, Int(i64::from(profile != 31))),
-                (BORN_EXPECTED_SLOTS, Int(if profile == 30 { 1 } else { 2 })),
-                (BORN_FRESH_SOURCE, Int(i64::from(profile != 33))),
-                (BORN_ATTEMPT_END_CLOCKS, Int(i64::from(profile != 34))),
-                (BORN_ACCOUNTING_UNKNOWN, Int(1)),
-                (INITIAL_RAW_SYSTEM, Int(0)),
-            ],
-        );
-    }
-    act(
-        m,
-        "AttachCallbackFaultRetainsOriginalSuspendedEffectBeforeCreationSettlement",
-        all([
-            early_born.clone(),
-            eq(0, 3),
-            eq(52, 0),
-            eq(37, 0),
-            eq(BORN_COST_SEEN, 0),
-        ]),
-        &[(37, Int(5)), (26, Int(0)), (34, Int(0))],
-    );
-    for profile in 29..=37 {
-        let native_known = !matches!(profile, 32 | 36 | 37);
-        let receipt_clocks_known = profile != 36;
-        let funded = !matches!(profile, 35 | 37);
-        let bound = if native_known { 2_000_000 } else { 3_000_000 };
-        let debt = if profile == 35 {
-            0
-        } else if profile == 37 {
-            9
-        } else if native_known {
-            18
-        } else {
-            27
-        };
-        act(
-            m,
-            &format!("RetainActualNativeBirthCostDespiteAttachFaultProfile{profile}"),
-            all([
-                eq(LAW, profile),
-                eq(0, 3),
-                eq(52, 0),
-                eq(37, 5),
-                eq(BORN_COST_SEEN, 0),
-                eq(27, 0),
-                eq(28, 0),
-            ]),
-            &[
-                (BORN_COST_SEEN, Int(1)),
-                (BORN_NATIVE_COST, Int(bound)),
-                (BORN_COST_RETAINED, Int(i64::from(funded))),
-                (BORN_BIRTH_CLOCKS, Int(i64::from(receipt_clocks_known))),
-                (BORN_RAW_NATIVE_KNOWN, Int(i64::from(native_known))),
-                (25, Int(i64::from(native_known))),
-                (BORN_NATIVE_DEBT, Int(debt)),
-                (27, Int(debt)),
-                (28, Int(debt)),
-            ],
-        );
-    }
-    act(
-        m,
-        "RetainPaidOriginalNativeBirthCostWithoutCreatingStartupCredit",
-        all([
-            early_born.clone(),
-            eq(0, 3),
-            eq(52, 0),
-            eq(BORN_LATCH, 1),
-            eq(BORN_SOURCE, 1),
-            eq(BORN_COST_SEEN, 1),
-            eq(BORN_COST_RETAINED, 1),
-            eq(BORN_BIRTH_CLOCKS, 1),
-            eq(BORN_COST_PAID, 0),
-            eq(27, 0),
-            eq(28, 0),
-            eq(49, 0),
-            eq(BORN_CHILD_ACTIVATED, 0),
-            Var(5).eq(Var(6)),
-            Var(16).eq(Var(17)),
-        ]),
-        &[(BORN_COST_PAID, Int(1))],
-    );
-    for profile in [29, 30, 32, 34] {
-        // One actual RI attempt is retained even when available; absent numeric
-        // startup settlement still makes C+L UNKNOWN, not a recovered zero/L.
-        act(
-            m,
-            &format!("AttemptEarlyBornTerminalRiWithUnknownStartupAccountingProfile{profile}"),
-            all([
-                eq(LAW, profile),
-                born_original.clone(),
-                eq(BORN_PHYSICAL, 1),
-                eq(38, 1),
-                eq(39, 1),
-                eq(40, 0),
-                eq(41, 1),
-                eq(INITIAL_ATTEMPT, 0),
-                eq(27, 0),
-                eq(28, 0),
-            ]),
-            &[
-                (INITIAL_ATTEMPT, Int(1)),
-                (INITIAL_READ_KNOWN, Int(i64::from(profile != 30))),
-                (BORN_ATTEMPT_RETAINED, Int(1)),
-                (25, Int(0)),
-                (INITIAL_L, Int(0)),
-                (INITIAL_COST_BOUND, Int(3_000_000)),
-                (INITIAL_ATTEMPT_DEBT, Int(27)),
-                (27, Int(27)),
-                (28, Int(27)),
-            ],
-        );
-    }
-    if control == 44 {
-        act(
-            m,
-            "BrokenEarlyBornReapSkipsCurrentUnknownAttemptPayment",
-            all([
-                eq(LAW, 29),
-                born_original.clone(),
-                eq(BORN_PHYSICAL, 1),
-                eq(38, 1),
-                eq(39, 1),
-                eq(40, 0),
-                eq(41, 1),
-                eq(INITIAL_ATTEMPT, 1),
-                eq(BORN_ATTEMPT_RETAINED, 1),
-                eq(BORN_ATTEMPT_END_CLOCKS, 1),
-                eq(INITIAL_REST_PAID, 0),
-                eq(27, 27),
-                eq(28, 27),
-            ]),
-            &[
-                (40, Int(1)),
-                (0, Int(9)),
-                (WAIT4, Var(BURNED)),
-                (ACTUAL_REAPS, Int(1)),
-                (TEARDOWN_ALLOWANCE, Var(TEARDOWN_LIMIT)),
-            ],
-        );
-    }
-    safe(
-        m,
-        "UnknownNativeAdmissionNeverBecomesKnownFromPhysicalReceipt",
-        early_born
-            .clone()
-            .negate()
-            .or(eq(BORN_COST_SEEN, 0))
-            .or(eq(BORN_RAW_NATIVE_KNOWN, 1))
-            .or(all([eq(25, 0), eq(BORN_NATIVE_COST, 3_000_000), eq(34, 0)])),
-    );
-    safe(
-        m,
-        "RetainedBornNativeCostFundsItsWholeInclusiveUnknownOrKnownLane",
-        early_born
-            .clone()
-            .negate()
-            .or(eq(BORN_COST_RETAINED, 0))
-            .or(all([
-                eq(BORN_RAW_NATIVE_KNOWN, 1),
-                eq(BORN_NATIVE_COST, 2_000_000),
-                eq(BORN_NATIVE_DEBT, 18),
-            ]))
-            .or(all([
-                eq(BORN_RAW_NATIVE_KNOWN, 0),
-                eq(BORN_NATIVE_COST, 3_000_000),
-                eq(BORN_NATIVE_DEBT, 27),
-            ])),
-    );
-    safe(
-        m,
-        "BornStoppedCreationFaultReapNeedsPaidOriginalPhysicalLatch",
-        early_born
-            .clone()
-            .negate()
-            .or(eq(40, 0))
-            .or(born_reap_ready.clone()),
-    );
-    safe(
-        m,
-        "BornStoppedPhysicalOnlyNeverCreatesNumericStartupOrTrust",
-        early_born.clone().negate().or(all([
-            eq(52, 0),
-            eq(INITIAL_READY, 0),
-            eq(STARTUP_KNOWN, 0),
-            eq(STARTUP_CHARGED, 0),
-            eq(CHARGED, 0),
-            eq(INITIAL_L, 0),
-            eq(TERMINAL, 0),
-            eq(26, 0),
-            eq(34, 0),
-            eq(49, 0),
-            eq(BORN_CHILD_ACTIVATED, 0),
-            eq(COMMITTED, 0),
-        ])),
-    );
-    safe(
-        m,
-        "EarlyBornReapCountsOnlyActualOriginalNotUnactivatedReservation",
-        early_born.clone().negate().or(eq(40, 0)).or(all([
-            eq(ACTUAL_REAPS, 1),
-            eq(QUALIFIED_CHILD_REAP, 0),
-            eq(TEARDOWN_ALLOWANCE, 150_000),
-        ])),
-    );
-    safe(
-        m,
-        "UnfundedOrUnprovenBornSourceRetainsOriginalCustody",
-        early_born
-            .clone()
-            .negate()
-            .or(eq(BORN_COST_SEEN, 0))
-            .or(all([
-                eq(BORN_LATCH, 1),
-                eq(BORN_COST_RETAINED, 1),
-                eq(BORN_BIRTH_CLOCKS, 1),
-            ]))
-            .or(all([eq(41, 1), eq(40, 0), eq(34, 0)])),
-    );
-    for profile in 23..=26 {
-        act(
-            m,
-            &format!("RefuseUnprovenInitialStartupRetainsOwnedQuarantineProfile{profile}"),
-            all([
-                eq(LAW, profile),
-                eq(0, 3),
-                eq(52, 1),
-                eq(37, 0),
-                eq(27, 0),
-                eq(28, 0),
-            ]),
-            &[(37, Int(6)), (51, Int(1)), (26, Int(0)), (34, Int(0))],
-        );
-    }
-    for profile in [20, 21, 22, 27, 28] {
-        let known = profile != 21;
-        let late = if profile == 27 { 0 } else { 75_000 };
-        let attempt_debt = if known { 9 } else { 27 };
-        let attempt_bound = if known { 250_000 + late } else { 3_000_000 };
-        let mut attempt_updates = vec![
-            (INITIAL_ATTEMPT, Int(1)),
-            (INITIAL_READ_KNOWN, Int(i64::from(known))),
-            (INITIAL_L, Int(if known { late } else { 0 })),
-            (
-                CHARGED,
-                Var(CHARGED).plus(Int(if known { late } else { 0 })),
-            ),
-            (INITIAL_COST_BOUND, Int(attempt_bound)),
-            (INITIAL_ATTEMPT_DEBT, Int(attempt_debt)),
-            (27, Int(attempt_debt)),
-            (28, Int(attempt_debt)),
-        ];
-        if !known {
-            attempt_updates.push((37, Int(6)));
-        }
-        act(
-            m,
-            &format!("AttemptIndependentInitialTerminalRiBeforeOwnWait4Profile{profile}"),
-            all([
-                eq(LAW, profile),
-                initial_eligible.clone(),
-                eq(38, 1),
-                eq(39, 1),
-                eq(40, 0),
-                eq(41, 1),
-                eq(INITIAL_ATTEMPT, 0),
-                eq(27, 0),
-                eq(28, 0),
-            ]),
-            &attempt_updates,
-        );
-    }
-    act(
-        m,
-        "RetainInitialTerminalObservationPaidReceiptBeforeOwnWait4",
-        all([
-            initial_eligible.clone().or(all([
-                born_original.clone(),
-                eq(BORN_PHYSICAL, 1),
-                eq(BORN_ATTEMPT_RETAINED, 1),
-                eq(BORN_ATTEMPT_END_CLOCKS, 1),
-            ])),
-            eq(38, 1),
-            eq(39, 1),
-            eq(40, 0),
-            eq(INITIAL_ATTEMPT, 1),
-            eq(INITIAL_REST_PAID, 0),
-            eq(27, 0),
-            eq(28, 0),
-        ]),
-        &[(INITIAL_REST_PAID, Int(1))],
-    );
-    if control == 39 {
-        act(
-            m,
-            "BrokenInitialUnavailableAttemptReapsBeforeFreshUnknownDebtPaid",
-            all([
-                eq(LAW, 21),
-                initial_eligible.clone(),
-                eq(38, 1),
-                eq(39, 1),
-                eq(40, 0),
-                eq(41, 1),
-                eq(INITIAL_ATTEMPT, 1),
-                eq(INITIAL_READ_KNOWN, 0),
-                eq(INITIAL_REST_PAID, 0),
-                eq(INITIAL_COST_BOUND, 3_000_000),
-                eq(INITIAL_ATTEMPT_DEBT, 27),
-                eq(27, 27),
-                eq(28, 27),
-            ]),
-            &[
-                (40, Int(1)),
-                (0, Int(9)),
-                (WAIT4, Var(BURNED)),
-                (ACTUAL_REAPS, Int(1)),
-                (TEARDOWN_ALLOWANCE, Var(TEARDOWN_LIMIT)),
-            ],
-        );
-    }
-    safe(
-        m,
-        "InitialUnavailableRiRetainsConservativeUnknownCost",
-        eq(LAW, 21).negate().or(eq(INITIAL_ATTEMPT, 0)).or(all([
-            eq(INITIAL_READ_KNOWN, 0),
-            eq(INITIAL_L, 0),
-            eq(INITIAL_COST_BOUND, 3_000_000),
-            eq(INITIAL_ATTEMPT_DEBT, 27),
-            eq(34, 0),
-            eq(26, 0),
-            eq(37, 6),
-        ])),
-    );
-    safe(
-        m,
-        "InitialCorroborationStageRequiresFreshPaidRest",
-        eq(LAW, 0).or(eq(INITIAL_PRIOR_DEBT, 0)),
-    );
-    safe(
-        m,
-        "InitialStoppedCorroborationUnitsRemainOrdinary",
-        eq(LAW, 0).or(Var(INITIAL_LAST_CPU).lt(Int(1_000_001))),
-    );
-    safe(
-        m,
-        "InitialStoppedSlicesFinishBeforeFirstCont",
-        eq(LAW, 0).or(eq(49, 0)).or(all([
-            eq(INITIAL_STAGE, 5),
-            eq(INITIAL_READY, 1),
-            eq(INITIAL_CPU, 1_164_833),
-        ])),
-    );
-    safe(
-        m,
-        "InitialEligibleTerminalRiAttemptPrecedesOwnWait4",
-        initial_eligible
-            .clone()
-            .negate()
-            .or(eq(40, 0))
-            .or(all([eq(INITIAL_ATTEMPT, 1), eq(INITIAL_REST_PAID, 1)])),
-    );
-    safe(
-        m,
-        "InitialKernelCreditRequiresIndependentPaidOriginalBaseline",
-        eq(INITIAL_L, 0).or(all([
-            initial_eligible.clone(),
-            eq(INITIAL_ATTEMPT, 1),
-            eq(INITIAL_READ_KNOWN, 1),
-            Var(INITIAL_L).eq(Var(INITIAL_RAW_SYSTEM)),
-            eq(49, 0),
-        ])),
-    );
-    safe(
-        m,
-        "UngrantStartupObservationNeverGrantsHelperOrOutputAuthority",
-        initial_only.negate().or(all([
-            eq(49, 0),
-            eq(COMMITTED, 0),
-            eq(QNS, 0),
-            eq(BASIS, 0),
-            eq(26, 0),
-            eq(34, 0),
-            eq(33, 0),
-        ])),
-    );
-    // Legacy formula statements concern its unchanged normalized geometry.
-    // New raw-ns arithmetic is checked below; all identity, ownership, debt,
-    // failure, progress and actual-settlement properties remain shared.
-    for invariant in &mut m.invariants {
-        if invariant
-            .name
-            .starts_with("WindowUnionRetainsEveryReservedIntervalCase")
-            || invariant
-                .name
-                .starts_with("ObservedActiveCpuHasNoOmissionOrRollupDuplicationCase")
-            || invariant
-                .name
-                .starts_with("AllActiveControllerAndPipeCpuCountExactlyOnceCase")
-            || invariant
-                .name
-                .starts_with("QuantumIsMaxWindowOrActivePlusControllerCase")
-        {
-            invariant.condition = new_law.clone().or(invariant.condition.clone());
-        }
-    }
-    // profile: A0,A1,W0,W1,reported pre-ACK, case. Every value is immutable
-    // input geometry. The second-thread profile passes aggregate A<=sum(W)
-    // while failing A0<=W0, so an aggregate check cannot discharge coverage.
-    let profiles = [
-        (1, 250_000, 0, 10_000_000, 10_000_000, 250_000, 1),
-        (2, 500_000, 250_000, 12_500_000, 12_500_000, 750_000, 1),
-        (3, 250_000, 0, 250_000, 250_000, 250_000, 2),
-        (4, 375_000, 125_000, 375_000, 375_000, 250_000, 1),
-        (5, 250_000, 2_000_000, 500_000, 2_500_000, 2_250_000, 1),
-        (6, 500_000, 0, 500_000, 250_000, 500_000, 1),
-        (7, 250_000, 0, 15_000_000, 15_000_000, 250_000, 1),
-        (8, 500_000, 0, 100_000, 650_000, 500_000, 1),
-        (9, 250_000, 0, 250_000, 250_000, 250_000, 1),
-        (10, 250_000, 0, 250_000, 250_000, 250_000, 1),
-        (11, 250_000, 0, 375_000, 375_000, 250_000, 7),
-        (12, 250_000, 0, 250_000, 500_000, 250_000, 2),
-        (13, 250_000, 125_000, 375_000, 375_000, 375_000, 1),
-        (14, 250_000, 0, 375_000, 375_000, 250_000, 1),
-        (15, 125_000, 125_000, 250_000, 250_000, 250_000, 1),
-        (16, 250_000, 250_000, 375_000, 375_000, 500_000, 1),
-        (17, 250_000, 125_000, 375_000, 375_000, 375_000, 1),
-        (18, 250_000, 125_000, 375_000, 375_000, 375_000, 1),
-        (19, 250_000, 125_000, 375_000, 375_000, 375_000, 1),
+#[cfg(test)]
+mod total_budget_tests {
+    use super::*;
+    const REQUIRED: [&str; 5] = [
+        "BackgroundOnly",
+        "TrustWithinCap",
+        "NoBurnWhilePaused",
+        "DebtBeforeNext",
+        "SettlementHonest",
     ];
-    for (profile, a0, a1, w0, w1, pre_ack, case) in profiles {
-        let wall = w0 + w1;
-        let actual = a0 + a1;
-        act(
-            m,
-            &format!("ConfigureMeasuredLawCorrelatedProfile{profile}"),
-            all([eq(2, 0), eq(0, 0)]),
-            &[
-                (LAW, Int(profile)),
-                (TEARDOWN_LIMIT, Int(150_000)),
-                (1, Int(case)),
-                (2, Int(1)),
-                (42, Int(0)),
-                (A0, Int(a0)),
-                (A1, Int(a1)),
-                (W0, Int(w0)),
-                (W1, Int(w1)),
-                (WALL, Int(wall)),
-                (MONOTONIC, Int(if profile == 10 { 0 } else { 3 })),
-                (CONVERTED, Int(if profile == 9 { 0 } else { 3 })),
-            ],
-        );
-        act(
-            m,
-            &format!("ObserveActualMemberCpuBeforePositiveAckProfile{profile}"),
-            all([
-                eq(LAW, profile),
-                eq(0, 4),
-                eq(SEEN, 0),
-                eq(14, 0),
-                eq(8, if matches!(profile, 3 | 12) { 5 } else { 2 }),
-                if profile == 15 { eq(49, 1) } else { Bool(true) },
-            ]),
-            &[(BURNED, Var(BURNED).plus(Int(actual))), (SEEN, Int(1))],
-        );
-        if profile >= 16 {
-            continue;
+    #[test]
+    fn q2_helper_total_budget_safety_liveness_and_eighteen_causal_controls() {
+        let good_model = total_budget(0);
+        let good = good_model.check(100_000).unwrap();
+        // Failure diagnostics consume the completed current graph, never a
+        // second exploration or substitute for the unchanged assertion below.
+        // Bound output to each violation's last12 prefix edges and cycle entry.
+        for violation in &good.violations {
+            eprintln!("TotalBudget counterexample property={}", violation.property);
+            let tail = violation.prefix.len().saturating_sub(13);
+            for pair in violation.prefix[tail..].windows(2) {
+                let labels: Vec<_> = good.edges[pair[0]]
+                    .iter()
+                    .filter(|edge| edge.to == pair[1])
+                    .map(|edge| good_model.actions[edge.action].name.as_str())
+                    .collect();
+                eprintln!("prefix {} -> {} labels={labels:?}", pair[0], pair[1]);
+            }
+            if let Some(&state_id) = violation.cycle.first().or(violation.prefix.last()) {
+                let state = &good.states[state_id];
+                eprintln!("cycle_entry={state_id} raw_state={state:?}");
+                for (variable, value) in good_model.variables.iter().zip(state) {
+                    eprintln!("  {}={value}", variable.name);
+                }
+                let enabled: Vec<_> = good.edges[state_id]
+                    .iter()
+                    .filter(|edge| edge.to != state_id)
+                    .map(|edge| good_model.actions[edge.action].name.as_str())
+                    .collect();
+                eprintln!("enabled_nonstuttering_local_and_native={enabled:?}");
+                for (group, actions) in good_model.weak_fair.iter().enumerate() {
+                    let enabled_fair: Vec<_> = good.edges[state_id]
+                        .iter()
+                        .filter(|edge| edge.to != state_id && actions.contains(&edge.action))
+                        .map(|edge| good_model.actions[edge.action].name.as_str())
+                        .collect();
+                    eprintln!("weak_fair_group={group} enabled={enabled_fair:?}");
+                }
+            }
         }
-        if profile == 4 {
-            act(
-                m,
-                "ReadCountersBeforePositiveAckRetainsItsProvenance",
-                all([
-                    eq(LAW, profile),
-                    eq(0, 4),
-                    eq(SEEN, 1),
-                    eq(14, 0),
-                    eq(READ0, 0),
-                ]),
-                &[(READ0, Int(1)), (READ1, Int(1)), (REPORTED, Int(pre_ack))],
+        assert!(good.violations.is_empty(), "{:?}", good.violations);
+        println!(
+            "Q2HelperTotalBudget states={} labelled_edges={}",
+            good.states.len(),
+            good.edges.iter().map(Vec::len).sum::<usize>()
+        );
+        assert!(
+            good.states.iter().any(|s| s[11] == 1
+                && s[16] == 1
+                && s[12] == 2
+                && s[3] == 4
+                && s[25] >= 2
+                && s[23] == s[22]),
+            "both exact caps can settle/pay/authorize output"
+        );
+        assert!(
+            good.states.iter().any(|s| s[16] == 1
+                && s[12] == 3
+                && s[19] <= 2
+                && s[38] == 1
+                && s[11] == 0),
+            "unseen late burn is refused by authoritative own wait4"
+        );
+        assert!(
+            good.states.iter().any(|s| s[16] == 1
+                && s[14] == 0
+                && s[15] == 3
+                && s[12] == 3
+                && s[13] == 3
+                && s[38] == 1),
+            "the whole reaped-child rollup reaches the terminal cap"
+        );
+        assert!(
+            good.states.iter().any(|s| s[16] == 1
+                && s[12] == 1
+                && s[3] == 5
+                && s[25] == 3
+                && s[38] == 1
+                && s[11] == 0),
+            "job-only overrun remains raw even when this command is within cap"
+        );
+        assert!(
+            good.states
+                .iter()
+                .any(|s| s[20] == 1 && s[7] == 1 && s[0] == 3 && s[16] == 0),
+            "observed live overrun requests SIGKILL without pretending actual reap"
+        );
+        assert!(
+            good.states.iter().any(|s| s[0] == 2
+                && s[6] == 1
+                && s[26] == 1
+                && s[27] == s[28]
+                && s[29] == 1),
+            "one original positive pause ACK protects user CPU"
+        );
+        assert!(
+            good.states
+                .iter()
+                .any(|s| s[0] == 2 && s[6] == 1 && s[2] > s[27] && s[27] == s[28]),
+            "real kernel CPU while paused is retained, not a paused-wall bill"
+        );
+        assert!(
+            good.states
+                .iter()
+                .any(|s| s[30] == 1 && s[6] == 0 && s[0] == 1),
+            "one resume follows cleared foreground/current admission"
+        );
+        for raw in [2, 3] {
+            assert!(
+                good.states.iter().any(|s| s[7] == raw
+                    && s[16] == 1
+                    && s[8] == 1
+                    && s[9] == 1
+                    && s[10] == 0
+                    && s[37] == 1),
+                "raw EPERM/ESRCH survives resolved own-reap/group-gone race"
             );
-        } else if profile == 13 {
-            act(
-                m,
-                "ReadStoppedLeaderNeverLabelsExitedImplicitChildPostAck",
-                all([
-                    eq(LAW, profile),
-                    eq(0, 6),
-                    eq(14, 1),
-                    eq(15, 1),
-                    eq(7, 3),
-                    eq(8, 4),
-                    eq(18, 1),
-                    eq(READ0, 0),
-                ]),
-                &[
-                    (READ0, Int(2)),
-                    (ORIGIN0, Int(1)),
-                    (READ1, Int(0)),
-                    (ORIGIN1, Int(2)),
-                    (REPORTED, Int(actual)),
-                ],
+        }
+        assert!(
+            good.states.iter().any(|s| s[7] == 2
+                && s[16] == 0
+                && s[36] == 1
+                && s[17] == 1
+                && s[9] == 0),
+            "live EPERM remains pending, never physical settlement"
+        );
+        assert!(
+            good.states
+                .iter()
+                .any(|s| s[0] == 6 && s[17] == 1 && s[10] == 1 && s[11] == 0),
+            "unavailable native settlement preserves original owned quarantine"
+        );
+        assert!(
+            good.states
+                .iter()
+                .any(|s| s[16] == 1 && s[40] == 1 && s[38] == 1 && s[11] == 0),
+            "terminal ru_maxrss breach refuses independently of CPU"
+        );
+        assert!(
+            good.states
+                .iter()
+                .any(|s| s[16] == 1 && s[12] == 0 && s[22] == 9 && s[4] == 9),
+            "zero helper CPU still owes the ordinary1ms floor times9"
+        );
+        assert!(
+            good.states.iter().any(|s| s[16] == 1
+                && s[12] == 1
+                && s[43] == 1
+                && s[28] == 0
+                && s[26] == 1
+                && s[44] == 3
+                && s[6] == 1
+                && s[38] == 1
+                && s[11] == 0
+                && s[22] == 9
+                && s[4] + s[23] == s[22]),
+            "withheld monitor/externalCONT/natural exit retains below-cap raw user burn and full debt, and refuses"
+        );
+        assert!(
+            good.states.iter().any(|s| s[16] == 1
+                && s[44] == 3
+                && s[43] == 1
+                && s[38] == 1
+                && s[4] == 0
+                && s[23] == 9
+                && s[11] == 0),
+            "honest paused-user refusal still pays full helper rest"
+        );
+        assert!(
+            good.states.iter().any(|s| s[45] == 9
+                && s[46] == 1
+                && s[47] == 1
+                && s[48] == 0
+                && s[7] == 1
+                && s[49] == 0
+                && s[52] == 1
+                && s[16] == 0
+                && s[17] == 1
+                && s[51] == 1),
+            "original leader WNOWAIT does not skip actual group KILL of a live retained child under the unreaped pin"
+        );
+        assert!(
+            good.states.iter().any(|s| s[45] == 9
+                && s[16] == 1
+                && s[8] == 1
+                && s[0] == 6
+                && s[12] == 1
+                && s[3] == 1
+                && s[54] == 1
+                && s[55] == 0
+                && s[51] == 1
+                && s[4] == 0
+                && s[22] == 9
+                && s[23] == 9
+                && s[9] == 0
+                && s[17] == 1
+                && s[5] == 2
+                && s[11] == 0),
+            "known leader wait4 and full9rest survive, but unrolled live-child CPU cannot be billed by leader-only return or release pins even if the raw resource classes would fit"
+        );
+        assert!(
+            good.states.iter().any(|s| s[47] == 5
+                && s[16] == 1
+                && s[8] == 1
+                && s[54] == 1
+                && s[55] == 0
+                && s[51] == 1
+                && s[9] == 0
+                && s[17] == 1
+                && s[38] == 1
+                && s[11] == 0),
+            "physical child disappearance/groupgone is never a qualified rollup or numeric child reap proof"
+        );
+        assert!(
+            good.states.iter().any(|s| s[45] == 10
+                && s[65] == 1
+                && s[56] == 1
+                && s[61] == 1
+                && s[62] == 1
+                && s[63] == 1
+                && s[64] == 1
+                && s[66] == 1
+                && s[57] == 1
+                && s[58] == 0
+                && s[59] == 1
+                && s[60] == 0
+                && s[55] == 1
+                && s[49] == 1
+                && s[7] == 0
+                && s[48] == 1
+                && s[46] == 1
+                && s[16] == 1
+                && s[8] == 1
+                && s[12] == 2
+                && s[22] == 18
+                && s[23] == 18
+                && s[51] == 0
+                && s[9] == 1
+                && s[17] == 0),
+            "separate original child exitedRI then fresh SAMEleader componentwise sole-child rollup permits all-terminal no-group-attempt and known full subtree settlement"
+        );
+        assert!(
+            good.states.iter().any(|s| s[45] == 10
+                && s[65] == 9
+                && s[57] == 0
+                && s[58] == 0
+                && s[59] == 1
+                && s[60] == 0
+                && s[55] == 1
+                && s[49] == 1
+                && s[51] == 0
+                && s[16] == 1
+                && s[12] == 2
+                && s[22] == 18
+                && s[23] == 18
+                && s[9] == 1
+                && s[66] == 1),
+            "zero child RI with NONZERO covering parent rollup remains valid; nonzero is not falsely required of the child"
+        );
+        assert!(
+            good.states.iter().any(|s| s[45] == 10
+                && s[65] == 10
+                && s[64] == 1
+                && s[66] == 0
+                && s[55] == 0
+                && s[49] == 1
+                && s[51] == 1
+                && s[16] == 1
+                && s[23] == 9
+                && s[17] == 1
+                && s[9] == 0),
+            "native child-edge raw zero plus EIO is unknown, never a successful empty edge or qualified rollup"
+        );
+        for input in [2, 3, 4, 5, 6, 7, 8, 10] {
+            assert!(
+                good.states.iter().any(|s| s[45] == 10
+                    && s[65] == input
+                    && s[55] == 0
+                    && s[49] == 1
+                    && s[7] == 0
+                    && s[48] == 1
+                    && s[16] == 1
+                    && s[8] == 1
+                    && s[12] == 1
+                    && s[22] == 9
+                    && s[23] == 9
+                    && s[51] == 1
+                    && s[0] == 6
+                    && s[9] == 0
+                    && s[17] == 1
+                    && s[11] == 0),
+                "all-terminal no-attempt with missing/invalid rollup input{input} still bills known leader cost and retains unknown-child quarantine"
             );
-        } else if !matches!(profile, 3 | 9 | 12) {
-            act(
-                m,
-                &format!("ReadBothCountersOnlyAfterPositiveAckAndRosterProfile{profile}"),
-                all([
-                    eq(LAW, profile),
-                    eq(0, 6),
-                    eq(14, 1),
-                    eq(15, 1),
-                    eq(18, 1),
-                    eq(19, 1),
-                    eq(7, 3),
-                    eq(8, 3),
-                    eq(READ0, 0),
-                    if profile == 15 { eq(49, 1) } else { Bool(true) },
-                ]),
-                &[
-                    (READ0, Int(2)),
-                    (READ1, Int(2)),
-                    (REPORTED, Int(actual)),
-                    (ORIGIN0, Int(1)),
-                    (ORIGIN1, Int(1)),
-                ],
+        }
+        for raw in [0, 2, 3] {
+            assert!(
+                good.states.iter().any(|s| s[45] == 11
+                    && s[49] == 1
+                    && s[7] == 0
+                    && s[48] == 1
+                    && s[50] == 1
+                    && s[53] == raw
+                    && s[16] == 1
+                    && s[8] == 1
+                    && s[51] == 1
+                    && s[12] == 1
+                    && s[23] == 9
+                    && s[9] == 0
+                    && s[17] == 1
+                    && s[0] == 6),
+                "ingroup terminal no-attempt never skips independent escaped current-token effect/raw{raw}, nor invents escaped child cost"
             );
         }
-        if profile == 12 {
-            // Direct-exit RI/identity proof closes physical custody, never the
-            // missing actual wait4 counter source. Reap needs no grant charge.
-            act(
-                m,
-                "DeferDirectExitGrantAccountingUntilOriginalOwnWait4",
-                all([
-                    eq(LAW, profile),
-                    eq(0, 6),
-                    eq(7, 4),
-                    eq(8, 0),
-                    eq(14, 1),
-                    eq(15, 1),
-                    eq(18, 1),
-                    eq(20, 1),
-                    eq(READ0, 0),
-                    eq(PENDING, 0),
-                    eq(37, 0),
-                ]),
-                &[(PENDING, Int(1)), (ORIGIN0, Int(2)), (ORIGIN1, Int(3))],
-            );
-            continue;
-        }
-        let omit_rollup = control == 31 && profile == 5;
-        let raw_ticks = control == 32 && profile == 6;
-        let reported = if omit_rollup {
-            a0
-        } else if raw_ticks {
-            12_000
-        } else if profile == 4 {
-            pre_ack
-        } else {
-            actual
-        };
-        let eligible = !matches!(profile, 3 | 4 | 8 | 9 | 10 | 13);
-        let forged = (control == 29 && profile == 3)
-            || (control == 30 && profile == 4)
-            || (control == 34 && profile == 8);
-        let measured = eligible || forged;
-        let member = if measured {
-            reported
-        } else {
-            wall.max(reported)
-        };
-        let q = member + 250_000;
-        let debt = (9 * q.max(1_000_000) + 999_999) / 1_000_000;
-        assert!(q <= 3_000_000 && debt <= 27);
-        let wall_ok = wall <= 25_000_000 || (control == 33 && profile == 7);
-        let coverage = (eligible || forged || profile == 13) && q <= 1_000_000 && wall_ok;
-        let mut guard = vec![
-            eq(LAW, profile),
-            eq(37, 0),
-            eq(SEEN, 1),
-            Var(5).eq(Var(6)),
-            Var(48).lt(Int(28 - debt)),
-            if profile == 15 { eq(49, 1) } else { Bool(true) },
-        ];
-        if profile == 3 {
-            // The SAME reserved slot remains unknown and unclosed. Its true
-            // pre-CONT window is charged; no positive ACK or seal is invented.
-            guard.extend([eq(0, 4), eq(14, 1), eq(15, 0), eq(8, 5)]);
-        } else {
-            guard.extend([
-                eq(0, 6),
-                eq(20, 1),
-                eq(
-                    READ0,
-                    if profile == 4 {
-                        1
-                    } else if profile == 9 {
-                        0
-                    } else {
-                        2
-                    },
-                ),
-            ]);
-        }
-        act(
-            m,
-            &format!("ChargeBasisDependentQuantumWithRetainedRawProfile{profile}"),
-            all(guard),
-            &[
-                (0, Int(7)),
-                (33, Int(0)),
-                (BASIS, Int(i64::from(measured))),
-                (BASIS_EPOCH, Var(5)),
-                (REPORTED, Int(reported)),
-                (QNS, Int(q)),
-                (CHARGED, Var(CHARGED).plus(Int(member))),
-                (CREATED_DEBT, Int(debt)),
-                (COMMITTED, Var(COMMITTED).plus(Int(1))),
-                (RAW_Q, Int(q)),
-                (RAW_BASIS, Int(i64::from(measured))),
-                (PRIOR_LIVE, Int(if profile == 15 { 125_000 } else { 0 })),
-                (21, Int(2)),
-                (22, Int(1)),
-                (23, Int(1)),
-                (24, Int(3)),
-                (26, Int(i64::from(coverage))),
-                (37, Int(if coverage { 0 } else { 6 })),
-                (27, Var(27).plus(Int(debt))),
-                (28, Var(28).plus(Int(debt))),
-                (48, Var(48).plus(Int(debt))),
-                (43, Int(1)),
-                (44, Int(1)),
-                (46, Int(i64::from(case != 7))),
-            ],
+        assert!(
+            good.states.iter().any(|s| s[45] == 12
+                && s[46] == 1
+                && s[47] == 4
+                && s[52] == 1
+                && s[0] == 6
+                && s[16] == 0
+                && s[17] == 1
+                && s[5] == 2
+                && s[51] == 1
+                && s[11] == 0),
+            "unavailable child/group proof keeps the SAME original unreaped owner and reservations"
         );
-    }
-    // Clarified66236: a qualified unique child can be represented by the
-    // stopped leader's POST-exit rollup. This is a distinct source from the
-    // controller's own wait4, and remains provisional until that final wait4.
-    act(
-        m,
-        "ObserveQualifiedRollupSecondGrantActualCpu",
-        all([
-            eq(LAW, 15),
-            eq(49, 2),
-            eq(0, 4),
-            eq(SEEN, 0),
-            eq(14, 0),
-            eq(8, 2),
-        ]),
-        &[(BURNED, Var(BURNED).plus(Int(375_000))), (SEEN, Int(1))],
-    );
-    act(
-        m,
-        "ReadLeaderRollupBeforeProvenChildExitRetainsBadOrdering",
-        all([
-            eq(LAW, 17),
-            eq(0, 4),
-            eq(SEEN, 1),
-            eq(14, 1),
-            eq(7, 3),
-            eq(8, 2),
-            eq(READ1, 0),
-        ]),
-        &[
-            (READ0, Int(2)),
-            (ORIGIN0, Int(1)),
-            (READ1, Int(4)),
-            (ROLL_UNIQUE, Int(1)),
-            (ROLL_MIXED, Int(0)),
-            (ROLL_EXIT, Int(0)),
-            (ROLL_ACK, Int(1)),
-            (ROLL_COUNT, Int(1)),
-            (ROLL_ZERO_CHILDREN, Int(0)),
-            (ROLL_CUMULATIVE, Int(0)),
-            (ROLL_BASELINE, Int(0)),
-            (ROLL_DELTA, Int(0)),
-            (ROLL_DUPLICATE, Int(0)),
-            (REPORTED, Int(250_000)),
-        ],
-    );
-    for profile in [15, 16, 18, 19] {
-        let cumulative = if matches!(profile, 15 | 16) {
-            250_000
-        } else {
-            125_000
-        };
-        let baseline = if profile == 15 { 125_000 } else { 0 };
-        let duplicate = if profile == 18 { 125_000 } else { 0 };
-        let delta = cumulative - baseline;
-        act(
-            m,
-            &format!("ReadClosedChildRollupAfterLeaderAckProfile{profile}"),
-            all([
-                eq(LAW, profile),
-                eq(49, if profile == 15 { 2 } else { 1 }),
-                eq(0, 6),
-                eq(14, 1),
-                eq(15, 1),
-                eq(18, 1),
-                eq(19, 1),
-                eq(7, 3),
-                eq(8, 4),
-                eq(READ0, 0),
-                eq(READ1, 0),
-            ]),
-            &[
-                (READ0, Int(2)),
-                (ORIGIN0, Int(1)),
-                (READ1, Int(4)),
-                (ORIGIN1, Int(2)),
-                (ROLL_UNIQUE, Int(i64::from(profile != 16))),
-                (ROLL_MIXED, Int(i64::from(profile == 16))),
-                (ROLL_EXIT, Int(1)),
-                (ROLL_ACK, Int(1)),
-                (ROLL_ZERO_CHILDREN, Int(1)),
-                (ROLL_COUNT, Int(if profile == 18 { 2 } else { 1 })),
-                (ROLL_CUMULATIVE, Int(cumulative)),
-                (ROLL_BASELINE, Int(baseline)),
-                (ROLL_DELTA, Int(delta)),
-                (ROLL_DUPLICATE, Int(duplicate)),
-                (REPORTED, Int(250_000 + delta + duplicate)),
-            ],
+        assert!(
+            good.states.iter().any(|s| s[45] == 13
+                && s[46] == 1
+                && s[47] == 3
+                && s[49] == 1
+                && s[50] == 0
+                && s[52] == 1
+                && s[0] == 6
+                && s[16] == 0
+                && s[17] == 1
+                && s[5] == 2
+                && s[51] == 1),
+            "unavailable escaped-token effect retains original pins, never a generic Err-to-reap permission"
         );
-    }
-    for profile in 15..=19 {
-        let reported = match profile {
-            16 | 18 => 500_000,
-            17 => 250_000,
-            _ => 375_000,
-        };
-        let qualified = matches!(profile, 15 | 19);
-        let forged = (control == 35 && profile == 16)
-            || (control == 36 && profile == 17)
-            || (control == 37 && profile == 18);
-        let measured = qualified || forged;
-        let member = if measured { reported } else { 750_000 };
-        let q = member + 250_000;
-        act(
-            m,
-            &format!("ChargeDistinctQualifiedLeaderRollupSourceProfile{profile}"),
-            all([
-                eq(LAW, profile),
-                eq(49, if profile == 15 { 2 } else { 1 }),
-                eq(0, 6),
-                eq(18, 1),
-                eq(19, 1),
-                eq(20, 1),
-                eq(14, 1),
-                eq(15, 1),
-                eq(READ0, 2),
-                eq(READ1, 4),
-                eq(37, 0),
-                Var(5).eq(Var(6)),
-                eq(REPORTED, reported),
-                eq(27, 0),
-                eq(28, 0),
-                Var(48).lt(Int(19)),
-            ]),
-            &[
-                (0, Int(7)),
-                (33, Int(0)),
-                (BASIS, Int(i64::from(measured))),
-                (BASIS_EPOCH, Var(5)),
-                (QNS, Int(q)),
-                (CREATED_DEBT, Int(9)),
-                (RAW_Q, Int(q)),
-                (RAW_BASIS, Int(i64::from(measured))),
-                (CHARGED, Var(CHARGED).plus(Int(member))),
-                (COMMITTED, Var(COMMITTED).plus(Int(1))),
-                (ROLL_PENDING, Int(i64::from(measured))),
-                (ROLL_VALIDATED, Int(0)),
-                (26, Int(i64::from(measured))),
-                (37, Int(if measured { 0 } else { 6 })),
-                (27, Int(9)),
-                (28, Int(9)),
-                (48, Var(48).plus(Int(9))),
-                (21, Int(2)),
-                (22, Int(1)),
-                (23, Int(1)),
-                (24, Int(3)),
-                (43, Int(1)),
-                (44, Int(1)),
-                (46, Int(1)),
-            ],
-        );
-    }
-    // Reaping stays the original physical action. Certification is a later
-    // local outcome; a detected shortfall is a valid refused execution whose
-    // raw totals/excess survive. Neither RI exit nor a failed STOP is wait4.
-    let bind_direct = m.actions.len();
-    act(
-        m,
-        "BindDirectOwnWait4CounterBeforeConservationClassification",
-        all([
-            eq(LAW, 12),
-            eq(PENDING, 1),
-            eq(40, 1),
-            eq(READ0, 0),
-            eq(ORIGIN0, 2),
-            eq(ORIGIN1, 3),
-            eq(18, 1),
-            eq(14, 1),
-            eq(15, 1),
-        ]),
-        &[(READ0, Int(3)), (REPORTED, Var(WAIT4).minus(Int(125_000)))],
-    );
-    let commit_direct = m.actions.len();
-    act(
-        m,
-        "CommitDeferredDirectGrantOnlyFromOriginalOwnWait4",
-        all([
-            eq(LAW, 12),
-            eq(PENDING, 1),
-            eq(40, 1),
-            eq(READ0, 3),
-            eq(ORIGIN0, 2),
-            eq(ORIGIN1, 3),
-            eq(READ1, 0),
-            eq(18, 1),
-            eq(19, 1),
-            eq(20, 1),
-            eq(14, 1),
-            eq(15, 1),
-            eq(42, 0),
-            Var(5).eq(Var(6)),
-            eq(37, 0),
-            eq(27, 0),
-            eq(28, 0),
-            eq(QNS, 0),
-            eq(REPORTED, 250_000),
-        ]),
-        &[
-            (PENDING, Int(0)),
-            (BASIS, Int(1)),
-            (BASIS_EPOCH, Var(5)),
-            (QNS, Int(500_000)),
-            (RAW_Q, Int(500_000)),
-            (RAW_BASIS, Int(1)),
-            (CREATED_DEBT, Int(9)),
-            (COMMITTED, Var(COMMITTED).plus(Int(1))),
-            (CHARGED, Var(CHARGED).plus(Var(REPORTED))),
-            (27, Int(9)),
-            (28, Int(9)),
-            (48, Var(48).plus(Int(9))),
-            (26, Int(1)),
-            (46, Int(1)),
-        ],
-    );
-    let refuse_direct = m.actions.len();
-    act(
-        m,
-        "FailedDeferredDirectGrantRetainsWindowChargeForSettlement",
-        all([
-            eq(LAW, 12),
-            eq(PENDING, 1),
-            eq(40, 1),
-            eq(37, 0).negate(),
-            eq(27, 0),
-            eq(28, 0),
-            eq(QNS, 0),
-        ]),
-        &[
-            (PENDING, Int(0)),
-            (BASIS, Int(0)),
-            (QNS, Int(1_000_000)),
-            (RAW_Q, Int(1_000_000)),
-            (RAW_BASIS, Int(0)),
-            (COMMITTED, Var(COMMITTED).plus(Int(1))),
-            (CREATED_DEBT, Int(9)),
-            (CHARGED, Var(CHARGED).plus(Int(750_000))),
-            (27, Int(9)),
-            (28, Int(9)),
-            (48, Var(48).plus(Int(9))),
-            (26, Int(0)),
-            (34, Int(0)),
-        ],
-    );
-    if control == 30 {
-        act(
-            m,
-            "BrokenDirectExitRiCounterPretendsToBeStoppedPostAck",
-            all([eq(LAW, 12), eq(PENDING, 1), eq(40, 0), eq(READ0, 0)]),
-            &[(BASIS, Int(1)), (BASIS_EPOCH, Var(5)), (READ0, Int(2))],
-        );
-    }
-    let rhs = Var(CHARGED).plus(Var(TEARDOWN_ALLOWANCE));
-    let conserved = rhs.clone().lt(Var(WAIT4)).negate();
-    let residual_ready = all([
-        new_law.clone(),
-        eq(40, 1),
-        eq(PENDING, 0),
-        eq(RESIDUAL_OBSERVED, 0),
-        eq(27, 0),
-        eq(28, 0),
-        eq(LAW, 21).negate(),
-        early_born.clone().negate(),
-    ]);
-    let bill_start = m.actions.len();
-    // Once actual reap is already retained, the remaining response is ONLY
-    // local bill/payment/classification bookkeeping. The new terminal bill
-    // creates fresh debt after the response request. Keep its exact existing
-    // rest transitions weakly fair in this post-reap phase as well, rather
-    // than silently allowing stutter with a continuously enabled payment.
-    // These are copies of the original paid-work-end transition, with the
-    // SAME debt decrement and additional phase guards. No new state/update,
-    // saved-idle credit, clock success, stop/reap or OS fairness is assumed.
-    // LAW0 never enables them, preserving its entire old labelled graph and
-    // fairness semantics; existing global rest actions remain unchanged.
-    let terminal_payments = m
-        .actions
-        .iter()
-        .filter(|action| {
-            action
-                .name
-                .starts_with("ObserveRestAfterWorkEndWithoutIdleCredit")
-        })
-        .map(|action| {
-            let mut payment = action.clone();
-            payment.name = action.name.replacen(
-                "ObserveRestAfterWorkEndWithoutIdleCredit",
-                "PayAlreadyReapedTerminalResidualDebtWithoutIdleCredit",
-                1,
-            );
-            payment.guard = payment.guard.and(all([
-                new_law.clone(),
-                eq(40, 1),
-                eq(CHECKED, 0),
-                eq(RESIDUAL_OBSERVED, 1),
-            ]));
-            payment
-        })
-        .collect::<Vec<_>>();
-    assert_eq!(
-        terminal_payments.len(),
-        27,
-        "all existing bounded debt payments must remain represented"
-    );
-    m.actions.extend(terminal_payments);
-    act(
-        m,
-        "RetainAndChargeKnownZeroResidualOrdinaryWait4Cost",
-        all([residual_ready.clone(), Var(CHARGED).lt(Var(WAIT4)).negate()]),
-        &[
-            (RESIDUAL, Int(0)),
-            (RESIDUAL_CHARGED, Int(0)),
-            (RESIDUAL_TOTAL, Int(250_000)),
-            (RESIDUAL_OBSERVED, Int(1)),
-            (RESIDUAL_KNOWN, Int(1)),
-            (INDEPENDENT_AT_BILL, Var(CHARGED)),
-            (TERMINAL_DEBT, Int(9)),
-            (27, Int(9)),
-            (28, Int(9)),
-        ],
-    );
-    for debt in [9, 21] {
-        let residual = Var(WAIT4).minus(Var(CHARGED));
-        let mut charged = vec![
-            (RESIDUAL, residual.clone()),
-            (RESIDUAL_CHARGED, residual.clone()),
-            (RESIDUAL_TOTAL, residual.clone().plus(Int(250_000))),
-            (RESIDUAL_OBSERVED, Int(1)),
-            (RESIDUAL_KNOWN, Int(1)),
-            (INDEPENDENT_AT_BILL, Var(CHARGED)),
-            (TERMINAL_DEBT, Int(debt)),
-            (27, Int(debt)),
-            (28, Int(debt)),
-        ];
-        if debt == 21 {
-            charged.extend([(37, Int(6)), (26, Int(0)), (34, Int(0))]);
-        }
-        act(
-            m,
-            &format!("RetainAndChargeFullRawWait4ResidualWithFreshDebt{debt}"),
-            all([
-                residual_ready.clone(),
-                Var(CHARGED).lt(Var(WAIT4)),
-                if debt == 9 {
-                    residual.clone().lt(Int(750_001))
-                } else {
-                    residual.clone().lt(Int(750_001)).negate()
-                },
-                if control == 41 {
-                    eq(LAW, 14).negate()
-                } else {
-                    Bool(true)
-                },
-            ]),
-            &charged,
-        );
-    }
-    if control == 41 {
-        act(
-            m,
-            "BrokenTeardownAllowanceSkipsRealResidualCost",
-            all([
-                residual_ready.clone(),
-                eq(LAW, 14),
-                Var(CHARGED).lt(Var(WAIT4)),
-            ]),
-            &[
-                (RESIDUAL, Var(WAIT4).minus(Var(CHARGED))),
-                (RESIDUAL_CHARGED, Int(0)),
-                (RESIDUAL_TOTAL, Int(250_000)),
-                (RESIDUAL_OBSERVED, Int(1)),
-                (RESIDUAL_KNOWN, Int(1)),
-                (INDEPENDENT_AT_BILL, Var(CHARGED)),
-                (TERMINAL_DEBT, Int(9)),
-                (27, Int(9)),
-                (28, Int(9)),
-            ],
-        );
-    }
-    act(
-        m,
-        "RetainUnknownTerminalWait4CostInConservativeThreeMsLane",
-        all([
-            unknown_conservation_route.clone(),
-            eq(40, 1),
-            eq(PENDING, 0),
-            eq(INITIAL_ATTEMPT, 1),
-            eq(INITIAL_READ_KNOWN, 0).or(early_born.clone()),
-            eq(INITIAL_REST_PAID, 1),
-            eq(RESIDUAL_OBSERVED, 0),
-            eq(27, 0),
-            eq(28, 0),
-        ]),
-        &[
-            (RESIDUAL, Int(0)),
-            (RESIDUAL_CHARGED, Int(0)),
-            (RESIDUAL_KNOWN, Int(0)),
-            (RESIDUAL_TOTAL, Int(3_000_000)),
-            (RESIDUAL_OBSERVED, Int(1)),
-            (INDEPENDENT_AT_BILL, Var(CHARGED)),
-            (INITIAL_UNKNOWN_DEBT, Int(27)),
-            (27, Int(27)),
-            (28, Int(27)),
-        ],
-    );
-    act(
-        m,
-        "RetainFullTerminalResidualPaymentBeforeConservation",
-        all([
-            new_law.clone(),
-            eq(40, 1),
-            eq(PENDING, 0),
-            eq(RESIDUAL_OBSERVED, 1),
-            eq(RESIDUAL_PAID, 0),
-            eq(27, 0),
-            eq(28, 0),
-        ]),
-        &[(RESIDUAL_PAID, Int(1))],
-    );
-    let bill_paid = all([eq(RESIDUAL_OBSERVED, 1), eq(RESIDUAL_PAID, 1)]);
-    act(
-        m,
-        "CertifyConservationOnlyAfterActualRetainedWait4",
-        all([
-            new_law.clone(),
-            eq(40, 1),
-            eq(CHECKED, 0),
-            eq(PENDING, 0),
-            eq(27, 0),
-            eq(28, 0),
-            conserved.clone(),
-            early_born.clone().negate(),
-            bill_paid.clone(),
-            initial_eligible
-                .clone()
-                .negate()
-                .or(all([eq(INITIAL_READ_KNOWN, 1), eq(INITIAL_REST_PAID, 1)])),
-        ]),
-        &[
-            (CHECKED, Int(1)),
-            (TERMINAL, Int(1)),
-            (ROLL_VALIDATED, Var(ROLL_PENDING)),
-            (ROLL_PENDING, Int(0)),
-        ],
-    );
-    for profile in 1..=28 {
-        let mut refused = vec![
-            (CHECKED, Int(1)),
-            (TERMINAL, Int(2)),
-            (EXCESS, Var(WAIT4).minus(rhs.clone())),
-            (37, Int(6)),
-            (26, Int(0)),
-            (34, Int(0)),
-            (ROLL_PENDING, Int(0)),
-            (ROLL_VALIDATED, Int(0)),
-        ];
-        if matches!(profile, 15 | 19) {
-            // Effective accounting is withdrawn; immutable raw measured Q,
-            // member credit and the actual shortfall are NEVER rewritten to
-            // make conservation pass. The fallback bill is retained separately.
-            refused.extend([
-                (BASIS, Int(0)),
-                (QNS, Int(1_000_000)),
-                (ROLL_REVOKED, Int(1)),
-                (FALLBACK_Q, Int(1_000_000)),
-                (FALLBACK_DEBT, Int(9)),
-                (27, Int(9)),
-                (28, Int(9)),
-            ]);
-        }
-        act(
-            m,
-            &format!("RefuseConservationExcessRetainsActualRawUsageProfile{profile}"),
-            all([
-                eq(LAW, profile),
-                eq(40, 1),
-                eq(CHECKED, 0),
-                eq(PENDING, 0),
-                eq(27, 0),
-                eq(28, 0),
-                conserved.clone().negate(),
-                bill_paid.clone(),
-                Bool(profile != 21),
-            ]),
-            &refused,
-        );
-    }
-    act(
-        m,
-        "RefuseUnknownInitialConservationAfterPaidAttemptAndOwnWait4",
-        all([
-            unknown_conservation_route.clone(),
-            eq(INITIAL_ATTEMPT, 1),
-            eq(INITIAL_READ_KNOWN, 0).or(early_born.clone()),
-            eq(INITIAL_REST_PAID, 1),
-            eq(INITIAL_COST_BOUND, 3_000_000),
-            eq(INITIAL_ATTEMPT_DEBT, 27),
-            eq(40, 1),
-            eq(CHECKED, 0),
-            eq(27, 0),
-            eq(28, 0),
-            bill_paid.clone(),
-        ]),
-        &[
-            (CHECKED, Int(1)),
-            (TERMINAL, Int(0)),
-            (INITIAL_UNKNOWN, Int(1)),
-            (INITIAL_UNKNOWN_DEBT, Int(27)),
-            (EXCESS, Int(0)),
-            (37, Int(6)),
-            (26, Int(0)),
-            (34, Int(0)),
-        ],
-    );
-    let refuse_end = m.actions.len();
-    if forged_terminal_control && matches!(control, 31 | 32) {
-        // COMPOSED fault: omit/misconvert a contribution AND independently
-        // bypass terminal certification. Pure omission retains the hard gate
-        // and must refuse, as the separate nonvacuity checks below require.
-        act(
-            m,
-            "BrokenOmittedCpuContributionForgesTerminalAccounting",
-            all([
-                eq(LAW, if control == 31 { 5 } else { 6 }),
-                eq(40, 1),
-                eq(CHECKED, 0),
-                eq(BASIS, 1),
-                Int(0).lt(Var(QNS)),
-                eq(27, 0),
-                eq(28, 0),
-                eq(REPORTED, if control == 31 { 250_000 } else { 12_000 }),
-                conserved.clone().negate(),
-                bill_paid.clone(),
-            ]),
-            &[(CHECKED, Int(1)), (TERMINAL, Int(1))],
-        );
-    }
-    if control == 40 {
-        act(
-            m,
-            "BrokenAcceptsActualPostSampleBurnAboveFixedTeardownCeiling",
-            all([
-                eq(LAW, 28),
-                eq(40, 1),
-                eq(CHECKED, 0),
-                bill_paid.clone(),
-                eq(27, 0),
-                eq(28, 0),
-                conserved.clone().negate(),
-            ]),
-            &[(CHECKED, Int(1)), (TERMINAL, Int(1))],
-        );
-    }
-    if control == 42 {
-        act(
-            m,
-            "BrokenDerivesTeardownCeilingFromTheSameWait4Residual",
-            all([
-                eq(LAW, 28),
-                eq(40, 1),
-                eq(CHECKED, 0),
-                bill_paid.clone(),
-                eq(27, 0),
-                eq(28, 0),
-                eq(TEARDOWN_LIMIT, 150_000),
-                Var(TEARDOWN_ALLOWANCE).lt(Var(RESIDUAL)),
-            ]),
-            &[
-                (TEARDOWN_LIMIT, Var(RESIDUAL)),
-                (TEARDOWN_ALLOWANCE, Var(RESIDUAL)),
-            ],
-        );
-    }
-    if control == 43 {
-        act(
-            m,
-            "BrokenUnprovenExpectedChildAddsAnotherTeardownAllowance",
-            all([
-                eq(LAW, 28),
-                eq(40, 1),
-                eq(CHECKED, 0),
-                bill_paid.clone(),
-                eq(27, 0),
-                eq(28, 0),
-                eq(ACTUAL_REAPS, 1),
-                eq(QUALIFIED_CHILD_REAP, 0),
-            ]),
-            &[
-                (ACTUAL_REAPS, Int(2)),
-                (
-                    TEARDOWN_ALLOWANCE,
-                    Var(TEARDOWN_LIMIT).plus(Var(TEARDOWN_LIMIT)),
-                ),
-            ],
-        );
-    }
-    safe(
-        m,
-        "TeardownCeilingIsIndependentFixedPerActualReap",
-        eq(LAW, 0).or(all([
-            eq(TEARDOWN_LIMIT, 150_000),
-            all([eq(ACTUAL_REAPS, 0), eq(TEARDOWN_ALLOWANCE, 0)])
-                .or(all([
-                    eq(ACTUAL_REAPS, 1),
-                    Var(TEARDOWN_ALLOWANCE).eq(Var(TEARDOWN_LIMIT)),
-                ]))
-                .or(all([
-                    eq(ACTUAL_REAPS, 2),
-                    Var(TEARDOWN_ALLOWANCE).eq(Var(TEARDOWN_LIMIT).plus(Var(TEARDOWN_LIMIT))),
-                ])),
-        ])),
-    );
-    safe(
-        m,
-        "TeardownCountRequiresOriginalActualOwnWait4",
-        eq(LAW, 0).or(all([
-            eq(ACTUAL_REAPS, 0).or(eq(40, 1)),
-            eq(40, 0).or(eq(ACTUAL_REAPS, 1).or(eq(ACTUAL_REAPS, 2))),
-        ])),
-    );
-    safe(
-        m,
-        "TeardownChildCountNeedsQualifiedRetainedReapProof",
-        eq(LAW, 0).or(all([
-            eq(ACTUAL_REAPS, 2).negate().or(all([
-                eq(40, 1),
-                eq(QUALIFIED_CHILD_REAP, 1),
-                qualified_child_reap.clone(),
-            ])),
-            eq(QUALIFIED_CHILD_REAP, 0).or(all([eq(40, 1), eq(ACTUAL_REAPS, 2)])),
-        ])),
-    );
-    let raw_residual = all([
-        Var(CHARGED).lt(Var(WAIT4)),
-        Var(RESIDUAL).eq(Var(WAIT4).minus(Var(CHARGED))),
-    ])
-    .or(all([Var(CHARGED).lt(Var(WAIT4)).negate(), eq(RESIDUAL, 0)]));
-    let known_full_bill = all([
-        eq(RESIDUAL_KNOWN, 1),
-        raw_residual,
-        Var(RESIDUAL_CHARGED).eq(Var(RESIDUAL)),
-        Var(RESIDUAL_TOTAL).eq(Var(RESIDUAL_CHARGED).plus(Int(250_000))),
-        all([eq(TERMINAL_DEBT, 9), Var(RESIDUAL_TOTAL).lt(Int(1_000_001))]).or(all([
-            eq(TERMINAL_DEBT, 21),
-            Var(RESIDUAL_TOTAL).lt(Int(2_333_334)),
-        ])),
-    ]);
-    let unknown_full_bill = all([
-        unknown_conservation_route.clone(),
-        eq(INITIAL_READ_KNOWN, 0).or(early_born.clone()),
-        eq(RESIDUAL_KNOWN, 0),
-        eq(RESIDUAL, 0),
-        eq(RESIDUAL_CHARGED, 0),
-        eq(RESIDUAL_TOTAL, 3_000_000),
-        eq(INITIAL_UNKNOWN_DEBT, 27),
-    ]);
-    safe(
-        m,
-        "TerminalResidualIsFullyChargedOutsideConservationCredit",
-        eq(RESIDUAL_OBSERVED, 0).or(known_full_bill.or(unknown_full_bill)),
-    );
-    safe(
-        m,
-        "TerminalResidualCostNeverRewritesIndependentMemberCredits",
-        eq(RESIDUAL_OBSERVED, 0).or(Var(CHARGED).eq(Var(INDEPENDENT_AT_BILL))),
-    );
-    safe(
-        m,
-        "TerminalResidualFullPaymentPrecedesConservation",
-        eq(LAW, 0).or(eq(CHECKED, 0)).or(bill_paid),
-    );
-    safe(
-        m,
-        "KnownTerminalResidualOverOrdinaryLimitCannotCertifyCoverage",
-        eq(RESIDUAL_KNOWN, 0)
-            .or(Var(RESIDUAL_TOTAL).lt(Int(1_000_001)))
-            .or(all([eq(37, 6), eq(26, 0), eq(34, 0)])),
-    );
-    let unique_rollup = all([eq(ROLL_UNIQUE, 1), eq(ROLL_MIXED, 0)]);
-    let causal_rollup = all([
-        eq(ROLL_EXIT, 1),
-        eq(ROLL_ACK, 1),
-        eq(ROLL_ZERO_CHILDREN, 1),
-        eq(ORIGIN1, 2),
-    ]);
-    let counted_rollup = all([
-        eq(ROLL_COUNT, 1),
-        eq(ROLL_DUPLICATE, 0),
-        Var(ROLL_DELTA).eq(Var(ROLL_CUMULATIVE).minus(Var(ROLL_BASELINE))),
-        Var(ROLL_BASELINE).eq(Var(PRIOR_LIVE)),
-        Var(REPORTED).eq(Var(A0).plus(Var(ROLL_DELTA))),
-    ]);
-    let rollup_proof = all([
-        unique_rollup.clone(),
-        causal_rollup.clone(),
-        counted_rollup.clone(),
-    ]);
-    let read = |slot, origin| {
-        all([eq(slot, 2), eq(origin, 1)])
-            .or(all([eq(slot, 3), eq(origin, 2), eq(40, 1)]))
-            .or(all([eq(slot, 0), eq(origin, 3)]))
-            .or(all([
-                Bool(slot == READ1),
-                eq(slot, 4),
-                eq(origin, 2),
-                rollup_proof.clone(),
-            ]))
-    };
-    let slot_fits = all([Var(W0).lt(Var(A0)).negate(), Var(W1).lt(Var(A1)).negate()]);
-    safe(
-        m,
-        "MeasuredNeedsClosure",
-        eq(BASIS, 0).or(all([
-            eq(18, 1),
-            eq(19, 1),
-            eq(14, 1),
-            eq(15, 1),
-            eq(42, 0),
-            eq(50, 1),
-            Var(BASIS_EPOCH).eq(Var(6)),
-            read(READ0, ORIGIN0),
-            read(READ1, ORIGIN1),
-            eq(MONOTONIC, 3),
-            eq(CONVERTED, 3),
-            slot_fits.clone(),
-        ])),
-    );
-    safe(
-        m,
-        "PerSlotMeasuredCpuFitsWindow",
-        eq(BASIS, 0).or(slot_fits),
-    );
-    let certified_rollup = all([eq(BASIS, 1), eq(READ1, 4)]);
-    safe(
-        m,
-        "RollupRequiresUniqueAdmittedChild",
-        certified_rollup.clone().negate().or(unique_rollup),
-    );
-    safe(
-        m,
-        "RollupNeedsCausalExitAndLeaderAck",
-        certified_rollup.clone().negate().or(causal_rollup),
-    );
-    safe(
-        m,
-        "RollupCountedOnce",
-        certified_rollup.negate().or(counted_rollup),
-    );
-    safe(
-        m,
-        "RollupTrustWaitsForIndependentLeaderWait4",
-        eq(READ1, 4).negate().or(eq(34, 0)).or(all([
-            eq(40, 1),
-            eq(CHECKED, 1),
-            eq(TERMINAL, 1),
-            eq(ROLL_PENDING, 0),
-            eq(ROLL_VALIDATED, 1),
-            eq(ROLL_REVOKED, 0),
-        ])),
-    );
-    safe(
-        m,
-        "RevokedRollupRetainsRawMeasuredReceiptAndFallbackBill",
-        eq(ROLL_REVOKED, 0).or(all([
-            eq(BASIS, 0),
-            eq(RAW_BASIS, 1),
-            eq(READ1, 4),
-            eq(CHECKED, 1),
-            eq(TERMINAL, 2),
-            eq(37, 6),
-            eq(26, 0),
-            eq(34, 0),
-            eq(ROLL_PENDING, 0),
-            eq(ROLL_VALIDATED, 0),
-            Var(RAW_Q).eq(Var(REPORTED).plus(Int(250_000))),
-            Var(FALLBACK_Q).eq(Var(WALL).plus(Int(250_000))),
-            Var(QNS).eq(Var(FALLBACK_Q)),
-            eq(FALLBACK_DEBT, 9),
-            Int(0).lt(Var(EXCESS)),
-            rhs.clone().lt(Var(WAIT4)),
-        ])),
-    );
-    safe(
-        m,
-        "InitialTerminalConservationNeedsKnownIndependentObservation",
-        initial_eligible
-            .clone()
-            .negate()
-            .or(eq(TERMINAL, 1).negate())
-            .or(all([
-                eq(INITIAL_ATTEMPT, 1),
-                eq(INITIAL_READ_KNOWN, 1),
-                eq(INITIAL_REST_PAID, 1),
-            ])),
-    );
-    safe(
-        m,
-        "ChargedCoversBurned",
-        eq(TERMINAL, 1).negate().or(all([
-            eq(40, 1),
-            eq(CHECKED, 1),
-            conserved.clone(),
-            rhs.clone().lt(Var(BURNED)).negate(),
-        ])),
-    );
-    safe(
-        m,
-        "ExitedDirectMeasuredSourceRequiresOriginalOwnWait4",
-        eq(LAW, 12)
-            .negate()
-            .or(eq(BASIS, 0))
-            .or(all([eq(40, 1), eq(READ0, 3), eq(ORIGIN0, 2)])),
-    );
-    safe(
-        m,
-        "PendingDirectExitCannotAdmitExpensiveWorkOrTrust",
-        eq(PENDING, 0).or(all([
-            eq(BASIS, 0),
-            eq(26, 0),
-            eq(QNS, 0),
-            eq(CHECKED, 0),
-            // Only the new two-grant exited-only profile has a prior real
-            // commitment. Preserve it; the CURRENT grant stays uncommitted.
-            eq(LAW, 44)
-                .and(Var(COMMITTED).plus(Int(1)).eq(Var(49)))
-                .or(eq(LAW, 44).negate().and(eq(COMMITTED, 0))),
-            eq(33, 0),
-            eq(34, 0),
-        ])),
-    );
-    safe(
-        m,
-        "CounterProvenanceDistinguishesStoppedFromExited",
-        all([
-            eq(READ0, 2).negate().or(eq(ORIGIN0, 1)),
-            eq(READ1, 2).negate().or(eq(ORIGIN1, 1)),
-            eq(READ0, 3).negate().or(all([eq(ORIGIN0, 2), eq(40, 1)])),
-            eq(READ1, 3).negate().or(all([eq(ORIGIN1, 2), eq(40, 1)])),
-        ]),
-    );
-    safe(
-        m,
-        "ActualWait4RawUsageRemainsIndependentOfChargedLedger",
-        eq(LAW, 0).or(eq(40, 0)).or(Var(WAIT4).eq(Var(BURNED))),
-    );
-    safe(
-        m,
-        "WallBounded",
-        eq(LAW, 0).or(eq(26, 0)).or(Var(WALL).lt(Int(25_000_001))),
-    );
-    safe(
-        m,
-        "CertifiedBasisQuantumIsOrdinary",
-        eq(LAW, 0).or(eq(26, 0)).or(Var(QNS).lt(Int(1_000_001))),
-    );
-    safe(
-        m,
-        "BasisQuantumIncludesAllActiveControllerCpu",
-        eq(LAW, 0).or(eq(QNS, 0)).or(all([
-            eq(BASIS, 1),
-            Var(QNS).eq(Var(REPORTED).plus(Int(250_000))),
-        ])
-        .or(all([
-            eq(BASIS, 0),
-            all([
-                Var(WALL).lt(Var(REPORTED)).negate(),
-                Var(QNS).eq(Var(WALL).plus(Int(250_000))),
-            ])
-            .or(all([
-                Var(WALL).lt(Var(REPORTED)),
-                Var(QNS).eq(Var(REPORTED).plus(Int(250_000))),
-            ])),
-        ]))),
-    );
-    let full_debt = (9..=27)
-        .map(|debt| {
-            all([
-                eq(CREATED_DEBT, debt),
-                Var(QNS).lt(Int(debt * 1_000_000 / 9 + 1)),
-            ])
-        })
-        .fold(Bool(false), Expr::or);
-    safe(
-        m,
-        "CreatedDebtCoversUnclampedBasisQuantum",
-        eq(LAW, 0).or(eq(QNS, 0)).or(full_debt),
-    );
-    let refused_initial_unknown = all([
-        unknown_conservation_route,
-        eq(INITIAL_UNKNOWN, 1),
-        eq(INITIAL_ATTEMPT, 1),
-        eq(INITIAL_READ_KNOWN, 0).or(early_born.clone()),
-        eq(INITIAL_REST_PAID, 1),
-        eq(INITIAL_L, 0),
-        eq(INITIAL_COST_BOUND, 3_000_000),
-        eq(INITIAL_ATTEMPT_DEBT, 27),
-        eq(INITIAL_UNKNOWN_DEBT, 27),
-        eq(40, 1),
-        eq(CHECKED, 1),
-        eq(TERMINAL, 0),
-        eq(EXCESS, 0),
-        eq(37, 6),
-        eq(26, 0),
-        eq(34, 0),
-    ]);
-    safe(
-        m,
-        "UnknownInitialConservationNeverFabricatesKnownExcessOrPass",
-        eq(INITIAL_UNKNOWN, 0).or(refused_initial_unknown.clone()),
-    );
-    safe(
-        m,
-        "ConservationFailureRetainsRawAndRefusesTrust",
-        all([
-            eq(CHECKED, 0)
-                .or(conserved)
-                .or(refused_initial_unknown)
-                .or(all([
-                    eq(TERMINAL, 2),
-                    eq(26, 0),
-                    eq(34, 0),
-                    eq(37, 6),
-                    Var(EXCESS).eq(Var(WAIT4).minus(rhs.clone())),
-                ])),
-            eq(TERMINAL, 2).negate().or(all([
-                eq(40, 1),
-                eq(CHECKED, 1),
-                Int(0).lt(Var(EXCESS)),
-                eq(26, 0),
-                eq(34, 0),
-                all([eq(TERMINAL_DEBT, 9), Var(EXCESS).lt(Int(1_000_001))])
-                    .or(all([eq(TERMINAL_DEBT, 21), Var(EXCESS).lt(Int(2_333_334))])),
-            ])),
-        ]),
-    );
-    safe(
-        m,
-        "MeasuredTrustRequiresTerminalConservation",
-        eq(LAW, 0)
-            .or(eq(34, 0))
-            .or(all([eq(CHECKED, 1), eq(TERMINAL, 1)])),
-    );
-    progress(
-        m,
-        "ActualReapGetsLocalConservationOutcome",
-        all([
-            new_law,
-            eq(40, 1),
-            eq(CHECKED, 0),
-            eq(PENDING, 0),
-            eq(27, 0),
-            eq(28, 0),
-        ]),
-        eq(CHECKED, 1),
-        (bill_start..refuse_end).collect(),
-    );
-    progress(
-        m,
-        "RetainedOwnWait4CanResolveDeferredGrantWithoutAnotherCont",
-        all([eq(LAW, 12), eq(PENDING, 1), eq(40, 1), eq(27, 0), eq(28, 0)]),
-        eq(PENDING, 0),
-        vec![bind_direct, commit_direct, refuse_direct],
-    );
-}
 
-/// The13:00 scheduler amendment changes allocation, NEVER the accounting law.
-/// Four correlated trajectories refine the SAME original owner, two-grant,
-/// ACK/roster/seal, full-C charge/debt and actual-reap actions. C/STOP reserves
-/// are maxima of retained matching observations; an unavailable clock grants
-/// no CONT. No scheduler estimate is a physical CPU/ACK-latency guarantee.
-/// Prefix ATT retains the old two-slot capacity reservation. Profile38 proves
-/// the second capacity slot absent under the immutable expected-one source;
-/// profiles39/40 divide by BOTH expected slots, before either is observed live.
-fn extend_member_window_adaptive_grants(m: &mut Model, control: u8) {
-    const LAW: usize = 54;
-    const BASIS: usize = 55;
-    const READ0: usize = 56;
-    const READ1: usize = 57;
-    const BURNED: usize = 58;
-    const CHARGED: usize = 59;
-    const WALL: usize = 60;
-    const A0: usize = 61;
-    const A1: usize = 62;
-    const W0: usize = 63;
-    const W1: usize = 64;
-    const MONOTONIC: usize = 65;
-    const CONVERTED: usize = 66;
-    const QNS: usize = 69;
-    const REPORTED: usize = 70;
-    const SEEN: usize = 71;
-    const BASIS_EPOCH: usize = 73;
-    const CREATED_DEBT: usize = 74;
-    const ORIGIN0: usize = 76;
-    const ORIGIN1: usize = 77;
-    const COMMITTED: usize = 80;
-    const RAW_Q: usize = 90;
-    const RAW_BASIS: usize = 91;
-    const INITIAL_READY: usize = 102;
-    const TEARDOWN_LIMIT: usize = 119;
-    const RUN: usize = 145;
-    const CAP: usize = 146;
-    const TARGET: usize = 147;
-    const C_RESERVE: usize = 148;
-    const LATENCY_RESERVE: usize = 149;
-    const SLOTS: usize = 150;
-    const USED_RUN: usize = 151;
-    const USED_CAP: usize = 152;
-    const USED_TARGET: usize = 153;
-    const CURRENT_C: usize = 154;
-    const CURRENT_LATENCY: usize = 155;
-    const CURRENT_A: usize = 156;
-    const FEEDBACKS: usize = 157;
-    const CLOCK_KNOWN: usize = 158;
-    const ELAPSED_STAGE: usize = 159;
-    const ELAPSED: usize = 160;
-    const OPTIONAL_COUNT: usize = 161;
-    const OPTIONAL_AT: usize = 162;
-    const OPTIONAL_FRESH: usize = 163;
-    const NEXT_AFTER_FEEDBACK: usize = 164;
-    const FEEDBACK_KIND: usize = 165;
-    assert_eq!(m.variables.len(), RUN);
-    for (name, max) in [
-        ("adaptiveRunBudgetNs", 1_000_000),
-        ("adaptiveRunCapNs", 450_000),
-        ("adaptiveAggregateTargetANs", 550_000),
-        ("adaptiveMaxKnownControllerReserveNs", 500_000),
-        ("adaptiveMaxMatchingStopAckLatencyNs", 500_000),
-        ("adaptiveExpectedReservedSlots", 2),
-        ("issuedAdaptiveRunBudgetNs", 1_000_000),
-        ("issuedAdaptiveRunCapNs", 450_000),
-        ("issuedAdaptiveAggregateTargetANs", 550_000),
-        ("adaptiveCurrentCompleteControllerNs", 500_000),
-        ("adaptiveCurrentMatchingStopAckLatencyNs", 500_000),
-        ("adaptiveCurrentAggregateActiveNs", 2_500_000),
-        ("adaptiveAppliedClosedGrantReceipts", 2),
-        ("adaptiveElapsedClockKnown", 1),
-        ("adaptiveFreshElapsedNonePreBudgetStopDue", 2),
-        ("adaptiveFreshElapsedNs", 1_000_001),
-        ("adaptiveOptionalWorkCountInGrant", 1),
-        ("adaptiveOptionalWorkPriorElapsedNs", 1_000_000),
-        ("adaptiveOptionalWorkHadFreshClock", 1),
-        ("adaptiveRetainedNextRunAfterFeedbackNs", 450_000),
-        ("adaptiveFeedbackNoneHalveGrowHold", 3),
-    ] {
-        m.variables.push(Variable::new(name, 0, max, 0));
-    }
-    assert_eq!(
-        m.variables
-            .iter()
-            .map(|v| &v.name)
-            .collect::<std::collections::BTreeSet<_>>()
-            .len(),
-        m.variables.len(),
-        "adaptive fields keep all exported variable names unique"
-    );
-    let adaptive = Int(37).lt(Var(LAW));
-    let limits = |controller: i64, latency: i64, slots: i64| {
-        let target = (1_000_000 - controller - 200_000).clamp(50_000, 550_000);
-        let cap = ((target / slots).min(450_000) - latency).clamp(25_000, 450_000);
-        (target, cap)
-    };
-    let next_budget = |run: i64, aggregate: i64, target: i64, cap: i64| {
-        if aggregate > target {
-            ((run / 2).max(25_000).min(cap), 1)
-        } else if aggregate <= target * 3 / 4 {
-            ((run + 10_000).min(cap), 2)
-        } else {
-            (run.min(cap), 3)
-        }
-    };
-    for profile in 38..=41 {
-        let slots = if profile == 38 { 1 } else { 2 };
-        let (target, cap) = limits(250_000, 100_000, slots);
-        let run = if control == 45 && profile == 39 {
-            1_000_000
-        } else {
-            (350_000 / slots).min(cap)
-        };
-        act(
-            m,
-            &format!("ConfigureRetainedAdaptiveSchedulerProfile{profile}"),
-            all([eq(2, 0), eq(0, 0)]),
-            &[
-                (LAW, Int(profile)),
-                (1, Int(if slots == 1 { 2 } else { 1 })),
-                (2, Int(1)),
-                (TEARDOWN_LIMIT, Int(150_000)),
-                (MONOTONIC, Int(3)),
-                (CONVERTED, Int(3)),
-                (RUN, Int(run)),
-                (CAP, Int(cap)),
-                (TARGET, Int(target)),
-                (C_RESERVE, Int(250_000)),
-                (LATENCY_RESERVE, Int(100_000)),
-                (SLOTS, Int(slots)),
-                (CLOCK_KNOWN, Int(i64::from(profile != 41))),
-            ],
+        assert!(
+            good.states.iter().any(|s| s[45] == 14
+                && s[16] == 1
+                && s[67] == 1
+                && s[68] == 0
+                && s[69] == 1
+                && s[70] == 1
+                && s[8] == 0
+                && s[9] == 0
+                && s[17] == 1
+                && s[0] == 6
+                && s[23] == 9
+                && s[11] == 0
+                && s[12] == 1
+                && s[3] == 1
+                && s[22] == 9),
+            "group raw0+EIO is dependency failure: known leader cost paid, no groupgone/release/trust proof"
         );
-    }
-    let mut scheduled_cont = vec![];
-    for action in &mut m.actions {
-        if action.name == "CheckedT0OpensEveryReservedSlotBeforeCont"
-            || action.name == "ContinueOnlyAfterClosureCorroborationAndAllDebt"
-        {
-            for slots in 1..=2 {
-                let mut scheduled = action.clone();
-                scheduled
-                    .name
-                    .push_str(&format!("WithAdaptiveExpectedSlots{slots}"));
-                scheduled.guard = scheduled.guard.and(all([
-                    adaptive.clone(),
-                    eq(SLOTS, slots),
-                    eq(CLOCK_KNOWN, 1),
-                    // The preceding closed grant's local feedback cannot be
-                    // skipped by a new CONT; all existing paid debt guards stay.
-                    Var(FEEDBACKS).eq(Var(49)),
-                ]));
-                scheduled.updates.extend([
-                    (USED_RUN, Var(RUN)),
-                    (USED_CAP, Var(CAP)),
-                    (USED_TARGET, Var(TARGET)),
-                    (ELAPSED_STAGE, Int(0)),
-                    (ELAPSED, Int(0)),
-                    (OPTIONAL_COUNT, Int(0)),
-                    (OPTIONAL_AT, Int(0)),
-                    (OPTIONAL_FRESH, Int(0)),
-                ]);
-                if slots == 1 {
-                    // Expected-one is an immutable source fact, not census
-                    // evidence that a possible second birth never happened.
-                    for (slot, value) in &mut scheduled.updates {
-                        if *slot == 8 {
-                            *value = Int(0);
-                        }
+        assert!(
+            good.states.iter().any(|s| s[45] == 14
+                && s[70] == 1
+                && s[68] == 1
+                && s[8] == 1
+                && s[9] == 1
+                && s[10] == 0
+                && s[17] == 0
+                && s[23] == 9
+                && s[11] == 0
+                && s[12] == 1
+                && s[3] == 1
+                && s[22] == 9),
+            "later actual native-known empty proof can settle while retaining raw prior error and refusal"
+        );
+        assert!(
+            good.states.iter().any(|s| s[45] == 15
+                && s[46] == 1
+                && s[71] == 0
+                && s[72] == 1
+                && s[48] == 0
+                && s[49] == 0
+                && s[7] == 1
+                && s[16] == 0
+                && s[17] == 1),
+            "same-current-census raw0+EIO cannot authorize no-attempt; original unreaped pin still owns actual group effect"
+        );
+        assert!(
+            good.states.iter().any(|s| s[45] == 1
+                && s[16] == 1
+                && s[12] == 1
+                && s[3] == 1
+                && s[22] == 9
+                && s[23] == 9
+                && s[67] == 0
+                && s[8] == 0
+                && s[9] == 0
+                && s[17] == 1
+                && s[38] == 0
+                && s[11] == 0),
+            "known ownwait4 CPU may be booked/paid before any group-absence query; physical hold prevents trust"
+        );
+        assert!(
+            good.states.iter().any(|s| s[45] == 14
+                && s[16] == 1
+                && s[12] == 1
+                && s[3] == 1
+                && s[22] == 9
+                && s[23] == 9
+                && s[67] == 1
+                && s[68] == 0
+                && s[69] == 1
+                && s[70] == 1
+                && s[10] == 1
+                && s[8] == 0
+                && s[9] == 0
+                && s[17] == 1
+                && s[18] == 0
+                && s[38] == 0
+                && s[11] == 0),
+            "observed group dependency failure keeps known budget pass/pay separate from unknown physical proof"
+        );
+        assert!(
+            good.states.iter().any(|s| s[45] == 14
+                && s[70] == 1
+                && s[68] == 1
+                && s[8] == 1
+                && s[16] == 1
+                && s[12] == 1
+                && s[3] == 1
+                && s[22] == 9
+                && s[23] == 9
+                && s[9] == 1
+                && s[17] == 0
+                && s[38] == 0
+                && s[11] == 1),
+            "same knownwait4 receipt upgrades only groupgone on fresh native proof; no second jobCPU/debt charge"
+        );
+        assert!(
+            good.states.iter().any(|s| s[45] == 16
+                && s[73] == 1
+                && s[16] == 0
+                && s[12] == 0
+                && s[3] == 0
+                && s[22] == 0
+                && s[17] == 1
+                && s[11] == 0
+                && s[74] == 0),
+            "Ready seals effects but is neither actual wait4 return nor cost/trust proof"
+        );
+        assert!(
+            good.states.iter().any(|s| s[45] == 16
+                && s[73] == 2
+                && s[16] == 0
+                && s[12] == 1
+                && s[3] == 0
+                && s[22] == 0
+                && s[17] == 1
+                && s[11] == 0
+                && s[74] == 0),
+            "actual original wait4 receipt is retained during callback gap; native effects remain sealed"
+        );
+        assert!(
+            good.states.iter().any(|s| s[45] == 16
+                && s[73] == 3
+                && s[16] == 1
+                && s[12] == 1
+                && s[3] == 1
+                && s[22] == 9
+                && s[23] == 9
+                && s[74] == 0),
+            "local immutable receipt consumption books/pays the known CPU once after the sealed gap"
+        );
+        assert!(
+            good.states.iter().any(|s| s[45] == 17
+                && s[73] == 3
+                && s[16] == 1
+                && s[75] == 1
+                && s[76] == 1
+                && s[22] == 27
+                && s[23] == 27
+                && s[4] == 0
+                && s[8] == 1
+                && s[9] == 0
+                && s[17] == 1
+                && s[0] == 6
+                && s[11] == 0),
+            "raw CPU/job MAX and unknown authoritative bill keep original owner even after finite fallback pacing and real group proof"
+        );
+        assert!(
+            good.states.iter().any(|s| s[45] == 18
+                && s[77] == 1
+                && s[75] == 0
+                && s[16] == 1
+                && s[12] == 1
+                && s[3] == 1
+                && s[22] == 9
+                && s[23] == 9
+                && s[8] == 1
+                && s[9] == 1
+                && s[17] == 0
+                && s[38] == 1
+                && s[11] == 0),
+            "unknown RSS refuses output while full known CPU bill may physically settle after payment"
+        );
+        assert!(
+            good.states.iter().any(|s| s[12] == 3
+                && s[75] == 0
+                && s[16] == 1
+                && s[22] == 27
+                && s[23] == 27
+                && s[9] == 1
+                && s[17] == 0
+                && s[38] == 1
+                && s[11] == 0),
+            "finite overcap CPU has an authoritative full bill and may settle/refuse, unlike CPU MAX"
+        );
+
+        assert!(
+            good.states.iter().any(|s| s[45] == 19
+                && s[79] == 1
+                && s[78] == 2
+                && s[80] == 0
+                && s[81] == 1
+                && s[16] == 1
+                && s[12] == 1
+                && s[22] == 9
+                && s[23] == 9
+                && s[9] == 1
+                && s[17] == 0
+                && s[18] == 0
+                && s[38] == 1
+                && s[11] == 0
+                && s[30] == 0),
+            "positive natural exit makes accounting-only EOF/status/retire progress with paid ownunit/helper debt and incomplete-input refusal, without deadline/cancel/CONT"
+        );
+        let expected = [
+            "BackgroundOnly",
+            "TrustWithinCap",
+            "TrustWithinCap",
+            "LiveOverCapTriggersKill",
+            "DebtBeforeNext",
+            "NoBurnWhilePaused",
+            "SettlementHonest",
+            "SettlementHonest",
+            "TerminalPauseUserViolationRetainsRawCostAndRefuses",
+            "GroupNoAttemptNeedsOriginalAndSamePositiveTerminalCensus",
+            "EscapedCurrentTokenCleanupNeedsItsOwnEffectOrUnavailablePins",
+            "SettlementHonest",
+            "QualifiedChildRollupNeedsExitedRiSameSourceAndComponentwiseCoverage",
+            "NativeZeroAbsenceClaimsRequireKnownStatus",
+            "NoNativeEffectsAfterReapAuthorization",
+            "SettlementHonest",
+            "TrustWithinCap",
+            "PositiveExitGetsAccountingOnlyDrainOrOwnedQuarantine",
+        ];
+        for (index, property) in expected.into_iter().enumerate() {
+            let control = (index + 1) as u8;
+            let m = total_budget(control);
+            let checked = m.check(100_000).unwrap();
+            assert!(!checked.violations.iter().any(|v| v.property == "TypeOK"));
+            assert!(
+                checked.violations.iter().any(|v| v.property == property),
+                "{} must fail intended {property}",
+                m.name
+            );
+            match control {
+                1 => assert!(
+                    checked
+                        .states
+                        .iter()
+                        .any(|s| s[0] == 1 && s[1] == 1 && s[32] == 31 && s[17] == 1)
+                ),
+                2 => assert!(
+                    checked
+                        .states
+                        .iter()
+                        .any(|s| s[11] == 1 && s[16] == 0 && s[2] > 2 && s[19] <= 2)
+                ),
+                3 => assert!(checked.states.iter().any(|s| s[11] == 1
+                    && s[16] == 1
+                    && s[12] > 2
+                    && s[13] <= 2
+                    && s[15] > 0
+                    && s[23] == s[22])),
+                4 => assert!(
+                    checked
+                        .states
+                        .iter()
+                        .any(|s| s[20] == 1 && s[7] == 0 && s[0] == 1 && s[38] == 1)
+                ),
+                5 => assert!(
+                    checked
+                        .states
+                        .iter()
+                        .any(|s| s[24] == 1 && s[4] == 0 && s[22] > s[23] && s[16] == 1)
+                ),
+                6 => assert!(
+                    checked
+                        .states
+                        .iter()
+                        .any(|s| s[6] == 1 && s[26] == 1 && s[30] == 1 && s[27] > s[28])
+                ),
+                7 => assert!(
+                    checked
+                        .states
+                        .iter()
+                        .any(|s| s[7] == 2 && s[9] == 1 && s[16] == 0 && s[8] == 0)
+                ),
+                8 => assert!(checked.states.iter().any(|s| s[7] == 2
+                    && s[10] == 1
+                    && s[16] == 1
+                    && s[8] == 1
+                    && s[37] == 1)),
+                9 => assert!(checked.states.iter().any(|s| s[16] == 1
+                    && s[12] == 1
+                    && s[43] == 1
+                    && s[28] == 0
+                    && s[26] == 1
+                    && s[44] == 3
+                    && s[38] == 0
+                    && s[22] == 9
+                    && s[4] + s[23] == s[22])),
+                10 => assert!(checked.states.iter().any(|s| s[45] == 9
+                    && s[46] == 1
+                    && s[47] == 1
+                    && s[48] == 0
+                    && s[49] == 1
+                    && s[7] == 0
+                    && s[16] == 0
+                    && s[17] == 1)),
+                11 => assert!(checked.states.iter().any(|s| s[45] == 11
+                    && s[46] == 1
+                    && s[47] == 3
+                    && s[48] == 1
+                    && s[49] == 1
+                    && s[50] == 0
+                    && s[52] == 1
+                    && s[16] == 0
+                    && s[17] == 1)),
+                12 => assert!(checked.states.iter().any(|s| s[16] == 1
+                    && s[8] == 1
+                    && s[51] == 1
+                    && s[9] == 1
+                    && s[17] == 0
+                    && s[12] <= 2
+                    && s[4] + s[23] == s[22])),
+                13 => {
+                    for input in [2, 3, 4, 5, 6, 7, 8, 10] {
+                        assert!(
+                            checked
+                                .states
+                                .iter()
+                                .any(|s| s[55] == 1 && s[65] == input && s[2] <= 2),
+                            "omitted sole-child proof guard must admit invalid raw input{input} while numeric CPU fits"
+                        );
                     }
                 }
-                scheduled_cont.push(scheduled);
-            }
-            action.guard = action.guard.clone().and(adaptive.clone().negate());
-        }
-    }
-    m.actions.extend(scheduled_cont);
-    act(
-        m,
-        "ExpectedOneSourceKeepsUnusedCapacitySlotClosedAbsent",
-        all([
-            eq(LAW, 38).or(eq(LAW, 44)).or(eq(LAW, 45)).or(eq(LAW, 46)),
-            eq(0, 4),
-            eq(10, 1),
-            eq(11, 1),
-            eq(12, 2),
-            eq(8, 0),
-            eq(15, 0),
-            eq(37, 0),
-            eq(SEEN, 1),
-        ]),
-        &[(0, Int(5))],
-    );
-    act(
-        m,
-        "UnknownFreshElapsedClockRefusesBeforeAdaptiveCont",
-        all([
-            eq(LAW, 41),
-            eq(0, 3),
-            eq(INITIAL_READY, 1),
-            eq(CLOCK_KNOWN, 0),
-            eq(49, 0),
-            eq(37, 0),
-            eq(27, 0),
-            eq(28, 0),
-        ]),
-        &[(25, Int(0)), (37, Int(1)), (26, Int(0)), (34, Int(0))],
-    );
-    // One bounded optional controller operation is selected in profiles38/39.
-    // It must use a fresh current clock; its work invalidates that timestamp.
-    // The next read observes STOP due. Profile40 starts already due and does
-    // NO optional work: scheduler allocation cannot promise kernel latency.
-    act(
-        m,
-        "ReadFreshElapsedBeforeOptionalGrantWork",
-        all([
-            adaptive.clone(),
-            eq(0, 4),
-            eq(SEEN, 0),
-            eq(CLOCK_KNOWN, 1),
-            eq(ELAPSED_STAGE, 0),
-            eq(OPTIONAL_COUNT, 0),
-            eq(LAW, 40).negate(),
-        ]),
-        &[(ELAPSED_STAGE, Int(1)), (ELAPSED, Int(0))],
-    );
-    act(
-        m,
-        "OptionalGrantWorkRequiresFreshCurrentPreBudgetElapsed",
-        all([
-            adaptive.clone(),
-            eq(0, 4),
-            eq(SEEN, 0),
-            eq(CLOCK_KNOWN, 1),
-            eq(ELAPSED_STAGE, 1),
-            eq(OPTIONAL_COUNT, 0),
-            Var(ELAPSED).lt(Var(USED_RUN)),
-        ]),
-        &[
-            (OPTIONAL_COUNT, Int(1)),
-            (OPTIONAL_AT, Var(ELAPSED)),
-            (OPTIONAL_FRESH, Int(1)),
-            (ELAPSED_STAGE, Int(0)),
-        ],
-    );
-    act(
-        m,
-        "RereadCurrentElapsedAfterOptionalWorkBeforeStop",
-        all([
-            adaptive.clone(),
-            eq(0, 4),
-            eq(SEEN, 0),
-            eq(CLOCK_KNOWN, 1),
-            eq(ELAPSED_STAGE, 0),
-            eq(OPTIONAL_COUNT, 1),
-        ]),
-        &[(ELAPSED_STAGE, Int(2)), (ELAPSED, Var(USED_RUN))],
-    );
-    act(
-        m,
-        "FreshElapsedAlreadyDueSkipsOptionalWorkAndStops",
-        all([
-            eq(LAW, 40),
-            eq(0, 4),
-            eq(SEEN, 0),
-            eq(CLOCK_KNOWN, 1),
-            eq(ELAPSED_STAGE, 0),
-            eq(OPTIONAL_COUNT, 0),
-        ]),
-        &[
-            (ELAPSED_STAGE, Int(2)),
-            (ELAPSED, Var(USED_RUN).plus(Int(1))),
-        ],
-    );
-    let feedback_start = m.actions.len();
-    for profile in 38..=40 {
-        let slots: i64 = if profile == 38 { 1 } else { 2 };
-        let (_, cap) = limits(250_000, 100_000, slots);
-        let mut controller_reserve = 250_000;
-        let mut latency_reserve = 100_000;
-        let mut run = if control == 45 && profile == 39 {
-            1_000_000
-        } else {
-            (350_000 / slots).min(cap)
-        };
-        let grants = if profile == 40 || (control == 45 && profile == 39) {
-            1
-        } else {
-            2
-        };
-        for grant in 1..=grants {
-            let (a0, a1, w0, w1, controller, latency) = match (profile, grant) {
-                (38, 1) => (600_000, 0, 600_000, 0, 250_000, 250_000),
-                (38, 2) => (250_000, 0, 275_000, 0, 350_000, 100_000),
-                (39, 1) if control == 45 => {
-                    (1_100_000, 1_100_000, 1_100_000, 1_100_000, 250_000, 100_000)
+                14 => {
+                    assert!(
+                        checked
+                            .states
+                            .iter()
+                            .any(|s| s[55] == 1 && s[65] == 10 && s[64] == 1 && s[66] == 0)
+                    );
+                    assert!(checked.states.iter().any(|s| s[45] == 14
+                        && s[8] == 1
+                        && s[67] == 1
+                        && s[68] == 0
+                        && s[69] == 1
+                        && s[70] == 1));
+                    assert!(checked.states.iter().any(|s| s[45] == 15
+                        && s[48] == 1
+                        && s[49] == 1
+                        && s[71] == 0
+                        && s[72] == 1
+                        && s[16] == 0));
                 }
-                (39, 1) => (300_000, 300_000, 300_000, 300_000, 250_000, 125_000),
-                (39, 2) => (125_000, 125_000, 212_500, 212_500, 200_000, 125_000),
-                // Retained builder refusal: Q=932917+245583=1178500.
-                // These raw observations are NOT changed into acceptance.
-                (40, 1) => (466_458, 466_459, 557_000, 557_000, 245_583, 382_000),
+                15 => assert!(checked.states.iter().any(|s| s[45] == 16
+                    && s[73] == 1
+                    && s[74] == 1
+                    && s[16] == 0
+                    && s[17] == 1)),
+                16 => assert!(checked.states.iter().any(|s| s[45] == 17
+                    && s[75] == 1
+                    && s[76] == 1
+                    && s[9] == 1
+                    && s[17] == 0
+                    && s[23] == 27)),
+                17 => assert!(checked.states.iter().any(|s| s[45] == 18
+                    && s[77] == 1
+                    && s[11] == 1
+                    && s[12] == 1
+                    && s[23] == 9)),
+                18 => {
+                    assert!(!checked.violations.iter().any(|v| v.property == "TypeOK"
+                        || v.property == "DeadlineGetsSettledOrOwnedQuarantine"));
+                    let blocked = checked
+                        .violations
+                        .iter()
+                        .find(|v| {
+                            v.property == "PositiveExitGetsAccountingOnlyDrainOrOwnedQuarantine"
+                        })
+                        .unwrap();
+                    assert!(!blocked.cycle.is_empty());
+                    assert!(
+                        blocked.cycle.iter().all(|i| {
+                            let s = &checked.states[*i];
+                            s[45] == 19
+                                && s[79] == 1
+                                && s[78] == 0
+                                && s[18] == 0
+                                && s[17] == 1
+                                && s[11] == 0
+                        }),
+                        "former payload-blocked exit guard must specifically leave normal terminal drain disabled, not be excused by deadline/cancel"
+                    );
+                }
                 _ => unreachable!(),
-            };
-            let aggregate = a0 + a1;
-            let wall = w0 + w1;
-            assert!(aggregate <= wall);
-            assert!(w0 <= run + latency && w1 <= run + latency);
-            let q = aggregate + controller;
-            let debt = (9 * q.max(1_000_000) + 999_999) / 1_000_000;
-            assert!(debt <= 27 && q <= 3_000_000);
-            act(
-                m,
-                &format!(
-                    "ObserveActualAdaptiveGrantCpuAndMatchingStopAckProfile{profile}Grant{grant}"
-                ),
-                all([
-                    eq(LAW, profile),
-                    eq(49, grant),
-                    eq(0, 4),
-                    eq(SEEN, 0),
-                    eq(14, 0),
-                    eq(ELAPSED_STAGE, 2),
-                    eq(USED_RUN, run),
-                ]),
-                &[
-                    (BURNED, Var(BURNED).plus(Int(aggregate))),
-                    (SEEN, Int(1)),
-                    (A0, Int(a0)),
-                    (A1, Int(a1)),
-                    (W0, Int(w0)),
-                    (W1, Int(w1)),
-                    (WALL, Int(wall)),
-                    (CURRENT_C, Int(controller)),
-                    (CURRENT_LATENCY, Int(latency)),
-                    (CURRENT_A, Int(aggregate)),
-                ],
+            }
+            println!(
+                "{} states={} named={:?}",
+                m.name,
+                checked.states.len(),
+                checked
+                    .violations
+                    .iter()
+                    .map(|v| &v.property)
+                    .collect::<Vec<_>>()
             );
-            act(
-                m,
-                &format!(
-                    "ReadAdaptiveCountersAfterOriginalPositiveAckProfile{profile}Grant{grant}"
-                ),
-                all([
-                    eq(LAW, profile),
-                    eq(49, grant),
-                    eq(0, 6),
-                    eq(14, 1),
-                    eq(15, 1),
-                    eq(18, 1),
-                    eq(19, 1),
-                    eq(20, 1),
-                    eq(7, 3),
-                    eq(8, if slots == 1 { 0 } else { 3 }),
-                    eq(READ0, 0),
-                ]),
-                &[
-                    (READ0, Int(2)),
-                    (ORIGIN0, Int(1)),
-                    (READ1, Int(if slots == 1 { 0 } else { 2 })),
-                    (ORIGIN1, Int(if slots == 1 { 3 } else { 1 })),
-                    (REPORTED, Int(aggregate)),
-                ],
-            );
-            act(
-                m,
-                &format!(
-                    "ChargeFullAdaptiveRawQuantumWithoutChangingHardGateProfile{profile}Grant{grant}"
-                ),
-                all([
-                    eq(LAW, profile),
-                    eq(49, grant),
-                    eq(0, 6),
-                    eq(37, 0),
-                    eq(SEEN, 1),
-                    eq(READ0, 2),
-                    eq(REPORTED, aggregate),
-                    eq(18, 1),
-                    eq(19, 1),
-                    eq(20, 1),
-                    eq(27, 0),
-                    eq(28, 0),
-                    Var(5).eq(Var(6)),
-                    Var(48).lt(Int(28 - debt)),
-                ]),
-                &[
-                    (0, Int(7)),
-                    (33, Int(0)),
-                    (BASIS, Int(1)),
-                    (BASIS_EPOCH, Var(5)),
-                    (QNS, Int(q)),
-                    (RAW_Q, Int(q)),
-                    (RAW_BASIS, Int(1)),
-                    (CHARGED, Var(CHARGED).plus(Int(aggregate))),
-                    (COMMITTED, Var(COMMITTED).plus(Int(1))),
-                    (CREATED_DEBT, Int(debt)),
-                    (26, Int(i64::from(q <= 1_000_000 && wall <= 25_000_000))),
-                    (
-                        37,
-                        Int(if q <= 1_000_000 && wall <= 25_000_000 {
-                            0
-                        } else {
-                            6
-                        }),
-                    ),
-                    (27, Int(debt)),
-                    (28, Int(debt)),
-                    (48, Var(48).plus(Int(debt))),
-                    (21, Int(2)),
-                    (22, Int(1)),
-                    (23, Int(1)),
-                    (24, Int(3)),
-                    (43, Int(1)),
-                    (44, Int(1)),
-                    (46, Int(1)),
-                ],
-            );
-            controller_reserve = controller_reserve.max(controller);
-            latency_reserve = latency_reserve.max(latency);
-            let (next_target, next_cap) = limits(controller_reserve, latency_reserve, slots);
-            let (next_run, kind) = next_budget(run, aggregate, next_target, next_cap);
-            act(
-                m,
-                &format!(
-                    "ApplyRetainedAggregateFeedbackWithoutRepeatingNativeEffectProfile{profile}Grant{grant}"
-                ),
-                all([
-                    eq(LAW, profile),
-                    eq(49, grant),
-                    eq(COMMITTED, grant),
-                    eq(FEEDBACKS, grant - 1),
-                    eq(CLOCK_KNOWN, 1),
-                    eq(CURRENT_A, aggregate),
-                    eq(CURRENT_C, controller),
-                    eq(CURRENT_LATENCY, latency),
-                    eq(USED_RUN, run),
-                ]),
-                &[
-                    (C_RESERVE, Int(controller_reserve)),
-                    (LATENCY_RESERVE, Int(latency_reserve)),
-                    (TARGET, Int(next_target)),
-                    (CAP, Int(next_cap)),
-                    (RUN, Int(next_run)),
-                    (NEXT_AFTER_FEEDBACK, Int(next_run)),
-                    (FEEDBACK_KIND, Int(kind)),
-                    (FEEDBACKS, Int(grant)),
-                ],
-            );
-            run = next_run;
-            assert!(run >= 25_000 && run <= next_cap && next_target >= 50_000);
         }
     }
-    let feedback_end = m.actions.len();
-    // Old profiles retain their literal250us C projection. New scheduler
-    // trajectories retain their OWN measured full C without omitting any tail.
-    for invariant in &mut m.invariants {
-        if invariant.name == "BasisQuantumIncludesAllActiveControllerCpu" {
-            invariant.condition = adaptive
-                .clone()
-                .negate()
-                .and(invariant.condition.clone())
-                .or(all([
-                    adaptive.clone(),
-                    eq(QNS, 0).or(all([
-                        eq(BASIS, 1),
-                        Var(QNS).eq(Var(REPORTED).plus(Var(CURRENT_C))),
-                    ])),
-                ]));
-        }
-    }
-    safe(
-        m,
-        "IssuedAdaptiveGrantUsesMeasuredCostAndStopLatencyCap",
-        adaptive.clone().negate().or(eq(COMMITTED, 0)).or(all([
-            Int(24_999).lt(Var(USED_RUN)),
-            Var(USED_CAP).lt(Var(USED_RUN)).negate(),
-            Var(USED_CAP).lt(Int(450_001)),
-        ])),
-    );
-    safe(
-        m,
-        "AdaptiveFeedbackKeepsCurrentPlanWithinBoundedCap",
-        adaptive.clone().negate().or(eq(FEEDBACKS, 0)).or(all([
-            Var(RUN).eq(Var(NEXT_AFTER_FEEDBACK)),
-            Int(24_999).lt(Var(RUN)),
-            Var(CAP).lt(Var(RUN)).negate(),
-            Var(CAP).lt(Int(450_001)),
-            Int(49_999).lt(Var(TARGET)),
-            Var(TARGET).lt(Int(550_001)),
-            Int(249_999).lt(Var(C_RESERVE)),
-            Int(99_999).lt(Var(LATENCY_RESERVE)),
-        ])),
-    );
-    safe(
-        m,
-        "AdaptiveOptionalWorkRequiresFreshPreBudgetClockReceipt",
-        adaptive.clone().negate().or(eq(OPTIONAL_COUNT, 0)).or(all([
-            eq(OPTIONAL_FRESH, 1),
-            eq(CLOCK_KNOWN, 1),
-            Var(OPTIONAL_AT).lt(Var(USED_RUN)),
-        ])),
-    );
-    safe(
-        m,
-        "UnknownElapsedClockCannotContinueOrTrustAdaptiveOwner",
-        adaptive.clone().negate().or(eq(CLOCK_KNOWN, 1)).or(all([
-            eq(49, 0),
-            eq(COMMITTED, 0),
-            eq(FEEDBACKS, 0),
-            eq(34, 0),
-            eq(26, 0),
-        ])),
-    );
-    safe(
-        m,
-        "ExpectedOneSourceNeverActivatesUnusedCapacitySlot",
-        eq(LAW, 38).negate().or(eq(49, 0)).or(all([
-            eq(SLOTS, 1),
-            eq(8, 0).or(eq(8, 4)),
-            eq(A1, 0),
-            eq(W1, 0),
-        ])),
-    );
-    safe(
-        m,
-        "AdaptiveOverQuantumRefusalRetainsRawDebtAndNoTrust",
-        adaptive
-            .clone()
-            .negate()
-            .or(Var(QNS).lt(Int(1_000_001)))
-            .or(all([
-                eq(37, 6),
-                eq(26, 0),
-                eq(34, 0),
-                Int(0).lt(Var(CREATED_DEBT)),
-            ])),
-    );
-    let feedback_actions = (feedback_start..feedback_end)
-        .filter(|index| {
-            m.actions[*index]
-                .name
-                .starts_with("ApplyRetainedAggregateFeedback")
-        })
-        .collect();
-    progress(
-        m,
-        "ClosedAdaptiveReceiptGetsLocalBoundedFeedback",
-        all([
-            adaptive,
-            Var(FEEDBACKS).lt(Var(COMMITTED)),
-            eq(CLOCK_KNOWN, 1),
-        ]),
-        Var(FEEDBACKS).eq(Var(COMMITTED)),
-        feedback_actions,
-    );
-}
-
-/// Predictive coherence: per-slot retained ACK provenance refines the existing
-/// adaptive state. MAX uses only live same-grant successful-STOP ACKs; exit
-/// counters remain valid accounting sources without becoming latency proofs.
-/// Five correlated profiles preserve the original <=2 grants and100000 cap.
-fn extend_adaptive_latency_provenance(m: &mut Model, control: u8) {
-    const LAW: usize = 54;
-    const BASIS: usize = 55;
-    const READ0: usize = 56;
-    const READ1: usize = 57;
-    const BURNED: usize = 58;
-    const CHARGED: usize = 59;
-    const WALL: usize = 60;
-    const A0: usize = 61;
-    const A1: usize = 62;
-    const W0: usize = 63;
-    const W1: usize = 64;
-    const MONOTONIC: usize = 65;
-    const CONVERTED: usize = 66;
-    const QNS: usize = 69;
-    const REPORTED: usize = 70;
-    const SEEN: usize = 71;
-    const BASIS_EPOCH: usize = 73;
-    const CREATED_DEBT: usize = 74;
-    const ORIGIN0: usize = 76;
-    const ORIGIN1: usize = 77;
-    const PENDING: usize = 78;
-    const WAIT4: usize = 79;
-    const COMMITTED: usize = 80;
-    const RAW_Q: usize = 90;
-    const RAW_BASIS: usize = 91;
-    const TEARDOWN_LIMIT: usize = 119;
-    const RUN: usize = 145;
-    const CAP: usize = 146;
-    const TARGET: usize = 147;
-    const C_RESERVE: usize = 148;
-    const LATENCY_RESERVE: usize = 149;
-    const SLOTS: usize = 150;
-    const USED_RUN: usize = 151;
-    const CURRENT_C: usize = 154;
-    const CURRENT_LATENCY: usize = 155;
-    const CURRENT_A: usize = 156;
-    const FEEDBACKS: usize = 157;
-    const CLOCK_KNOWN: usize = 158;
-    const ELAPSED_STAGE: usize = 159;
-    const NEXT_AFTER_FEEDBACK: usize = 164;
-    const FEEDBACK_KIND: usize = 165;
-    const LIVE_MASK: usize = 166;
-    const DELAY0: usize = 167;
-    const DELAY1: usize = 168;
-    const STOP_MATCH: usize = 169;
-    const LATENCY_KNOWN: usize = 170;
-    assert_eq!(m.variables.len(), LIVE_MASK);
-    for (name, max) in [
-        ("adaptiveRetainedValidLiveStopAckMask", 3),
-        ("adaptiveRetainedSlot0StopAckDelayNs", 500_000),
-        ("adaptiveRetainedSlot1StopAckOrExitDelayNs", 500_000),
-        ("adaptiveRetainedSuccessfulSameGrantStop", 1),
-        ("adaptiveCurrentLiveLatencyKnown", 1),
-    ] {
-        m.variables.push(Variable::new(name, 0, max, 0));
-    }
-    assert_eq!(
-        m.variables
-            .iter()
-            .map(|v| &v.name)
-            .collect::<std::collections::BTreeSet<_>>()
-            .len(),
-        m.variables.len()
-    );
-    let limits = |c: i64, latency: i64, slots: i64| {
-        let target = (1_000_000 - c - 200_000).clamp(50_000, 550_000);
-        (
-            target,
-            ((target / slots).min(450_000) - latency).clamp(25_000, 450_000),
-        )
-    };
-    for profile in 42..=46 {
-        let slots = if matches!(profile, 44..=46) { 1 } else { 2 };
-        let (target, cap) = limits(250_000, 100_000, slots);
-        act(
-            m,
-            &format!("ConfigureAdaptiveLiveLatencyProfile{profile}"),
-            all([eq(2, 0), eq(0, 0)]),
-            &[
-                (LAW, Int(profile)),
-                (1, Int(if slots == 1 { 2 } else { 1 })),
-                (2, Int(1)),
-                (TEARDOWN_LIMIT, Int(150_000)),
-                (MONOTONIC, Int(3)),
-                (CONVERTED, Int(3)),
-                (RUN, Int((350_000 / slots).min(cap))),
-                (CAP, Int(cap)),
-                (TARGET, Int(target)),
-                (C_RESERVE, Int(250_000)),
-                (LATENCY_RESERVE, Int(100_000)),
-                (SLOTS, Int(slots)),
-                (CLOCK_KNOWN, Int(1)),
-            ],
+    #[test]
+    fn q2_helper_total_budget_live_kill_omission_keeps_terminal_gate_and_qos_refusal() {
+        let m = total_budget_observer(4, false, false);
+        let checked = m.check(100_000).unwrap();
+        assert!(
+            checked
+                .violations
+                .iter()
+                .any(|v| v.property == "LiveOverCapTriggersKill")
         );
+        assert!(
+            !checked
+                .violations
+                .iter()
+                .any(|v| REQUIRED.contains(&v.property.as_str())),
+            "omitting live kill never disables the five terminal/ownership gates"
+        );
+        assert!(
+            checked
+                .states
+                .iter()
+                .any(|s| s[16] == 1 && s[12] > 2 && s[38] == 1 && s[11] == 0)
+        );
+        assert!(
+            checked
+                .states
+                .iter()
+                .all(|s| s[11] == 0 || s[16] == 1 && s[12] <= 2 && s[3] <= 4)
+        );
+        let terminal_skip = total_budget_observer(9, false, false)
+            .check(100_000)
+            .unwrap();
+        assert!(
+            terminal_skip
+                .violations
+                .iter()
+                .any(|v| v.property == "TerminalPauseUserViolationRetainsRawCostAndRefuses")
+        );
+        assert!(
+            terminal_skip
+                .violations
+                .iter()
+                .any(|v| v.property == "NoBurnWhilePaused")
+        );
+        assert!(
+            terminal_skip.states.iter().any(|s| s[11] == 1
+                && s[16] == 1
+                && s[12] == 1
+                && s[43] == 1
+                && s[28] == 0
+                && s[26] == 1
+                && s[38] == 0
+                && s[4] == 0
+                && s[23] == 9
+                && s[6] == 0),
+            "skip-terminal-user check alone can certify below-cap physical pause violation after full debt"
+        );
+        let dropped_errno = total_budget_observer(14, false, false)
+            .check(100_000)
+            .unwrap();
+        assert!(
+            dropped_errno
+                .violations
+                .iter()
+                .any(|v| v.property == "NativeZeroAbsenceClaimsRequireKnownStatus")
+        );
+        assert!(
+            dropped_errno
+                .violations
+                .iter()
+                .any(|v| v.property == "SettlementHonest")
+        );
+        assert!(
+            dropped_errno.states.iter().any(|s| s[45] == 14
+                && s[11] == 1
+                && s[16] == 1
+                && s[8] == 1
+                && s[68] == 0
+                && s[69] == 1
+                && s[70] == 1
+                && s[12] == 1
+                && s[23] == 9),
+            "one dropped native-errno predicate can falsely trust below-cap output after real own-reap/full debt despite unknown group proof"
+        );
+        let bad_qos = total_budget_observer(1, false, false)
+            .check(100_000)
+            .unwrap();
+        assert!(
+            bad_qos
+                .states
+                .iter()
+                .any(|s| s[32] == 31 && s[38] == 1 && s[7] == 1 && s[11] == 0)
+        );
+        assert!(bad_qos.states.iter().all(|s| s[11] == 0));
     }
-    let mut feedback_actions = vec![];
-    let mut pending_actions = vec![];
-    for profile in 42..=46 {
-        let slots = if matches!(profile, 44..=46) { 1 } else { 2 };
-        let mut c_reserve = 250_000;
-        let mut latency_reserve = 100_000;
-        let (_, cap) = limits(c_reserve, latency_reserve, slots);
-        let mut run = (350_000 / slots).min(cap);
-        let grants = if matches!(profile, 43 | 44) { 2 } else { 1 };
-        for grant in 1..=grants {
-            // A/C/W are independent retained accounting observations. Delay1
-            // may be an EXIT receipt and is then excluded despite being larger.
-            let (a0, a1, w0, w1, c, delay0, delay1, mask, matched, measured) =
-                match (profile, grant) {
-                    (42, 1) => (
-                        250_000, 275_000, 275_000, 475_000, 300_000, 100_000, 300_000, 3, 1, true,
-                    ),
-                    (43, 1) => (
-                        300_000, 300_000, 300_000, 300_000, 250_000, 125_000, 125_000, 3, 1, true,
-                    ),
-                    (43, 2) => (
-                        250_000, 50_000, 300_000, 400_000, 250_000, 100_000, 300_000, 1, 1, true,
-                    ),
-                    (44, 1) => (600_000, 0, 600_000, 0, 250_000, 250_000, 0, 1, 1, true),
-                    (44, 2) => (100_000, 0, 275_000, 0, 250_000, 100_000, 0, 0, 1, true),
-                    (45, 1) => (525_000, 0, 625_000, 0, 300_000, 100_000, 0, 1, 1, false),
-                    // Positive stopped accounting can follow an independently
-                    // observed quiescent source even if STOP itself was not a
-                    // matching successful call. It earns no scheduler latency.
-                    (46, 1) => (250_000, 0, 450_000, 0, 250_000, 100_000, 0, 0, 0, false),
-                    _ => unreachable!(),
+    #[test]
+    fn q2_helper_total_budget_full_and_reduced_observers_keep_all_states_edges_and_named_traces() {
+        let output =
+            std::env::var_os("DREAM_TOTAL_BUDGET_FORMAL_OUT").map(std::path::PathBuf::from);
+        let mut manifests = [String::new(), String::new()];
+        if let Some(root) = &output {
+            for variant in ["original", "lowered"] {
+                std::fs::create_dir_all(root.join(variant)).unwrap();
+            }
+        }
+        for control in 0..=18 {
+            let full = total_budget_observer(control, true, true);
+            let lower = total_budget(control);
+            assert_eq!(
+                format!("{:?}", full.variables),
+                format!("{:?}", lower.variables)
+            );
+            assert_eq!(
+                format!("{:?}", full.invariants),
+                format!("{:?}", lower.invariants)
+            );
+            assert_eq!(
+                format!("{:?}", full.responses),
+                format!("{:?}", lower.responses)
+            );
+            assert_eq!(full.weak_fair, lower.weak_fair);
+            let a = full.check(100_000).unwrap();
+            let b = lower.check(100_000).unwrap();
+            assert_eq!(a.states, b.states, "control{control} complete states");
+            for (aa, bb) in a.edges.iter().zip(&b.edges) {
+                assert_eq!(
+                    aa.iter().map(|e| (e.action, e.to)).collect::<Vec<_>>(),
+                    bb.iter().map(|e| (e.action, e.to)).collect::<Vec<_>>(),
+                    "control{control} labelled edges"
+                );
+            }
+            assert_eq!(a.edges.len(), b.edges.len());
+            assert_eq!(
+                a.violations
+                    .iter()
+                    .map(|v| (&v.property, &v.prefix, &v.cycle))
+                    .collect::<Vec<_>>(),
+                b.violations
+                    .iter()
+                    .map(|v| (&v.property, &v.prefix, &v.cycle))
+                    .collect::<Vec<_>>(),
+                "control{control} named verdict/prefix/cycle"
+            );
+            println!(
+                "total_budget_observer control={control} states={} edges={}",
+                a.states.len(),
+                a.edges.iter().map(Vec::len).sum::<usize>()
+            );
+            if let Some(root) = &output {
+                let expected = if control == 0 {
+                    "pass"
+                } else if control == 18 {
+                    "liveness"
+                } else {
+                    "safety"
                 };
-            let aggregate = a0 + a1;
-            let wall = w0 + w1;
-            let member = if measured {
-                aggregate
-            } else {
-                wall.max(aggregate)
-            };
-            let q = member + c;
-            let debt = (9 * q.max(1_000_000) + 999_999) / 1_000_000;
-            assert!(q <= 1_000_000 && a0 <= w0 && a1 <= w1 && debt == 9);
-            let live_latency = match mask {
-                1 => delay0,
-                2 => delay1,
-                3 => delay0.max(delay1),
-                _ => 0,
-            };
-            let mut latency_known = mask != 0 && matched == 1;
-            let mut selected_latency = live_latency;
-            if control == 46 && profile == 42 {
-                selected_latency = delay0.min(delay1); // one faulty aggregation
+                super::helper_observer_lowering_export::export(
+                    full,
+                    expected,
+                    &root.join("original"),
+                    &mut manifests[0],
+                )
+                .unwrap();
+                super::helper_observer_lowering_export::export(
+                    lower,
+                    expected,
+                    &root.join("lowered"),
+                    &mut manifests[1],
+                )
+                .unwrap();
             }
-            if control == 47 && matches!(profile, 44 | 46) && grant == grants {
-                // One faulty classification accepts the real retained exit or
-                // failed-call endpoint as live latency. Eligible exit growth follows;
-                // no raw ACK, actual own wait4, CPU or bill is forged.
-                latency_known = true;
-                selected_latency = delay0;
+        }
+        if let Some(root) = output {
+            for (variant, manifest) in ["original", "lowered"].into_iter().zip(manifests) {
+                std::fs::write(root.join(variant).join("manifest.tsv"), manifest).unwrap();
             }
-            act(
-                m,
-                &format!("ObserveRetainedAdaptiveAckProvenanceProfile{profile}Grant{grant}"),
-                all([
-                    eq(LAW, profile),
-                    eq(49, grant),
-                    eq(0, 4),
-                    eq(SEEN, 0),
-                    eq(14, 0),
-                    eq(ELAPSED_STAGE, 2),
-                    eq(USED_RUN, run),
-                ]),
-                &[
-                    (BURNED, Var(BURNED).plus(Int(aggregate))),
-                    (SEEN, Int(1)),
-                    (A0, Int(a0)),
-                    (A1, Int(a1)),
-                    (W0, Int(w0)),
-                    (W1, Int(w1)),
-                    (WALL, Int(wall)),
-                    (CURRENT_C, Int(c)),
-                    (CURRENT_A, Int(aggregate)),
-                    (CURRENT_LATENCY, Int(selected_latency)),
-                    (LIVE_MASK, Int(mask)),
-                    (DELAY0, Int(delay0)),
-                    (DELAY1, Int(delay1)),
-                    (STOP_MATCH, Int(matched)),
-                    (LATENCY_KNOWN, Int(i64::from(latency_known))),
-                ],
-            );
-            let direct = profile == 44 && grant == 2;
-            let rollup = profile == 43 && grant == 2;
-            if direct {
-                act(
-                    m,
-                    "DeferExitedOnlyAdaptiveAccountingWithoutLiveStopAck",
-                    all([
-                        eq(LAW, 44),
-                        eq(49, 2),
-                        eq(0, 6),
-                        eq(7, 4),
-                        eq(8, 0),
-                        eq(14, 1),
-                        eq(15, 1),
-                        eq(18, 1),
-                        eq(19, 1),
-                        eq(20, 1),
-                        eq(READ0, 0),
-                        eq(REPORTED, 0),
-                        eq(PENDING, 0),
-                    ]),
-                    &[(PENDING, Int(1)), (ORIGIN0, Int(2)), (ORIGIN1, Int(3))],
-                );
-                let bind = m.actions.len();
-                act(
-                    m,
-                    "BindExitedOnlyAdaptiveActualOwnWait4WithoutLiveLatency",
-                    all([
-                        eq(LAW, 44),
-                        eq(49, 2),
-                        eq(PENDING, 1),
-                        eq(40, 1),
-                        eq(READ0, 0),
-                        eq(ORIGIN0, 2),
-                        eq(ORIGIN1, 3),
-                    ]),
-                    &[(READ0, Int(3)), (REPORTED, Var(WAIT4).minus(Var(CHARGED)))],
-                );
-                pending_actions.push(bind);
-            } else {
-                let mut updates = vec![
-                    (READ0, Int(if measured { 2 } else { 0 })),
-                    (ORIGIN0, Int(1)),
-                    (
-                        READ1,
-                        Int(if slots == 1 {
-                            0
-                        } else if rollup {
-                            4
-                        } else {
-                            2
-                        }),
-                    ),
-                    (
-                        ORIGIN1,
-                        Int(if slots == 1 {
-                            3
-                        } else if rollup {
-                            2
-                        } else {
-                            1
-                        }),
-                    ),
-                    (REPORTED, Int(aggregate)),
-                ];
-                if rollup {
-                    updates.extend([
-                        (81, Int(1)),
-                        (82, Int(0)),
-                        (83, Int(1)),
-                        (84, Int(1)),
-                        (85, Int(1)),
-                        (86, Int(350_000)),
-                        (87, Var(88)),
-                        (89, Int(0)),
-                        (96, Int(350_000).minus(Var(88))),
-                        (98, Int(1)),
-                    ]);
-                }
-                act(
-                    m,
-                    &format!("ReadAdaptiveLiveOrQualifiedExitSourceProfile{profile}Grant{grant}"),
-                    all([
-                        eq(LAW, profile),
-                        eq(49, grant),
-                        eq(0, 6),
-                        eq(7, 3),
-                        eq(
-                            8,
-                            if slots == 1 {
-                                0
-                            } else if rollup {
-                                4
-                            } else {
-                                3
-                            },
-                        ),
-                        eq(14, 1),
-                        eq(15, 1),
-                        eq(18, 1),
-                        eq(19, 1),
-                        eq(20, 1),
-                        eq(READ0, 0),
-                        eq(REPORTED, 0),
-                    ]),
-                    &updates,
-                );
-            }
-            let mut charged = vec![
-                (0, Int(if direct { 9 } else { 7 })),
-                (33, Int(0)),
-                (BASIS, Int(i64::from(measured))),
-                (BASIS_EPOCH, Var(5)),
-                (QNS, Int(q)),
-                (RAW_Q, Int(q)),
-                (RAW_BASIS, Int(i64::from(measured))),
-                (CHARGED, Var(CHARGED).plus(Int(member))),
-                (COMMITTED, Var(COMMITTED).plus(Int(1))),
-                (CREATED_DEBT, Int(debt)),
-                (26, Int(i64::from(profile != 46))),
-                (27, Int(debt)),
-                (28, Int(debt)),
-                (48, Var(48).plus(Int(debt))),
-                (21, Int(2)),
-                (22, Int(1)),
-                (23, Int(1)),
-                (24, Int(3)),
-                (43, Int(1)),
-                (44, Int(1)),
-                (46, Int(1)),
-            ];
-            if profile == 43 && grant == 1 {
-                // Retain the actual first grant's live child credit BEFORE
-                // the later source can bind its cumulative rollup baseline.
-                charged.push((88, Int(a1)));
-            }
-            if profile == 46 {
-                charged.push((37, Int(6)));
-            }
-            if direct {
-                charged.push((PENDING, Int(0)));
-            }
-            if rollup {
-                charged.push((92, Int(1)));
-            }
-            let charge_index = m.actions.len();
-            act(
-                m,
-                &format!("ChargeAdaptiveSourceRefinementProfile{profile}Grant{grant}"),
-                all([
-                    eq(LAW, profile),
-                    eq(49, grant),
-                    eq(COMMITTED, grant - 1),
-                    eq(0, if direct { 9 } else { 6 }),
-                    eq(
-                        READ0,
-                        if direct {
-                            3
-                        } else if measured {
-                            2
-                        } else {
-                            0
-                        },
-                    ),
-                    eq(REPORTED, aggregate),
-                    eq(37, 0),
-                    eq(SEEN, 1),
-                    eq(14, 1),
-                    eq(15, 1),
-                    eq(18, 1),
-                    eq(19, 1),
-                    eq(20, 1),
-                    eq(27, 0),
-                    eq(28, 0),
-                    if direct {
-                        all([eq(PENDING, 1), eq(40, 1)])
-                    } else {
-                        Bool(true)
-                    },
-                    Var(5).eq(Var(6)),
-                ]),
-                &charged,
-            );
-            if direct {
-                pending_actions.push(charge_index);
-            }
-            c_reserve = c_reserve.max(c);
-            if latency_known {
-                latency_reserve = latency_reserve.max(selected_latency);
-            }
-            let (target, cap) = limits(c_reserve, latency_reserve, slots);
-            let (next, kind) = if aggregate > target && !(control == 48 && profile == 45) {
-                ((run / 2).max(25_000).min(cap), 1)
-            } else if measured && latency_known && aggregate <= target * 3 / 4 {
-                ((run + 10_000).min(cap), 2)
-            } else {
-                (run.min(cap), 3)
-            };
-            let feedback = m.actions.len();
-            act(
-                m,
-                &format!("ApplyLiveProvenanceAdaptiveFeedbackProfile{profile}Grant{grant}"),
-                all([
-                    eq(LAW, profile),
-                    eq(49, grant),
-                    eq(COMMITTED, grant),
-                    eq(FEEDBACKS, grant - 1),
-                    eq(CLOCK_KNOWN, 1),
-                    eq(CURRENT_A, aggregate),
-                    eq(CURRENT_C, c),
-                    eq(CURRENT_LATENCY, selected_latency),
-                    eq(USED_RUN, run),
-                ]),
-                &[
-                    (C_RESERVE, Int(c_reserve)),
-                    (LATENCY_RESERVE, Int(latency_reserve)),
-                    (TARGET, Int(target)),
-                    (CAP, Int(cap)),
-                    (RUN, Int(next)),
-                    (NEXT_AFTER_FEEDBACK, Int(next)),
-                    (FEEDBACK_KIND, Int(kind)),
-                    (FEEDBACKS, Int(grant)),
-                ],
-            );
-            feedback_actions.push(feedback);
-            run = next;
         }
     }
-    if control == 49 {
-        // One omitted CURRENT-grant commit barrier. Prior first-grant credit
-        // is retained; no wait4, CPU charge, proof or trust is fabricated.
-        act(
-            m,
-            "BrokenCommitsPendingSecondGrantBeforeOwnWait4",
-            all([
-                eq(LAW, 44),
-                eq(49, 2),
-                eq(PENDING, 1),
-                eq(COMMITTED, 1),
-                eq(40, 0),
-                eq(READ0, 0),
-                eq(ORIGIN0, 2),
-                eq(BASIS, 0),
-                eq(QNS, 0),
-                eq(CHARGED, 725_000),
-                eq(33, 0),
-                eq(34, 0),
-            ]),
-            &[(COMMITTED, Int(2))],
-        );
-    }
-    safe(
-        m,
-        "SecondDirectGrantCommitNeedsOwnWait4AndPriorCredit",
-        eq(LAW, 44).negate().or(eq(COMMITTED, 2).negate()).or(all([
-            eq(49, 2),
-            eq(PENDING, 0),
-            eq(40, 1),
-            eq(READ0, 3),
-            eq(ORIGIN0, 2),
-            eq(CHARGED, 825_000),
-            eq(BURNED, 825_000),
-        ])),
-    );
-    // WINDOW is still the SAME exact max(W,A)+C law; the existing measured
-    // scheduler profiles use A+C. No bound is weakened by this refinement.
-    for invariant in &mut m.invariants {
-        if invariant.name == "BasisQuantumIncludesAllActiveControllerCpu" {
-            let window = all([
-                eq(LAW, 45).or(eq(LAW, 46)),
-                eq(BASIS, 0),
-                Var(WALL).lt(Var(REPORTED)).negate(),
-                Var(QNS).eq(Var(WALL).plus(Var(CURRENT_C))),
-            ]);
-            invariant.condition = invariant.condition.clone().or(window);
-        }
-    }
-    let new_profile = Int(41).lt(Var(LAW));
-    let applied = all([
-        new_profile.clone(),
-        Int(0).lt(Var(FEEDBACKS)),
-        Var(FEEDBACKS).eq(Var(49)),
-    ]);
-    let one = all([
-        eq(LIVE_MASK, 1),
-        eq(STOP_MATCH, 1),
-        eq(LATENCY_KNOWN, 1),
-        eq(ORIGIN0, 1),
-        eq(14, 1),
-        Var(CURRENT_LATENCY).eq(Var(DELAY0)),
-    ]);
-    let two = all([
-        eq(LIVE_MASK, 3),
-        eq(STOP_MATCH, 1),
-        eq(LATENCY_KNOWN, 1),
-        eq(ORIGIN0, 1),
-        eq(ORIGIN1, 1),
-        eq(READ0, 2),
-        eq(READ1, 2),
-        Var(CURRENT_LATENCY).lt(Var(DELAY0)).negate(),
-        Var(CURRENT_LATENCY).lt(Var(DELAY1)).negate(),
-        Var(CURRENT_LATENCY)
-            .eq(Var(DELAY0))
-            .or(Var(CURRENT_LATENCY).eq(Var(DELAY1))),
-    ]);
-    safe(
-        m,
-        "AdaptiveLatencyRetainsMaximumValidLiveAck",
-        applied
-            .clone()
-            .negate()
-            .or(all([eq(LIVE_MASK, 0), eq(LATENCY_KNOWN, 0)])
-                .or(one)
-                .or(two)),
-    );
-    safe(
-        m,
-        "AdaptiveGrowthNeedsMeasuredLiveSuccessfulStopAck",
-        applied
-            .clone()
-            .negate()
-            .or(eq(FEEDBACK_KIND, 2).negate())
-            .or(all([
-                eq(BASIS, 1),
-                eq(LATENCY_KNOWN, 1),
-                eq(STOP_MATCH, 1),
-                Int(0).lt(Var(LIVE_MASK)),
-                eq(CLOCK_KNOWN, 1),
-            ])),
-    );
-    safe(
-        m,
-        "WindowBasisAboveNewTargetHalvesPriorRun",
-        eq(LAW, 45).negate().or(applied.negate()).or(all([
-            eq(BASIS, 0),
-            eq(CURRENT_A, 525_000),
-            eq(CURRENT_C, 300_000),
-            eq(TARGET, 500_000),
-            eq(USED_RUN, 350_000),
-            eq(RUN, 175_000),
-            eq(FEEDBACK_KIND, 1),
-        ])),
-    );
-    progress(
-        m,
-        "ClosedSourceRefinedGrantGetsLocalAdaptiveFeedback",
-        all([
-            new_profile,
-            Var(FEEDBACKS).lt(Var(COMMITTED)),
-            eq(CLOCK_KNOWN, 1),
-        ]),
-        Var(FEEDBACKS).eq(Var(COMMITTED)),
-        feedback_actions,
-    );
-    progress(
-        m,
-        "ExitedOnlyAccountingWaitsForOwnWait4WithoutInventingLiveAck",
-        all([eq(LAW, 44), eq(PENDING, 1), eq(40, 1), eq(27, 0), eq(28, 0)]),
-        eq(PENDING, 0),
-        pending_actions,
-    );
 }
 
 /// Decision d93377961365654: a reviewed finite program/build premise is distinct
@@ -8000,7 +5135,7 @@ fn qualification_observer(control: u8, full_observer: bool) -> Model {
             ("originalEffectOwned", 1, 0),
             ("reservedLogicalSlots", 2, 0),
             ("closedRoster", 1, 0),
-            ("windowCoverage", 1, 0),
+            ("sourceLifetimeCoverage", 1, 0),
             ("unpaidDebtMs", 27, 0),
             ("runtimeCoverage", 1, 0),
             ("actualExit", 1, 0),
@@ -8071,7 +5206,7 @@ fn qualification_observer(control: u8, full_observer: bool) -> Model {
     const OWN: usize = 16;
     const SLOTS: usize = 17;
     const ROSTER: usize = 18;
-    const WINDOW: usize = 19;
+    const SOURCE_COVERED: usize = 19;
     const DEBT: usize = 20;
     const COVER: usize = 21;
     const EXIT: usize = 22;
@@ -8227,7 +5362,7 @@ fn qualification_observer(control: u8, full_observer: bool) -> Model {
         &mut m,
         "ForkExecWithinOriginalTwoSlotAndConsumedReservation",
         all([eq(PH, 3), eq(REFUSED, 0), complete.clone()]),
-        &[(PH, Int(4)), (WINDOW, Int(1))],
+        &[(PH, Int(4)), (SOURCE_COVERED, Int(1))],
     );
     // This is an explicit program-trace extension, not a runtime detector. It
     // is excluded ONLY by the declared source premise in the approved world.
@@ -8419,7 +5554,7 @@ fn qualification_observer(control: u8, full_observer: bool) -> Model {
             complete.clone(),
             eq(COVER, 1),
             eq(ROSTER, 1),
-            eq(WINDOW, 1),
+            eq(SOURCE_COVERED, 1),
             eq(DEBT, 0),
             eq(REFUSED, 0),
             eq(BIRTH, 1),
@@ -8471,7 +5606,7 @@ fn qualification_observer(control: u8, full_observer: bool) -> Model {
             complete,
             eq(COVER, 1),
             eq(ROSTER, 1),
-            eq(WINDOW, 1),
+            eq(SOURCE_COVERED, 1),
             eq(REFUSED, 0),
         ])),
     );
@@ -8868,7 +6003,7 @@ fn qualification_observer(control: u8, full_observer: bool) -> Model {
     }
     act(
         &mut m,
-        "PrivateForkExecUsesExistingCanonicalPaidTwoSlotGrant",
+        "PrivateForkExecUsesExistingReservedTwoMemberOwner",
         all([
             eq(MODE, 2),
             eq(PH, 3),
@@ -8878,7 +6013,7 @@ fn qualification_observer(control: u8, full_observer: bool) -> Model {
             eq(REFUSED, 0),
             current.clone(),
         ]),
-        &[(PH, Int(4)), (WINDOW, Int(1))],
+        &[(PH, Int(4)), (SOURCE_COVERED, Int(1))],
     );
     act(
         &mut m,
@@ -9901,34 +7036,63 @@ mod helper_observer_lowering_equivalence {
                 std::fs::create_dir_all(root.join(variant)).unwrap();
             }
         }
-        for control in 0..=22 {
+        for control in [
+            0, 1, 2, 3, 4, 9, 10, 11, 12, 13, 14, 16, 17, 18, 19, 20, 21, 22,
+        ] {
             let full_model = helper_observer(control, true);
             let lowered_model = helper(control);
             assert_eq!(full_model.name, lowered_model.name);
-            assert_eq!(format!("{:?}", full_model.variables), format!("{:?}", lowered_model.variables));
-            assert_eq!(format!("{:?}", full_model.invariants), format!("{:?}", lowered_model.invariants));
-            assert_eq!(format!("{:?}", full_model.responses), format!("{:?}", lowered_model.responses));
+            assert_eq!(
+                format!("{:?}", full_model.variables),
+                format!("{:?}", lowered_model.variables)
+            );
+            assert_eq!(
+                format!("{:?}", full_model.invariants),
+                format!("{:?}", lowered_model.invariants)
+            );
+            assert_eq!(
+                format!("{:?}", full_model.responses),
+                format!("{:?}", lowered_model.responses)
+            );
             assert_eq!(full_model.weak_fair, lowered_model.weak_fair);
             assert_eq!(full_model.check_deadlock, lowered_model.check_deadlock);
             assert_eq!(full_model.actions.len(), lowered_model.actions.len());
             for (full, lowered) in full_model.actions.iter().zip(&lowered_model.actions) {
                 assert_eq!(full.name, lowered.name);
-                assert_eq!(format!("{:?}", full.updates), format!("{:?}", lowered.updates));
+                assert_eq!(
+                    format!("{:?}", full.updates),
+                    format!("{:?}", lowered.updates)
+                );
             }
             let full = full_model.check(100_000).unwrap();
             let lowered = lowered_model.check(100_000).unwrap();
-            assert_eq!(full.states, lowered.states, "control{control} complete states");
+            assert_eq!(
+                full.states, lowered.states,
+                "control{control} complete states"
+            );
             assert_eq!(full.edges.len(), lowered.edges.len());
             for (full, lowered) in full.edges.iter().zip(&lowered.edges) {
                 assert_eq!(
-                    full.iter().map(|edge| (edge.action, edge.to)).collect::<Vec<_>>(),
-                    lowered.iter().map(|edge| (edge.action, edge.to)).collect::<Vec<_>>(),
+                    full.iter()
+                        .map(|edge| (edge.action, edge.to))
+                        .collect::<Vec<_>>(),
+                    lowered
+                        .iter()
+                        .map(|edge| (edge.action, edge.to))
+                        .collect::<Vec<_>>(),
                     "control{control} complete labelled edges"
                 );
             }
             assert_eq!(
-                full.violations.iter().map(|v| (&v.property, &v.prefix, &v.cycle)).collect::<Vec<_>>(),
-                lowered.violations.iter().map(|v| (&v.property, &v.prefix, &v.cycle)).collect::<Vec<_>>(),
+                full.violations
+                    .iter()
+                    .map(|v| (&v.property, &v.prefix, &v.cycle))
+                    .collect::<Vec<_>>(),
+                lowered
+                    .violations
+                    .iter()
+                    .map(|v| (&v.property, &v.prefix, &v.cycle))
+                    .collect::<Vec<_>>(),
                 "control{control} named verdicts and complete prefix/cycle traces"
             );
             println!(
@@ -9936,7 +7100,10 @@ mod helper_observer_lowering_equivalence {
                 full_model.name,
                 full.states.len(),
                 full.edges.iter().map(Vec::len).sum::<usize>(),
-                full.violations.iter().map(|v| &v.property).collect::<Vec<_>>()
+                full.violations
+                    .iter()
+                    .map(|v| &v.property)
+                    .collect::<Vec<_>>()
             );
             drop(full);
             drop(lowered);
@@ -9950,13 +7117,15 @@ mod helper_observer_lowering_equivalence {
                     expected,
                     &root.join("original"),
                     &mut full_manifest,
-                ).unwrap();
+                )
+                .unwrap();
                 helper_observer_lowering_export::export(
                     lowered_model,
                     expected,
                     &root.join("lowered"),
                     &mut lowered_manifest,
-                ).unwrap();
+                )
+                .unwrap();
             }
         }
         if let Some(root) = output {
@@ -9969,43 +7138,6 @@ mod helper_observer_lowering_equivalence {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn member_window_failure_rows(
-        model: &Model,
-        states: &[Vec<i64>],
-        property: &str,
-        prefix: &[usize],
-        cycle: &[usize],
-        outgoing: impl Fn(usize) -> Vec<(usize, String)>,
-    ) {
-        let rows = prefix
-            .iter()
-            .rev()
-            .take(2)
-            .chain(cycle.iter().take(2))
-            .copied()
-            .collect::<std::collections::BTreeSet<_>>();
-        for row in rows {
-            let values = model
-                .variables
-                .iter()
-                .zip(&states[row])
-                .map(|(v, n)| format!("{}={n}", v.name))
-                .collect::<Vec<_>>();
-            let enabled = outgoing(row).into_iter().take(12).collect::<Vec<_>>();
-            let incoming = prefix.windows(2).find(|pair| pair[1] == row).map(|pair| {
-                outgoing(pair[0])
-                    .into_iter()
-                    .filter(|(to, _)| *to == row)
-                    .take(4)
-                    .collect::<Vec<_>>()
-            });
-            eprintln!(
-                "{} {property} state{row} incoming={incoming:?} enabled={enabled:?} values={values:?}",
-                model.name
-            );
-        }
-    }
 
     #[test]
     fn closure_codec_currentness_has_all_causal_controls() {
@@ -10362,1821 +7494,6 @@ mod tests {
     }
 
     #[test]
-    fn member_window_observer_guard_keeps_every_original_state_edge_and_named_verdict() {
-        for control in 1..=49 {
-            let original = member_window_observer(control, true)
-                .check(100_000)
-                .unwrap();
-            let reduced = member_window(control).check(100_000).unwrap();
-            // The checker uses deterministic BFS and unchanged action order.
-            // Equality of every state and every labelled adjacency entry is
-            // stronger than matching counts or aggregate digests.
-            assert_eq!(original.states, reduced.states, "control{control} states");
-            assert_eq!(original.edges.len(), reduced.edges.len());
-            for (a, b) in original.edges.iter().zip(&reduced.edges) {
-                assert_eq!(
-                    a.iter().map(|e| (e.action, e.to)).collect::<Vec<_>>(),
-                    b.iter().map(|e| (e.action, e.to)).collect::<Vec<_>>(),
-                    "control{control} labelled edges"
-                );
-            }
-            assert_eq!(
-                original
-                    .violations
-                    .iter()
-                    .map(|v| (&v.property, &v.prefix, &v.cycle))
-                    .collect::<Vec<_>>(),
-                reduced
-                    .violations
-                    .iter()
-                    .map(|v| (&v.property, &v.prefix, &v.cycle))
-                    .collect::<Vec<_>>(),
-                "control{control} named verdicts"
-            );
-        }
-    }
-
-    #[test]
-    fn measured_extension_keeps_every_legacy_state_labelled_edge_and_named_trace() {
-        use std::collections::BTreeSet;
-        for control in 0..=28 {
-            let legacy = member_window_projection(control, false, false, false);
-            let extended = member_window(control);
-            let before = legacy.check(100_000).unwrap();
-            let after = extended.check(100_000).unwrap();
-            let width = legacy.variables.len();
-            assert_eq!(width, 54);
-            let old_states = before.states.iter().cloned().collect::<BTreeSet<_>>();
-            let new_states = after
-                .states
-                .iter()
-                .filter(|s| s[width] == 0)
-                .map(|s| s[..width].to_vec())
-                .collect::<BTreeSet<_>>();
-            assert_eq!(old_states, new_states, "control{control} legacy states");
-            let mut old_edges = BTreeSet::new();
-            for (from, edges) in before.edges.iter().enumerate() {
-                for edge in edges {
-                    old_edges.insert((
-                        before.states[from].clone(),
-                        legacy.actions[edge.action].name.clone(),
-                        before.states[edge.to].clone(),
-                    ));
-                }
-            }
-            let mut new_edges = BTreeSet::new();
-            for (from, edges) in after.edges.iter().enumerate() {
-                if after.states[from][width] != 0 {
-                    continue;
-                }
-                for edge in edges {
-                    if after.states[edge.to][width] == 0 {
-                        new_edges.insert((
-                            after.states[from][..width].to_vec(),
-                            extended.actions[edge.action].name.clone(),
-                            after.states[edge.to][..width].to_vec(),
-                        ));
-                    }
-                }
-            }
-            assert_eq!(
-                old_edges, new_edges,
-                "control{control} legacy labelled edges"
-            );
-            // The pinned checker returns ONE witness per response property.
-            // Filtering its whole-model sample by LAW0 is not a legacy verdict
-            // check: another immutable profile may supply the first fair SCC
-            // and shadow a genuine legacy violation (control14 exposed this).
-            // Keep the full canonical state/labelled-edge comparisons above,
-            // then check the induced LAW0 branch with ALL properties/fairness.
-            // Only edges leaving this immutable branch are disabled; no action
-            // indices, bounds, original guards/updates or properties are removed.
-            let mut legacy_branch_model = extended.clone();
-            for action in &mut legacy_branch_model.actions {
-                let next_law = action
-                    .updates
-                    .iter()
-                    .find_map(|(slot, expression)| (*slot == width).then(|| expression.clone()))
-                    .unwrap_or(Var(width));
-                action.guard = action
-                    .guard
-                    .clone()
-                    .and(eq(width, 0))
-                    .and(next_law.eq(Int(0)));
-            }
-            let legacy_branch = legacy_branch_model.check(100_000).unwrap();
-            assert!(legacy_branch.states.iter().all(|state| state[width] == 0));
-            let full_legacy_states = after
-                .states
-                .iter()
-                .filter(|s| s[width] == 0)
-                .cloned()
-                .collect::<BTreeSet<_>>();
-            assert_eq!(
-                full_legacy_states,
-                legacy_branch
-                    .states
-                    .iter()
-                    .cloned()
-                    .collect::<BTreeSet<_>>(),
-                "control{control} induced branch keeps every full canonical legacy state"
-            );
-            assert_eq!(
-                legacy_branch.states.len(),
-                old_states.len(),
-                "control{control} original-state projection must be one-to-one"
-            );
-            let fairness_names = |model: &Model, count: usize| {
-                model
-                    .weak_fair
-                    .iter()
-                    .take(count)
-                    .map(|group| {
-                        group
-                            .iter()
-                            .map(|index| model.actions[*index].name.clone())
-                            .collect::<Vec<_>>()
-                    })
-                    .collect::<Vec<_>>()
-            };
-            assert_eq!(
-                fairness_names(&legacy, legacy.weak_fair.len()),
-                fairness_names(&legacy_branch_model, legacy.weak_fair.len()),
-                "control{control} every original fair action group stays identical"
-            );
-            for group in legacy_branch_model
-                .weak_fair
-                .iter()
-                .skip(legacy.weak_fair.len())
-            {
-                assert!(
-                    legacy_branch
-                        .edges
-                        .iter()
-                        .enumerate()
-                        .all(|(from, edges)| edges
-                            .iter()
-                            .all(|edge| edge.to == from || !group.contains(&edge.action))),
-                    "control{control} new-law fairness cannot enable a legacy nonstuttering step"
-                );
-            }
-            assert!(
-                legacy_branch_model.responses.len() >= legacy.responses.len(),
-                "every original response property remains present"
-            );
-            for (original, retained) in legacy.responses.iter().zip(&legacy_branch_model.responses) {
-                assert_eq!(
-                    (
-                        &original.name,
-                        format!("{:?}", original.request),
-                        format!("{:?}", original.response)
-                    ),
-                    (
-                        &retained.name,
-                        format!("{:?}", retained.request),
-                        format!("{:?}", retained.response)
-                    ),
-                    "control{control} original response predicate stays identical"
-                );
-            }
-            if control == 14 {
-                assert!(
-                    after
-                        .violations
-                        .iter()
-                        .any(|v| v.property == "FaultHasRetirementOrOwnedUnavailableDisposition"),
-                    "whole canonical graph must retain its genuine legacy response violation"
-                );
-                for violation in after
-                    .violations
-                    .iter()
-                    .filter(|v| v.property == "FaultHasRetirementOrOwnedUnavailableDisposition")
-                {
-                    let profiles = violation
-                        .prefix
-                        .iter()
-                        .chain(&violation.cycle)
-                        .map(|i| after.states[*i][width])
-                        .collect::<BTreeSet<_>>();
-                    println!(
-                        "control14 canonical sampled response witness profiles={profiles:?}; legacy branch checked independently"
-                    );
-                }
-            }
-            let old_traces = before
-                .violations
-                .iter()
-                .map(|v| {
-                    (
-                        v.property.clone(),
-                        v.prefix
-                            .iter()
-                            .map(|i| before.states[*i].clone())
-                            .collect::<Vec<_>>(),
-                        v.cycle
-                            .iter()
-                            .map(|i| before.states[*i].clone())
-                            .collect::<Vec<_>>(),
-                    )
-                })
-                .collect::<BTreeSet<_>>();
-            let new_traces = legacy_branch
-                .violations
-                .iter()
-                .map(|v| {
-                    (
-                        v.property.clone(),
-                        v.prefix
-                            .iter()
-                            .map(|i| legacy_branch.states[*i][..width].to_vec())
-                            .collect::<Vec<_>>(),
-                        v.cycle
-                            .iter()
-                            .map(|i| legacy_branch.states[*i][..width].to_vec())
-                            .collect::<Vec<_>>(),
-                    )
-                })
-                .collect::<BTreeSet<_>>();
-            assert_eq!(
-                old_traces, new_traces,
-                "control{control} legacy named traces"
-            );
-        }
-    }
-
-    #[test]
-    fn measured_member_windows_cover_both_bases_raw_refusals_and_named_controls() {
-        let model = member_window(0);
-        let variable = |name: &str| model.variables.iter().position(|v| v.name == name).unwrap();
-        let law = variable("measuredLawProfile");
-        let basis = variable("basisWindowMeasured");
-        let read0 = variable("slot0CountersReadNonePreAckPostAckRetainedWait4");
-        let read1 = variable("slot1CountersReadNonePreAckPostAckRetainedWait4LeaderRollup");
-        let burned = variable("cpuBurned");
-        let charged = variable("cpuCharged");
-        let wall = variable("wall");
-        let q = variable("basisQuantumNs");
-        let terminal = variable("terminalConservationPendingPassedRefused");
-        let checked = variable("conservationChecked");
-        let excess = variable("conservationExcessNs");
-        let origin0 = variable("slot0CounterEndpointNoneStoppedExitedClosedAbsence");
-        let origin1 = variable("slot1CounterEndpointNoneStoppedExitedClosedAbsence");
-        let pending = variable("directExitAccountingPending");
-        let wait4 = variable("actualWait4CpuNs");
-        let committed = variable("committedGrantCount");
-        let unique = variable("rollupUniqueAdmittedChild");
-        let mixed = variable("rollupMixedUnadmittedChild");
-        let exit_before_read = variable("rollupChildExitProvenBeforeRead");
-        let zero_children = variable("rollupLeaderChildCountZeroBeforeRead");
-        let ack_before_read = variable("rollupLeaderAckBeforeRead");
-        let rollup_count = variable("qualifiedChildRollupAttributionCount");
-        let cumulative = variable("rollupCumulativeChildNs");
-        let baseline = variable("rollupBaselineChildNs");
-        let prior_live = variable("priorLiveChildCreditNs");
-        let duplicate = variable("rollupDuplicateLiveChildNs");
-        let delta = variable("rollupCurrentDeltaNs");
-        let reported = variable("reportedMemberCpuNs");
-        let raw_q = variable("rawGrantQuantumNs");
-        let raw_basis = variable("rawGrantBasisWindowMeasured");
-        let provisional = variable("rollupConservationPending");
-        let validated = variable("rollupConservationValidated");
-        let revoked = variable("rollupBasisRevoked");
-        let fallback_q = variable("retainedFallbackQuantumNs");
-        let fallback_debt = variable("retainedFallbackDebtMs");
-        let stage = variable("initialStoppedCorroborationStage");
-        let staged_cpu = variable("initialStoppedCorroborationInclusiveCpuNs");
-        let prior_debt = variable("initialStoppedCorroborationPriorDebtMs");
-        let initial_ready = variable("initialStoppedCorroborationPaidSeal");
-        let initial_attempt = variable("initialTerminalRiAttemptedBeforeWait4");
-        let initial_known = variable("initialTerminalRiKnown");
-        let initial_l = variable("initialTerminalCreditedKernelNs");
-        let initial_paid = variable("initialTerminalObservationCostPaidBeforeWait4");
-        let initial_bound = variable("initialTerminalRetainedCostBoundNs");
-        let initial_attempt_debt = variable("initialTerminalRetainedAttemptDebtMs");
-        let initial_unknown = variable("initialTerminalConservationUnknown");
-        let initial_unknown_debt = variable("initialTerminalUnknownVerdictDebtMs");
-        let n_reaped = variable("actualProvenReapedProcessCount");
-        let teardown_limit = variable("fixedExitTeardownLimitPerProcessNs");
-        let teardown_allowance = variable("separateExitTeardownConservationAllowanceNs");
-        let residual = variable("actualTerminalResidualCpuNs");
-        let residual_charged = variable("terminalResidualChargedAsCostNs");
-        let residual_total = variable("terminalResidualInclusiveCostBoundNs");
-        let residual_observed = variable("terminalResidualCostObserved");
-        let residual_paid = variable("terminalResidualFullCostPaid");
-        let residual_known = variable("terminalResidualCostKnown");
-        let terminal_debt = variable("terminalReconciliationDebtMs");
-        let child_reap = variable("qualifiedUniqueGitReapedChildCountedOnce");
-        let born_latch = variable("bornStoppedOriginalPhysicalLatch");
-        let born_cost_seen = variable("bornStoppedNativeCostObserved");
-        let born_cost_retained = variable("bornStoppedNativeCostRetainedFunded");
-        let born_native_paid = variable("bornStoppedNativeCostPaidReceipt");
-        let born_native_cost = variable("bornStoppedNativeInclusiveCostBoundNs");
-        let born_native_debt = variable("bornStoppedNativeCreatedDebtMs");
-        let born_raw_known = variable("bornStoppedOriginalNativeAdmissionCostKnown");
-        let born_receipt_clocks = variable("bornStoppedReceiptClosingClocksKnown");
-        let born_expected = variable("bornStoppedRetainedExpectedMembers");
-        let born_activated = variable("bornStoppedImplicitReservedSlotActivated");
-        let born_physical = variable("bornStoppedFreshPhysicalClosureValidated");
-        let born_attempt_retained = variable("bornStoppedTerminalAttemptRetained");
-        let born_attempt_clocks = variable("bornStoppedTerminalAttemptClosingClocksKnown");
-        let adaptive_run = variable("adaptiveRunBudgetNs");
-        let adaptive_cap = variable("adaptiveRunCapNs");
-        let adaptive_target = variable("adaptiveAggregateTargetANs");
-        let adaptive_c_reserve = variable("adaptiveMaxKnownControllerReserveNs");
-        let adaptive_latency = variable("adaptiveMaxMatchingStopAckLatencyNs");
-        let adaptive_slots = variable("adaptiveExpectedReservedSlots");
-        let issued_run = variable("issuedAdaptiveRunBudgetNs");
-        let issued_cap = variable("issuedAdaptiveRunCapNs");
-        let current_c = variable("adaptiveCurrentCompleteControllerNs");
-        let current_a = variable("adaptiveCurrentAggregateActiveNs");
-        let feedbacks = variable("adaptiveAppliedClosedGrantReceipts");
-        let scheduler_clock = variable("adaptiveElapsedClockKnown");
-        let elapsed_stage = variable("adaptiveFreshElapsedNonePreBudgetStopDue");
-        let elapsed = variable("adaptiveFreshElapsedNs");
-        let optional_count = variable("adaptiveOptionalWorkCountInGrant");
-        let optional_at = variable("adaptiveOptionalWorkPriorElapsedNs");
-        let optional_fresh = variable("adaptiveOptionalWorkHadFreshClock");
-        let feedback_kind = variable("adaptiveFeedbackNoneHalveGrowHold");
-        let live_mask = variable("adaptiveRetainedValidLiveStopAckMask");
-        let delay0 = variable("adaptiveRetainedSlot0StopAckDelayNs");
-        let delay1 = variable("adaptiveRetainedSlot1StopAckOrExitDelayNs");
-        let matching_stop = variable("adaptiveRetainedSuccessfulSameGrantStop");
-        let latency_known = variable("adaptiveCurrentLiveLatencyKnown");
-        let good = model.check(100_000).unwrap();
-        for violation in good.violations.iter().take(3) {
-            member_window_failure_rows(
-                &model,
-                &good.states,
-                &violation.property,
-                &violation.prefix,
-                &violation.cycle,
-                |row| {
-                    good.edges[row]
-                        .iter()
-                        .map(|edge| (edge.to, model.actions[edge.action].name.clone()))
-                        .collect()
-                },
-            );
-        }
-        assert!(good.violations.is_empty(), "{:?}", good.violations);
-        assert!(
-            good.states.iter().any(|s| s[law] == 1
-                && s[0] == 7
-                && s[basis] == 1
-                && s[q] == 500_000
-                && s[wall] == 20_000_000
-                && s[26] == 1
-                && s[27] == 9),
-            "slow wall/low CPU measured grant pays fresh debt without borrowing wall credit"
-        );
-        assert!(
-            good.states.iter().any(|s| s[law] == 2
-                && s[0] == 7
-                && s[basis] == 1
-                && s[q] == 1_000_000
-                && s[wall] == 25_000_000
-                && s[26] == 1
-                && s[27] == 9),
-            "both exact hard boundaries are accepted with full fresh9ms debt"
-        );
-        assert!(
-            good.states.iter().any(|s| s[law] == 1
-                && s[49] == 2
-                && s[0] == 7
-                && s[burned] == 625_000
-                && s[charged] == 625_000),
-            "two separately paid grants accumulate CPU without resetting startup accounting"
-        );
-        assert!(
-            good.states.iter().any(|s| s[law] == 3
-                && s[0] == 3
-                && s[initial_ready] == 1
-                && s[stage] == 5
-                && s[49] == 0
-                && s[42] == 0),
-            "future within-grant uncertainty cannot pre-refuse the originally proved stopped startup"
-        );
-        assert!(
-            good.states.iter().any(|s| s[law] == 3
-                && s[0] == 4
-                && s[49] == 1
-                && s[8] == 5
-                && s[42] == 1
-                && s[10] == 1
-                && s[11] == 1
-                && s[15] == 0
-                && s[18] == 0
-                && s[20] == 0
-                && s[26] == 0),
-            "unknown child arises within its already-open original window without backdated birth, ACK or seal"
-        );
-        for profile in [3, 4, 9, 10] {
-            assert!(
-                good.states.iter().any(|s| s[law] == profile
-                    && s[0] == 7
-                    && s[basis] == 0
-                    && s[26] == 0
-                    && s[q] > 0
-                    && s[27] > 0),
-                "unknown/preACK/missing/reversed profile{profile} retains window charge and refuses trust"
-            );
-        }
-        assert!(
-            good.states.iter().any(|s| s[law] == 10
-                && s[0] == 7
-                && s[37] == 6
-                && s[27] == 9
-                && s[28] == 9
-                && s[41] == 1
-                && s[51] == 1
-                && s[26] == 0
-                && s[34] == 0
-                && s[checked] == 0),
-            "fresh refusal debt does not block an owned unavailable disposition or fabricate settlement"
-        );
-        assert!(
-            good.states
-                .iter()
-                .any(|s| s[law] == 4 && s[0] == 7 && s[read0] == 1),
-            "early reads never turn into postACK evidence merely because ACK arrives later"
-        );
-        assert!(
-            good.states.iter().any(|s| s[law] == 7
-                && s[0] == 7
-                && s[basis] == 1
-                && s[q] == 500_000
-                && s[wall] == 30_000_000
-                && s[26] == 0
-                && s[37] == 6
-                && s[27] == 9),
-            "30ms remains a raw hard wall refusal even when measured CPU passes"
-        );
-        let a0 = variable("slot0ActualCpuNs");
-        let a1 = variable("slot1ActualCpuNs");
-        let w0 = variable("slot0WindowNs");
-        assert!(
-            good.states.iter().any(|s| s[law] == 8
-                && s[0] == 7
-                && s[a0] > s[w0]
-                && s[a0] + s[a1] <= s[wall]
-                && s[basis] == 0
-                && s[26] == 0),
-            "aggregate passing CPU cannot replace the per-slot one-thread coverage predicate"
-        );
-        assert!(
-            good.states.iter().any(|s| s[law] == 5
-                && s[0] == 7
-                && s[q] == 2_500_000
-                && s[26] == 0
-                && s[27] == 23
-                && s[burned] == 2_375_000
-                && s[charged] == 2_375_000),
-            "actual2ms descendant rollup is retained and its overrun pays rounded-up full debt"
-        );
-        assert!(
-            good.states.iter().any(|s| s[law] == 11
-                && s[48] == 27
-                && s[46] == 1
-                && s[burned] == 625_000
-                && s[charged] == 625_000),
-            "late member CPU and controller post-work each pay debt, but controller work adds no member credit"
-        );
-        assert!(
-            good.states.iter().any(|s| s[law] == 1
-                && s[40] == 1
-                && s[checked] == 1
-                && s[terminal] == 1
-                && s[34] == 1),
-            "trusted measured accounting requires actual reap and passed terminal conservation"
-        );
-        assert!(
-            good.states.iter().any(|s| s[law] == 11
-                && s[40] == 1
-                && s[wait4] == 625_000
-                && s[charged] == 625_000
-                && s[residual_observed] == 1
-                && s[residual_total] == 250_000
-                && s[residual] == 0
-                && s[residual_paid] == 0
-                && s[checked] == 0
-                && s[terminal_debt] == 9
-                && s[27] == 9
-                && s[28] == 9),
-            "even zero helper residual retains a fresh ordinary terminal C unit and its full unpaid debt"
-        );
-        assert!(
-            good.states.iter().any(|s| s[law] == 11
-                && s[40] == 1
-                && s[residual_observed] == 1
-                && s[residual_total] == 250_000
-                && s[residual_paid] == 1
-                && s[27] == 0
-                && s[28] == 0
-                && s[checked] == 1
-                && s[terminal] == 1),
-            "actual reap has a local full-payment/conservation response without another OS event or helper grant"
-        );
-        assert!(
-            good.states.iter().any(|s| s[law] == 14
-                && s[40] == 1
-                && s[checked] == 0
-                && s[wait4] == 500_000
-                && s[charged] == 375_000
-                && s[n_reaped] == 1
-                && s[teardown_limit] == 150_000
-                && s[teardown_allowance] == 150_000
-                && s[residual] == 125_000
-                && s[residual_charged] == 125_000
-                && s[residual_total] == 375_000
-                && s[residual_observed] == 1
-                && s[residual_paid] == 0
-                && s[terminal_debt] == 9
-                && s[27] == 9
-                && s[28] == 9),
-            "the newly authorized fixed ceiling never waives any of the original125us residual COST or its fresh debt"
-        );
-        assert!(
-            good.states.iter().any(|s| s[law] == 12
-                && s[pending] == 1
-                && s[read0] == 3
-                && s[origin0] == 2
-                && s[40] == 1
-                && s[checked] == 0),
-            "direct retained wait4 is acquired before conservation classification, never from RI exit"
-        );
-        assert!(
-            good.states.iter().any(|s| s[law] == 12
-                && s[pending] == 1
-                && s[40] == 0
-                && s[read0] == 0
-                && s[basis] == 0
-                && s[q] == 0
-                && s[26] == 0
-                && s[33] == 0
-                && s[34] == 0
-                && s[41] == 1
-                && s[committed] == 0),
-            "direct exit parks accounting while original retirement/reap remains possible without a charge"
-        );
-        assert!(
-            good.states.iter().any(|s| s[law] == 12
-                && s[pending] == 0
-                && s[40] == 1
-                && s[read0] == 3
-                && s[basis] == 1
-                && s[q] == 500_000
-                && s[27] == 9
-                && s[checked] == 0
-                && s[committed] == 1),
-            "own actual wait4 can commit the frozen terminal grant then pay its fresh debt"
-        );
-        assert!(
-            good.states.iter().any(|s| s[law] == 12
-                && s[40] == 1
-                && s[terminal] == 1
-                && s[checked] == 1
-                && s[34] == 1),
-            "deferred direct-exit accounting has an actual settled trusted path without charge/reap deadlock"
-        );
-        assert!(
-            good.states.iter().any(|s| s[law] == 12
-                && s[40] == 1
-                && s[pending] == 0
-                && s[basis] == 0
-                && s[q] == 1_000_000
-                && s[37] != 0
-                && s[checked] == 1
-                && s[27] == 0
-                && s[41] == 0
-                && s[34] == 0),
-            "fault/ABA while pending retains window accounting and can settle without granting trust"
-        );
-        assert!(
-            good.states.iter().any(|s| s[law] == 13
-                && s[0] == 7
-                && s[origin1] == 2
-                && s[read1] == 0
-                && s[basis] == 0
-                && s[q] == 1_000_000
-                && s[26] == 1),
-            "implicit exited child lacks own wait4 and keeps the proven conservative window basis"
-        );
-        assert!(
-            good.states.iter().any(|s| s[law] == 14
-                && s[40] == 1
-                && s[checked] == 1
-                && s[terminal] == 1
-                && s[wait4] == 500_000
-                && s[charged] == 375_000
-                && s[burned] == 500_000
-                && s[teardown_allowance] == 150_000
-                && s[residual_charged] == 125_000
-                && s[residual_paid] == 1
-                && s[27] == 0
-                && s[28] == 0),
-            "independent prefix remains375us while a separately fixed150us ceiling admits the paid125us terminal residual"
-        );
-        assert!(
-            good.states.iter().any(|s| s[law] == 28
-                && s[40] == 1
-                && s[checked] == 1
-                && s[terminal] == 2
-                && s[wait4] == 450_000
-                && s[charged] == 200_000
-                && s[teardown_allowance] == 150_000
-                && s[residual] == 250_000
-                && s[residual_charged] == 250_000
-                && s[residual_total] == 500_000
-                && s[residual_paid] == 1
-                && s[terminal_debt] == 9
-                && s[excess] == 100_000
-                && s[27] == 0
-                && s[28] == 0
-                && s[37] == 6
-                && s[34] == 0),
-            "actual post-sample250us burn exceeds fixed150us and stays refused after its FULL residual cost/debt is paid"
-        );
-        assert!(
-            good.states.iter().any(|s| s[law] == 15
-                && s[49] == 2
-                && s[0] == 7
-                && s[basis] == 1
-                && s[read1] == 4
-                && s[unique] == 1
-                && s[mixed] == 0
-                && s[exit_before_read] == 1
-                && s[zero_children] == 1
-                && s[ack_before_read] == 1
-                && s[rollup_count] == 1
-                && s[cumulative] == 250_000
-                && s[baseline] == 125_000
-                && s[prior_live] == 125_000
-                && s[delta] == 125_000
-                && s[duplicate] == 0
-                && s[reported] == 375_000
-                && s[q] == 625_000
-                && s[charged] == 750_000
-                && s[burned] == 750_000
-                && s[provisional] == 1
-                && s[validated] == 0
-                && s[40] == 0
-                && s[34] == 0),
-            "unique post-exit rollup excludes prior live child credit and startup, and remains provisional"
-        );
-        assert!(
-            good.states.iter().any(|s| s[law] == 15
-                && s[read1] == 4
-                && s[40] == 1
-                && s[wait4] == 750_000
-                && s[charged] == 750_000
-                && s[n_reaped] == 2
-                && s[child_reap] == 1
-                && s[teardown_allowance] == 300_000
-                && s[provisional] == 0
-                && s[validated] == 1
-                && s[revoked] == 0
-                && s[terminal] == 1
-                && s[34] == 1),
-            "qualified child rollup is distinct from own wait4 and trusts only after final leader conservation"
-        );
-        assert!(
-            good.states.iter().any(|s| s[law] == 15
-                && s[49] == 2
-                && s[read1] == 4
-                && s[40] == 0
-                && s[n_reaped] == 0
-                && s[child_reap] == 0),
-            "two grants and qualified source reads cannot count an exit ceiling before actual leader reap"
-        );
-        for profile in [13, 16, 17, 18] {
-            assert!(
-                good.states.iter().any(|s| s[law] == profile
-                    && s[40] == 1
-                    && s[n_reaped] == 1
-                    && s[child_reap] == 0
-                    && s[teardown_allowance] == 150_000),
-                "unproven/exited/mixed/pre-exit/duplicate child profile{profile} adds no second teardown allowance"
-            );
-        }
-        assert!(
-            good.states.iter().all(|s| s[read1] != 3),
-            "leader child rollup is never fabricated as controller-owned child wait4"
-        );
-        for profile in [16, 17, 18] {
-            assert!(
-                good.states.iter().any(|s| s[law] == profile
-                    && s[0] == 7
-                    && s[read1] == 4
-                    && s[basis] == 0
-                    && s[q] == 1_000_000
-                    && s[37] == 6
-                    && s[26] == 0
-                    && s[34] == 0
-                    && s[27] == 9),
-                "mixed/pre-exit/duplicated rollup profile{profile} retains window cost and refuses authority"
-            );
-        }
-        assert!(
-            good.states.iter().any(|s| s[law] == 17
-                && s[0] == 7
-                && s[8] == 4
-                && s[exit_before_read] == 0
-                && s[zero_children] == 0
-                && s[ack_before_read] == 1
-                && s[read1] == 4
-                && s[basis] == 0),
-            "later child exit cannot backdate causal closure of an earlier rollup read"
-        );
-        assert!(
-            good.states.iter().any(|s| s[law] == 19
-                && s[40] == 1
-                && s[terminal] == 2
-                && s[checked] == 1
-                && s[revoked] == 1
-                && s[basis] == 0
-                && s[raw_basis] == 1
-                && s[raw_q] == 625_000
-                && s[reported] == 375_000
-                && s[q] == 1_000_000
-                && s[fallback_q] == 1_000_000
-                && s[fallback_debt] == 9
-                && s[wait4] == 900_000
-                && s[charged] == 500_000
-                && s[n_reaped] == 2
-                && s[child_reap] == 1
-                && s[teardown_allowance] == 300_000
-                && s[residual_charged] == 400_000
-                && s[residual_paid] == 1
-                && s[excess] == 100_000
-                && s[27] == 9
-                && s[34] == 0),
-            "terminal rollup mismatch revokes effective basis and retains raw shortfall plus fresh fallback billing"
-        );
-        assert!(
-            good.states.iter().any(|s| s[law] == 19
-                && s[revoked] == 1
-                && s[27] == 0
-                && s[28] == 0
-                && s[raw_q] == 625_000
-                && s[wait4] == 900_000
-                && s[residual] == 400_000
-                && s[excess] == 100_000
-                && s[terminal] == 2
-                && s[34] == 0),
-            "paid fallback debt never erases the original measured receipt or reclassifies conservation failure"
-        );
-        assert!(
-            good.states.iter().any(|s| s[law] == 1
-                && s[49] == 1
-                && s[stage] == 5
-                && s[initial_ready] == 1
-                && s[staged_cpu] == 1_164_833),
-            "the >1ms total is separately paced stopped work before actual first CONT"
-        );
-        assert!(
-            good.states.iter().any(|s| s[law] == 20
-                && s[40] == 0
-                && s[initial_attempt] == 1
-                && s[initial_known] == 1
-                && s[initial_l] == 75_000
-                && s[burned] == 200_000
-                && s[charged] == 200_000
-                && s[27] == 9
-                && s[28] == 9),
-            "eligible initial RI is independent before own wait4 and pays fresh debt without a grant"
-        );
-        assert!(
-            good.states.iter().any(|s| s[law] == 20
-                && s[40] == 1
-                && s[terminal] == 1
-                && s[wait4] == 200_000
-                && s[initial_l] == 75_000
-                && s[initial_paid] == 1
-                && s[49] == 0
-                && s[34] == 0),
-            "a covered startup-only actual reap can conserve without manufacturing helper/output authority"
-        );
-        assert!(
-            good.states.iter().any(|s| s[law] == 27
-                && s[40] == 1
-                && s[terminal] == 1
-                && s[initial_attempt] == 1
-                && s[initial_l] == 0
-                && s[wait4] == 125_000),
-            "mandatory attempt remains distinct from numerical need for any additional kernel credit"
-        );
-        assert!(
-            good.states.iter().any(|s| s[law] == 22
-                && s[40] == 1
-                && s[checked] == 1
-                && s[terminal] == 1
-                && s[wait4] == 325_000
-                && s[charged] == 200_000
-                && s[residual_charged] == 125_000
-                && s[residual_paid] == 1
-                && s[teardown_allowance] == 150_000
-                && s[initial_known] == 1
-                && s[49] == 0
-                && s[34] == 0),
-            "available initial RI plus fixed teardown bound has a genuinely paid residual path without runtime/output authority"
-        );
-        assert!(
-            good.states.iter().any(|s| s[law] == 21
-                && s[40] == 0
-                && s[initial_attempt] == 1
-                && s[initial_known] == 0
-                && s[initial_l] == 0
-                && s[initial_paid] == 0
-                && s[initial_bound] == 3_000_000
-                && s[initial_attempt_debt] == 27
-                && s[27] == 27
-                && s[28] == 27
-                && s[51] == 1
-                && s[41] == 1),
-            "unavailable initial RI retains UNKNOWN3ms/fresh27ms in the same held original owner before reap"
-        );
-        assert!(
-            good.states.iter().any(|s| s[law] == 21
-                && s[40] == 1
-                && s[initial_attempt] == 1
-                && s[initial_known] == 0
-                && s[initial_l] == 0
-                && s[initial_paid] == 1
-                && s[initial_attempt_debt] == 27
-                && s[initial_unknown] == 1
-                && s[initial_unknown_debt] == 27
-                && s[checked] == 1
-                && s[terminal] == 0
-                && s[excess] == 0
-                && s[wait4] == 200_000
-                && s[charged] == 125_000
-                && s[37] == 6
-                && s[34] == 0
-                && s[27] == 0
-                && s[28] == 0
-                && s[residual_known] == 0
-                && s[residual_total] == 3_000_000
-                && s[residual_paid] == 1
-                && s[charged] + s[teardown_allowance] >= s[wait4]),
-            "even a numerically fitting fixed ceiling never repairs unavailable RI: full unknown cost is paid, accounting remains unknown/refused"
-        );
-        assert!(
-            good.states.iter().any(|s| s[law] == 21
-                && s[40] == 1
-                && s[initial_paid] == 1
-                && s[checked] == 0
-                && s[residual_observed] == 1
-                && s[residual_known] == 0
-                && s[residual_total] == 3_000_000
-                && s[initial_unknown_debt] == 27
-                && s[27] == 27
-                && s[28] == 27),
-            "actual terminal observation retains its own full conservative unknown27ms unit before classification"
-        );
-        assert!(
-            good.states.iter().any(|s| s[law] == 21
-                && s[initial_unknown] == 1
-                && s[27] == 0
-                && s[28] == 0
-                && s[terminal] == 0
-                && s[excess] == 0
-                && s[34] == 0),
-            "unknown conservation remains refused after all conservative fresh debt is paid"
-        );
-        for profile in 23..=26 {
-            assert!(
-                good.states.iter().any(|s| s[law] == profile
-                    && s[37] == 6
-                    && s[51] == 1
-                    && s[41] == 1
-                    && s[40] == 0
-                    && s[34] == 0),
-                "unknown initial source/roster/timebase/payment keeps original pins in owned quarantine"
-            );
-            assert!(
-                good.states.iter().all(|s| s[law] != profile
-                    || (s[initial_attempt] == 0 && s[initial_l] == 0 && s[40] == 0)),
-                "missing initial baseline/roster/paid evidence/timebase cannot acquire independent L"
-            );
-        }
-        assert!(
-            good.states.iter().any(|s| s[law] == 29
-                && s[0] == 3
-                && s[born_latch] == 1
-                && s[born_cost_seen] == 0
-                && s[born_expected] == 2
-                && s[born_activated] == 0
-                && s[49] == 0
-                && s[52] == 0
-                && s[37] == 5
-                && s[41] == 1
-                && s[40] == 0
-                && s[charged] == 0),
-            "Attach callback panic retains the original born-stopped source BEFORE native callback/creation settlement or first CONT"
-        );
-        assert!(
-            good.states.iter().any(|s| s[law] == 29
-                && s[born_cost_retained] == 1
-                && s[born_native_cost] == 2_000_000
-                && s[born_native_debt] == 18
-                && s[born_native_paid] == 0
-                && s[27] == 18
-                && s[28] == 18
-                && s[40] == 0),
-            "actual native birth cost remains separately retained with its full fresh18ms before physical-only settlement"
-        );
-        for profile in [29, 30, 32] {
-            assert!(
-                good.states.iter().any(|s| s[law] == profile
-                    && s[40] == 0
-                    && s[born_native_paid] == 1
-                    && s[born_physical] == 1
-                    && s[initial_attempt] == 1
-                    && s[born_attempt_retained] == 1
-                    && s[initial_bound] == 3_000_000
-                    && s[initial_attempt_debt] == 27
-                    && s[initial_paid] == 0
-                    && s[27] == 27
-                    && s[28] == 27
-                    && s[initial_l] == 0
-                    && s[charged] == 0),
-                "early profile{profile} retains one actual terminal RI attempt and full UNKNOWN3ms/27ms; no startup/L credit"
-            );
-            assert!(
-                good.states.iter().any(|s| s[law] == profile
-                    && s[40] == 1
-                    && s[born_latch] == 1
-                    && s[born_native_paid] == 1
-                    && s[initial_paid] == 1
-                    && s[initial_known] == i64::from(profile != 30)
-                    && s[initial_unknown] == 1
-                    && s[checked] == 1
-                    && s[terminal] == 0
-                    && s[wait4] == 125_000
-                    && s[charged] == 0
-                    && s[initial_l] == 0
-                    && s[teardown_allowance] == 150_000
-                    && s[n_reaped] == 1
-                    && s[child_reap] == 0
-                    && s[residual_known] == 0
-                    && s[residual_total] == 3_000_000
-                    && s[residual_paid] == 1
-                    && s[27] == 0
-                    && s[28] == 0
-                    && s[52] == 0
-                    && s[49] == 0
-                    && s[born_activated] == 0
-                    && s[34] == 0),
-                "early profile{profile} owns actual reap after full payment, but available RI/fixedT never establishes missing startup accounting or runtime trust"
-            );
-        }
-        assert!(
-            good.states.iter().any(|s| s[law] == 32
-                && s[born_cost_seen] == 1
-                && s[born_raw_known] == 0
-                && s[25] == 0
-                && s[born_native_cost] == 3_000_000
-                && s[born_native_debt] == 27
-                && s[born_cost_retained] == 1
-                && s[born_receipt_clocks] == 1
-                && s[born_native_paid] == 1
-                && s[40] == 1
-                && s[checked] == 1
-                && s[terminal] == 0
-                && s[initial_unknown] == 1
-                && s[charged] == 0
-                && s[34] == 0),
-            "raw native clock failure stays UNKNOWN while a later actual known closing receipt/full27ms permits physical-only original reap"
-        );
-        for profile in [31, 33, 34, 35, 36, 37] {
-            assert!(
-                good.states.iter().any(|s| s[law] == profile
-                    && s[born_cost_seen] == 1
-                    && s[37] == 5
-                    && s[51] == 1
-                    && s[41] == 1
-                    && s[40] == 0
-                    && s[34] == 0),
-                "early missing source/native-clock/physical-proof/attempt-clock/funding profile{profile} keeps original custody"
-            );
-            assert!(
-                good.states.iter().all(|s| s[law] != profile || s[40] == 0),
-                "an early panic or empty census never grants own-reap permission for profile{profile}"
-            );
-        }
-        assert!(
-            good.states.iter().any(|s| s[law] == 34
-                && s[initial_attempt] == 1
-                && s[born_attempt_retained] == 1
-                && s[born_attempt_clocks] == 0
-                && s[27] == 0
-                && s[28] == 0
-                && s[initial_paid] == 0
-                && s[40] == 0
-                && s[41] == 1),
-            "debt-field equality cannot replace the unknown current attempt closing-clock receipt"
-        );
-        assert!(
-            good.states.iter().any(|s| s[law] == 35
-                && s[born_cost_seen] == 1
-                && s[born_native_cost] == 2_000_000
-                && s[born_cost_retained] == 0
-                && s[born_native_paid] == 0
-                && s[27] == 0
-                && s[28] == 0
-                && s[40] == 0
-                && s[41] == 1),
-            "unfunded raw native cost is retained in custody instead of normalized into a paid zero"
-        );
-        assert!(
-            good.states.iter().any(|s| s[law] == 37
-                && s[born_cost_seen] == 1
-                && s[born_raw_known] == 0
-                && s[born_native_cost] == 3_000_000
-                && s[born_native_debt] == 9
-                && s[born_cost_retained] == 0
-                && s[born_native_paid] == 0
-                && s[27] == 0
-                && s[28] == 0
-                && s[40] == 0
-                && s[41] == 1
-                && s[34] == 0),
-            "only9ms funding cannot stand in for the whole UNKNOWN3ms/27ms native unit even after its partial debt is paid"
-        );
-        for (profile, slots, run) in [(38, 1, 350_000), (39, 2, 175_000)] {
-            assert!(
-                good.states.iter().any(|s| s[law] == profile
-                    && s[49] == 1
-                    && s[issued_run] == run
-                    && s[issued_cap] == run
-                    && s[adaptive_slots] == slots
-                    && s[current_a] == 600_000
-                    && s[current_c] == 250_000
-                    && s[q] == 850_000
-                    && s[27] == 9
-                    && s[26] == 1
-                    && s[feedbacks] == 0),
-                "one aggregate target reserves ALL expected slots plus known controller/STOP latency before CONT"
-            );
-            assert!(
-                good.states.iter().any(|s| s[law] == profile
-                    && s[49] == 2
-                    && s[feedbacks] == 2
-                    && s[feedback_kind] == 2
-                    && s[burned] == 975_000
-                    && s[charged] == 975_000
-                    && s[adaptive_run] <= s[adaptive_cap]
-                    && s[adaptive_run] <= 450_000),
-                "two real original grants apply bounded decrease then slow growth without inventing a third grant"
-            );
-            assert!(
-                good.states.iter().any(|s| s[law] == profile
-                    && s[0] == 4
-                    && s[optional_count] == 1
-                    && s[optional_fresh] == 1
-                    && s[optional_at] < s[issued_run]
-                    && s[elapsed_stage] == 0),
-                "optional work invalidates its consumed elapsed timestamp"
-            );
-            assert!(
-                good.states.iter().any(|s| s[law] == profile
-                    && s[0] == 4
-                    && s[optional_count] == 1
-                    && s[elapsed_stage] == 2
-                    && s[elapsed] == s[issued_run]
-                    && s[14] == 0),
-                "a new current elapsed read observes STOP due before the positive ACK"
-            );
-        }
-        assert!(
-            good.states.iter().any(|s| s[law] == 38
-                && s[feedbacks] == 1
-                && s[feedback_kind] == 1
-                && s[issued_run] == 350_000
-                && s[adaptive_run] == 175_000
-                && s[adaptive_cap] == 200_000
-                && s[adaptive_latency] == 250_000
-                && s[adaptive_target] == 550_000),
-            "above-target aggregate A halves the ACTUAL prior run once, then clamps the newly observed latency cap"
-        );
-        assert!(
-            good.states.iter().any(|s| s[law] == 38
-                && s[feedbacks] == 2
-                && s[issued_run] == 175_000
-                && s[adaptive_run] == 185_000
-                && s[adaptive_c_reserve] == 350_000
-                && s[adaptive_target] == 450_000
-                && s[adaptive_cap] == 200_000
-                && s[current_c] == 350_000
-                && s[q] == 600_000),
-            "slow growth is10us and complete newly measured C shrinks aggregate target while the capped run ceiling remains200us; all C stays in Q"
-        );
-        assert!(
-            good.states.iter().any(|s| s[law] == 39
-                && s[feedbacks] == 2
-                && s[adaptive_slots] == 2
-                && s[issued_run] == 87_500
-                && s[adaptive_run] == 97_500
-                && s[adaptive_cap] == 150_000
-                && s[adaptive_c_reserve] == 250_000
-                && s[current_c] == 200_000
-                && s[adaptive_latency] == 125_000
-                && s[adaptive_target] == 550_000),
-            "smaller later C/latency never decay the retained reserves or replace reserved2 with a visible-count divisor"
-        );
-        assert!(
-            good.states.iter().any(|s| s[law] == 40
-                && s[elapsed_stage] == 2
-                && s[elapsed] > s[issued_run]
-                && s[optional_count] == 0
-                && s[14] == 0),
-            "fresh elapsed already beyond budget stops before any optional grant work"
-        );
-        assert!(
-            good.states.iter().any(|s| s[law] == 40
-                && s[q] == 1_178_500
-                && s[current_a] == 932_917
-                && s[current_c] == 245_583
-                && s[wall] == 1_114_000
-                && s[27] == 11
-                && s[28] == 11
-                && s[37] == 6
-                && s[26] == 0
-                && s[34] == 0
-                && s[optional_count] == 0),
-            "adaptive allocation does not erase the actual builder over-Q refusal or its full fresh11ms debt"
-        );
-        assert!(
-            good.states.iter().any(|s| s[law] == 40
-                && s[feedbacks] == 1
-                && s[adaptive_latency] == 382_000
-                && s[adaptive_run] == 25_000
-                && s[adaptive_cap] == 25_000
-                && s[26] == 0
-                && s[34] == 0),
-            "a larger observed STOP latency bounds future run to the25us floor but cannot reopen a refused grant"
-        );
-        assert!(
-            good.states.iter().any(|s| s[law] == 41
-                && s[scheduler_clock] == 0
-                && s[37] == 1
-                && s[51] == 1
-                && s[41] == 1
-                && s[40] == 0
-                && s[49] == 0
-                && s[feedbacks] == 0
-                && s[34] == 0),
-            "unknown fresh elapsed clock holds the original effect without CONT/growth or optimistic qualification"
-        );
-        assert!(
-            good.states.iter().any(|s| s[law] == 42
-                && s[feedbacks] == 1
-                && s[live_mask] == 3
-                && s[delay0] == 100_000
-                && s[delay1] == 300_000
-                && s[matching_stop] == 1
-                && s[latency_known] == 1
-                && s[adaptive_latency] == 300_000
-                && s[adaptive_cap] == 25_000
-                && s[adaptive_run] == 25_000
-                && s[adaptive_target] == 500_000
-                && s[current_a] == 525_000
-                && s[current_c] == 300_000
-                && s[q] == 825_000),
-            "MAX across both live ACK receipts, not earliest ACK, updates reserves BEFORE new-target halving/cap"
-        );
-        assert!(
-            good.states.iter().any(|s| s[law] == 43
-                && s[49] == 2
-                && s[feedbacks] == 2
-                && s[live_mask] == 1
-                && s[delay0] == 100_000
-                && s[delay1] == 300_000
-                && s[latency_known] == 1
-                && s[read0] == 2
-                && s[origin0] == 1
-                && s[read1] == 4
-                && s[origin1] == 2
-                && s[rollup_count] == 1
-                && s[delta] == 50_000
-                && s[prior_live] == 300_000
-                && s[current_a] == 300_000
-                && s[q] == 550_000
-                && s[adaptive_latency] == 125_000
-                && s[adaptive_run] == 97_500
-                && s[feedback_kind] == 2),
-            "qualified exited-child rollup retains CPU once while its later exit endpoint cannot inflate LIVE STOP latency"
-        );
-        assert!(
-            good.states.iter().any(|s| s[law] == 44
-                && s[49] == 2
-                && s[pending] == 1
-                && s[40] == 0
-                && s[committed] == 1
-                && s[live_mask] == 0
-                && s[latency_known] == 0
-                && s[origin0] == 2
-                && s[read0] == 0
-                && s[34] == 0),
-            "exited-only second grant remains settlement-only pending until original actual own wait4; no live ACK is invented"
-        );
-        assert!(
-            good.states.iter().any(|s| s[law] == 44
-                && s[49] == 2
-                && s[feedbacks] == 2
-                && s[pending] == 0
-                && s[40] == 1
-                && s[committed] == 2
-                && s[read0] == 3
-                && s[origin0] == 2
-                && s[live_mask] == 0
-                && s[latency_known] == 0
-                && s[matching_stop] == 1
-                && s[feedback_kind] == 3
-                && s[issued_run] == 175_000
-                && s[adaptive_run] == 175_000
-                && s[adaptive_latency] == 250_000
-                && s[adaptive_cap] == 200_000
-                && s[q] == 350_000
-                && s[wait4] == 825_000
-                && s[charged] == 825_000),
-            "retained own wait4 is legal measured accounting but exited-only endpoints never regrow the predictive run"
-        );
-        assert!(
-            good.states.iter().any(|s| s[law] == 45
-                && s[feedbacks] == 1
-                && s[basis] == 0
-                && s[read0] == 0
-                && s[current_a] == 525_000
-                && s[current_c] == 300_000
-                && s[wall] == 625_000
-                && s[q] == 925_000
-                && s[adaptive_c_reserve] == 300_000
-                && s[adaptive_target] == 500_000
-                && s[issued_run] == 350_000
-                && s[adaptive_run] == 175_000
-                && s[feedback_kind] == 1
-                && s[27] == 9
-                && s[28] == 9),
-            "finite observed A above NEW500us target shrinks WINDOW-basis run without granting measured authority or dropping max(W,A)+C"
-        );
-        assert!(
-            good.states.iter().any(|s| s[law] == 46
-                && s[feedbacks] == 1
-                && s[matching_stop] == 0
-                && s[live_mask] == 0
-                && s[latency_known] == 0
-                && s[basis] == 0
-                && s[feedback_kind] == 3
-                && s[adaptive_run] == 350_000
-                && s[37] == 6
-                && s[26] == 0
-                && s[34] == 0
-                && s[q] == 700_000),
-            "nonmatching/non-successful STOP supplies no predictive latency or growth even with retained finite stopped raw cost"
-        );
-        assert!(
-            good.states.iter().any(|s| s[law] == 44
-                && s[49] == 2
-                && s[pending] == 1
-                && s[40] == 0
-                && s[committed] == 1
-                && s[charged] == 725_000
-                && s[burned] == 825_000
-                && s[q] == 0
-                && s[basis] == 0
-                && s[checked] == 0
-                && s[33] == 0
-                && s[34] == 0),
-            "second pending grant preserves prior real725us credit/count1 while CURRENT own-wait4 accounting is uncommitted"
-        );
-        assert!(
-            good.states.iter().all(|s| s[law] != 44
-                || s[pending] == 0
-                || (s[49] == 2
-                    && s[committed] == 1
-                    && s[charged] == 725_000
-                    && s[q] == 0
-                    && s[basis] == 0
-                    && s[checked] == 0
-                    && s[33] == 0
-                    && s[34] == 0)),
-            "neither pending retirement nor retained actual reap erases prior credit or admits main proof/trust before current commit"
-        );
-        for (control, property) in [
-            (29, "MeasuredNeedsClosure"),
-            (30, "MeasuredNeedsClosure"),
-            (31, "ChargedCoversBurned"),
-            (32, "ChargedCoversBurned"),
-            (33, "WallBounded"),
-            (34, "PerSlotMeasuredCpuFitsWindow"),
-            (35, "RollupRequiresUniqueAdmittedChild"),
-            (36, "RollupNeedsCausalExitAndLeaderAck"),
-            (37, "RollupCountedOnce"),
-            (38, "InitialCorroborationStageRequiresFreshPaidRest"),
-            (39, "InitialEligibleTerminalRiAttemptPrecedesOwnWait4"),
-            (40, "ChargedCoversBurned"),
-            (
-                41,
-                "TerminalResidualIsFullyChargedOutsideConservationCredit",
-            ),
-            (42, "TeardownCeilingIsIndependentFixedPerActualReap"),
-            (43, "TeardownChildCountNeedsQualifiedRetainedReapProof"),
-            (
-                44,
-                "BornStoppedCreationFaultReapNeedsPaidOriginalPhysicalLatch",
-            ),
-            (45, "IssuedAdaptiveGrantUsesMeasuredCostAndStopLatencyCap"),
-            (46, "AdaptiveLatencyRetainsMaximumValidLiveAck"),
-            (47, "AdaptiveGrowthNeedsMeasuredLiveSuccessfulStopAck"),
-            (48, "WindowBasisAboveNewTargetHalvesPriorRun"),
-            (49, "PendingDirectExitCannotAdmitExpensiveWorkOrTrust"),
-        ] {
-            let broken = member_window(control);
-            let result = broken.check(100_000).unwrap();
-            assert!(
-                result.violations.iter().any(|v| v.property == property),
-                "{} must violate intended {property}, not merely TypeOK",
-                broken.name
-            );
-            assert!(
-                !result.violations.iter().any(|v| v.property == "TypeOK"),
-                "{} must retain every declared finite bound",
-                broken.name
-            );
-            if control == 38 {
-                assert!(
-                    result.states.iter().any(|s| s[law] != 0
-                        && s[stage] == 2
-                        && s[prior_debt] == 9
-                        && s[27] == 18
-                        && s[28] == 18
-                        && s[49] == 0
-                        && s[initial_ready] == 0),
-                    "skipping a stopped checkpoint rest admits fresh work over the retained prior obligation"
-                );
-            }
-            if control == 39 {
-                assert!(
-                    result.states.iter().any(|s| s[law] == 27
-                        && s[40] == 1
-                        && s[initial_attempt] == 0
-                        && s[wait4] == s[charged]
-                        && s[terminal] == 0
-                        && s[49] == 0
-                        && s[34] == 0),
-                    "skipped initial RI violates protocol order even when raw terminal CPU would be covered"
-                );
-                assert!(
-                    result.states.iter().any(|s| s[law] == 21
-                        && s[40] == 1
-                        && s[initial_attempt] == 1
-                        && s[initial_known] == 0
-                        && s[initial_paid] == 0
-                        && s[27] == 27
-                        && s[28] == 27
-                        && s[initial_attempt_debt] == 27
-                        && s[terminal] == 0),
-                    "the same omitted readiness guard also exposes actual own reap with retained UNKNOWN debt still unpaid"
-                );
-            }
-            if control == 49 {
-                assert!(
-                    result.states.iter().any(|s| s[law] == 44
-                        && s[49] == 2
-                        && s[pending] == 1
-                        && s[40] == 0
-                        && s[committed] == 2
-                        && s[charged] == 725_000
-                        && s[burned] == 825_000
-                        && s[read0] == 0
-                        && s[origin0] == 2
-                        && s[q] == 0
-                        && s[basis] == 0
-                        && s[33] == 0
-                        && s[34] == 0),
-                    "one premature CURRENT commit violates pending ownership while retaining all prior credit and no forged wait4/CPU/proof/trust"
-                );
-            }
-            if control == 46 {
-                assert!(
-                    result.states.iter().any(|s| s[law] == 42
-                        && s[feedbacks] == 1
-                        && s[live_mask] == 3
-                        && s[delay0] == 100_000
-                        && s[delay1] == 300_000
-                        && s[adaptive_latency] == 100_000
-                        && s[adaptive_cap] == 150_000
-                        && s[adaptive_run] == 87_500
-                        && s[q] == 825_000
-                        && s[charged] == s[burned]),
-                    "one MIN-for-MAX fault selects wrong next87500 instead of25000 while all actual raw accounting stays intact"
-                );
-            }
-            if control == 47 {
-                assert!(
-                    result.states.iter().any(|s| s[law] == 44
-                        && s[49] == 2
-                        && s[feedbacks] == 2
-                        && s[40] == 1
-                        && s[read0] == 3
-                        && s[origin0] == 2
-                        && s[live_mask] == 0
-                        && s[latency_known] == 1
-                        && s[feedback_kind] == 2
-                        && s[issued_run] == 175_000
-                        && s[adaptive_run] == 185_000
-                        && s[q] == 350_000
-                        && s[wait4] == 825_000
-                        && s[charged] == 825_000),
-                    "one exit-as-live source classification fault falsely regrows175->185us after legal own-wait4 accounting, not a forged wait4/CPU certificate"
-                );
-            }
-            if control == 48 {
-                assert!(
-                    result.states.iter().any(|s| s[law] == 45
-                        && s[feedbacks] == 1
-                        && s[basis] == 0
-                        && s[current_a] == 525_000
-                        && s[current_c] == 300_000
-                        && s[adaptive_target] == 500_000
-                        && s[issued_run] == 350_000
-                        && s[adaptive_run] == 350_000
-                        && s[feedback_kind] == 3
-                        && s[q] == 925_000),
-                    "the old measured-only decrease guard misses finite WINDOW A above the NEW target without changing any raw Q/debt gate"
-                );
-            }
-            if control == 45 {
-                assert!(
-                    result.states.iter().any(|s| s[law] == 39
-                        && s[49] == 1
-                        && s[issued_run] == 1_000_000
-                        && s[issued_cap] == 175_000
-                        && s[adaptive_slots] == 2
-                        && s[current_a] == 2_200_000
-                        && s[current_c] == 250_000
-                        && s[q] == 2_450_000
-                        && s[wall] == 2_200_000
-                        && s[27] == 23
-                        && s[28] == 23
-                        && s[37] == 6
-                        && s[26] == 0
-                        && s[34] == 0
-                        && s[charged] == s[burned]
-                        && s[terminal] == 0),
-                    "fixed>=1ms CONT run must reach actual oversize aggregate A+C/raw debt/refusal, not a fake certificate or TypeOK"
-                );
-            }
-            if control == 44 {
-                assert!(
-                    result.states.iter().any(|s| s[law] == 29
-                        && s[40] == 1
-                        && s[born_expected] == 2
-                        && s[born_activated] == 0
-                        && s[born_latch] == 1
-                        && s[born_native_paid] == 1
-                        && s[born_physical] == 1
-                        && s[initial_attempt] == 1
-                        && s[initial_known] == 1
-                        && s[born_attempt_retained] == 1
-                        && s[initial_paid] == 0
-                        && s[27] == 27
-                        && s[28] == 27
-                        && s[52] == 0
-                        && s[49] == 0
-                        && s[terminal] == 0
-                        && s[charged] == 0
-                        && s[34] == 0),
-                    "known original physical exit plus available RI cannot bypass this CURRENT unknown attempt payment after an Attach panic"
-                );
-            }
-            if control == 40 {
-                assert!(
-                    result.states.iter().any(|s| s[law] == 28
-                        && s[terminal] == 1
-                        && s[wait4] > s[charged] + s[teardown_allowance]
-                        && s[residual_charged] == 250_000
-                        && s[residual_paid] == 1),
-                    "above-T bypass falsely certifies despite independent raw excess and fully paid residual cost"
-                );
-            }
-            if control == 41 {
-                assert!(
-                    result.states.iter().any(|s| s[law] == 14
-                        && s[residual_observed] == 1
-                        && s[residual] == 125_000
-                        && s[residual_charged] == 0
-                        && s[charged] + s[teardown_allowance] >= s[wait4]
-                        && s[charged] == 375_000
-                        && s[residual_total] == 250_000),
-                    "a legitimate fixed ceiling cannot excuse the missing raw residual COST"
-                );
-            }
-            if control == 42 {
-                assert!(
-                    result.states.iter().any(|s| s[law] == 28
-                        && s[n_reaped] == 1
-                        && s[teardown_limit] == 250_000
-                        && s[teardown_allowance] == 250_000
-                        && s[residual] == 250_000
-                        && s[residual_paid] == 1
-                        && s[charged] + s[teardown_allowance] == s[wait4]),
-                    "deriving T from the same wait4 makes the numerical comparison vacuous even when cost was properly paid"
-                );
-            }
-            if control == 43 {
-                assert!(
-                    result.states.iter().any(|s| s[law] == 28
-                        && s[40] == 1
-                        && s[n_reaped] == 2
-                        && s[child_reap] == 0
-                        && s[8] == 0
-                        && s[teardown_allowance] == 300_000
-                        && s[residual_paid] == 1
-                        && s[charged] + s[teardown_allowance] >= s[wait4]),
-                    "an expected/unproven child cannot manufacture a second ceiling to cover otherwise excessive raw CPU"
-                );
-            }
-            if matches!(control, 31 | 32) {
-                assert!(
-                    result
-                        .states
-                        .iter()
-                        .any(|s| s[law] == if control == 31 { 5 } else { 6 }
-                            && s[40] == 1
-                            && s[terminal] == 1
-                            && s[burned] > s[charged]),
-                    "omitted rollup/conversion must falsely certify independently retained raw CPU"
-                );
-                assert!(
-                    result
-                        .states
-                        .iter()
-                        .any(|s| s[law] == if control == 31 { 5 } else { 6 }
-                            && s[40] == 1
-                            && s[terminal] == 2
-                            && s[excess] > 0),
-                    "the same raw shortfall also has a correct detected-refusal path"
-                );
-            }
-            if control == 30 {
-                assert!(
-                    result.states.iter().any(|s| s[law] == 12
-                        && s[40] == 0
-                        && s[basis] == 1
-                        && s[read0] == 2
-                        && s[origin0] == 2),
-                    "RI exit cannot be relabeled a stopped postACK counter before own actual wait4"
-                );
-            }
-            if control == 37 {
-                assert!(
-                    result.states.iter().any(|s| s[law] == 18
-                        && s[basis] == 1
-                        && s[q] == 750_000
-                        && s[rollup_count] == 2
-                        && s[duplicate] == 125_000
-                        && s[charged] >= s[burned]
-                        && s[26] == 1),
-                    "double rollup attribution must fail even when CPU fits and a conservation upper bound would pass"
-                );
-            }
-            if control == 35 {
-                assert!(
-                    result.states.iter().any(|s| s[law] == 16
-                        && s[basis] == 1
-                        && s[mixed] == 1
-                        && s[unique] == 0
-                        && s[q] == 750_000
-                        && s[charged] == s[burned]),
-                    "mixed unadmitted child must fail its source predicate even when numeric accounting reconciles"
-                );
-            }
-            if control == 36 {
-                assert!(
-                    result.states.iter().any(|s| s[law] == 17
-                        && s[basis] == 1
-                        && s[exit_before_read] == 0
-                        && s[zero_children] == 0
-                        && s[ack_before_read] == 1
-                        && s[8] == 4),
-                    "later retired identity cannot launder a rollup read made before proven causal exit"
-                );
-            }
-        }
-        for control in [31, 32] {
-            // Remove ONLY the extra forged-certification fault. Pure omitted
-            // rollup/conversion is contained by the unchanged hard gate.
-            let pure = member_window_projection(control, false, true, false);
-            let result = pure.check(100_000).unwrap();
-            assert!(
-                result.violations.is_empty(),
-                "pure omission {control}: {:?}",
-                result.violations
-            );
-            let profile = if control == 31 { 5 } else { 6 };
-            let fresh_debt = if control == 31 { 21 } else { 9 };
-            assert!(
-                result.states.iter().any(|s| s[law] == profile
-                    && s[40] == 1
-                    && s[checked] == 1
-                    && s[terminal] == 2
-                    && s[wait4] > s[charged]
-                    && s[excess] == s[wait4] - s[charged] - s[teardown_allowance]
-                    && s[37] == 6
-                    && s[26] == 0
-                    && s[34] == 0
-                    && s[terminal_debt] == fresh_debt
-                    && s[residual_paid] == 1
-                    && s[residual_charged] == s[wait4] - s[charged]
-                    && s[27] == 0
-                    && s[28] == 0
-                    && s[41] == 1),
-                "pure omission/conversion retains independent excess after fixed T and pays the FULL raw residual fresh debt before refusal"
-            );
-            assert!(
-                result.states.iter().any(|s| s[law] == profile
-                    && s[terminal] == 2
-                    && s[excess] > 0
-                    && s[27] == 0
-                    && s[28] == 0
-                    && s[34] == 0),
-                "pure omission remains refused after all fresh debt is paid"
-            );
-            assert!(
-                result
-                    .states
-                    .iter()
-                    .all(|s| s[law] != profile || s[34] == 0),
-                "pure omission cannot trust output even though the good hard gate contains the fault"
-            );
-        }
-    }
-
-    #[test]
-    fn dream_read_member_windows_preserve_required_closure_and_additive_debt() {
-        let model = member_window(0);
-        let good = model.check(100_000).unwrap();
-        println!("HarnessDreamReadMemberWindow: {} states", good.states.len());
-        for violation in good.violations.iter().take(3) {
-            member_window_failure_rows(&model, &good.states, &violation.property,
-                &violation.prefix, &violation.cycle, |row| good.edges[row].iter()
-                    .map(|edge| (edge.to, model.actions[edge.action].name.clone())).collect());
-        }
-        assert!(good.violations.is_empty(), "{:?}", good.violations);
-        assert!(
-            good.states.iter().any(|s| s[0] == 3
-                && s[52] == 1
-                && s[53] == 0
-                && s[27] == 9
-                && s[28] == 9),
-            "settled creation can still have fresh controller debt before initial corroboration"
-        );
-        assert!(
-            good.states.iter().any(|s| s[0] == 3
-                && s[52] == 1
-                && s[53] == 1
-                && s[27] == 9
-                && s[49] == 0),
-            "initial admitted corroboration creates its own fresh debt before any CONT"
-        );
-        assert!(
-            good.states
-                .iter()
-                .all(|s| s[49] == 0 || (s[52] == 1 && s[53] == 1)),
-            "all grants follow settled creation and admitted initial corroboration"
-        );
-        assert!(
-            good.states.iter().any(|s| s[0] == 4
-                && s[37] != 0
-                && s[10] == 1
-                && s[11] == 1
-                && s[41] == 1),
-            "failed admission preserves both open original windows and owned effect"
-        );
-        assert!(
-            good.states.iter().any(|s| s[0] == 4
-                && s[37] != 0
-                && s[16] == 2
-                && s[17] == 2
-                && s[26] == 0),
-            "late physical exec/token cleanup remains possible after failure without coverage"
-        );
-        assert!(
-            good.states.iter().all(|s| s[1] != 9 || s[4] == 0),
-            "unsupported whole-command basis never creates a native effect"
-        );
-        assert!(
-            good.states
-                .iter()
-                .any(|s| s[1] == 9 && s[37] == 6 && s[4] == 0),
-            "unsupported basis reaches an explicit no-effect refusal"
-        );
-        assert!(
-            good.states
-                .iter()
-                .any(|s| s[12] == 2 && s[13] == 3 && s[21] == 3 && s[26] == 1),
-            "unequal checked endpoints retain their exact union"
-        );
-        assert!(
-            good.states
-                .iter()
-                .any(|s| s[1] == 2 && s[11] == 1 && s[13] == 3 && s[18] == 1),
-            "unknown slot stays open from t0 through same-grant closure"
-        );
-        assert!(
-            good.states
-                .iter()
-                .any(|s| s[16] == 2 && s[17] == 2 && s[11] == 1 && s[26] == 1),
-            "exec keeps one logical window and requires current task capture"
-        );
-        assert!(
-            good.states
-                .iter()
-                .any(|s| s[1] == 5 && s[22] > s[21] && s[26] == 0 && s[27] > 0),
-            "A over W remains charged and unavailable"
-        );
-        assert!(
-            good.states
-                .iter()
-                .any(|s| s[1] == 10 && s[24] == 2 && s[26] == 1),
-            "exact1ms profile remains within the ordinary limit"
-        );
-        assert!(
-            good.states
-                .iter()
-                .any(|s| s[1] == 6 && s[24] == 3 && s[26] == 0 && s[27] == 18),
-            "1.5ms overrun refuses and retains conservative observed debt"
-        );
-        assert!(
-            good.states
-                .iter()
-                .any(|s| s[30] == 1 && s[27] == 9 && s[28] == 9 && s[48] == 18),
-            "late observation incurs fresh debt after preceding rest was paid"
-        );
-        assert!(
-            good.states.iter().any(|s| s[48] == 27 && s[46] == 1),
-            "grant, late kernel and post-seal corroboration each retain debt"
-        );
-        assert!(
-            good.states
-                .iter()
-                .any(|s| s[34] == 1 && s[40] == 1 && s[41] == 0)
-        );
-        for (mode, property) in [
-            (1, "WindowUnionRetainsEveryReservedIntervalCase0"),
-            (2, "BothPossibleWindowsOpenAtOriginalCheckedT0"),
-            (
-                3,
-                "TentativeEndpointsNeedPositiveCurrentTaskAcknowledgement",
-            ),
-            (4, "UsableSealFollowsEveryRequiredClosedRosterPredicate"),
-            (
-                5,
-                "TentativeEndpointsNeedPositiveCurrentTaskAcknowledgement",
-            ),
-            (6, "UsableSealFollowsEveryRequiredClosedRosterPredicate"),
-            (7, "UnexplainedActiveCpuOverWindowCannotCertify"),
-            (8, "LateKernelAttributionIsExplainedAndChargedOnce"),
-            (9, "AllActiveControllerAndPipeCpuCountExactlyOnceCase1"),
-            (10, "AllActiveControllerAndPipeCpuCountExactlyOnceCase1"),
-            (11, "ObservedActiveCpuHasNoOmissionOrRollupDuplicationCase1"),
-            (12, "ObservedActiveCpuHasNoOmissionOrRollupDuplicationCase1"),
-            (13, "CoverageKeepsOriginalEpochAndCompleteRoster"),
-            (14, "DebtNeverDropsObservedOutstandingWork"),
-            (15, "NoNewContinuationWhileClosedDebtIsPending"),
-            (16, "MainProofNeverOverlapsOriginalLiveHelper"),
-            (17, "FailureCannotReleaseUnreapedOriginalEffect"),
-            (18, "FailureCannotReleaseUnreapedOriginalEffect"),
-            (19, "FailureCannotReleaseUnreapedOriginalEffect"),
-            (20, "FailureCannotReleaseUnreapedOriginalEffect"),
-            (21, "FailureCannotReleaseUnreapedOriginalEffect"),
-            (22, "CoverageKeepsOriginalEpochAndCompleteRoster"),
-            (23, "KnownOverOneMsQuantumCannotCertify"),
-            (24, "LateKernelAttributionIsExplainedAndChargedOnce"),
-            (
-                25,
-                "StickyFailedAdmissionForbidsOrdinaryExpensiveObservation",
-            ),
-            (26, "InitialCorroborationRequiresSettledCreationOwnership"),
-            (27, "InitialCorroborationRequiresBothPriorDebtsPaid"),
-            (28, "DebtNeverDropsObservedOutstandingWork"),
-        ] {
-            let model = member_window(mode);
-            let checked = model
-                .check(100_000)
-                .unwrap_or_else(|e| panic!("{}: {e}", model.name));
-            println!("{}: {} states", model.name, checked.states.len());
-            assert!(
-                checked.violations.iter().any(|v| v.property == property),
-                "{} must causally violate {property}",
-                model.name
-            );
-        }
-    }
-
-    #[test]
     fn dream_read_exec_incarnation_has_causal_controls() {
         let good = helper_exec(0).check(100_000).unwrap();
         println!("HarnessDreamReadHelperExec: {} states", good.states.len());
@@ -12187,7 +7504,7 @@ mod tests {
                 && s[2] == 1
                 && s[6] == 1
                 && s[21] == 1),
-            "new GPG task may execute within the already admitted clone quantum"
+            "new GPG task may execute while the source helper runs"
         );
         assert!(good.states.iter().any(|s| s[11] == 1 && s[9] == 1));
         assert!(good.states.iter().any(|s| s[15] == 1 && s[14] == 1));
@@ -12214,117 +7531,63 @@ mod tests {
     }
 
     #[test]
-    fn dream_read_helper_lifecycle_and_causal_controls() {
+    fn dream_read_helper_admission_native_and_original_custody_controls() {
         let good = helper(0).check(100_000).unwrap();
-        println!("HarnessDreamReadHelper: {} states", good.states.len());
         assert!(good.violations.is_empty(), "{:?}", good.violations);
         assert!(
-            good.states.iter().any(|s| s[13] == 1),
-            "covered actually reaped output is reachable"
+            good.states
+                .iter()
+                .any(|s| s[18] == 1 && s[20] == 1 && s[21] == 1)
+        );
+        assert!(
+            good.states.iter().any(|s| s[3] == 2 && s[6] == 1),
+            "signature consumes both reservations before one actual leader"
         );
         assert!(
             good.states
                 .iter()
-                .any(|s| s[0] == 7 && s[26] == 0 && s[5] > 0),
-            "unknown work retains real helper ownership"
+                .any(|s| s[0] == 7 && s[14] == 1 && s[20] == 0),
+            "unavailable settlement keeps original custody"
         );
         assert!(
             good.states
                 .iter()
-                .any(|s| s[3] == 2 && s[5] == 1 && s[15] == 1),
-            "unused signature creation credit stays consumed"
+                .any(|s| s[8] == 5 && s[5] == 1 && s[10] == 3 && s[11] == 3),
+            "unknown native cost retains full conservative native debt"
         );
         assert!(
             good.states
                 .iter()
-                .any(|s| s[1] == 2 && s[2] == 0 && s[38] == 1 && s[14] == 1),
-            "old A1 effect survives and refuses A3 replay"
+                .any(|s| s[1] == 2 && s[2] == 0 && s[5] == 1 && s[14] == 1),
+            "A1 effect is retained across A1/B2/A3"
         );
-        assert!(
-            good.states.iter().any(|s| s[8] == 2
-                && s[9] == 2
-                && s[32] == 2
-                && s[30] == 1
-                && s[31] == 1),
-            "two-member whole charge is reachable"
-        );
-        for fault in 1..=3 {
+        for (control, property) in [
+            (1, "NativeEffectRequiresReservedAttempt"),
+            (2, "TrustedOutputHasOnlyAdmittedMembers"),
+            (3, "NativeEffectRequiresExactExecutableCapability"),
+            (4, "AttachedWorkKeepsExactIncarnation"),
+            (9, "MainProofCannotOverlapRunnableGroup"),
+            (10, "DebtCoversWholeObservedUnrestedSpan"),
+            (11, "OrdinaryApplicationCannotUseNativeLabel"),
+            (12, "CertifiedNativeCreationMeetsCpuWallInclusiveBounds"),
+            (13, "CertifiedNativeCreationMeetsCpuWallInclusiveBounds"),
+            (14, "CertifiedNativeCreationMeetsCpuWallInclusiveBounds"),
+            (16, "OriginalNativeEffectNeverReplayed"),
+            (17, "TrustedOutputHasCompleteCoverage"),
+            (18, "TrustedOutputHasActualReapAndRetirement"),
+            (19, "FaultCannotReleaseUnsettledOwnership"),
+            (20, "FaultCannotReleaseUnsettledOwnership"),
+            (21, "FaultCannotReleaseUnsettledOwnership"),
+            (22, "StopAttemptIsNotRetriedAfterAnyNativeOutcome"),
+        ] {
+            let m = helper(control);
+            let checked = m.check(100_000).unwrap();
+            assert!(!checked.violations.iter().any(|v| v.property == "TypeOK"));
             assert!(
-                good.states
-                    .iter()
-                    .any(|s| s[25] == fault && s[15] == 1 && s[26] == 0 && s[5] > 0)
+                checked.violations.iter().any(|v| v.property == property),
+                "{} must violate {property}",
+                m.name
             );
-        }
-        for case in 0..=9 {
-            assert!(
-                good.states.iter().any(|s| s[22] == case && s[37] == 1),
-                "original input case {case} stays explored"
-            );
-        }
-        assert!(
-            good.states
-                .iter()
-                .any(|s| s[18] == 1 && s[0] == 3 && s[17] == 0),
-            "STOP is consumed before native effect/outcome and before physical proof"
-        );
-        assert!(
-            good.states.iter().any(|s| s[18] == 3 && s[17] == 0),
-            "ESRCH plus retained leader exit still proves no physical stopped seal"
-        );
-        for outcome in [4, 5] {
-            assert!(
-                good.states.iter().any(|s| s[18] == outcome
-                    && s[0] == 7
-                    && s[15] == 1
-                    && s[26] == 0
-                    && s[17] == 0),
-                "refused native outcome {outcome} retains its first operation/effect without stop proof"
-            );
-        }
-        let expected = [
-            "NativeEffectRequiresReservedAttempt",
-            "TrustedOutputHasOnlyAdmittedMembers",
-            "NativeEffectRequiresExactExecutableCapability",
-            "AttachedWorkKeepsExactIncarnation",
-            "NoUserCodeBeforeInitialSuspension",
-            "StoppedStateRequiresAllMemberConfirmation",
-            "HelperChargeIncludesDescendantsAndController",
-            "HelperChargeIncludesDescendantsAndController",
-            "MainProofCannotOverlapRunnableGroup",
-            "DebtCoversWholeObservedUnrestedSpan",
-            "OrdinaryApplicationCannotUseNativeLabel",
-            "CertifiedNativeCreationMeetsCpuWallInclusiveBounds",
-            "CertifiedNativeCreationMeetsCpuWallInclusiveBounds",
-            "CertifiedNativeCreationMeetsCpuWallInclusiveBounds",
-            "CoveredRunnableChargeMeetsWholeGroupWindow",
-            "OriginalNativeEffectNeverReplayed",
-            "TrustedOutputHasCompleteCoverage",
-            "TrustedOutputHasActualReapAndRetirement",
-            "FaultCannotReleaseUnsettledOwnership",
-            "FaultCannotReleaseUnsettledOwnership",
-            "FaultCannotReleaseUnsettledOwnership",
-            "StopAttemptIsNotRetriedAfterAnyNativeOutcome",
-        ];
-        for (index, invariant) in expected.into_iter().enumerate() {
-            let model = helper((index + 1) as u8);
-            let checked = model
-                .check(100_000)
-                .unwrap_or_else(|e| panic!("{}: {e}", model.name));
-            println!("{}: {} states", model.name, checked.states.len());
-            assert!(
-                checked.violations.iter().any(|v| v.property == invariant),
-                "{} must causally violate {invariant}",
-                model.name
-            );
-            if (18..=20).contains(&index) {
-                assert!(
-                    checked
-                        .states
-                        .iter()
-                        .any(|s| s[15] == 1 && s[26] == 1 && s[20] == 0 && s[5] > 0),
-                    "fault control must release an actual unreaped helper"
-                );
-            }
         }
     }
 

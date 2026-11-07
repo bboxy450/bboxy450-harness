@@ -40,9 +40,6 @@ const WAIT: Duration = Duration::from_millis(9);
 const NATIVE_CPU_NS: u64 = 2_000_000;
 const NATIVE_WALL_NS: u64 = 25_000_000;
 const SPAN_NS: u64 = UNIT_NS + NATIVE_CPU_NS;
-// Decision66236 clarification2: independent fixed terminal allowance only.
-// Actual residual CPU is still retained and charged in full, never free work.
-const HELPER_TEARDOWN_NS: u64 = 150_000;
 #[derive(Clone, Copy)]
 enum NativeKind {
     ComputeOwnerCreate = 0,
@@ -72,6 +69,11 @@ struct Accounting {
     inclusive_wall_max: AtomicU64,
     app_max: AtomicU64,
     total_cpu: AtomicU64,
+    helper_job_cpu: AtomicU64,
+    #[cfg(test)]
+    helper_test_skip_live_sampling: AtomicBool,
+    helper_control_work: AtomicU64,
+    helper_control_rest_until: AtomicU64,
     captured_max: AtomicU64,
     owner_cpu: AtomicU64,
     control_cpu: AtomicU64,
@@ -91,6 +93,11 @@ impl Accounting {
             inclusive_wall_max: AtomicU64::new(0),
             app_max: AtomicU64::new(0),
             total_cpu: AtomicU64::new(0),
+            helper_job_cpu: AtomicU64::new(0),
+            #[cfg(test)]
+            helper_test_skip_live_sampling: AtomicBool::new(false),
+            helper_control_work: AtomicU64::new(0),
+            helper_control_rest_until: AtomicU64::new(0),
             captured_max: AtomicU64::new(0),
             owner_cpu: AtomicU64::new(0),
             control_cpu: AtomicU64::new(0),
@@ -681,11 +688,14 @@ impl Control {
     pub(crate) fn read_pay(&self) {
         self.accounting.pay();
     }
-    pub(crate) fn helper_debt_marker(&self) -> u64 {
-        self.accounting.debt_total.load(Ordering::Acquire)
-    }
     pub(crate) fn observe_interval(&self, start: u64, end: u64) -> u64 {
         observed_interval(&self.accounting, start, end)
+    }
+    #[cfg(test)]
+    pub(crate) fn fixture_skip_live_sampling(&self, skip: bool) {
+        self.accounting
+            .helper_test_skip_live_sampling
+            .store(skip, Ordering::Release);
     }
     #[cfg(test)]
     pub(crate) fn fixture_debt_totals(&self) -> (u64, u64) {
@@ -733,106 +743,42 @@ impl Control {
         }
     }
 }
-/// One explicitly owned proof-helper group; never used by inspect-c1.
-/// Its leader stays unreaped until signaling custody is retired, preventing ABA.
-pub(crate) struct HelperGroup {
-    pub(crate) pgid: i32,
-    pub(crate) running: bool,
-    pub(crate) retiring: bool,
-    pub(crate) changed: Instant,
-    pub(crate) ready: bool,
-    creation_settled: bool,
-    admission_failed: bool,
-    #[cfg(test)]
-    admission_samples: u64,
-    #[cfg(test)]
-    fail_stop_verdict: bool,
-    #[cfg(test)]
-    injected_stop_errno: Option<i32>,
-    #[cfg(test)]
-    exit_before_pending_query: bool,
-    #[cfg(test)]
-    exit_before_member_query: bool,
-    pub(crate) initial_stop_pending: bool,
-    pub(crate) confirmed_stopped: bool,
-    pub(crate) identity: super::resolve::HelperIdentity,
-    stop_requested: bool,
-    stop_outcome: HelperStopOutcome,
-    query_terminal_pending: bool,
-    pub(crate) debt_until: Instant,
-    pub(crate) lane_cpu: u64,
-    members: [HelperMember; 2],
-    task_observations: [HelperTaskObservation; 2],
-    usage_observations: [HelperUsageObservation; 2],
-    retired_members: [RetiredMember; 8],
-    stopped_roster: [i32; 8],
-    grant: HelperGrantLedger,
-    adaptive_grant: HelperAdaptiveGrant,
-    corroboration_pending: bool,
-    post_commit_pending: bool,
-    post_cpu: u64,
-    post_late_cpu: u64,
-    post_unexplained_cpu: u64,
-    post_startup_cpu: u64,
-    startup_accounted: bool,
-    initial_startup: Option<HelperInitialStartup>,
-    born_stopped_original: Option<HelperBornStopped>,
-    retired_child_reap: Option<HelperChildRollupProof>,
-    terminal_reap: HelperTerminalReap,
-    reap_cost_before: u64,
-    reap_cost_helper: u64,
-    reap_cost_unknown: bool,
-    reap_cost_pending: bool,
-    reap_residual_required: u64,
-    reap_residual_booked: bool,
-    reap_cost_retained: bool,
-    reap_cost_clock_known: bool,
-    reap_cost_rest_until: u64,
-    #[cfg(test)]
-    terminal_ri_unavailable: bool,
-    #[cfg(test)]
-    rollup_double_count_fault: bool,
-    rolled_user_ticks: u64,
-    rolled_system_ticks: u64,
-    grant_commit_pending: bool,
-    pipe_open: bool,
-    pipe_active: bool,
-    payload_admitted: bool,
-    corroboration_revision: u64,
-    observed_post_revision: u64,
-    post_proof_pending: bool,
-    post_late_known: bool,
-    settled_cpu: Option<u64>,
-    usage_reconciled: bool,
-    // A physically closed exited grant may use measured accounting only after
-    // its original wait4. This state permits settlement/raw drain, never work.
-    terminal_accounting_pending: bool,
-    timebase: HelperTimebase,
-    startup_late_cpu_ns: u64,
-    accounting_settled: bool,
-    last_clock_ns: Option<u64>,
-    pub(crate) metrics: HelperMetrics,
-}
-/// Delivery and terminal observation are different effects. A consumed failed
-/// STOP is sticky through original-effect settlement and never grants CONT.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-enum HelperStopOutcome {
-    #[default]
-    None,
-    Delivered,
-    PendingTerminal,
-    TerminalProven,
-}
+// Adapted from bboxy450-harness; policy https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
+// Decision66280: external CPU has command/job totals, never grant windows.
+const HELPER_COMMAND_CPU_NS: u64 = 250_000_000;
+const HELPER_JOB_CPU_NS: u64 = 3_000_000_000;
+const HELPER_SAMPLE_INTERVAL: Duration = Duration::from_millis(25);
+const HELPER_SAMPLE_LIMIT: Duration = Duration::from_millis(50);
+const HELPER_PAUSE_LIMIT: Duration = Duration::from_millis(100);
+
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
 struct HelperAuditToken {
     value: [u32; 8],
 }
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Default)]
 struct HelperTimebase {
     numer: u32,
     denom: u32,
+}
+#[derive(Clone, Copy, Default)]
+struct HelperMember {
+    pid: i32,
+    birth: u64,
+    start: u64,
+    user: u64,
+    system: u64,
+    cpu: u64,
+    rolled: u64,
+    rolled_user: u64,
+    terminal_ri_at: Option<Instant>,
+    rss: u64,
+    live: bool,
+    stopped: bool,
+    verified: bool,
+    paused_user: Option<u64>,
+    ri_started: Option<Instant>,
 }
 #[derive(Clone, Copy, Default)]
 struct RetiredMember {
@@ -856,137 +802,42 @@ unsafe extern "C" {
     fn mach_port_deallocate(task: libc::mach_port_t, name: libc::mach_port_t) -> i32;
 }
 #[cfg(target_os = "macos")]
-fn helper_token_exited(token: &HelperAuditToken) -> Result<bool, i32> {
-    let mut path = [0u8; 4096];
-    let result =
-        unsafe { proc_pidpath_audittoken(token, path.as_mut_ptr().cast(), path.len() as u32) };
-    if result > 0 {
-        Ok(false)
-    } else {
-        match std::io::Error::last_os_error().raw_os_error() {
-            Some(libc::ESRCH) => Ok(true),
-            Some(code) => Err(code),
-            None => Err(libc::EIO),
-        }
-    }
-}
-#[cfg(target_os = "macos")]
 fn helper_timebase() -> Result<HelperTimebase, ()> {
-    let mut timebase = HelperTimebase { numer: 0, denom: 0 };
-    if unsafe { helper_timebase_info(&mut timebase) } != 0
-        || timebase.numer == 0
-        || timebase.denom == 0
-    {
-        return Err(());
+    let mut t = HelperTimebase::default();
+    if unsafe { helper_timebase_info(&mut t) } == 0 && t.numer != 0 && t.denom != 0 {
+        Ok(t)
+    } else {
+        Err(())
     }
-    Ok(timebase)
 }
 #[cfg(not(target_os = "macos"))]
 fn helper_timebase() -> Result<HelperTimebase, ()> {
     Err(())
 }
-fn helper_convert_ticks(ticks: u64, timebase: HelperTimebase) -> Result<u64, ()> {
-    if timebase.numer == 0 || timebase.denom == 0 {
+// Apple libproc maps syscall failure to a zero count with errno preserved.
+// Source: https://github.com/apple-oss-distributions/xnu/blob/main/libsyscall/wrappers/libproc/libproc.c#L40-L89
+// A zero is an empty census only after a freshly cleared, still-zero errno.
+#[cfg(target_os = "macos")]
+fn helper_clear_errno() {
+    unsafe {
+        *libc::__error() = 0;
+    }
+}
+fn helper_census_known(count: i32, errno: i32) -> bool {
+    count >= 0 && errno == 0
+}
+fn helper_census_empty(count: i32, errno: i32) -> bool {
+    count == 0 && helper_census_known(count, errno)
+}
+fn helper_convert_ticks(ticks: u64, t: HelperTimebase) -> Result<u64, ()> {
+    if t.numer == 0 || t.denom == 0 {
         return Err(());
     }
-    let ns = (u128::from(ticks) * u128::from(timebase.numer) + u128::from(timebase.denom) - 1)
-        / u128::from(timebase.denom);
-    u64::try_from(ns).map_err(|_| ())
+    u64::try_from((u128::from(ticks) * u128::from(t.numer)).div_ceil(u128::from(t.denom)))
+        .map_err(|_| ())
 }
 #[cfg(target_os = "macos")]
-fn helper_token_signal(token: &HelperAuditToken, signal: i32) -> Result<(), i32> {
-    let result = unsafe { proc_signal_with_audittoken(token, signal) };
-    match result {
-        0 => Ok(()),
-        code if code > 0 => Err(code),
-        _ => Err(std::io::Error::last_os_error()
-            .raw_os_error()
-            .unwrap_or(libc::EIO)),
-    }
-}
-// Query unavailability is not an observed identity mismatch. Only the former
-// (or an observed exit-during-read) can seek independent original-terminal
-// proof; neither native errno nor this classification supplies an endpoint.
-// Numeric sample guards: audit subguards1 BSD query,2 BSD identity,3 birth
-// arithmetic,4 Mach task-name,5 task-info,6 audit shape/PID,7 final BSD query,
-// 8 final BSD identity; pending prefixes40/60, member prefix100. Pending49/69
-// are observed token changes;50/53/57 are task/path/RI query unavailable;
-// 56/58 are path/RI mismatch. Member81/84/93 are query unavailable;
-// 85/90/94/97 are token/path/RI/user-after-ACK mismatch.70–74 describe the
-// independent original-terminal gate;110–117 identify exact exit/RI guards.
-#[cfg(target_os = "macos")]
-#[derive(Clone, Copy)]
-enum HelperObservationKind {
-    NativeUnavailable,
-    ExitDuringRead,
-    Mismatch,
-}
-#[cfg(target_os = "macos")]
-#[derive(Clone, Copy)]
-struct HelperObservationFailure {
-    kind: HelperObservationKind,
-    guard: u8,
-    native_code: i32,
-}
-#[cfg(all(test, target_os = "macos"))]
-thread_local! {
-    // One explicit second-snapshot fault; the real query/identity path still
-    // runs and the actual original child remains kernel-suspended and owned.
-    static INITIAL_CONTINUITY_RUNNING_FAULT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-}
-#[cfg(target_os = "macos")]
-impl HelperObservationFailure {
-    fn native(guard: u8, native_code: i32) -> Self {
-        Self {
-            kind: HelperObservationKind::NativeUnavailable,
-            guard,
-            native_code,
-        }
-    }
-    fn mismatch(guard: u8) -> Self {
-        Self {
-            kind: HelperObservationKind::Mismatch,
-            guard,
-            native_code: 0,
-        }
-    }
-    fn exited(guard: u8) -> Self {
-        Self {
-            kind: HelperObservationKind::ExitDuringRead,
-            guard,
-            native_code: 0,
-        }
-    }
-    fn shifted(mut self, base: u8) -> Self {
-        self.guard += base;
-        self
-    }
-    fn is_proc_esrch(self) -> bool {
-        // Mach status3 is not errno ESRCH. Only these libproc query guards
-        // record errno; task-name/task-info kernel statuses never enter here.
-        matches!(self.kind, HelperObservationKind::NativeUnavailable)
-            && self.native_code == libc::ESRCH
-            && matches!(
-                self.guard,
-                41 | 47 | 50 | 53 | 57 | 61 | 67 | 75 | 77 | 81 | 84 | 93 | 101 | 107
-            )
-    }
-}
-#[cfg(target_os = "macos")]
-impl From<()> for HelperObservationFailure {
-    fn from(_: ()) -> Self {
-        Self::mismatch(0)
-    }
-}
-#[cfg(target_os = "macos")]
-fn helper_audit_member(pid: i32, parent: i32) -> Result<RetiredMember, ()> {
-    helper_audit_member_checked(pid, parent).map_err(|_| ())
-}
-#[cfg(target_os = "macos")]
-fn helper_audit_member_checked(
-    pid: i32,
-    parent: i32,
-) -> Result<RetiredMember, HelperObservationFailure> {
+fn helper_bsd(pid: i32) -> Result<libc::proc_bsdinfo, ()> {
     let mut info = std::mem::MaybeUninit::<libc::proc_bsdinfo>::uninit();
     let size = std::mem::size_of::<libc::proc_bsdinfo>() as i32;
     if unsafe {
@@ -999,27 +850,29 @@ fn helper_audit_member_checked(
         )
     } != size
     {
-        return Err(HelperObservationFailure::native(
-            1,
-            std::io::Error::last_os_error().raw_os_error().unwrap_or(0),
-        ));
+        return Err(());
     }
-    let info = unsafe { info.assume_init() };
-    if info.pbi_pid != pid as u32
-        || info.pbi_ppid != parent as u32
-        || info.pbi_uid != unsafe { libc::geteuid() }
-    {
-        return Err(HelperObservationFailure::mismatch(2));
-    }
-    let birth = info
-        .pbi_start_tvsec
+    Ok(unsafe { info.assume_init() })
+}
+#[cfg(target_os = "macos")]
+fn helper_birth(info: &libc::proc_bsdinfo) -> Result<u64, ()> {
+    info.pbi_start_tvsec
         .checked_mul(1_000_000)
-        .and_then(|s| s.checked_add(info.pbi_start_tvusec))
-        .ok_or(HelperObservationFailure::mismatch(3))?;
+        .and_then(|v| v.checked_add(info.pbi_start_tvusec))
+        .ok_or(())
+}
+#[cfg(target_os = "macos")]
+fn helper_audit_member(pid: i32, parent: i32) -> Result<RetiredMember, ()> {
+    let before = helper_bsd(pid)?;
+    if before.pbi_pid != pid as u32
+        || before.pbi_ppid != parent as u32
+        || before.pbi_uid != unsafe { libc::geteuid() }
+    {
+        return Err(());
+    }
     let mut task = 0;
-    let task_status = unsafe { task_name_for_pid(mach_task_self_, pid, &mut task) };
-    if task_status != 0 {
-        return Err(HelperObservationFailure::native(4, task_status));
+    if unsafe { task_name_for_pid(mach_task_self_, pid, &mut task) } != 0 {
+        return Err(());
     }
     let mut token = HelperAuditToken::default();
     let mut count = 8;
@@ -1034,1094 +887,428 @@ fn helper_audit_member_checked(
     unsafe {
         mach_port_deallocate(mach_task_self_, task);
     }
-    if result != 0 {
-        return Err(HelperObservationFailure::native(5, result));
-    }
-    if count != 8 || token.value[5] != pid as u32 {
-        return Err(HelperObservationFailure::mismatch(6));
-    }
-    let mut after = std::mem::MaybeUninit::<libc::proc_bsdinfo>::uninit();
-    if unsafe {
-        libc::proc_pidinfo(
-            pid,
-            libc::PROC_PIDTBSDINFO,
-            0,
-            after.as_mut_ptr().cast(),
-            size,
-        )
-    } != size
+    let after = helper_bsd(pid)?;
+    if result != 0
+        || count != 8
+        || token.value[5] != pid as u32
+        || before.pbi_ppid != after.pbi_ppid
+        || helper_birth(&before)? != helper_birth(&after)?
     {
-        return Err(HelperObservationFailure::native(
-            7,
-            std::io::Error::last_os_error().raw_os_error().unwrap_or(0),
-        ));
-    }
-    let after = unsafe { after.assume_init() };
-    if after.pbi_pid != info.pbi_pid
-        || after.pbi_ppid != info.pbi_ppid
-        || after.pbi_start_tvsec != info.pbi_start_tvsec
-        || after.pbi_start_tvusec != info.pbi_start_tvusec
-    {
-        return Err(HelperObservationFailure::mismatch(8));
+        return Err(());
     }
     Ok(RetiredMember {
         pid,
-        birth,
+        birth: helper_birth(&before)?,
         token,
         current: true,
     })
 }
-#[derive(Clone, Copy, Default, PartialEq, Eq)]
-enum HelperImagePhase {
-    #[default]
-    Unobserved,
-    ParentClone,
-    Descendant,
-    Exited,
+#[cfg(target_os = "macos")]
+fn helper_token_exited(token: &HelperAuditToken) -> Result<bool, i32> {
+    let mut path = [0u8; 4096];
+    if unsafe { proc_pidpath_audittoken(token, path.as_mut_ptr().cast(), path.len() as u32) } > 0 {
+        return Ok(false);
+    }
+    match io::Error::last_os_error().raw_os_error() {
+        Some(libc::ESRCH) => Ok(true),
+        Some(e) => Err(e),
+        None => Err(libc::EIO),
+    }
 }
-#[derive(Clone, Copy, Default)]
-struct HelperSlotWindow {
-    pid: i32,
-    birth: u64,
-    start: u64,
-    version: u32,
-    ack_ns: Option<u64>,
-    through_closure: bool,
+#[cfg(target_os = "macos")]
+fn helper_token_signal(token: &HelperAuditToken, signal: i32) -> Result<(), i32> {
+    match unsafe { proc_signal_with_audittoken(token, signal) } {
+        0 => Ok(()),
+        e if e > 0 => Err(e),
+        _ => Err(io::Error::last_os_error()
+            .raw_os_error()
+            .unwrap_or(libc::EIO)),
+    }
 }
-// Allocation only: these bounds never certify a quantum or alter its actual
-// pre-CONT/positive-ACK endpoints, full cost, fresh debt or hard refusal gates.
-const HELPER_RUN_MIN_NS: u64 = 25_000;
-const HELPER_RUN_MAX_NS: u64 = 450_000;
-const HELPER_A_TARGET_MAX_NS: u64 = 550_000;
-const HELPER_A_TARGET_MIN_NS: u64 = 50_000;
-const HELPER_C_INITIAL_NS: u64 = 250_000;
-const HELPER_LATENCY_INITIAL_NS: u64 = 100_000;
-const HELPER_ALLOCATION_MARGIN_NS: u64 = 200_000;
-const HELPER_RUN_INITIAL_NS: u64 = 350_000;
-const HELPER_RUN_GROW_NS: u64 = 10_000;
+
+/// Bounded raw initial observation. A zero field is meaningful only when its
+/// validity bit is present: BSD1, audit2, task4, RI8, image16, final BSD32.
 #[derive(Clone, Copy, Debug, Default)]
-struct HelperAllocation {
-    run_ns: u64,
-    target_a_ns: u64,
-    controller_reserve_ns: u64,
-    stop_latency_reserve_ns: u64,
-}
-#[derive(Clone, Copy)]
-struct HelperAdaptiveGrant {
-    run_ns: u64,
-    controller_reserve_ns: u64,
-    stop_latency_reserve_ns: u64,
-}
-impl HelperAdaptiveGrant {
-    fn new(reserved: u8) -> Self {
-        let mut policy = Self {
-            run_ns: HELPER_RUN_INITIAL_NS / u64::from(reserved.clamp(1, 2)),
-            controller_reserve_ns: HELPER_C_INITIAL_NS,
-            stop_latency_reserve_ns: HELPER_LATENCY_INITIAL_NS,
-        };
-        policy.run_ns = policy.run_ns.min(policy.cap(reserved));
-        policy
-    }
-    fn target_a(&self) -> u64 {
-        UNIT_NS
-            .saturating_sub(self.controller_reserve_ns)
-            .saturating_sub(HELPER_ALLOCATION_MARGIN_NS)
-            .clamp(HELPER_A_TARGET_MIN_NS, HELPER_A_TARGET_MAX_NS)
-    }
-    fn cap(&self, reserved: u8) -> u64 {
-        // Reserve both possible runnable members even before a qualified
-        // implicit child appears. A census never shrinks this allocation.
-        let per_slot = self.target_a() / u64::from(reserved.clamp(1, 2));
-        HELPER_RUN_MAX_NS
-            .min(per_slot)
-            .saturating_sub(self.stop_latency_reserve_ns)
-            .clamp(HELPER_RUN_MIN_NS, HELPER_RUN_MAX_NS)
-    }
-    fn allocation(&self, reserved: u8) -> HelperAllocation {
-        HelperAllocation {
-            run_ns: self.run_ns.min(self.cap(reserved)),
-            target_a_ns: self.target_a(),
-            controller_reserve_ns: self.controller_reserve_ns,
-            stop_latency_reserve_ns: self.stop_latency_reserve_ns,
-        }
-    }
-    fn observe(
-        &mut self,
-        reserved: u8,
-        cpu: u64,
-        actual_a: u64,
-        latency: Option<u64>,
-        measured: bool,
-    ) {
-        let previous_run = self.run_ns;
-        if cpu != u64::MAX {
-            self.controller_reserve_ns = self.controller_reserve_ns.max(cpu);
-        }
-        if let Some(latency) = latency.filter(|v| *v != u64::MAX) {
-            self.stop_latency_reserve_ns = self.stop_latency_reserve_ns.max(latency);
-        }
-        let target = self.target_a();
-        let next = if actual_a != u64::MAX && actual_a > target {
-            previous_run / 2
-        } else if measured
-            && cpu != u64::MAX
-            && actual_a != u64::MAX
-            && latency.is_some_and(|v| v != u64::MAX)
-            && actual_a <= target * 3 / 4
-        {
-            previous_run.saturating_add(HELPER_RUN_GROW_NS)
-        } else {
-            previous_run
-        };
-        self.run_ns = next.clamp(HELPER_RUN_MIN_NS, self.cap(reserved));
-    }
-    fn due(allocation: HelperAllocation, t0: u64, now: u64) -> Result<bool, ()> {
-        if t0 == 0 || now == u64::MAX || allocation.run_ns == 0 {
-            return Err(());
-        }
-        Ok(now.checked_sub(t0).ok_or(())? >= allocation.run_ns)
-    }
-}
-#[derive(Clone, Copy, Default)]
-struct HelperGrantLedger {
-    opened: bool,
-    index: u64,
-    t0_ns: u64,
-    allocation: HelperAllocation,
-    close_ns: Option<u64>,
-    reserved: u8,
-    slots: [HelperSlotWindow; 2],
-    baseline_slots: [HelperSlotWindow; 2],
-    actual_baseline: u64,
-    baseline_usage: [HelperUsageObservation; 2],
-    ack_usage: [HelperUsageObservation; 2],
-    ack_task: [HelperTaskObservation; 2],
-    rolled_baseline: u64,
-    charged: u64,
-    charged_once: bool,
-    controller_baseline: u64,
-    pipe_baseline: u64,
-    reported_w: u64,
-    reported_a: u64,
-    reported_c: u64,
-    closed: bool,
-    post_ack_mask: u8,
-    basis: HelperChargeBasis,
-    controller_end: Option<u64>,
-    pipe_end: Option<u64>,
-    rollup: HelperChildRollupProof,
-    rollup_registered: bool,
-    rollup_fallback_recovered: bool,
-    rollup_fallback_q: u64,
-    rollup_q_delta: u64,
-    rollup_debt_delta: u64,
-}
-/// Conditional finite-source proof, never a fabricated child wait4/RI exit.
-/// The child-count/retired-identity observation precedes the leader RI read.
-#[derive(Clone, Copy, Default)]
-struct HelperChildRollupProof {
-    checked: bool,
-    grant_t0_ns: u64,
-    leader: HelperSlotWindow,
-    child: HelperSlotWindow,
-    leader_ack_ns: u64,
-    child_exit_observed_ns: u64,
-    read_ns: u64,
-    child_count: u8,
-    user_ticks: u64,
-    system_ticks: u64,
-}
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) enum HelperChargeBasis {
-    #[default]
-    Window,
-    Measured,
-}
-impl HelperChargeBasis {
-    pub(crate) fn as_str(self) -> &'static str {
-        match self {
-            Self::Window => "window",
-            Self::Measured => "measured",
-        }
-    }
-}
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) enum HelperCounterSource {
-    #[default]
-    None,
-    PostAck,
-    RetainedWait4,
-    LeaderChildRollup,
-}
-impl HelperCounterSource {
-    pub(crate) fn as_str(self) -> &'static str {
-        match self {
-            Self::None => "none",
-            Self::PostAck => "post_ack",
-            Self::RetainedWait4 => "retained_wait4",
-            Self::LeaderChildRollup => "leader_child_rollup",
-        }
-    }
-}
-/// One bounded receipt: every raw field belongs to the same worst-Q grant.
-#[derive(Clone, Copy, Default)]
-pub(crate) struct HelperGrantReceipt {
-    pub(crate) sequence: u16,
-    pub(crate) grant_index: u64,
-    pub(crate) pid: i32,
-    pub(crate) pgid: i32,
+pub(crate) struct HelperInitialObservation {
+    pub(crate) stage: u8,
+    pub(crate) valid: u8,
+    pub(crate) readiness: i8,
+    pub(crate) bsd_result: i32,
+    pub(crate) bsd_errno: i32,
+    pub(crate) pid: u32,
+    pub(crate) ppid: u32,
+    pub(crate) pgid: u32,
+    pub(crate) uid: u32,
     pub(crate) birth: u64,
-    pub(crate) reserved: u8,
-    pub(crate) t0_ns: u64,
-    pub(crate) run_budget_ns: u64,
-    pub(crate) target_a_ns: u64,
-    pub(crate) controller_reserve_ns: u64,
-    pub(crate) stop_latency_reserve_ns: u64,
-    pub(crate) observed_stop_latency_ns: u64,
-    pub(crate) stop_latency_known: bool,
-    pub(crate) end_ns: [u64; 2],
-    pub(crate) close_ns: u64,
-    pub(crate) member_pid: [i32; 2],
-    pub(crate) member_birth: [u64; 2],
-    pub(crate) member_start: [u64; 2],
-    pub(crate) member_version: [u32; 2],
-    pub(crate) w_ns: u64,
-    pub(crate) a_ns: u64,
-    pub(crate) c_ns: u64,
-    pub(crate) q_ns: u64,
-    pub(crate) closed: bool,
-    pub(crate) basis: HelperChargeBasis,
-    pub(crate) unknown_mask: u8,
-    pub(crate) post_ack_mask: u8,
-    pub(crate) monotonic_mask: u8,
-    pub(crate) slot_a_ns: [u64; 2],
-    pub(crate) timebase_numer: u32,
-    pub(crate) timebase_denom: u32,
-    pub(crate) counters_read: u64,
-    pub(crate) counter_source: [HelperCounterSource; 2],
-    pub(crate) live_child_cpu_ns: u64,
-    pub(crate) rollup_child_cpu_ns: u64,
-    pub(crate) rollup_provisional: bool,
-    pub(crate) rollup_revoked: bool,
-    pub(crate) rollup_reconciled: bool,
-    pub(crate) rollup_exit_observed_ns: u64,
-    pub(crate) rollup_read_ns: u64,
-    pub(crate) controller_baseline_ns: u64,
-    pub(crate) controller_end_ns: u64,
-    pub(crate) pipe_baseline_ns: u64,
-    pub(crate) pipe_end_ns: u64,
-    pub(crate) baseline_usage: [HelperUsageObservation; 2],
-    pub(crate) ack_usage: [HelperUsageObservation; 2],
-    pub(crate) closure_usage: [HelperUsageObservation; 2],
-    pub(crate) ack_task: [HelperTaskObservation; 2],
-}
-/// Fixed-size raw diagnostics only. TASKALLINFO and RI are separate native
-/// observations; their post-call clocks never mint an admission or endpoint.
-#[derive(Clone, Copy, Debug, Default)]
-pub(crate) struct HelperTaskObservation {
-    pub(crate) pid: i32,
     pub(crate) status: u32,
+    pub(crate) task_result: i32,
+    pub(crate) task_errno: i32,
     pub(crate) threads: i32,
     pub(crate) running: i32,
-    pub(crate) observed_ns: u64,
-}
-impl HelperTaskObservation {
-    fn stopped(self) -> bool {
-        self.status == 4 && self.threads == 1 && self.running == 0
-    }
-}
-#[derive(Clone, Copy, Debug, Default)]
-pub(crate) struct HelperUsageObservation {
-    pub(crate) pid: i32,
+    pub(crate) priority: i32,
+    pub(crate) ri_result: i32,
+    pub(crate) ri_errno: i32,
     pub(crate) user_ticks: u64,
     pub(crate) system_ticks: u64,
-    pub(crate) child_user_ticks: u64,
-    pub(crate) child_system_ticks: u64,
-    pub(crate) observed_ns: u64,
+    pub(crate) start: u64,
+    pub(crate) after_status: u32,
+    pub(crate) timebase_numer: u32,
+    pub(crate) timebase_denom: u32,
 }
 #[derive(Clone, Copy, Debug, Default)]
-pub(crate) struct HelperQuiescenceFailure {
-    pub(crate) sequence: u16,
-    pub(crate) member: usize,
-    pub(crate) pgid: i32,
-    pub(crate) birth: u64,
-    pub(crate) start_abstime: u64,
-    pub(crate) audit_version: u32,
-    pub(crate) first: HelperTaskObservation,
-    pub(crate) current: HelperTaskObservation,
-}
-#[derive(Clone, Copy, Default)]
-struct HelperMember {
-    pid: i32,
-    birth: u64,
-    cpu: u64,
-    rss_peak: u64,
-    start_abstime: u64,
-    image_phase: HelperImagePhase,
-    preexec_observations: u64,
-    audit_version: u32,
-    // Exact final image/version previously admitted under the reviewed helper
-    // source/platform contract. A fork/pre-exec/unknown slot has no such seal.
-    final_image_version: u32,
-    exec_stop_version: u32,
-    audit_token: HelperAuditToken,
-    user_ticks: u64,
-    system_ticks: u64,
-    exit_abstime: u64,
-    // Actual host observation of the qualified unique child's retirement;
-    // distinct from a kernel RI exit timestamp, which may be unavailable.
-    rollup_exit_observed_ns: u64,
-}
-/// One independently retained initial stopped counter cut. `charged` is set
-/// only by the existing complete C+startup/L commit; eligibility additionally
-/// checks its fresh rest and all current owner debt before any terminal RI.
-#[derive(Clone, Copy)]
-struct HelperInitialStartup {
-    member: HelperMember,
-    usage: HelperUsageObservation,
-    timebase: HelperTimebase,
-    charged: bool,
-    rest_until_ns: u64,
-}
-/// Successful initial attachment precedes the fallible native-cost callback.
-/// Retain that source/identity cut separately from a later paid startup/L cut:
-/// an unactivated reserved child cannot run before the original first CONT.
-#[derive(Clone, Copy)]
-struct HelperBornStopped {
-    ticket: super::resolve::HelperTicket,
-    expected_members: u8,
-    baseline: HelperInitialStartup,
-    birth_cost_retained: bool,
-    birth_receipt_clocks_known: bool,
-    birth_rest_until_ns: u64,
-}
-/// Accounting success never constructs this physical settlement permission.
-/// No paths/allocations, receiver, controller or custody transfer live here.
-#[derive(Clone, Copy, Default)]
-struct HelperTerminalReap {
-    ticket: Option<super::resolve::HelperTicket>,
-    initial_source_valid: bool,
-    initial_accounting_unknown: bool,
-    physical_valid: bool,
-    identity_lost: bool,
-    ri_attempted: bool,
-    counter_unknown: bool,
-    cost_unknown: bool,
-    attempt_open: bool,
-    retained: bool,
-    ending_clocks_known: bool,
-    rest_until_ns: u64,
-    own_wait4: bool,
-    debt_before: u64,
-}
-#[derive(Clone, Copy)]
-struct HelperPostCostInput {
-    recorded_cpu: u64,
-    cpu: u64,
-    wall: u64,
-    helper_cpu: u64,
-    unknown: bool,
-    debt_before: u64,
-}
-#[derive(Clone, Copy)]
-struct HelperPostCostReceipt {
-    rest_until_ns: u64,
-    clocks_known: bool,
-}
-/// A first-proof observation passed by value only inside one locked control
-/// tick. It is never stored in HelperGroup or reused across ticks/grants.
-#[cfg(target_os = "macos")]
-#[derive(Clone, Copy)]
-struct HelperStopSnapshot {
-    raw: libc::proc_taskallinfo,
-    observed_ns: u64,
-    member: HelperMember,
-}
-#[cfg(target_os = "macos")]
-#[derive(Clone, Copy)]
-struct HelperStopHint {
-    ticket: super::resolve::HelperTicket,
-    grant_t0_ns: u64,
-    stop_attempt: u64,
-    snapshots: [Option<HelperStopSnapshot>; 2],
-}
-/// Same-invocation custody of a positive original-unreaped WNOWAIT result and
-/// its actual following clock sample. A signal result never constructs this.
-#[cfg(target_os = "macos")]
-#[derive(Clone, Copy)]
-struct HelperExitHint {
-    ticket: super::resolve::HelperTicket,
-    grant_opened: bool,
-    grant_t0_ns: u64,
-    stop_attempt: u64,
-    leader: HelperMember,
-    observed_ns: u64,
-}
-/// Fixed-size observations, distinct from allocator coverage. Process RSS and
-/// Rust heap are deliberately named separately; neither is whole-tree heap.
-#[derive(Clone, Copy, Default)]
-pub(crate) struct HelperStopReceipt {
-    pub(crate) sequence: u16,
-    pub(crate) pid: i32,
-    pub(crate) pgid: i32,
-    pub(crate) birth: u64,
-    pub(crate) start_abstime: u64,
-    pub(crate) audit_version: u32,
-    pub(crate) attempt: u64,
-    pub(crate) result: i32,
-    pub(crate) rawerrno: i32,
-    pub(crate) observed_ns: u64,
-    pub(crate) injected: bool,
-}
-#[derive(Clone, Copy, Default)]
 pub(crate) struct HelperMetrics {
-    pub(crate) grants: u64,
+    pub(crate) initial: HelperInitialObservation,
+    pub(crate) initial_pending_observations: u64,
+    pub(crate) controller_cpu_ns: u64,
+    pub(crate) pipe_cpu_ns: u64,
+    pub(crate) coverage_known: bool,
+    pub(crate) clock_failures: u64,
+    pub(crate) first_failure_line: u32,
+    pub(crate) first_failure_sample_stage: u8,
     pub(crate) charged_ns: u64,
     pub(crate) max_charge_ns: u64,
     pub(crate) debt_ns: u64,
-    pub(crate) controller_cpu_ns: u64,
-    pub(crate) pipe_cpu_ns: u64,
+    pub(crate) group_rss_peak: u64,
+    pub(crate) mixed_heap_rss_peak: u64,
     pub(crate) observed_direct_cpu_ns: u64,
     pub(crate) observed_descendant_cpu_ns: u64,
     pub(crate) rolled_descendant_cpu_ns: u64,
-    pub(crate) group_rss_peak: u64,
-    pub(crate) separate_rss_sum: u64,
-    pub(crate) mixed_heap_rss_peak: u64,
     pub(crate) descendants: u64,
     pub(crate) verified_descendants: u64,
-    pub(crate) initial_kernel_cpu_ns: u64,
-    pub(crate) stop_attempts: u64,
-    pub(crate) stop_failures: u64,
-    pub(crate) last_stop: HelperStopReceipt,
-    pub(crate) first_failed_stop: HelperStopReceipt,
-    pub(crate) first_failure_line: u32,
-    pub(crate) first_failure_sample_stage: u8,
-    pub(crate) continuity_query_fallbacks: u64,
-    pub(crate) continuity_terminal_observations: u64,
-    pub(crate) continuity_pending_observations: u64,
-    pub(crate) last_continuity_guard: u8,
-    pub(crate) last_continuity_native_code: i32,
-    pub(crate) first_quiescence_failure: HelperQuiescenceFailure,
-    pub(crate) initial_continuity_pending_observations: u64,
-    sample_stage: u8,
-    pub(crate) coverage_known: bool,
-    pub(crate) worst_grant: HelperGrantReceipt,
-    pub(crate) first_failed_pending: HelperGrantReceipt,
-    pub(crate) window_ns: u64,
-    pub(crate) active_cpu_ns: u64,
-    pub(crate) active_control_ns: u64,
-    pub(crate) roster_closures: u64,
-    pub(crate) reopened_slots: u64,
-    pub(crate) unknown_windows: u64,
-    pub(crate) clock_failures: u64,
-    pub(crate) post_units: u64,
-    pub(crate) post_cpu_ns: u64,
-    pub(crate) post_max_cpu_ns: u64,
-    pub(crate) late_kernel_cpu_ns: u64,
-    pub(crate) late_kernel_observations: u64,
     pub(crate) reap_user_ns: u64,
     pub(crate) reap_system_ns: u64,
-    pub(crate) reap_user_upper_ns: u64,
-    pub(crate) reap_system_upper_ns: u64,
     pub(crate) reap_quantization_ns: u64,
-    pub(crate) reconciliation_unproven: u64,
-    pub(crate) unexplained_cpu_ns: u64,
-    pub(crate) reap_ri_user_ticks: u64,
-    pub(crate) reap_ri_system_ticks: u64,
-    pub(crate) reap_timebase_numer: u32,
-    pub(crate) reap_timebase_denom: u32,
-    pub(crate) measured_grants: u64,
-    pub(crate) window_grants: u64,
-    pub(crate) startup_cpu_ns: u64,
-    pub(crate) startup_charged_cpu_ns: u64,
-    pub(crate) charged_helper_cpu_ns: u64,
-    pub(crate) post_helper_cpu_ns: u64,
-    pub(crate) counter_reads: u64,
-    pub(crate) wait4_reads: u64,
-    pub(crate) conservation_budget_ns: u64,
-    pub(crate) conservation_late_ns: u64,
-    pub(crate) startup_late_excluded_ns: u64,
-    pub(crate) conservation_allowance_ns: u64,
-    pub(crate) conservation_excess_ns: u64,
-    pub(crate) conservation_checked: bool,
-    pub(crate) conservation_known: bool,
-    pub(crate) conservation_pass: bool,
-    pub(crate) conservation_comparison_pass: bool,
-    pub(crate) conservation_direct_reaps: u64,
-    pub(crate) conservation_rollup_reaps: u64,
-    pub(crate) conservation_teardown_per_process_ns: u64,
-    pub(crate) conservation_teardown_ceiling_ns: u64,
-    pub(crate) conservation_total_ceiling_ns: u64,
-    pub(crate) conservation_pre_teardown_excess_ns: u64,
-    pub(crate) terminal_residual_raw_ns: u64,
-    pub(crate) terminal_residual_known_credit_ns: u64,
-    pub(crate) terminal_residual_upper_ns: u64,
-    pub(crate) terminal_residual_charged_ns: u64,
-    pub(crate) terminal_residual_cost_retained: bool,
-    pub(crate) terminal_residual_cost_paid: bool,
-    pub(crate) post_exit_observations: u64,
-    pub(crate) post_exit_observation_known: bool,
-    pub(crate) initial_post_exit_observation: bool,
-    pub(crate) initial_physical_only: bool,
-    pub(crate) initial_startup_baseline_ns: u64,
-    pub(crate) initial_startup_rest_until_ns: u64,
-    pub(crate) terminal_physical_valid: bool,
-    pub(crate) terminal_ri_attempts: u64,
-    pub(crate) terminal_attempt_unknown: bool,
-    pub(crate) terminal_attempt_retained: bool,
-    pub(crate) terminal_attempt_clock_known: bool,
-    pub(crate) terminal_l_raw_ns: u64,
+    pub(crate) reap_rss_bytes: u64,
+    pub(crate) reap_rss_known: bool,
+    pub(crate) group_kill_attempted: bool,
+    pub(crate) group_kill_not_attempted_terminal: bool,
+    pub(crate) terminal_observations: u64,
     pub(crate) terminal_last_guard: u8,
-    pub(crate) terminal_native_code: i32,
+    pub(crate) terminal_waitid_result: i32,
+    pub(crate) terminal_waitid_errno: i32,
+    pub(crate) terminal_waitid_pid: i32,
+    pub(crate) terminal_waitid_code: i32,
     pub(crate) terminal_bsd_result: i32,
-    pub(crate) terminal_bsd_errno: Option<i32>,
-    pub(crate) terminal_ri_result: Option<i32>,
-    pub(crate) terminal_ri_errno: Option<i32>,
-    pub(crate) terminal_ri_injected_unavailable: bool,
-    pub(crate) terminal_attempt_cpu_ns: u64,
-    pub(crate) terminal_attempt_wall_ns: u64,
-    pub(crate) post_exit_user_before_ticks: u64,
-    pub(crate) post_exit_system_before_ticks: u64,
-    pub(crate) post_exit_user_after_ticks: u64,
-    pub(crate) post_exit_system_after_ticks: u64,
-    pub(crate) provisional_rollup_grants: u64,
-    pub(crate) recovered_rollup_grants: u64,
-    pub(crate) provisional_rollup_fallback_delta_ns: u64,
-    pub(crate) provisional_rollup_debt_delta_ns: u64,
-    pub(crate) rollup_reconciled: bool,
-    pub(crate) rollup_revoked: bool,
-    pub(crate) rollup_fallback_charge_ns: u64,
-    pub(crate) rollup_fallback_debt_ns: u64,
-    pub(crate) rollup_fallback_worst: HelperGrantReceipt,
+    pub(crate) terminal_bsd_errno: i32,
+    pub(crate) terminal_census_result: i32,
+    pub(crate) terminal_census_errno: i32,
+    pub(crate) terminal_member_pid: i32,
+    pub(crate) pause_stop_attempted: bool,
+    pub(crate) pause_stop_errno: i32,
+    pub(crate) pause_ack_ns: u64,
+    pub(crate) pause_user_baseline_ns: u64,
+    pub(crate) pause_terminal_user_ns: u64,
+    pub(crate) pause_user_excess_ns: u64,
+    pub(crate) pause_user_quantization_ns: u64,
+    pub(crate) pause_user_checked: bool,
+    pub(crate) pause_user_pass: bool,
+    pub(crate) group_kill_errno: i32,
+    pub(crate) group_kill_raced_exit: bool,
+    pub(crate) qos_checked_mask: u8,
+    pub(crate) live_sample_count: u64,
+    pub(crate) max_sample_gap_ns: u64,
+    pub(crate) ri_previous_start_ns: [u64; 2],
+    pub(crate) ri_start_ns: [u64; 2],
+    pub(crate) ri_end_ns: [u64; 2],
+    pub(crate) ri_gap_ns: [u64; 2],
+    pub(crate) ri_previous_valid_mask: u8,
+    pub(crate) ri_start_valid_mask: u8,
+    pub(crate) ri_end_valid_mask: u8,
+    pub(crate) escaped_kill_attempts: u64,
+    pub(crate) escaped_kill_failures: u64,
+    pub(crate) escaped_kill_errno: i32,
+    pub(crate) child_cost_unproven: bool,
+    pub(crate) child_rollup_proven: bool,
+    pub(crate) child_terminal_user_ticks: u64,
+    pub(crate) child_terminal_system_ticks: u64,
+    pub(crate) leader_child_user_ticks: u64,
+    pub(crate) leader_child_system_ticks: u64,
+    pub(crate) child_edge_closed: bool,
+    pub(crate) child_edge_result: i32,
+    pub(crate) child_edge_errno: i32,
+    pub(crate) child_rollup_read_after_exit: bool,
+    pub(crate) job_cpu_ns: u64,
+    pub(crate) wait4_reads: u64,
+    pub(crate) reap_authorized: bool,
+    merged: bool,
+}
+impl HelperMetrics {
+    pub(crate) fn merge(&mut self, other: &Self) {
+        macro_rules! sum { ($($f:ident),* $(,)?) => { $(self.$f = self.$f.saturating_add(other.$f);)* }; }
+        macro_rules! peak { ($($f:ident),* $(,)?) => { $(self.$f = self.$f.max(other.$f);)* }; }
+        if other.max_sample_gap_ns >= self.max_sample_gap_ns {
+            self.ri_previous_start_ns = other.ri_previous_start_ns;
+            self.ri_start_ns = other.ri_start_ns;
+            self.ri_end_ns = other.ri_end_ns;
+            self.ri_gap_ns = other.ri_gap_ns;
+            self.ri_previous_valid_mask = other.ri_previous_valid_mask;
+            self.ri_start_valid_mask = other.ri_start_valid_mask;
+            self.ri_end_valid_mask = other.ri_end_valid_mask;
+        }
+        self.child_cost_unproven |= other.child_cost_unproven;
+        self.child_rollup_proven |= other.child_rollup_proven;
+        if other.child_edge_result != 0
+            || other.child_edge_errno != 0
+            || other.child_edge_closed
+            || other.child_cost_unproven
+        {
+            self.child_edge_result = other.child_edge_result;
+            self.child_edge_errno = other.child_edge_errno;
+        }
+        if other.child_terminal_user_ticks != 0 || other.child_terminal_system_ticks != 0 {
+            self.child_terminal_user_ticks = other.child_terminal_user_ticks;
+            self.child_terminal_system_ticks = other.child_terminal_system_ticks;
+            self.leader_child_user_ticks = other.leader_child_user_ticks;
+            self.leader_child_system_ticks = other.leader_child_system_ticks;
+            self.child_edge_closed = other.child_edge_closed;
+            self.child_rollup_read_after_exit = other.child_rollup_read_after_exit;
+        }
+        self.escaped_kill_attempts = self
+            .escaped_kill_attempts
+            .saturating_add(other.escaped_kill_attempts);
+        self.escaped_kill_failures = self
+            .escaped_kill_failures
+            .saturating_add(other.escaped_kill_failures);
+        if other.escaped_kill_errno != 0 {
+            self.escaped_kill_errno = other.escaped_kill_errno;
+        }
+        sum!(
+            controller_cpu_ns,
+            pipe_cpu_ns,
+            clock_failures,
+            charged_ns,
+            debt_ns,
+            descendants,
+            verified_descendants,
+            reap_user_ns,
+            reap_system_ns,
+            reap_quantization_ns,
+            live_sample_count,
+            wait4_reads
+        );
+        peak!(
+            max_charge_ns,
+            group_rss_peak,
+            mixed_heap_rss_peak,
+            observed_direct_cpu_ns,
+            observed_descendant_cpu_ns,
+            rolled_descendant_cpu_ns,
+            job_cpu_ns,
+            max_sample_gap_ns,
+            reap_rss_bytes
+        );
+        if self.first_failure_line == 0 {
+            self.first_failure_line = other.first_failure_line;
+            self.first_failure_sample_stage = other.first_failure_sample_stage;
+        }
+        if other.group_kill_errno != 0 {
+            self.group_kill_errno = other.group_kill_errno;
+        }
+        self.initial_pending_observations = self
+            .initial_pending_observations
+            .saturating_add(other.initial_pending_observations);
+        if other.initial.stage != 0 {
+            self.initial = other.initial;
+        }
+        self.reap_authorized |= other.reap_authorized;
+        self.group_kill_attempted |= other.group_kill_attempted;
+        self.group_kill_not_attempted_terminal |= other.group_kill_not_attempted_terminal;
+        self.terminal_observations = self
+            .terminal_observations
+            .saturating_add(other.terminal_observations);
+        if other.terminal_observations != 0 {
+            self.terminal_last_guard = other.terminal_last_guard;
+            self.terminal_waitid_result = other.terminal_waitid_result;
+            self.terminal_waitid_errno = other.terminal_waitid_errno;
+            self.terminal_waitid_pid = other.terminal_waitid_pid;
+            self.terminal_waitid_code = other.terminal_waitid_code;
+            self.terminal_bsd_result = other.terminal_bsd_result;
+            self.terminal_bsd_errno = other.terminal_bsd_errno;
+            self.terminal_census_result = other.terminal_census_result;
+            self.terminal_census_errno = other.terminal_census_errno;
+            self.terminal_member_pid = other.terminal_member_pid;
+        }
+        self.pause_stop_attempted |= other.pause_stop_attempted;
+        if other.pause_stop_errno != 0 {
+            self.pause_stop_errno = other.pause_stop_errno;
+        }
+        self.pause_ack_ns = self.pause_ack_ns.max(other.pause_ack_ns);
+        if other.pause_user_checked
+            && (!self.pause_user_checked || other.pause_user_excess_ns > self.pause_user_excess_ns)
+        {
+            self.pause_user_baseline_ns = other.pause_user_baseline_ns;
+            self.pause_terminal_user_ns = other.pause_terminal_user_ns;
+            self.pause_user_excess_ns = other.pause_user_excess_ns;
+            self.pause_user_quantization_ns = other.pause_user_quantization_ns;
+            self.pause_user_checked = true;
+            self.pause_user_pass = other.pause_user_pass;
+        }
+        self.group_kill_raced_exit |= other.group_kill_raced_exit;
+        self.qos_checked_mask |= other.qos_checked_mask;
+        self.reap_rss_known = if self.merged {
+            self.reap_rss_known && other.reap_rss_known
+        } else {
+            other.reap_rss_known
+        };
+        self.coverage_known = if self.merged {
+            self.coverage_known && other.coverage_known
+        } else {
+            other.coverage_known
+        };
+        self.merged = true;
+    }
+}
+
+/// Original unreaped leader pins the group. There are no external grant clocks,
+/// window endpoints, adaptive slices, or terminal conservation allowances.
+pub(crate) struct HelperGroup {
+    pub(crate) pgid: i32,
+    pub(crate) identity: super::resolve::HelperIdentity,
+    pub(crate) running: bool,
+    pub(crate) retiring: bool,
+    pub(crate) ready: bool,
+    pub(crate) confirmed_stopped: bool,
+    pub(crate) debt_until: Instant,
+    pub(crate) metrics: HelperMetrics,
+    members: [HelperMember; 2],
+    retired: [RetiredMember; 8],
+    timebase: HelperTimebase,
+    pipe_open: bool,
+    payload_admitted: bool,
+    creation_settled: bool,
+    failed: bool,
+    pause_started: Option<Instant>,
+    pause_failed: bool,
+    last_sample: Instant,
+    final_kill_attempted: bool,
+    terminal_pending: bool,
+    exited: bool,
+    pause_ack: Option<Duration>,
+    pause_user_baseline: Option<u64>,
+    own_wait4: bool,
+    reap_authorized: bool,
+    group_gone: bool,
+    terminal_usage: Option<super::resolve::HelperReapUsage>,
+    terminal_pass: bool,
 }
 impl HelperGroup {
-    fn ticks_ns(&self, ticks: u64) -> Result<u64, ()> {
-        helper_convert_ticks(ticks, self.timebase)
-    }
-    fn charge_helper_debt(&mut self, control: &Control, cost: u64) {
-        // Preserve unknown raw cost as MAX, but use the canonical finite
-        // mandatory-settlement debt. MAX nanoseconds is not a known duration.
-        let debt = control.helper_extend_debt(cost);
-        self.metrics.debt_ns = self.metrics.debt_ns.saturating_add(debt);
-        if cost == u64::MAX || cost.checked_mul(9).is_none() {
-            self.metrics.clock_failures = self.metrics.clock_failures.saturating_add(1);
-            self.metrics.coverage_known = false;
-        }
-        if debt != 0 {
-            let base = self.debt_until.max(Instant::now());
-            self.debt_until = base
-                .checked_add(Duration::from_nanos(debt))
-                .unwrap_or_else(|| {
-                    control
-                        .accounting
-                        .clock_failed
-                        .store(true, Ordering::Release);
-                    self.metrics.clock_failures = self.metrics.clock_failures.saturating_add(1);
-                    self.metrics.coverage_known = false;
-                    base // Preserve every previously known outstanding deadline.
-                });
-        }
-    }
-    pub(crate) fn needs_active_poll(&self) -> bool {
-        self.running && !self.retiring && !self.admission_failed
-    }
-    /// Before terminal proof, only the already owned raw IO/control handoff
-    /// remains available. No new payload-pipe scope may be opened.
-    pub(crate) fn terminal_observation_pending(&self) -> bool {
-        self.stop_outcome == HelperStopOutcome::PendingTerminal
-    }
-    /// Once a failed STOP is consumed, neither pending observation nor proved
-    /// terminal permits another stdin payload effect. Raw drain is separate.
-    pub(crate) fn payload_input_blocked(&self) -> bool {
-        self.terminal_accounting_pending
-            || self.members[0].image_phase == HelperImagePhase::Exited
-            || matches!(
-                self.stop_outcome,
-                HelperStopOutcome::PendingTerminal | HelperStopOutcome::TerminalProven
-            )
-    }
-    #[cfg(test)]
-    pub(crate) fn fixture_consume_pending_stop(&mut self) -> Result<(), ()> {
-        // Byte-admission control only: consume the real transition machinery,
-        // retain the exact current receipt and label its injected errno. The
-        // test-only signal hook performs NO native STOP or other new effect.
-        if self.stop_requested {
-            return Err(());
-        }
-        self.injected_stop_errno = Some(libc::EPERM);
-        match self.request_group_stop()? {
-            HelperStopOutcome::PendingTerminal => Ok(()),
-            _ => Err(()),
+    pub(crate) fn attached(identity: super::resolve::HelperIdentity) -> Self {
+        let now = Instant::now();
+        Self {
+            pgid: identity.pgid,
+            identity,
+            running: false,
+            retiring: false,
+            ready: false,
+            confirmed_stopped: false,
+            debt_until: now,
+            metrics: HelperMetrics {
+                coverage_known: true,
+                ..HelperMetrics::default()
+            },
+            members: [HelperMember::default(); 2],
+            retired: [RetiredMember::default(); 8],
+            timebase: helper_timebase().unwrap_or_default(),
+            pipe_open: false,
+            payload_admitted: false,
+            creation_settled: false,
+            failed: false,
+            pause_started: None,
+            pause_failed: false,
+            last_sample: now.checked_sub(HELPER_SAMPLE_INTERVAL).unwrap_or(now),
+            final_kill_attempted: false,
+            terminal_pending: false,
+            exited: false,
+            pause_ack: None,
+            pause_user_baseline: None,
+            own_wait4: false,
+            reap_authorized: false,
+            group_gone: false,
+            terminal_usage: None,
+            terminal_pass: false,
         }
     }
-    fn signal_group_stop(&mut self) -> HelperStopReceipt {
-        let signal = || {
-            let result = unsafe { libc::kill(-self.pgid, libc::SIGSTOP) };
-            let rawerrno = if result == 0 {
-                0
-            } else {
-                std::io::Error::last_os_error().raw_os_error().unwrap_or(0)
-            };
-            (result, rawerrno)
-        };
-        #[cfg(test)]
-        let (result, rawerrno, injected) = match self.injected_stop_errno.take() {
-            Some(errno) => (-1, errno, true), // Control only: no native signal.
-            None => {
-                let (result, rawerrno) = signal();
-                (result, rawerrno, false)
-            }
-        };
-        #[cfg(not(test))]
-        let (result, rawerrno) = signal();
-        #[cfg(not(test))]
-        let injected = false;
-        // Retain the exact native outcome before any completion observation or
-        // verdict. Bounded scalar receipts also survive later retirement.
-        self.metrics.stop_attempts = self.metrics.stop_attempts.saturating_add(1);
-        let receipt = HelperStopReceipt {
-            sequence: self.identity.sequence,
-            pid: self.identity.pid,
-            pgid: self.pgid,
-            birth: self.identity.start_identity,
-            start_abstime: self.members[0].start_abstime,
-            audit_version: self.members[0].audit_version,
-            attempt: self.metrics.stop_attempts,
-            result,
-            rawerrno,
-            observed_ns: self.ledger_clock().unwrap_or(u64::MAX),
-            injected,
-        };
-        self.metrics.last_stop = receipt;
-        if result != 0 {
-            self.metrics.stop_failures = self.metrics.stop_failures.saturating_add(1);
-            if self.metrics.first_failed_stop.attempt == 0 {
-                self.metrics.first_failed_stop = receipt;
-            }
+    #[track_caller]
+    fn reject(&mut self, control: &Control, resource: bool) {
+        self.failed = true;
+        self.ready = false;
+        if self.metrics.first_failure_line == 0 {
+            self.metrics.first_failure_line = std::panic::Location::caller().line();
         }
-        receipt
-    }
-    fn request_group_stop(&mut self) -> Result<HelperStopOutcome, ()> {
-        if self.stop_requested {
-            return Err(()); // A consumed operation is never silently repeated.
-        }
-        self.stop_requested = true; // retain the attempted effect BEFORE its call/verdict
-        let receipt = self.signal_group_stop();
-        #[cfg(test)]
-        if std::mem::take(&mut self.fail_stop_verdict) {
-            // Fault only the verdict; the receipt still contains the actual
-            // kernel result/errno. This cannot manufacture a failed signal.
-            return Err(());
-        }
-        self.classify_consumed_stop(receipt)
-    }
-    fn classify_consumed_stop(
-        &mut self,
-        receipt: HelperStopReceipt,
-    ) -> Result<HelperStopOutcome, ()> {
-        if !self.stop_requested
-            || receipt.sequence != self.identity.sequence
-            || receipt.pid != self.identity.pid
-            || receipt.pgid != self.pgid
-            || receipt.birth != self.identity.start_identity
-            || receipt.start_abstime != self.members[0].start_abstime
-            || receipt.audit_version != self.members[0].audit_version
-            || receipt.observed_ns == u64::MAX
-            || (self.grant.opened && receipt.observed_ns < self.grant.t0_ns)
-        {
-            return Err(());
-        }
-        self.stop_outcome = if receipt.result == 0 {
-            HelperStopOutcome::Delivered
-        } else if receipt.result == -1 && matches!(receipt.rawerrno, libc::EPERM | libc::ESRCH) {
-            // No observation occurs in this classifier. In particular errno
-            // supplies neither an ACK nor an endpoint. Every affected slot
-            // remains open through its own independently proved terminal time.
-            self.confirmed_stopped = false;
-            if self.grant.opened {
-                self.grant.closed = false;
-                self.grant.close_ns = None;
-                for slot in &mut self.grant.slots[..usize::from(self.grant.reserved)] {
-                    slot.ack_ns = None;
-                }
-            }
-            HelperStopOutcome::PendingTerminal
+        if resource {
+            control
+                .accounting
+                .resource_failed
+                .store(true, Ordering::Release);
+            let _ = control
+                .cancel
+                .compare_exchange(0, 4, Ordering::AcqRel, Ordering::Acquire);
         } else {
-            return Err(());
-        };
-        Ok(self.stop_outcome)
-    }
-    #[cfg(all(target_os = "macos", test))]
-    fn stop_observation_due(&self) -> bool {
-        self.stop_observation_hint().0
-    }
-    #[cfg(target_os = "macos")]
-    fn stop_observation_hint(&self) -> (bool, Option<HelperStopHint>) {
-        if self.stop_outcome == HelperStopOutcome::PendingTerminal {
-            // A failed STOP left this task runnable. A status-only hint cannot
-            // stand in for live task-token/image/RI continuity on this path.
-            return (true, None);
-        }
-        // This cheap hint never acknowledges a slot, closes a roster, changes
-        // coverage, or admits CONT. Avoid repeating the full proof while a
-        // positively owned member is still completing the kernel STOP tail.
-        // Unexpected/unknown identities go to the full custody-preserving
-        // validator immediately. All hint CPU and elapsed time remain in Q.
-        let mut hint = HelperStopHint {
-            ticket: self.identity.ticket(),
-            grant_t0_ns: self.grant.t0_ns,
-            stop_attempt: self.metrics.stop_attempts,
-            snapshots: [None; 2],
-        };
-        for (index, member) in self
-            .members
-            .iter()
-            .enumerate()
-            .take(usize::from(self.identity.expected_members))
-        {
-            if member.pid <= 0
-                || member.audit_version == 0
-                || member.final_image_version != member.audit_version
-                || member.image_phase != HelperImagePhase::Descendant
-            {
-                return (true, None);
-            }
-            // helper_tick already sampled the retained unreaped leader here:
-            // positive exit invokes the full validator instead of this hint.
-            // An exit racing that earlier negative makes TASKALLINFO unavailable
-            // and immediately invokes the same complete exit/custody proof.
-            let mut info = std::mem::MaybeUninit::<libc::proc_taskallinfo>::uninit();
-            let size = std::mem::size_of::<libc::proc_taskallinfo>() as i32;
-            if unsafe {
-                libc::proc_pidinfo(
-                    member.pid,
-                    libc::PROC_PIDTASKALLINFO,
-                    0,
-                    info.as_mut_ptr().cast(),
-                    size,
-                )
-            } != size
-            {
-                return (true, None);
-            }
-            let info = unsafe { info.assume_init() };
-            let birth = info
-                .pbsd
-                .pbi_start_tvsec
-                .checked_mul(1_000_000)
-                .and_then(|value| value.checked_add(info.pbsd.pbi_start_tvusec));
-            if birth != Some(member.birth)
-                || info.pbsd.pbi_pgid != self.pgid as u32
-                || info.ptinfo.pti_threadnum != 1
-            {
-                return (true, None);
-            }
-            if info.pbsd.pbi_status != 4 || info.ptinfo.pti_numrunning != 0 {
-                return (false, None);
-            }
-            // The timestamp is sampled after this actual positive kernel
-            // observation. It remains tentative until exact token/path/RI,
-            // independent second continuity and complete roster validate it.
-            hint.snapshots[index] = Some(HelperStopSnapshot {
-                raw: info,
-                observed_ns: bootstrap::monotonic_ns().unwrap_or(u64::MAX),
-                member: *member,
-            });
-        }
-        (true, Some(hint))
-    }
-    #[cfg(target_os = "macos")]
-    fn observe_leader_exit(&self) -> Result<Option<HelperExitHint>, ()> {
-        match super::resolve::helper_exited(self.pgid).map_err(|_| ())? {
-            false => Ok(None),
-            true => Ok(Some(HelperExitHint {
-                ticket: self.identity.ticket(),
-                grant_opened: self.grant.opened,
-                grant_t0_ns: self.grant.t0_ns,
-                stop_attempt: self.metrics.stop_attempts,
-                leader: self.members[0],
-                observed_ns: bootstrap::monotonic_ns().unwrap_or(u64::MAX),
-            })),
+            self.metrics.coverage_known = false;
+            control
+                .cancel
+                .compare_exchange(0, 5, Ordering::AcqRel, Ordering::Acquire)
+                .ok();
         }
     }
-    #[cfg(target_os = "macos")]
-    fn validate_exit_hint(&mut self, hint: &HelperExitHint) -> Result<(), ()> {
-        let now = self.ledger_clock()?;
-        let leader = self.members[0];
-        let stop = self.metrics.last_stop;
-        let stop_in_grant = self.grant.opened
-            && stop.attempt != 0
-            && stop.sequence == self.identity.sequence
-            && stop.observed_ns >= self.grant.t0_ns;
-        if hint.ticket != self.identity.ticket()
-            || hint.grant_opened != self.grant.opened
-            || hint.grant_t0_ns != self.grant.t0_ns
-            || hint.stop_attempt != self.metrics.stop_attempts
-            || hint.observed_ns == u64::MAX
-            || hint.observed_ns > now
-            || (self.grant.opened && hint.observed_ns < self.grant.t0_ns)
-            || (stop_in_grant && hint.observed_ns <= stop.observed_ns)
-            || hint.leader.pid != leader.pid
-            || hint.leader.birth != leader.birth
-            || hint.leader.start_abstime != leader.start_abstime
-            || hint.leader.audit_version == 0
-            || hint.leader.audit_version != leader.audit_version
-            || hint.leader.audit_token.value != leader.audit_token.value
-            || hint.leader.final_image_version != leader.audit_version
-            || leader.final_image_version != leader.audit_version
-            || !matches!(
-                leader.image_phase,
-                HelperImagePhase::Descendant | HelperImagePhase::Exited
-            )
-            || !matches!(
-                hint.leader.image_phase,
-                HelperImagePhase::Descendant | HelperImagePhase::Exited
-            )
-        {
-            self.invalidate_slot(0);
-            return Err(());
-        }
-        Ok(())
+    pub(crate) fn exit_observed(&self) -> bool {
+        self.exited
     }
-    #[cfg(not(target_os = "macos"))]
-    fn stop_observation_due(&self) -> bool {
-        true
+    pub(crate) fn payload_input_blocked(&self) -> bool {
+        self.retiring
+            || self.failed
+            || self.terminal_pending
+            || self.own_wait4
+            || self.exited
+            || self.pause_started.is_some()
     }
-    #[cfg(test)]
-    pub(crate) fn fixture_early_original_settled(&self) -> bool {
-        self.terminal_reap.initial_accounting_unknown
-            && self.terminal_reap.own_wait4
-            && self.terminal_reap.physical_valid
-            && !self.terminal_reap.identity_lost
-            && self.terminal_reap.ri_attempted
-            && self.terminal_reap.retained
-            && self.metrics.terminal_residual_cost_paid
-            && self.accounting_settled
-            && !self.grant.opened
-            && self.metrics.grants == 0
-            && self.members[1].pid == 0
-            && self.terminal_reap.counter_unknown
-            && !self.metrics.conservation_pass
+    pub(crate) fn pipe_is_open(&self) -> bool {
+        self.pipe_open
     }
-    #[cfg(test)]
-    pub(crate) fn fixture_descendant_identity(&self) -> Option<(i32, u64, u64, u32)> {
-        let member = self.members[1];
-        (member.image_phase == HelperImagePhase::Descendant
-            && member.pid > 0
-            && member.birth > 0
-            && member.start_abstime > 0
-            && member.audit_version > 0)
-            .then_some((
-                member.pid,
-                member.birth,
-                member.start_abstime,
-                member.audit_version,
-            ))
-    }
-    pub(crate) fn settle_creation(&mut self, control: &Control) -> Result<(), ()> {
-        if self.creation_settled
-            || self.ready
-            || self.retiring
-            || control.error().is_some()
-            || control.accounting.now() < control.accounting.rest_until.load(Ordering::Acquire)
-            || Instant::now() < self.debt_until
-        {
-            return Err(());
-        }
-        self.creation_settled = true;
-        Ok(())
-    }
-    fn ledger_clock(&mut self) -> Result<u64, ()> {
-        match bootstrap::monotonic_ns() {
-            Ok(now) if self.last_clock_ns.is_none_or(|previous| now >= previous) => {
-                self.last_clock_ns = Some(now);
-                Ok(now)
-            }
-            Ok(_) => {
-                self.metrics.clock_failures = self.metrics.clock_failures.saturating_add(1);
-                self.metrics.coverage_known = false;
-                Err(())
-            }
-            Err(_) => {
-                self.metrics.clock_failures = self.metrics.clock_failures.saturating_add(1);
-                self.metrics.coverage_known = false;
-                Err(())
-            }
-        }
-    }
-    fn actual_cpu(&self) -> Result<u64, ()> {
-        if let Some(settled) = self.settled_cpu {
-            return Ok(settled);
-        }
-        self.members[0]
-            .cpu
-            .checked_add(
-                self.members[1]
-                    .cpu
-                    .max(self.metrics.rolled_descendant_cpu_ns),
-            )
-            .ok_or(())
-    }
-    #[cfg(target_os = "macos")]
-    fn observe_usage(&mut self, index: usize, pid: i32, usage: &libc::rusage_info_v1) {
-        self.metrics.counter_reads = self.metrics.counter_reads.saturating_add(1);
-        let observed_ns = self.ledger_clock().unwrap_or(u64::MAX);
-        self.usage_observations[index] = HelperUsageObservation {
-            pid,
-            user_ticks: usage.ri_user_time,
-            system_ticks: usage.ri_system_time,
-            child_user_ticks: usage.ri_child_user_time,
-            child_system_ticks: usage.ri_child_system_time,
-            observed_ns,
-        };
-    }
-    fn record_quiescence_failure(&mut self, index: usize, current: HelperTaskObservation) {
-        if self.metrics.first_quiescence_failure.current.pid == 0 {
-            let member = self.members[index];
-            self.metrics.first_quiescence_failure = HelperQuiescenceFailure {
-                sequence: self.identity.sequence,
-                member: index,
-                pgid: self.pgid,
-                birth: member.birth,
-                start_abstime: member.start_abstime,
-                audit_version: member.audit_version,
-                first: self.task_observations[index],
-                current,
-            };
-        }
-    }
-    #[cfg(target_os = "macos")]
-    fn check_member_quiescence(
-        &mut self,
-        index: usize,
-        current: HelperTaskObservation,
-    ) -> Result<(), HelperObservationFailure> {
-        if current.stopped() {
-            return Ok(());
-        }
-        self.record_quiescence_failure(index, current);
-        Err(HelperObservationFailure::mismatch(92))
-    }
-    fn initial_kernel_tail_pending(&self, index: usize, current: HelperTaskObservation) -> bool {
-        // This is ONLY the same START_SUSPENDED creation tail already handled
-        // by the first sample. It is not a stopped acknowledgement. Runtime
-        // grants, repeated STOPs, other thread/status shapes and user work do
-        // not inherit creation's bounded pending-observation authority.
-        index == 0
-            && !self.creation_settled
-            && !self.ready
-            && !self.running
-            && !self.retiring
-            && !self.admission_failed
-            && !self.grant.opened
-            && self.metrics.grants == 0
-            && self.metrics.stop_attempts == 0
-            && !self.stop_requested
-            && self.members[0].user_ticks == 0
-            && current.pid == self.identity.pid
-            && current.status == 4
-            && current.threads == 1
-            && current.running == 1
-    }
-    pub(crate) fn pending_closure(&self) -> bool {
-        !self.accounting_settled
-            && !self.terminal_accounting_pending
-            && (self.running
-                || self.grant_commit_pending
-                || (self.grant.opened && !self.grant.closed))
-    }
-    pub(crate) fn pending_corroboration(&self) -> bool {
-        self.corroboration_pending || self.post_commit_pending
-    }
-    pub(crate) fn closure_observed(&self) -> bool {
-        !self.running && self.confirmed_stopped && (!self.grant.opened || self.grant.closed)
-    }
-    pub(crate) fn retirement_settlement_observed(&self) -> bool {
-        // This is set only after positive current-incarnation exit checks in
-        // usage reconciliation or quarantine. Exited tasks cannot resume;
-        // unlike a stopped seal, this fact needs no duplicate sampling unit.
-        self.retiring && self.accounting_settled
+    pub(crate) fn payload_pipe_is_open(&self) -> bool {
+        self.pipe_open && self.payload_admitted && !self.payload_input_blocked()
     }
     pub(crate) fn begin_pipe(&mut self) -> Result<(), ()> {
-        if self.terminal_observation_pending() {
+        if self.pipe_open || !self.creation_settled || self.metrics.qos_checked_mask & 1 == 0 {
             return Err(());
         }
-        self.begin_pipe_accounting()?;
-        self.payload_admitted = true;
+        self.pipe_open = true;
+        self.payload_admitted = !self.payload_input_blocked();
         Ok(())
     }
-    /// A bounded accounting/raw-drain/retirement span carries no authority for
-    /// stdin bytes, including when it began before a terminal transition.
+    #[cfg(test)]
     pub(crate) fn begin_pipe_accounting(&mut self) -> Result<(), ()> {
         if self.pipe_open {
             return Err(());
         }
         self.pipe_open = true;
-        self.pipe_active = self.pending_closure();
         self.payload_admitted = false;
         Ok(())
-    }
-    pub(crate) fn payload_pipe_is_open(&self) -> bool {
-        self.pipe_open && self.payload_admitted && !self.admission_failed
-    }
-    pub(crate) fn pipe_is_open(&self) -> bool {
-        self.pipe_open
-    }
-    pub(crate) fn settle_quarantine(&mut self, control: &Control) -> bool {
-        let at = cpu_ns();
-        let gone = self.retired_members_exited();
-        let cpu = control.observe_interval(at, cpu_ns());
-        if self.pending_closure() {
-            self.lane_cpu = self.lane_cpu.saturating_add(cpu);
-            if gone {
-                self.finish_grant(control, 0);
-            }
-        }
-        if gone {
-            self.accounting_settled = true;
-            if !self.post_proof_pending {
-                self.corroboration_pending = false;
-            }
-        }
-        gone
     }
     pub(crate) fn account_pipe(
         &mut self,
         control: &Control,
-        cpu_ns: u64,
-        wall_ns: u64,
+        cpu: u64,
+        wall: u64,
     ) -> Result<(), ()> {
         if !self.pipe_open {
             return Err(());
         }
         self.pipe_open = false;
         self.payload_admitted = false;
-        self.metrics.pipe_cpu_ns = self.metrics.pipe_cpu_ns.saturating_add(cpu_ns);
-        if cpu_ns == u64::MAX || wall_ns == u64::MAX {
-            self.metrics.clock_failures = self.metrics.clock_failures.saturating_add(1);
-            if self.pipe_active || self.pending_closure() {
-                self.lane_cpu = u64::MAX;
-            } else {
-                self.post_cpu = u64::MAX;
-            }
-            self.reject(control, 5);
+        self.metrics.pipe_cpu_ns = self.metrics.pipe_cpu_ns.saturating_add(cpu);
+        if cpu == u64::MAX || wall == u64::MAX {
+            self.metrics.clock_failures += 1;
+            self.metrics.coverage_known = false;
+            control
+                .accounting
+                .clock_failed
+                .store(true, Ordering::Release);
+            self.reject(control, true);
             return Err(());
         }
-        if self.pipe_active || self.pending_closure() {
-            self.lane_cpu = self.lane_cpu.checked_add(cpu_ns).ok_or(())?;
-        } else {
-            // The read owner records/pays this actual ordinary unit through
-            // read_charge once. Only the attribution is recorded here.
-            self.metrics.post_units = self.metrics.post_units.saturating_add(1);
-            self.metrics.post_cpu_ns = self.metrics.post_cpu_ns.saturating_add(cpu_ns);
-            self.metrics.post_max_cpu_ns = self.metrics.post_max_cpu_ns.max(cpu_ns);
-            // Pipe-only work does not invalidate an established stopped seal.
-            // Its actual ordinary CPU/debt is paid by the read owner;
-            // initial/after-grant/late-CPU corroboration remains mandatory.
-        }
-        self.pipe_active = false;
-        if cpu_ns > UNIT_NS {
-            self.reject(control, 4);
+        if cpu > UNIT_NS {
+            self.reject(control, true);
             return Err(());
         }
         Ok(())
@@ -2129,1127 +1316,41 @@ impl HelperGroup {
     pub(crate) fn account_controller(&mut self, control: &Control, cpu: u64) -> Result<(), ()> {
         self.metrics.controller_cpu_ns = self.metrics.controller_cpu_ns.saturating_add(cpu);
         if cpu == u64::MAX {
-            self.metrics.clock_failures = self.metrics.clock_failures.saturating_add(1);
-            if self.pending_closure() {
-                self.lane_cpu = u64::MAX;
-            } else if self.post_commit_pending {
-                self.post_cpu = u64::MAX;
-            }
-            self.reject(control, 5);
+            self.metrics.clock_failures += 1;
+            self.metrics.coverage_known = false;
+            control
+                .accounting
+                .clock_failed
+                .store(true, Ordering::Release);
+            self.reject(control, true);
             return Err(());
-        }
-        if self.pending_closure() {
-            self.lane_cpu = self.lane_cpu.checked_add(cpu).ok_or(())?;
-        } else if self.post_commit_pending {
-            self.post_cpu = self.post_cpu.checked_add(cpu).ok_or(())?;
         }
         if cpu > UNIT_NS {
-            self.reject(control, 4);
+            self.reject(control, true);
             return Err(());
-        }
-        Ok(())
-    }
-    /// The work closing a grant/observation follows its receipt's first CPU
-    /// cutoff. Keep that measured work as a separate stopped unit without
-    /// consuming a pending proof observation or requesting corroboration again.
-    fn account_finalization_tail(&mut self, control: &Control, cpu: u64) {
-        if self.pending_closure() {
-            let _ = self.account_controller(control, cpu);
-            return;
-        }
-        self.metrics.controller_cpu_ns = self.metrics.controller_cpu_ns.saturating_add(cpu);
-        if !self.closure_observed() && !self.retirement_settlement_observed() {
-            self.charge_helper_debt(control, cpu.max(UNIT_NS));
-            self.reject(control, 5);
-            return;
-        }
-        self.metrics.post_units = self.metrics.post_units.saturating_add(1);
-        self.metrics.post_cpu_ns = self.metrics.post_cpu_ns.saturating_add(cpu);
-        self.metrics.post_max_cpu_ns = self.metrics.post_max_cpu_ns.max(cpu);
-        self.charge_helper_debt(control, cpu.max(UNIT_NS));
-        if cpu == u64::MAX {
-            self.reject(control, 5);
-        } else if cpu > UNIT_NS {
-            self.reject(control, 4);
-        }
-    }
-    fn open_grant(&mut self) -> Result<(), ()> {
-        if self.terminal_accounting_pending
-            || self.members[0].image_phase == HelperImagePhase::Exited
-            || matches!(
-                self.stop_outcome,
-                HelperStopOutcome::PendingTerminal | HelperStopOutcome::TerminalProven
-            )
-        {
-            return Err(());
-        }
-        let baseline = self.actual_cpu()?;
-        if self.metrics.grants == 0 {
-            self.metrics.startup_cpu_ns = baseline;
-            self.startup_late_cpu_ns = self.metrics.late_kernel_cpu_ns;
-        }
-        let rolled = self
-            .rolled_user_ticks
-            .checked_add(self.rolled_system_ticks)
-            .ok_or(())?;
-        let mut ledger = HelperGrantLedger {
-            opened: true,
-            index: self.metrics.grants.checked_add(1).ok_or(())?,
-            reserved: self.identity.expected_members,
-            allocation: self
-                .adaptive_grant
-                .allocation(self.identity.expected_members),
-            actual_baseline: baseline,
-            baseline_usage: self.usage_observations,
-            rolled_baseline: rolled,
-            controller_baseline: self.metrics.controller_cpu_ns,
-            pipe_baseline: self.metrics.pipe_cpu_ns,
-            ..HelperGrantLedger::default()
-        };
-        for index in 0..usize::from(ledger.reserved) {
-            let member = self.members[index];
-            let unknown = member.pid == 0 || member.image_phase == HelperImagePhase::Exited;
-            ledger.slots[index] = HelperSlotWindow {
-                pid: member.pid,
-                birth: member.birth,
-                start: member.start_abstime,
-                version: member.audit_version,
-                ack_ns: None,
-                through_closure: unknown,
-            };
-            self.metrics.unknown_windows = self
-                .metrics
-                .unknown_windows
-                .saturating_add(u64::from(unknown));
-        }
-        // This final checked clock precedes the actual CONT, including its
-        // complete delivery latency in every reserved slot's open interval.
-        ledger.baseline_slots = ledger.slots;
-        ledger.t0_ns = self.ledger_clock()?;
-        self.grant = ledger;
-        self.lane_cpu = 0;
-        if self.pipe_open {
-            self.pipe_active = true;
         }
         Ok(())
     }
     #[cfg(target_os = "macos")]
-    fn refresh_pre_cont_baseline(&mut self, control: &Control) -> Result<bool, ()> {
-        if !self.confirmed_stopped
-            || self.pending_closure()
-            || self.pending_corroboration()
-            || self.terminal_accounting_pending
-            || self.retiring
-        {
-            return Err(());
-        }
-        let user_before = self.actual_user_ticks()?;
-        let system_before = self.actual_system_ticks()?;
-        let mut rss = 0u64;
-        for index in 0..usize::from(self.identity.expected_members) {
-            let prior = self.members[index];
-            if prior.pid == 0 || prior.image_phase == HelperImagePhase::Exited {
-                continue;
-            }
-            let mut raw = std::mem::MaybeUninit::<libc::rusage_info_v1>::uninit();
-            if unsafe { libc::proc_pid_rusage(prior.pid, 1, raw.as_mut_ptr().cast()) } != 0 {
-                return Err(());
-            }
-            let raw = unsafe { raw.assume_init() };
-            self.observe_usage(index, prior.pid, &raw);
-            if raw.ri_proc_start_abstime != prior.start_abstime
-                || raw.ri_proc_exit_abstime != 0
-                || raw.ri_user_time != prior.user_ticks
-                || raw.ri_system_time < prior.system_ticks
-            {
-                return Err(());
-            }
-            let cpu = self.ticks_ns(raw.ri_user_time.checked_add(raw.ri_system_time).ok_or(())?)?;
-            self.members[index].cpu = cpu;
-            self.members[index].user_ticks = raw.ri_user_time;
-            self.members[index].system_ticks = raw.ri_system_time;
-            self.members[index].rss_peak = prior.rss_peak.max(raw.ri_resident_size);
-            rss = rss.checked_add(raw.ri_resident_size).ok_or(())?;
-            if index == 0 {
-                if raw.ri_child_user_time < self.rolled_user_ticks
-                    || raw.ri_child_system_time < self.rolled_system_ticks
-                {
-                    return Err(());
-                }
-                self.rolled_user_ticks = raw.ri_child_user_time;
-                self.rolled_system_ticks = raw.ri_child_system_time;
-                self.metrics.observed_direct_cpu_ns = cpu;
-                self.metrics.rolled_descendant_cpu_ns = self.ticks_ns(
-                    raw.ri_child_user_time
-                        .checked_add(raw.ri_child_system_time)
-                        .ok_or(())?,
-                )?;
-            } else {
-                self.metrics.observed_descendant_cpu_ns = cpu;
-            }
-        }
-        if self.actual_user_ticks()? != user_before || !self.closed_usage_covered() {
-            return Err(());
-        }
-        self.metrics.group_rss_peak = self.metrics.group_rss_peak.max(rss);
-        if rss > storage::HELPERS {
-            self.reject(control, 4);
-            return Err(());
-        }
-        let late = self.ticks_ns(
-            self.actual_system_ticks()?
-                .checked_sub(system_before)
-                .ok_or(())?,
-        )?;
-        if late != 0 {
-            // Observe previously uncharged, stable-user stopped kernel growth
-            // BEFORE establishing the next baseline. Its controller C and L
-            // finish one existing stopped unit, then pay fresh debt; no CONT.
-            self.post_late_cpu = late;
-            self.post_late_known = true;
-            self.post_cpu = 0;
-            self.post_commit_pending = true;
-            if !self.grant.opened && self.metrics.grants == 0 {
-                self.stage_initial_startup();
-            }
-            return Ok(false);
-        }
-        Ok(true)
-    }
-    #[cfg(not(target_os = "macos"))]
-    fn refresh_pre_cont_baseline(&mut self, _: &Control) -> Result<bool, ()> {
-        Err(())
-    }
-    fn note_incarnation(&mut self, index: usize, member: HelperMember) {
-        if !self.grant.opened {
-            return;
-        }
-        let slot = &mut self.grant.slots[index];
-        let changed = slot.pid != 0
-            && (slot.pid != member.pid
-                || slot.birth != member.birth
-                || slot.start != member.start_abstime
-                || slot.version != member.audit_version);
-        if changed {
-            slot.ack_ns = None;
-            slot.through_closure = true;
-            self.grant.closed = false;
-            self.grant.close_ns = None;
-            self.grant.controller_end = None;
-            self.grant.pipe_end = None;
-            self.grant.post_ack_mask &= !(1 << index);
-            self.metrics.reopened_slots = self.metrics.reopened_slots.saturating_add(1);
-        }
-        slot.pid = member.pid;
-        slot.birth = member.birth;
-        slot.start = member.start_abstime;
-        slot.version = member.audit_version;
-    }
-    fn invalidate_slot(&mut self, index: usize) {
-        self.metrics.coverage_known = false;
-        self.confirmed_stopped = false;
-        if self.grant.opened {
-            let reopened = self.grant.slots[index].ack_ns.is_some() || self.grant.closed;
-            self.grant.slots[index].ack_ns = None;
-            self.grant.slots[index].through_closure = true;
-            self.grant.closed = false;
-            self.grant.close_ns = None;
-            self.grant.controller_end = None;
-            self.grant.pipe_end = None;
-            self.grant.post_ack_mask &= !(1 << index);
-            self.metrics.reopened_slots = self
-                .metrics
-                .reopened_slots
-                .saturating_add(u64::from(reopened));
-        }
-    }
-    fn acknowledge_slot(&mut self, index: usize) -> Result<(), ()> {
-        self.acknowledge_slot_at(index, None)
-    }
-    fn acknowledge_slot_at(&mut self, index: usize, observed_ns: Option<u64>) -> Result<(), ()> {
-        if !self.grant.opened {
+    fn retain(&mut self, member: RetiredMember) -> Result<(), ()> {
+        if self.retired.iter().any(|m| {
+            m.pid == member.pid && m.birth == member.birth && m.token.value == member.token.value
+        }) {
             return Ok(());
         }
-        let member = self.members[index];
-        self.note_incarnation(index, member);
-        if self.grant.slots[index].ack_ns.is_some() {
-            return Ok(()); // The same identity already owns this exact endpoint.
+        let index = self.retired.iter().position(|m| m.pid == 0).ok_or(())?;
+        for old in &mut self.retired {
+            if old.pid == member.pid {
+                old.current = false;
+            }
         }
-        let now = self.ledger_clock()?;
-        let end = observed_ns.unwrap_or(now);
-        if end < self.grant.t0_ns || end > now {
-            self.metrics.coverage_known = false;
-            return Err(());
-        }
-        self.grant.slots[index].ack_ns.get_or_insert(end);
-        self.grant.ack_usage[index] = self.usage_observations[index];
-        self.grant.ack_task[index] = self.task_observations[index];
+        self.retired[index] = member;
         Ok(())
     }
-    fn seal_post_ack_counter(&mut self, index: usize, positive_ns: u64) -> Result<(), ()> {
-        if !self.grant.opened {
-            return Ok(());
-        }
-        let member = self.members[index];
-        if member.image_phase != HelperImagePhase::Descendant {
-            // A source-bound pre-exec clone can retain conservative coverage;
-            // it does not gain measured final-image counter authority.
-            self.grant.post_ack_mask &= !(1 << index);
-            return Ok(());
-        }
-        let slot = self.grant.slots[index];
-        let usage = self.usage_observations[index];
-        if positive_ns == u64::MAX
-            || usage.observed_ns == u64::MAX
-            || positive_ns < self.grant.t0_ns
-            || usage.observed_ns < positive_ns
-            || usage.pid != member.pid
-            || slot.pid != member.pid
-            || slot.birth != member.birth
-            || slot.start != member.start_abstime
-            || slot.version != member.audit_version
-            || slot.ack_ns.is_none()
-        {
-            return Err(());
-        }
-        self.grant.post_ack_mask |= 1 << index;
-        Ok(())
-    }
-    /// This is only a prospective lower bound while a grant remains open.
-    /// It never selects measured basis or certifies a pending grant. A birth,
-    /// exec, absent slot or unknown baseline retains the old window bound.
-    fn measured_candidate(&self) -> bool {
-        self.metrics.coverage_known
-            && self.metrics.clock_failures == 0
-            && self.timebase.numer != 0
-            && self.timebase.denom != 0
-            && (0..usize::from(self.grant.reserved)).all(|index| {
-                let slot = self.grant.slots[index];
-                let baseline = self.grant.baseline_usage[index];
-                let before = self.grant.baseline_slots[index];
-                let member = self.members[index];
-                slot.pid > 0
-                    && slot.birth != 0
-                    && slot.start != 0
-                    && slot.version != 0
-                    && baseline.pid == slot.pid
-                    && before.pid == slot.pid
-                    && before.birth == slot.birth
-                    && before.start == slot.start
-                    && before.version == slot.version
-                    && member.final_image_version == slot.version
-                    && matches!(
-                        member.image_phase,
-                        HelperImagePhase::Descendant | HelperImagePhase::Exited
-                    )
-                    && baseline.observed_ns != u64::MAX
-                    && baseline.observed_ns <= self.grant.t0_ns
-            })
-    }
-    fn unique_admitted_child(&self) -> bool {
-        // Necessary runtime projection of the existing qualified finite-source
-        // single-child premise. A census cannot prove an unseen fork history;
-        // neither this predicate nor a roll-up admits an unqualified tool.
-        let child = self.members[1];
-        self.identity.expected_members == 2
-            && child.pid > 0
-            && child.birth != 0
-            && child.start_abstime != 0
-            && child.audit_version != 0
-            && child.final_image_version == child.audit_version
-            && self.metrics.descendants == 1
-            && self.metrics.verified_descendants == 1
-            && self.retired_members.iter().any(|r| {
-                r.current
-                    && r.pid == child.pid
-                    && r.birth == child.birth
-                    && r.token.value == child.audit_token.value
-            })
-            && self
-                .retired_members
-                .iter()
-                .filter(|r| r.pid > 0 && r.pid != self.identity.pid)
-                .all(|r| r.pid == child.pid && r.birth == child.birth)
-    }
-    fn rollup_proof_valid(&self) -> bool {
-        let proof = self.grant.rollup;
-        let matches = |slot: HelperSlotWindow, member: HelperMember| {
-            slot.pid == member.pid
-                && slot.birth == member.birth
-                && slot.start == member.start_abstime
-                && slot.version == member.audit_version
-        };
-        proof.checked
-            && self.unique_admitted_child()
-            && proof.grant_t0_ns == self.grant.t0_ns
-            && proof.child_count == 0
-            && matches(proof.leader, self.members[0])
-            && matches(proof.child, self.members[1])
-            && self.members[1].image_phase == HelperImagePhase::Exited
-            && self.members[1].rollup_exit_observed_ns == proof.child_exit_observed_ns
-            && self.grant.slots[0].ack_ns == Some(proof.leader_ack_ns)
-            && proof.leader_ack_ns >= self.grant.t0_ns
-            && proof.child_exit_observed_ns >= proof.leader_ack_ns
-            && proof.read_ns >= proof.child_exit_observed_ns
-            && proof.read_ns != u64::MAX
-            && self
-                .grant
-                .close_ns
-                .is_some_and(|close| proof.read_ns <= close)
-            && self.usage_observations[0].child_user_ticks == proof.user_ticks
-            && self.usage_observations[0].child_system_ticks == proof.system_ticks
-    }
-    fn qualified_reaped_child(&self) -> bool {
-        let Some(proof) = self.retired_child_reap else {
-            return false;
-        };
-        let child = self.members[1];
-        let leader = self.members[0];
-        self.unique_admitted_child()
-            && self.metrics.coverage_known
-            && self.metrics.clock_failures == 0
-            && proof.checked
-            && proof.child_count == 0
-            && proof.child.pid == child.pid
-            && proof.child.birth == child.birth
-            && proof.child.start == child.start_abstime
-            && proof.child.version == child.audit_version
-            && proof.leader.pid == leader.pid
-            && proof.leader.birth == leader.birth
-            && proof.leader.start == leader.start_abstime
-            && proof.leader.version == leader.audit_version
-            && child.image_phase == HelperImagePhase::Exited
-            && child.rollup_exit_observed_ns >= proof.child_exit_observed_ns
-            && proof.leader_ack_ns >= proof.grant_t0_ns
-            && proof.child_exit_observed_ns >= proof.leader_ack_ns
-            && proof.read_ns >= proof.child_exit_observed_ns
-            && proof.read_ns != u64::MAX
-    }
     #[cfg(target_os = "macos")]
-    fn observe_retired_child_rollup(&mut self, exit: Option<&HelperExitHint>) -> Result<bool, ()> {
-        if !self.grant.opened || !self.unique_admitted_child() {
-            return Ok(false);
-        }
-        let leader = self.members[0];
-        let child = self.members[1];
-        let ack = if let Some(exit) = exit {
-            self.validate_exit_hint(exit)?;
-            exit.observed_ns
-        } else {
-            let Some(ack) = self.grant.slots[0].ack_ns else {
-                return Ok(false);
-            };
-            if !self.task_observations[0].stopped()
-                && leader.image_phase != HelperImagePhase::Exited
-            {
-                return Ok(false);
-            }
-            ack
-        };
-        if ack < self.grant.t0_ns || helper_token_exited(&child.audit_token) != Ok(true) {
-            return Ok(false);
-        }
-        let mut children = [0i32; 3];
-        let count = unsafe {
-            libc::proc_listchildpids(
-                leader.pid,
-                children.as_mut_ptr().cast(),
-                std::mem::size_of_val(&children) as i32,
-            )
-        };
-        if count != 0 {
-            return Ok(false);
-        }
-        let retired_ns = self.ledger_clock()?;
-        let mut raw = std::mem::MaybeUninit::<libc::rusage_info_v1>::uninit();
-        if unsafe { libc::proc_pid_rusage(leader.pid, 1, raw.as_mut_ptr().cast()) } != 0 {
-            return Err(());
-        }
-        let raw = unsafe { raw.assume_init() };
-        self.observe_usage(0, leader.pid, &raw);
-        let read_ns = self.usage_observations[0].observed_ns;
-        if raw.ri_proc_start_abstime != leader.start_abstime
-            || raw.ri_user_time != leader.user_ticks
-            || raw.ri_system_time < leader.system_ticks
-            || raw.ri_child_user_time < self.rolled_user_ticks
-            || raw.ri_child_system_time < self.rolled_system_ticks
-            || raw.ri_child_user_time < child.user_ticks
-            || raw.ri_child_system_time < child.system_ticks
-            || read_ns < retired_ns
-            || retired_ns < ack
-        {
-            return Err(());
-        }
-        // This conditional identity relation additionally uses the already
-        // admitted finite source's final-image/no-further-exec/unique-child
-        // premise. Token ESRCH alone never proves logical exit or qualification.
-        self.members[0].cpu =
-            self.ticks_ns(raw.ri_user_time.checked_add(raw.ri_system_time).ok_or(())?)?;
-        self.members[0].system_ticks = raw.ri_system_time;
-        if raw.ri_proc_exit_abstime != 0 {
-            if super::resolve::helper_exited(leader.pid) != Ok(true)
-                || helper_token_exited(&leader.audit_token) != Ok(true)
-            {
-                return Err(());
-            }
-            self.members[0].image_phase = HelperImagePhase::Exited;
-            self.members[0].exit_abstime = raw.ri_proc_exit_abstime;
-        }
-        self.metrics.observed_direct_cpu_ns = self.members[0].cpu;
-        self.rolled_user_ticks = raw.ri_child_user_time;
-        self.rolled_system_ticks = raw.ri_child_system_time;
-        let rolled = self.ticks_ns(
-            raw.ri_child_user_time
-                .checked_add(raw.ri_child_system_time)
-                .ok_or(())?,
-        )?;
-        self.metrics.rolled_descendant_cpu_ns = rolled;
-        self.members[1].cpu = rolled;
-        self.members[1].user_ticks = raw.ri_child_user_time;
-        self.members[1].system_ticks = raw.ri_child_system_time;
-        self.members[1].image_phase = HelperImagePhase::Exited;
-        self.members[1].rollup_exit_observed_ns = retired_ns;
-        self.grant.rollup = HelperChildRollupProof {
-            checked: true,
-            grant_t0_ns: self.grant.t0_ns,
-            leader: HelperSlotWindow {
-                pid: leader.pid,
-                birth: leader.birth,
-                start: leader.start_abstime,
-                version: leader.audit_version,
-                ..HelperSlotWindow::default()
-            },
-            child: HelperSlotWindow {
-                pid: child.pid,
-                birth: child.birth,
-                start: child.start_abstime,
-                version: child.audit_version,
-                ..HelperSlotWindow::default()
-            },
-            leader_ack_ns: ack,
-            child_exit_observed_ns: retired_ns,
-            read_ns,
-            child_count: 0,
-            user_ticks: raw.ri_child_user_time,
-            system_ticks: raw.ri_child_system_time,
-        };
-        Ok(true)
-    }
-    fn measured_components(&self, receipt: &mut HelperGrantReceipt) -> Result<u64, ()> {
-        let mask = (1u8 << self.grant.reserved) - 1;
-        receipt.unknown_mask = mask;
-        receipt.post_ack_mask = self.grant.post_ack_mask;
-        receipt.timebase_numer = self.timebase.numer;
-        receipt.timebase_denom = self.timebase.denom;
-        receipt.counters_read = self.metrics.counter_reads;
-        let mut self_delta = [0u64; 2];
-        let mut child_delta = 0;
-        for (index, delta) in self_delta
-            .iter_mut()
-            .enumerate()
-            .take(usize::from(self.grant.reserved))
-        {
-            let slot = self.grant.slots[index];
-            let member = self.members[index];
-            let baseline = self.grant.baseline_usage[index];
-            let before = self.grant.baseline_slots[index];
-            let end = self.usage_observations[index];
-            let rollup_source = index == 1 && self.rollup_proof_valid();
-            let end_current = if rollup_source {
-                self.grant.rollup.read_ns >= self.grant.t0_ns
-            } else {
-                end.pid == member.pid
-                    && end.observed_ns != u64::MAX
-                    && end.observed_ns >= self.grant.t0_ns
-                    && slot.ack_ns.is_some_and(|ack| end.observed_ns >= ack)
-            };
-            let exact = slot.pid > 0
-                && slot.pid == member.pid
-                && slot.birth == member.birth
-                && slot.start == member.start_abstime
-                && slot.version == member.audit_version
-                && member.final_image_version == member.audit_version
-                && baseline.pid == member.pid
-                && before.pid == slot.pid
-                && before.birth == slot.birth
-                && before.start == slot.start
-                && before.version == slot.version
-                && baseline.observed_ns != u64::MAX
-                && baseline.observed_ns <= self.grant.t0_ns
-                && end_current
-                && slot.ack_ns.is_some();
-            if exact {
-                receipt.unknown_mask &= !(1 << index);
-            }
-            let user = end.user_ticks.checked_sub(baseline.user_ticks).ok_or(())?;
-            let system = end
-                .system_ticks
-                .checked_sub(baseline.system_ticks)
-                .ok_or(())?;
-            *delta = self.ticks_ns(user.checked_add(system).ok_or(())?)?;
-            receipt.slot_a_ns[index] = *delta;
-            receipt.monotonic_mask |= 1 << index;
-            if index == 0 && self.grant.reserved == 2 {
-                if end.child_user_ticks < baseline.child_user_ticks
-                    || end.child_system_ticks < baseline.child_system_ticks
-                {
-                    return Err(());
-                }
-                // One exact logical descendant: retain its live self counters
-                // and its parent's reaped roll-up, taking their enclosing max
-                // BEFORE differencing. Never add live and rolled CPU twice.
-                let child_before = self.grant.baseline_usage[1];
-                let child_end = self.usage_observations[1];
-                let child_user = child_end
-                    .user_ticks
-                    .max(end.child_user_ticks)
-                    .checked_sub(child_before.user_ticks.max(baseline.child_user_ticks))
-                    .ok_or(())?;
-                let child_system = child_end
-                    .system_ticks
-                    .max(end.child_system_ticks)
-                    .checked_sub(child_before.system_ticks.max(baseline.child_system_ticks))
-                    .ok_or(())?;
-                child_delta = self.ticks_ns(child_user.checked_add(child_system).ok_or(())?)?;
-                receipt.slot_a_ns[1] = child_delta;
-            } else if index == 0 && (end.child_user_ticks != 0 || end.child_system_ticks != 0) {
-                return Err(());
-            }
-            if member.image_phase == HelperImagePhase::Exited {
-                // RI exit/WNOWAIT alone supply physical identity closure. The
-                // direct member still needs its own retained wait4; the unique
-                // admitted child has only the explicitly conditional roll-up
-                // source clarified by66236, pending final leader conservation.
-                if rollup_source {
-                    receipt.counter_source[index] = HelperCounterSource::LeaderChildRollup;
-                    receipt.rollup_provisional = true;
-                    receipt.rollup_exit_observed_ns = self.grant.rollup.child_exit_observed_ns;
-                    receipt.rollup_read_ns = self.grant.rollup.read_ns;
-                } else {
-                    if index != 0 || !self.usage_reconciled || self.metrics.wait4_reads == 0 {
-                        return Err(());
-                    }
-                    receipt.counter_source[index] = HelperCounterSource::RetainedWait4;
-                }
-                receipt.post_ack_mask |= 1 << index;
-            } else if !self.task_observations[index].stopped()
-                || self.grant.post_ack_mask & (1 << index) == 0
-            {
-                return Err(());
-            } else {
-                receipt.counter_source[index] = HelperCounterSource::PostAck;
-            }
-        }
-        if self.usage_reconciled {
-            // wait4 includes the already-reaped subtree. Its two timeval
-            // components are separately rounded upward; subtract the logical
-            // descendant once to recover the direct member's enclosing delta.
-            let total = self
-                .metrics
-                .reap_user_upper_ns
-                .checked_add(self.metrics.reap_system_upper_ns)
-                .ok_or(())?;
-            let child_end = if self.grant.reserved == 2 {
-                self.members[1]
-                    .cpu
-                    .max(self.metrics.rolled_descendant_cpu_ns)
-            } else {
-                0
-            };
-            let direct_before = self.ticks_ns(
-                self.grant.baseline_usage[0]
-                    .user_ticks
-                    .checked_add(self.grant.baseline_usage[0].system_ticks)
-                    .ok_or(())?,
-            )?;
-            self_delta[0] = total
-                .checked_sub(child_end)
-                .and_then(|direct| direct.checked_sub(direct_before))
-                .ok_or(())?;
-        }
-        if receipt.counter_source[1] == HelperCounterSource::LeaderChildRollup {
-            receipt.monotonic_mask &= !2;
-            let before_leader = self.grant.baseline_usage[0];
-            let before_child = self.grant.baseline_usage[1];
-            let user = self
-                .grant
-                .rollup
-                .user_ticks
-                .checked_sub(before_leader.child_user_ticks.max(before_child.user_ticks))
-                .ok_or(())?;
-            let system = self
-                .grant
-                .rollup
-                .system_ticks
-                .checked_sub(
-                    before_leader
-                        .child_system_ticks
-                        .max(before_child.system_ticks),
-                )
-                .ok_or(())?;
-            child_delta = self.ticks_ns(user.checked_add(system).ok_or(())?)?;
-            receipt.monotonic_mask |= 2;
-            receipt.rollup_child_cpu_ns = child_delta;
-            #[cfg(test)]
-            if self.rollup_double_count_fault {
-                receipt.live_child_cpu_ns = child_delta;
-                child_delta = child_delta
-                    .checked_add(receipt.live_child_cpu_ns)
-                    .ok_or(())?;
-            }
-        } else {
-            receipt.live_child_cpu_ns = child_delta;
-        }
-        receipt.slot_a_ns = [self_delta[0], child_delta];
-        if receipt.live_child_cpu_ns != 0 && receipt.rollup_child_cpu_ns != 0 {
-            return Err(());
-        }
-        if !self.grant.closed
-            || !self.metrics.coverage_known
-            || self.metrics.clock_failures != 0
-            || receipt.unknown_mask != 0
-            || receipt.post_ack_mask != mask
-            || receipt.monotonic_mask != mask
-            || !self.closed_usage_covered()
-        {
-            return Err(());
-        }
-        let mut total = 0u64;
-        for index in 0..usize::from(self.grant.reserved) {
-            let window = receipt.end_ns[index].checked_sub(receipt.t0_ns).ok_or(())?;
-            if receipt.slot_a_ns[index] > window {
-                return Err(());
-            }
-            total = total.checked_add(receipt.slot_a_ns[index]).ok_or(())?;
-        }
-        Ok(total)
-    }
-    fn close_roster(&mut self) -> Result<(), ()> {
-        if !self.grant.opened {
-            return Ok(());
-        }
-        let close = self.ledger_clock()?;
-        if close < self.grant.t0_ns {
-            self.metrics.coverage_known = false;
-            return Err(());
-        }
-        for index in 0..usize::from(self.grant.reserved) {
-            if self.grant.slots[index].ack_ns.is_none() {
-                let empty = index == 1
-                    && (self.members[1].pid == 0
-                        || self.members[1].image_phase == HelperImagePhase::Exited)
-                    && self.rolled_user_ticks.checked_add(self.rolled_system_ticks)
-                        == Some(self.grant.rolled_baseline);
-                if !empty {
-                    self.metrics.coverage_known = false;
-                    return Err(());
-                }
-                self.grant.slots[index].ack_ns = Some(close);
-                self.grant.slots[index].through_closure = true;
-            }
-        }
-        self.grant.close_ns = Some(close);
-        self.grant.closed = true;
-        self.metrics.roster_closures = self.metrics.roster_closures.saturating_add(1);
-        Ok(())
-    }
-    fn pending_charge_lower_bound(&mut self) -> Result<u64, ()> {
-        if !self.grant.opened {
-            return Ok(0);
-        }
-        let now = self.ledger_clock()?;
-        let mut window = 0u64;
-        for slot in &self.grant.slots[..usize::from(self.grant.reserved)] {
-            let end = if self.grant.closed && slot.through_closure {
-                self.grant.close_ns.ok_or(())?
-            } else if slot.through_closure {
-                now
-            } else {
-                slot.ack_ns.unwrap_or(now)
-            };
-            window = window
-                .checked_add(end.checked_sub(self.grant.t0_ns).ok_or(())?)
-                .ok_or(())?;
-        }
-        let actual = self
-            .actual_cpu()?
-            .checked_sub(self.grant.actual_baseline)
-            .ok_or(())?;
-        let charge = (if self.measured_candidate() {
-            actual
-        } else {
-            window.max(actual)
-        })
-        .checked_add(self.grant_control_cpu()?)
-        .ok_or(())?;
-        if charge > UNIT_NS && self.metrics.first_failed_pending.sequence == 0 {
-            let mut receipt = HelperGrantReceipt {
-                sequence: self.identity.sequence,
-                grant_index: self.grant.index,
-                pid: self.identity.pid,
-                pgid: self.pgid,
-                birth: self.identity.start_identity,
-                reserved: self.grant.reserved,
-                t0_ns: self.grant.t0_ns,
-                run_budget_ns: self.grant.allocation.run_ns,
-                target_a_ns: self.grant.allocation.target_a_ns,
-                controller_reserve_ns: self.grant.allocation.controller_reserve_ns,
-                stop_latency_reserve_ns: self.grant.allocation.stop_latency_reserve_ns,
-                observed_stop_latency_ns: u64::MAX,
-                close_ns: self.grant.close_ns.unwrap_or(now),
-                w_ns: window,
-                a_ns: actual,
-                c_ns: self.grant_control_cpu()?,
-                q_ns: charge,
-                closed: self.grant.closed,
-                controller_baseline_ns: self.grant.controller_baseline,
-                controller_end_ns: self.metrics.controller_cpu_ns,
-                pipe_baseline_ns: self.grant.pipe_baseline,
-                pipe_end_ns: self.metrics.pipe_cpu_ns,
-                baseline_usage: self.grant.baseline_usage,
-                ack_usage: self.grant.ack_usage,
-                closure_usage: self.usage_observations,
-                ack_task: self.grant.ack_task,
-                ..HelperGrantReceipt::default()
-            };
-            for index in 0..usize::from(self.grant.reserved) {
-                let slot = self.grant.slots[index];
-                receipt.end_ns[index] = if self.grant.closed && slot.through_closure {
-                    self.grant.close_ns.ok_or(())?
-                } else if slot.through_closure {
-                    now
-                } else {
-                    slot.ack_ns.unwrap_or(now)
-                };
-                receipt.member_pid[index] = slot.pid;
-                receipt.member_birth[index] = slot.birth;
-                receipt.member_start[index] = slot.start;
-                receipt.member_version[index] = slot.version;
-            }
-            self.metrics.first_failed_pending = receipt;
-        }
-        if window > 25_000_000 {
-            return Ok(UNIT_NS + 1);
-        }
-        Ok(charge)
-    }
-    fn grant_control_cpu(&self) -> Result<u64, ()> {
-        if self.metrics.controller_cpu_ns == u64::MAX || self.metrics.pipe_cpu_ns == u64::MAX {
-            return Err(());
-        }
-        self.metrics
-            .controller_cpu_ns
-            .min(self.grant.controller_end.unwrap_or(u64::MAX))
-            .checked_sub(self.grant.controller_baseline)
-            .and_then(|cpu| {
-                self.metrics
-                    .pipe_cpu_ns
-                    .min(self.grant.pipe_end.unwrap_or(u64::MAX))
-                    .checked_sub(self.grant.pipe_baseline)
-                    .and_then(|pipe| cpu.checked_add(pipe))
-            })
-            .ok_or(())
-    }
-    fn actual_user_ticks(&self) -> Result<u64, ()> {
-        self.members[0]
-            .user_ticks
-            .checked_add(self.members[1].user_ticks.max(self.rolled_user_ticks))
-            .ok_or(())
-    }
-    fn actual_system_ticks(&self) -> Result<u64, ()> {
-        self.members[0]
-            .system_ticks
-            .checked_add(self.members[1].system_ticks.max(self.rolled_system_ticks))
-            .ok_or(())
-    }
-    fn ungranted_original_source_matches(&self, baseline: HelperInitialStartup) -> bool {
-        let member = self.members[0];
-        (1..=2).contains(&self.identity.expected_members)
-            && self.identity.pid > 0
-            && self.identity.pid == self.pgid
-            && self.identity.pgid == self.pgid
-            && !self.grant.opened
-            && self.metrics.grants == 0
-            && !self.running
-            && !self.terminal_accounting_pending
-            && self.members[1].pid == 0
-            && self.metrics.descendants == 0
-            && self.metrics.verified_descendants == 0
-            && !self.terminal_reap.identity_lost
-            && self.rolled_user_ticks == 0
-            && self.rolled_system_ticks == 0
-            && self.metrics.rolled_descendant_cpu_ns == 0
-            && baseline.timebase.numer != 0
-            && baseline.timebase.denom != 0
-            && baseline.timebase.numer == self.timebase.numer
-            && baseline.timebase.denom == self.timebase.denom
-            && baseline.usage.observed_ns != u64::MAX
-            && baseline.usage.observed_ns != 0
-            && baseline.usage.pid == self.identity.pid
-            && baseline.usage.user_ticks == 0
-            && baseline.usage.child_user_ticks == 0
-            && baseline.usage.child_system_ticks == 0
-            && baseline.member.pid == self.identity.pid
-            && baseline.member.birth == self.identity.start_identity
-            && baseline.member.start_abstime != 0
-            && baseline.member.audit_version != 0
-            && baseline.member.audit_token.value[5] == baseline.member.pid as u32
-            && baseline.member.audit_token.value[7] == baseline.member.audit_version
-            && baseline.member.final_image_version == baseline.member.audit_version
-            && baseline.member.user_ticks == baseline.usage.user_ticks
-            && baseline.member.system_ticks == baseline.usage.system_ticks
-            && baseline.member.image_phase == HelperImagePhase::Descendant
-            && member.pid == baseline.member.pid
-            && member.birth == baseline.member.birth
-            && member.start_abstime == baseline.member.start_abstime
-            && member.audit_version == baseline.member.audit_version
-            && member.final_image_version == baseline.member.final_image_version
-            && matches!(
-                member.image_phase,
-                HelperImagePhase::Descendant | HelperImagePhase::Exited
-            )
-            && member.audit_token.value == baseline.member.audit_token.value
-            && member.user_ticks == baseline.usage.user_ticks
-            && member.system_ticks >= baseline.usage.system_ticks
-            && self.retired_members.iter().any(|retained| {
-                retained.current
-                    && retained.pid == baseline.member.pid
-                    && retained.birth == baseline.member.birth
-                    && retained.token.value == baseline.member.audit_token.value
-            })
-            && self
-                .retired_members
-                .iter()
-                .all(|retained| retained.pid == 0 || retained.pid == baseline.member.pid)
-    }
-    fn initial_startup_source_matches(&self, baseline: HelperInitialStartup) -> bool {
-        let retained = self.terminal_reap.initial_source_valid
-            && !self.terminal_reap.identity_lost
-            && self.terminal_reap.ticket == Some(self.identity.ticket());
-        self.identity.expected_members == 1
-            && self.creation_settled
-            && self.startup_accounted
-            && self.confirmed_stopped
-            && ((self.metrics.coverage_known && self.metrics.clock_failures == 0) || retained)
-            && self.ungranted_original_source_matches(baseline)
-    }
-    pub(crate) fn retain_born_stopped_original(&mut self) {
-        if self.born_stopped_original.is_some()
-            || !self.confirmed_stopped
-            || !self.metrics.coverage_known
-            || self.metrics.clock_failures != 0
-        {
-            return;
-        }
-        let baseline = HelperInitialStartup {
-            member: self.members[0],
-            usage: self.usage_observations[0],
-            timebase: self.timebase,
-            charged: false,
-            rest_until_ns: 0,
-        };
-        if self.ungranted_original_source_matches(baseline) {
-            self.born_stopped_original = Some(HelperBornStopped {
-                ticket: self.identity.ticket(),
-                expected_members: self.identity.expected_members,
-                baseline,
-                birth_cost_retained: false,
-                birth_receipt_clocks_known: false,
-                birth_rest_until_ns: u64::MAX,
-            });
-        }
-    }
-    pub(crate) fn retain_born_stopped_cost(
-        &mut self,
-        control: &Control,
-        receipt_clocks_known: bool,
-        inclusive_cpu: u64,
-        debt_before: u64,
-    ) {
-        let Some(mut original) = self.born_stopped_original else {
-            return;
-        };
-        let funded = control
-            .accounting
-            .debt_total
-            .load(Ordering::Acquire)
-            .checked_sub(debt_before);
-        // Original native clocks may be UNKNOWN and must stay failed. The
-        // canonical3ms/27ms retained debt still owns that effect; a later real
-        // receipt clock is physical custody evidence, not admission repair.
-        let normalized = if inclusive_cpu == u64::MAX {
-            SPAN_NS
-        } else {
-            inclusive_cpu.max(UNIT_NS)
-        };
-        original.birth_cost_retained = self.ungranted_original_source_matches(original.baseline)
-            && normalized
-                .checked_mul(9)
-                .is_some_and(|required| funded.is_some_and(|debt| debt >= required));
-        original.birth_receipt_clocks_known = receipt_clocks_known;
-        original.birth_rest_until_ns = control.accounting.rest_until.load(Ordering::Acquire);
-        self.born_stopped_original = Some(original);
-    }
-    fn paid_born_stopped_original(&self, control: &Control) -> Result<HelperInitialStartup, ()> {
-        let original = self.born_stopped_original.ok_or(())?;
-        if original.ticket != self.identity.ticket()
-            || original.expected_members != self.identity.expected_members
-            || !original.birth_cost_retained
-            || !original.birth_receipt_clocks_known
-            || !self.ungranted_original_source_matches(original.baseline)
-            || self.pipe_open
-            || self.usage_reconciled
-            || control.accounting.now() < original.birth_rest_until_ns
-            || control.accounting.now() < control.accounting.rest_until.load(Ordering::Acquire)
-            || Instant::now() < self.debt_until
-        {
-            return Err(());
-        }
-        Ok(original.baseline)
-    }
-    #[cfg(all(test, target_os = "macos"))]
-    fn paid_initial_startup(&self, control: &Control) -> Result<HelperInitialStartup, ()> {
-        self.initial_startup_with_paid_debt(control, false)
-    }
-    #[cfg(target_os = "macos")]
-    fn paid_initial_startup_for_attempt(
-        &self,
-        control: &Control,
-    ) -> Result<HelperInitialStartup, ()> {
-        self.initial_startup_with_paid_debt(control, true)
-    }
-    #[cfg(target_os = "macos")]
-    fn initial_startup_with_paid_debt(
-        &self,
-        control: &Control,
-        attempt_open: bool,
-    ) -> Result<HelperInitialStartup, ()> {
-        let baseline = self.initial_startup.ok_or(())?;
-        if !baseline.charged
-            || !self.initial_startup_source_matches(baseline)
-            || (!attempt_open && (self.post_commit_pending || self.post_proof_pending))
-            || self.pipe_open
-            || self.usage_reconciled
-            || (control.accounting.clock_failed.load(Ordering::Acquire)
-                && !self.terminal_reap.initial_source_valid)
-            || control.accounting.now() < baseline.rest_until_ns
-            || control.accounting.now() < control.accounting.rest_until.load(Ordering::Acquire)
-            || Instant::now() < self.debt_until
-        {
-            return Err(());
-        }
-        Ok(baseline)
-    }
-    #[cfg(target_os = "macos")]
-    fn stage_initial_startup(&mut self) {
-        let baseline = HelperInitialStartup {
-            member: self.members[0],
-            usage: self.usage_observations[0],
-            timebase: self.timebase,
-            charged: false,
-            rest_until_ns: 0,
-        };
-        self.initial_startup = self
-            .initial_startup_source_matches(baseline)
-            .then_some(baseline);
-    }
-    #[cfg(target_os = "macos")]
-    fn initial_terminal_delta(
-        &self,
-        baseline: HelperInitialStartup,
-        after: HelperUsageObservation,
-    ) -> Result<u64, ()> {
-        if !self.initial_startup_source_matches(baseline)
-            || after.pid != baseline.member.pid
-            || after.observed_ns == u64::MAX
-            || after.observed_ns < baseline.usage.observed_ns
-            || after.user_ticks != baseline.usage.user_ticks
-            || after.child_user_ticks != 0
-            || after.child_system_ticks != 0
-        {
-            return Err(());
-        }
-        self.ticks_ns(
-            after
-                .system_ticks
-                .checked_sub(baseline.usage.system_ticks)
-                .ok_or(())?,
-        )
-    }
-    #[cfg(target_os = "macos")]
-    fn initial_terminal_physical(
-        &mut self,
-        baseline: HelperInitialStartup,
-    ) -> Result<(), HelperObservationFailure> {
-        let born_matches = self.born_stopped_original.is_some_and(|original| {
-            original.ticket == self.identity.ticket()
-                && original.expected_members == self.identity.expected_members
-                && original.birth_cost_retained
-                && original.birth_receipt_clocks_known
-                && original.baseline.member.pid == baseline.member.pid
-                && original.baseline.member.birth == baseline.member.birth
-                && original.baseline.member.start_abstime == baseline.member.start_abstime
-                && original.baseline.member.audit_token.value == baseline.member.audit_token.value
-                && original.baseline.usage.observed_ns == baseline.usage.observed_ns
-                && self.ungranted_original_source_matches(baseline)
-        });
-        if !self.initial_startup_source_matches(baseline) && !born_matches {
-            return Err(HelperObservationFailure::mismatch(150));
-        }
-        if super::resolve::helper_exited(self.identity.pid) != Ok(true) {
-            return Err(HelperObservationFailure::native(151, 0));
-        }
-        let scale = helper_timebase().map_err(|()| HelperObservationFailure::native(152, 0))?;
-        if scale.numer != baseline.timebase.numer || scale.denom != baseline.timebase.denom {
-            return Err(HelperObservationFailure::mismatch(153));
-        }
-        let mut info = std::mem::MaybeUninit::<libc::proc_bsdinfo>::uninit();
-        let size = std::mem::size_of::<libc::proc_bsdinfo>() as i32;
-        let observed = unsafe {
-            libc::proc_pidinfo(
-                self.identity.pid,
-                libc::PROC_PIDTBSDINFO,
-                0,
-                info.as_mut_ptr().cast(),
-                size,
-            )
-        };
-        let errno = (observed != size)
-            .then(|| std::io::Error::last_os_error().raw_os_error())
-            .flatten();
-        self.metrics.terminal_bsd_result = observed;
-        self.metrics.terminal_bsd_errno = errno;
-        if observed == size {
-            let info = unsafe { info.assume_init() };
-            let birth = info
-                .pbi_start_tvsec
-                .checked_mul(1_000_000)
-                .and_then(|v| v.checked_add(info.pbi_start_tvusec));
-            if info.pbi_pid as i32 != baseline.member.pid
-                || info.pbi_pgid as i32 != self.pgid
-                || info.pbi_ppid as i32 != unsafe { libc::getpid() }
-                || info.pbi_uid != unsafe { libc::geteuid() }
-                || birth != Some(baseline.member.birth)
-                || info.pbi_status != libc::SZOMB
-            {
-                return Err(HelperObservationFailure::mismatch(155));
-            }
-        } else if observed != 0 || errno != Some(libc::ESRCH) {
-            return Err(HelperObservationFailure::native(
-                154,
-                errno.unwrap_or(libc::EIO),
-            ));
-        }
-        // A BSD row may disappear before this OWN unreaped child is wait4-able.
-        // ESRCH supplies no proof: the retained admitted/no-CONT source, fresh
-        // original WNOWAIT, old token retirement and complete censuses below
-        // supply the physical conjunction. Returned mismatches always refuse.
-        match helper_token_exited(&baseline.member.audit_token) {
-            Ok(true) => {}
-            Ok(false) => return Err(HelperObservationFailure::mismatch(156)),
-            Err(code) => return Err(HelperObservationFailure::native(156, code)),
-        }
+    fn census(&mut self) -> Result<([i32; 3], usize), ()> {
         let mut pids = [0i32; 3];
+        helper_clear_errno();
         let count = unsafe {
             libc::proc_listpgrppids(
                 self.pgid,
@@ -3257,18 +1358,622 @@ impl HelperGroup {
                 std::mem::size_of_val(&pids) as i32,
             )
         };
-        if count < 0 {
-            return Err(HelperObservationFailure::native(
-                157,
-                std::io::Error::last_os_error()
+        let errno = io::Error::last_os_error()
+            .raw_os_error()
+            .unwrap_or(libc::EIO);
+        self.metrics.terminal_census_result = count;
+        self.metrics.terminal_census_errno = errno;
+        if !helper_census_known(count, errno)
+            || count as usize >= pids.len()
+            || count as usize > usize::from(self.identity.expected_members)
+        {
+            return Err(());
+        }
+        Ok((pids, count as usize))
+    }
+    fn retained_pause_matches(&self, prior: HelperMember, user: u64, stopped: bool) -> bool {
+        let acknowledged_pause = self.pause_started.is_some() && self.pause_ack.is_some();
+        if acknowledged_pause && prior.pid == 0 {
+            return false;
+        }
+        if self.confirmed_stopped || acknowledged_pause {
+            prior
+                .paused_user
+                .is_none_or(|expected| expected == user && stopped)
+        } else {
+            true
+        }
+    }
+    #[cfg(target_os = "macos")]
+    fn observe_member(&mut self, control: &Control, pid: i32) -> Result<HelperMember, ()> {
+        use std::os::unix::ffi::OsStrExt;
+        let leader = pid == self.identity.pid;
+        let initial = leader && !self.creation_settled;
+        let before = if initial {
+            self.metrics.initial = HelperInitialObservation {
+                stage: 1,
+                timebase_numer: self.timebase.numer,
+                timebase_denom: self.timebase.denom,
+                ..HelperInitialObservation::default()
+            };
+            let mut bsd = std::mem::MaybeUninit::<libc::proc_bsdinfo>::uninit();
+            let size = std::mem::size_of::<libc::proc_bsdinfo>() as i32;
+            let result = unsafe {
+                libc::proc_pidinfo(
+                    pid,
+                    libc::PROC_PIDTBSDINFO,
+                    0,
+                    bsd.as_mut_ptr().cast(),
+                    size,
+                )
+            };
+            self.metrics.initial.bsd_result = result;
+            self.metrics.initial.bsd_errno = if result == size {
+                0
+            } else {
+                io::Error::last_os_error()
                     .raw_os_error()
-                    .unwrap_or(libc::EIO),
-            ));
+                    .unwrap_or(libc::EIO)
+            };
+            if result != size {
+                return Err(());
+            }
+            self.metrics.initial.valid |= 1;
+            let info = unsafe { bsd.assume_init() };
+            self.metrics.initial.pid = info.pbi_pid;
+            self.metrics.initial.ppid = info.pbi_ppid;
+            self.metrics.initial.pgid = info.pbi_pgid;
+            self.metrics.initial.uid = info.pbi_uid;
+            self.metrics.initial.status = info.pbi_status;
+            self.metrics.initial.birth = helper_birth(&info)?;
+            info
+        } else {
+            helper_bsd(pid)?
+        };
+        let birth = helper_birth(&before)?;
+        if before.pbi_pid != pid as u32
+            || before.pbi_pgid != self.pgid as u32
+            || before.pbi_uid != unsafe { libc::geteuid() }
+        {
+            return Err(());
         }
-        if !(count == 0 || (count == 1 && pids[0] == self.identity.pid)) {
-            return Err(HelperObservationFailure::mismatch(157));
+        if leader
+            && (birth != self.identity.start_identity
+                || before.pbi_ppid != unsafe { libc::getpid() } as u32)
+        {
+            return Err(());
         }
+        if !leader && before.pbi_ppid != self.identity.pid as u32 {
+            return Err(());
+        }
+        let prior = self.members[usize::from(!leader)];
+        if prior.pid != 0 && (prior.pid != pid || prior.birth != birth) {
+            return Err(());
+        }
+        if before.pbi_status == libc::SZOMB {
+            return Ok(HelperMember {
+                pid,
+                birth,
+                live: false,
+                stopped: false,
+                ..prior
+            });
+        }
+        let retained = helper_audit_member(pid, before.pbi_ppid as i32)?;
+        self.retain(retained)?; // retain before image/QoS/CPU verdicts
+        if initial {
+            self.metrics.initial.stage = 2;
+            self.metrics.initial.valid |= 2;
+        }
+        let mut task = std::mem::MaybeUninit::<libc::proc_taskinfo>::uninit();
+        let size = std::mem::size_of::<libc::proc_taskinfo>() as i32;
+        let result = unsafe {
+            libc::proc_pidinfo(
+                pid,
+                libc::PROC_PIDTASKINFO,
+                0,
+                task.as_mut_ptr().cast(),
+                size,
+            )
+        };
+        if initial {
+            self.metrics.initial.stage = 3;
+            self.metrics.initial.task_result = result;
+            self.metrics.initial.task_errno = if result == size {
+                0
+            } else {
+                io::Error::last_os_error()
+                    .raw_os_error()
+                    .unwrap_or(libc::EIO)
+            };
+        }
+        if result != size {
+            return Err(());
+        }
+        let task = unsafe { task.assume_init() };
+        if initial {
+            self.metrics.initial.valid |= 4;
+            self.metrics.initial.threads = task.pti_threadnum;
+            self.metrics.initial.running = task.pti_numrunning;
+            self.metrics.initial.priority = task.pti_priority;
+        }
+        if task.pti_priority != 4
+            || task.pti_threadnum != 1
+            || !(0..=1).contains(&task.pti_numrunning)
+        {
+            self.reject(control, true);
+            return Err(());
+        }
+        let ri_index = usize::from(!leader);
+        let ri_started = Instant::now();
+        self.metrics.ri_start_valid_mask &= !(1 << ri_index);
+        self.metrics.ri_end_valid_mask &= !(1 << ri_index);
+        if let Some(previous) = prior.ri_started {
+            self.metrics.ri_previous_start_ns[ri_index] = self.ri_clock_ns(control, previous)?;
+            self.metrics.ri_previous_valid_mask |= 1 << ri_index;
+        } else {
+            self.metrics.ri_previous_valid_mask &= !(1 << ri_index);
+        }
+        self.metrics.ri_start_ns[ri_index] = self.ri_clock_ns(control, ri_started)?;
+        self.metrics.ri_start_valid_mask |= 1 << ri_index;
+        if !self.record_member_gap(ri_index, ri_started) {
+            self.reject(control, true);
+            let _ = self.retire_members();
+            return Err(());
+        }
+        let mut usage = std::mem::MaybeUninit::<libc::rusage_info_v2>::uninit();
+        let result = unsafe { libc::proc_pid_rusage(pid, 2, usage.as_mut_ptr().cast()) };
+        let ri_ended = Instant::now();
+        self.metrics.ri_end_ns[ri_index] = self.ri_clock_ns(control, ri_ended)?;
+        self.metrics.ri_end_valid_mask |= 1 << ri_index;
+        if !self.record_member_gap(ri_index, ri_ended) {
+            self.reject(control, true);
+            let _ = self.retire_members();
+            return Err(());
+        }
+
+        if initial {
+            self.metrics.initial.stage = 4;
+            self.metrics.initial.ri_result = result;
+            self.metrics.initial.ri_errno = if result == 0 {
+                0
+            } else {
+                io::Error::last_os_error()
+                    .raw_os_error()
+                    .unwrap_or(libc::EIO)
+            };
+        }
+        if result != 0 {
+            return Err(());
+        }
+        let usage = unsafe { usage.assume_init() };
+        if initial {
+            self.metrics.initial.valid |= 8;
+            self.metrics.initial.user_ticks = usage.ri_user_time;
+            self.metrics.initial.system_ticks = usage.ri_system_time;
+            self.metrics.initial.start = usage.ri_proc_start_abstime;
+        }
+        if usage.ri_proc_start_abstime == 0
+            || (prior.start != 0 && usage.ri_proc_start_abstime != prior.start)
+        {
+            return Err(());
+        }
+        let mut path = [0u8; 4096];
+        let n = unsafe {
+            proc_pidpath_audittoken(&retained.token, path.as_mut_ptr().cast(), path.len() as u32)
+        };
+        if n <= 0 || n as usize >= path.len() {
+            return Err(());
+        }
+        let length = path.iter().position(|&b| b == 0).ok_or(())?;
+        let image = &path[..length];
+        let expected = if leader {
+            self.identity.image.as_path()
+        } else {
+            self.identity.descendant_image.as_deref().ok_or(())?
+        };
+        let verified = image == expected.as_os_str().as_bytes();
+        if initial {
+            self.metrics.initial.stage = 5;
+            if verified {
+                self.metrics.initial.valid |= 16;
+            }
+        }
+        // A source-qualified fork may briefly retain the leader image. It is
+        // not a verified verifier and may not be treated as one at settlement.
+        if !verified
+            && (leader || prior.verified || image != self.identity.image.as_os_str().as_bytes())
+        {
+            return Err(());
+        }
+        let after = helper_bsd(pid)?;
+        if initial {
+            self.metrics.initial.stage = 6;
+            self.metrics.initial.after_status = after.pbi_status;
+        }
+        if helper_birth(&after)? != birth
+            || after.pbi_ppid != before.pbi_ppid
+            || after.pbi_pgid != before.pbi_pgid
+        {
+            return Err(());
+        }
+        if initial {
+            self.metrics.initial.valid |= 32;
+        }
+        let cpu = helper_convert_ticks(
+            usage
+                .ri_user_time
+                .checked_add(usage.ri_system_time)
+                .ok_or(())?,
+            self.timebase,
+        )?;
+        let rolled = helper_convert_ticks(
+            usage
+                .ri_child_user_time
+                .checked_add(usage.ri_child_system_time)
+                .ok_or(())?,
+            self.timebase,
+        )?;
+        if cpu < prior.cpu
+            || rolled < prior.rolled
+            || !self.retained_pause_matches(
+                prior,
+                usage.ri_user_time,
+                after.pbi_status == libc::SSTOP && task.pti_numrunning == 0,
+            )
+        {
+            return Err(());
+        }
+        self.metrics.qos_checked_mask |= if leader { 1 } else { 2 };
+        Ok(HelperMember {
+            pid,
+            birth,
+            start: usage.ri_proc_start_abstime,
+            user: usage.ri_user_time,
+            system: usage.ri_system_time,
+            cpu,
+            rolled,
+            rolled_user: usage.ri_child_user_time,
+            terminal_ri_at: prior.terminal_ri_at,
+            rss: usage.ri_resident_size,
+            live: true,
+            stopped: after.pbi_status == libc::SSTOP && task.pti_numrunning == 0,
+            verified,
+            paused_user: prior.paused_user,
+            ri_started: Some(ri_started),
+        })
+    }
+    fn ri_clock_ns(&mut self, control: &Control, at: Instant) -> Result<u64, ()> {
+        let value = at
+            .checked_duration_since(control.accounting.origin)
+            .and_then(|d| u64::try_from(d.as_nanos()).ok());
+        if let Some(value) = value {
+            return Ok(value);
+        }
+        self.metrics.clock_failures = self.metrics.clock_failures.saturating_add(1);
+        self.metrics.coverage_known = false;
+        control
+            .accounting
+            .clock_failed
+            .store(true, Ordering::Release);
+        Err(())
+    }
+    fn record_member_gap(&mut self, index: usize, now: Instant) -> bool {
+        if !self.creation_settled || self.own_wait4 {
+            return true;
+        }
+        let member = self.members[index];
+        if member.pid == 0 || !member.live {
+            return true;
+        }
+        let gap = member
+            .ri_started
+            .and_then(|before| now.checked_duration_since(before));
+        let ns = gap
+            .and_then(|d| u64::try_from(d.as_nanos()).ok())
+            .unwrap_or(u64::MAX);
+        self.metrics.ri_gap_ns[index] = ns;
+        self.metrics.max_sample_gap_ns = self.metrics.max_sample_gap_ns.max(ns);
+        gap.is_some_and(|value| value <= HELPER_SAMPLE_LIMIT)
+    }
+    fn record_sample_gap(&mut self, now: Instant) -> bool {
+        // This early check is conservative; the decisive same-member check is
+        // repeated at actual RI begin and return before its prior stamp changes.
+        let mut pass = true;
+        for index in 0..2 {
+            pass &= self.record_member_gap(index, now);
+        }
+        pass
+    }
+    #[cfg(target_os = "macos")]
+    fn sample_inner(&mut self, control: &Control) -> Result<bool, ()> {
+        if self.own_wait4 {
+            return Ok(true);
+        }
+        let sample_started = Instant::now();
+        if !self.record_sample_gap(sample_started) {
+            self.reject(control, true);
+            let _ = self.retire_members();
+            return Err(());
+        }
+        if self.original_exited() {
+            self.running = false;
+            self.exited = true;
+            return Ok(true);
+        }
+        let (pids, count) = self.census()?;
+        let mut all_stopped = true;
+        let mut rss_sum = 0u64;
+        for &pid in &pids[..count] {
+            let index = usize::from(pid != self.identity.pid);
+            let member = self.observe_member(control, pid)?;
+            if index == 1 && self.members[1].pid == 0 {
+                self.metrics.descendants += 1;
+            }
+            if index == 1 && member.verified && !self.members[1].verified {
+                self.metrics.verified_descendants += 1;
+            }
+            rss_sum = rss_sum.checked_add(member.rss).ok_or(())?;
+            all_stopped &= !member.live || member.stopped;
+            self.members[index] = member;
+        }
+        let exited = super::resolve::helper_exited(self.identity.pid).map_err(|_| ())?;
+        if !pids[..count].contains(&self.identity.pid) && !exited {
+            return Err(());
+        }
+        if exited {
+            self.running = false;
+            self.exited = true;
+        }
+        self.metrics.live_sample_count += 1;
+        self.metrics.observed_direct_cpu_ns = self.members[0].cpu;
+        self.metrics.observed_descendant_cpu_ns = self.members[1].cpu;
+        self.metrics.rolled_descendant_cpu_ns = self.members[0].rolled;
+        self.metrics.group_rss_peak = self.metrics.group_rss_peak.max(rss_sum);
+        let mixed = heap().checked_add(rss_sum).ok_or(())?;
+        self.metrics.mixed_heap_rss_peak = self.metrics.mixed_heap_rss_peak.max(mixed);
+        let cpu = self.members[0]
+            .cpu
+            .checked_add(self.members[0].rolled.max(self.members[1].cpu))
+            .ok_or(())?;
+        let job = control
+            .accounting
+            .helper_job_cpu
+            .load(Ordering::Acquire)
+            .checked_add(cpu)
+            .ok_or(())?;
+        self.metrics.job_cpu_ns = job;
+        if cpu > HELPER_COMMAND_CPU_NS
+            || job > HELPER_JOB_CPU_NS
+            || rss_sum > storage::HELPERS
+            || mixed > HEAP_MAX
+        {
+            self.reject(control, true);
+            let _ = self.retire_members();
+            return Err(());
+        }
+        if self.known_retained_child() {
+            let _ = self.try_child_rollup();
+        }
+        self.last_sample = sample_started;
+        if !all_stopped {
+            self.confirmed_stopped = false;
+        }
+        if all_stopped && !exited {
+            self.confirmed_stopped = true;
+            for member in &mut self.members {
+                if member.live {
+                    member.paused_user = Some(member.user);
+                }
+            }
+            self.running = false;
+        }
+        Ok(exited || all_stopped)
+    }
+    pub(crate) fn sample(&mut self, control: &Control) -> Result<bool, ()> {
+        #[cfg(target_os = "macos")]
+        {
+            let result = self.sample_inner(control);
+            if result.is_err() && !self.failed {
+                self.reject(control, false);
+            }
+            result
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            self.reject(control, false);
+            Err(())
+        }
+    }
+    fn positive_original(&self) -> bool {
+        self.pgid > 0
+            && self.identity.pid == self.pgid
+            && self.identity.pgid == self.pgid
+            && self.identity.start_identity != 0
+            && !self.own_wait4
+    }
+    fn final_kill_no_attempt_allowed(original_terminal: bool, census_terminal: bool) -> bool {
+        original_terminal && census_terminal
+    }
+    fn token_cleanup_required(current: bool, birth_matches: bool, outside_group: bool) -> bool {
+        current && birth_matches && outside_group
+    }
+    #[cfg(target_os = "macos")]
+    fn group_observed_terminal(&mut self) -> bool {
+        let Ok((pids, count)) = self.census() else {
+            return false;
+        };
+        for &pid in &pids[..count] {
+            if pid == self.identity.pid {
+                continue;
+            } // fresh positive own WNOWAIT
+            let Some(member) = self
+                .retired
+                .iter()
+                .find(|m| m.pid == pid && m.current)
+                .copied()
+            else {
+                return false;
+            };
+            if !self.retained_member_exited(member) {
+                return false;
+            }
+        }
+        true
+    }
+    fn signal_group(&mut self, signal: i32) -> Result<(), i32> {
+        // Issuing Ready seals effects under the same owner mutex BEFORE the
+        // consuming wait4 may run outside it. The later usage callback is not
+        // the first point at which reaping can have released the original pin.
+        if self.reap_authorized || self.own_wait4 {
+            return Err(libc::EALREADY);
+        }
+        if !self.positive_original() {
+            return Err(libc::EINVAL);
+        }
+        #[cfg(target_os = "macos")]
+        {
+            let original_terminal = self.original_exited();
+            if original_terminal {
+                if signal != libc::SIGKILL {
+                    return Err(libc::ESRCH);
+                }
+                let group_terminal = self.group_observed_terminal();
+                if Self::final_kill_no_attempt_allowed(original_terminal, group_terminal) {
+                    self.final_kill_attempted = true;
+                    self.metrics.group_kill_not_attempted_terminal = true;
+                    self.terminal_pending = true;
+                    return Ok(());
+                }
+                self.metrics.coverage_known = false;
+                self.metrics.child_cost_unproven = true;
+                // Positive own WNOWAIT plus the retained unreaped incarnation
+                // still pins this group. A live/unknown child must be killed;
+                // the leader's later wait4 cannot certify an unrolled child.
+            } else if !helper_bsd(self.identity.pid).is_ok_and(|info| {
+                helper_birth(&info) == Ok(self.identity.start_identity)
+                    && info.pbi_pid == self.identity.pid as u32
+                    && info.pbi_ppid == unsafe { libc::getpid() } as u32
+                    && info.pbi_pgid == self.pgid as u32
+                    && info.pbi_uid == unsafe { libc::geteuid() }
+            }) {
+                return Err(libc::ESTALE);
+            }
+            if signal == libc::SIGKILL {
+                if self.members[1].pid > 0 && self.members[1].live {
+                    self.metrics.child_cost_unproven = true;
+                    self.metrics.coverage_known = false;
+                }
+                self.final_kill_attempted = true;
+                self.metrics.group_kill_attempted = true;
+            }
+            if signal == libc::SIGSTOP {
+                self.metrics.pause_stop_attempted = true;
+            }
+            let result = unsafe { libc::kill(-self.pgid, signal) };
+            let errno = if result == 0 {
+                0
+            } else {
+                io::Error::last_os_error()
+                    .raw_os_error()
+                    .unwrap_or(libc::EIO)
+            };
+            if signal == libc::SIGKILL {
+                self.metrics.group_kill_errno = errno;
+            }
+            if signal == libc::SIGSTOP {
+                self.metrics.pause_stop_errno = errno;
+            }
+            if result == 0 { Ok(()) } else { Err(errno) }
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = signal;
+            Err(libc::ENOTSUP)
+        }
+    }
+    fn known_retained_child(&self) -> bool {
+        self.members[1].pid > 0
+            || self
+                .retired
+                .iter()
+                .any(|r| r.pid > 0 && r.pid != self.identity.pid)
+    }
+    fn rollup_counters_match(
+        child_user: u64,
+        child_system: u64,
+        rolled_user: u64,
+        rolled_system: u64,
+    ) -> bool {
+        (rolled_user != 0 || rolled_system != 0)
+            && rolled_user >= child_user
+            && rolled_system >= child_system
+    }
+    #[cfg(target_os = "macos")]
+    fn try_child_rollup(&mut self) -> bool {
+        if self.metrics.child_rollup_proven {
+            return true;
+        }
+        if !self.positive_original()
+            || self.identity.expected_members != 2
+            || self.identity.descendant_image.is_none()
+            || self.metrics.descendants != 1
+            || self.metrics.verified_descendants != 1
+        {
+            return false;
+        }
+        let mut child = self.members[1];
+        let leader = self.members[0];
+        if !child.verified
+            || child.pid <= 0
+            || child.start == 0
+            || leader.pid != self.identity.pid
+            || leader.birth != self.identity.start_identity
+            || leader.start == 0
+        {
+            return false;
+        }
+        if self.retired.iter().any(|r| {
+            r.pid > 0
+                && r.pid != self.identity.pid
+                && (r.pid != child.pid || r.birth != child.birth)
+        }) {
+            return false;
+        }
+        let Some(token) = self
+            .retired
+            .iter()
+            .find(|r| r.pid == child.pid && r.birth == child.birth && r.current)
+            .map(|r| r.token)
+        else {
+            return false;
+        };
+        if helper_token_exited(&token) != Ok(true) {
+            return false;
+        }
+        // This is mandatory terminal proof, not a normal sampler reset. An
+        // unavailable query preserves the original terminal observation.
+        let mut terminal = std::mem::MaybeUninit::<libc::rusage_info_v1>::uninit();
+        if unsafe { libc::proc_pid_rusage(child.pid, 1, terminal.as_mut_ptr().cast()) } == 0 {
+            let terminal = unsafe { terminal.assume_init() };
+            if terminal.ri_proc_start_abstime != child.start
+                || terminal.ri_proc_exit_abstime == 0
+                || terminal.ri_user_time < child.user
+                || terminal.ri_system_time < child.system
+            {
+                return false;
+            }
+            child.user = terminal.ri_user_time;
+            child.system = terminal.ri_system_time;
+            child.terminal_ri_at = Some(Instant::now());
+            child.live = false;
+            self.members[1] = child;
+        }
+        let Some(exited_at) = child.terminal_ri_at else {
+            return false;
+        };
         let mut children = [0i32; 2];
+        helper_clear_errno();
         let count = unsafe {
             libc::proc_listchildpids(
                 self.identity.pid,
@@ -3276,3268 +1981,623 @@ impl HelperGroup {
                 std::mem::size_of_val(&children) as i32,
             )
         };
-        if count < 0 {
-            return Err(HelperObservationFailure::native(
-                158,
-                std::io::Error::last_os_error()
-                    .raw_os_error()
-                    .unwrap_or(libc::EIO),
-            ));
+        let errno = io::Error::last_os_error()
+            .raw_os_error()
+            .unwrap_or(libc::EIO);
+        self.metrics.child_edge_result = count;
+        self.metrics.child_edge_errno = errno;
+        if !helper_census_empty(count, errno) {
+            return false;
         }
-        if count != 0 {
-            return Err(HelperObservationFailure::mismatch(158));
+        self.metrics.child_edge_closed = true;
+        let read_at = Instant::now();
+        let mut rolled = std::mem::MaybeUninit::<libc::rusage_info_v2>::uninit();
+        if unsafe { libc::proc_pid_rusage(self.identity.pid, 2, rolled.as_mut_ptr().cast()) } != 0 {
+            return false;
         }
-        self.ledger_clock()
-            .map_err(|()| HelperObservationFailure::native(159, 0))?;
-        Ok(())
-    }
-    #[cfg(target_os = "macos")]
-    fn initial_terminal_ri(
-        &mut self,
-        baseline: HelperInitialStartup,
-    ) -> Result<(), HelperObservationFailure> {
-        // This is the ONE actual RI query, after independent physical proof.
-        self.terminal_reap.ri_attempted = true;
-        self.metrics.terminal_ri_attempts = self.metrics.terminal_ri_attempts.saturating_add(1);
-        let mut raw = std::mem::MaybeUninit::<libc::rusage_info_v1>::uninit();
-        let result =
-            unsafe { libc::proc_pid_rusage(self.identity.pid, 1, raw.as_mut_ptr().cast()) };
-        let errno = (result != 0)
-            .then(|| std::io::Error::last_os_error().raw_os_error())
-            .flatten();
-        self.metrics.terminal_ri_result = Some(result);
-        self.metrics.terminal_ri_errno = errno;
-        if result != 0 {
-            return Err(HelperObservationFailure::native(
-                160,
-                errno.unwrap_or(libc::EIO),
-            ));
+        let rolled = unsafe { rolled.assume_init() };
+        if rolled.ri_proc_start_abstime != leader.start || read_at < exited_at {
+            return false;
         }
-        let raw = unsafe { raw.assume_init() };
-        self.observe_usage(0, self.identity.pid, &raw);
-        #[cfg(test)]
-        if std::mem::take(&mut self.terminal_ri_unavailable) {
-            // The real query above ran once; deliberately withhold its result
-            // from accounting, never pretend this is native unavailability.
-            self.metrics.terminal_ri_injected_unavailable = true;
-            return Err(HelperObservationFailure::native(164, 0));
-        }
-        if raw.ri_proc_start_abstime != baseline.member.start_abstime {
-            return Err(HelperObservationFailure::mismatch(161));
-        }
-        if raw.ri_proc_exit_abstime == 0 {
-            return Err(HelperObservationFailure::native(162, 0));
-        }
-        if raw.ri_user_time != baseline.usage.user_ticks
-            || raw.ri_system_time < baseline.usage.system_ticks
-            || raw.ri_child_user_time != 0
-            || raw.ri_child_system_time != 0
-        {
-            return Err(HelperObservationFailure::mismatch(163));
-        }
-        self.members[0].cpu =
-            self.ticks_ns(raw.ri_user_time.checked_add(raw.ri_system_time).ok_or(())?)?;
-        self.members[0].user_ticks = raw.ri_user_time;
-        self.members[0].system_ticks = raw.ri_system_time;
-        self.members[0].exit_abstime = raw.ri_proc_exit_abstime;
-        self.members[0].image_phase = HelperImagePhase::Exited;
-        Ok(())
-    }
-    fn close_post_cost(
-        &mut self,
-        control: &Control,
-        input: HelperPostCostInput,
-    ) -> Option<HelperPostCostReceipt> {
-        let HelperPostCostInput {
-            recorded_cpu,
-            cpu,
-            wall,
-            helper_cpu,
-            unknown,
-            debt_before,
-        } = input;
-        let old_raw = if unknown {
-            u64::MAX
-        } else {
-            recorded_cpu.saturating_add(helper_cpu)
-        };
-        let raw = if unknown {
-            u64::MAX
-        } else {
-            cpu.saturating_add(helper_cpu)
-        };
-        let normalize = |raw: u64, c: u64| match (raw, c) {
-            (u64::MAX, u64::MAX) => SPAN_NS,
-            (u64::MAX, c) => SPAN_NS.max(c),
-            (raw, _) => raw.max(UNIT_NS),
-        };
-        let old_norm = normalize(old_raw, recorded_cpu);
-        let norm = normalize(raw, cpu);
-        let funded = control
-            .accounting
-            .debt_total
-            .load(Ordering::Acquire)
-            .checked_sub(debt_before);
-        if old_norm
-            .checked_mul(9)
-            .is_none_or(|required| funded.is_none_or(|paid| paid < required))
-        {
-            self.reject(control, 5);
-            return None;
-        }
-        let tail = cpu
-            .checked_sub(recorded_cpu)
-            .filter(|_| cpu != u64::MAX && recorded_cpu != u64::MAX);
-        if let Some(tail) = tail {
-            self.metrics.post_cpu_ns = self.metrics.post_cpu_ns.saturating_add(tail);
-            control
-                .accounting
-                .total_cpu
-                .fetch_add(tail, Ordering::AcqRel);
-        }
-        self.metrics.post_max_cpu_ns = self.metrics.post_max_cpu_ns.max(raw);
-        control
-            .accounting
-            .inclusive_max
-            .fetch_max(raw, Ordering::AcqRel);
-        control.accounting.app_max.fetch_max(cpu, Ordering::AcqRel);
-        if norm > old_norm {
-            self.charge_helper_debt(control, norm - old_norm);
-        }
-        let debt = norm.checked_mul(9);
-        let end = control.accounting.now();
-        let rest = debt.and_then(|d| end.checked_add(d));
-        let helper_rest = debt.and_then(|d| Instant::now().checked_add(Duration::from_nanos(d)));
-        if let (Some(rest), Some(helper_rest)) = (rest, helper_rest) {
-            // Same complete C+helper unit: re-anchor its ALREADY booked full
-            // rest at the final real cutoff, without another floor/charge.
-            control
-                .accounting
-                .rest_until
-                .fetch_max(rest, Ordering::AcqRel);
-            self.debt_until = self.debt_until.max(helper_rest);
-        }
-        if cpu > UNIT_NS || raw > UNIT_NS {
-            control
-                .accounting
-                .resource_failed
-                .store(true, Ordering::Release);
-            self.reject(control, 4);
-        }
-        Some(HelperPostCostReceipt {
-            rest_until_ns: control.accounting.rest_until.load(Ordering::Acquire),
-            clocks_known: tail.is_some()
-                && wall != u64::MAX
-                && rest.is_some()
-                && helper_rest.is_some(),
-        })
-    }
-    pub(crate) fn retain_terminal_attempt_cost(
-        &mut self,
-        control: &Control,
-        recorded_cpu: u64,
-        cpu: u64,
-        wall: u64,
-    ) {
-        if self.terminal_reap.ticket != Some(self.identity.ticket())
-            || self.post_commit_pending
-            || self.post_proof_pending
-        {
-            return;
-        }
-        // UNKNOWN retains MAX raw; its finite3ms inclusive normalization
-        // includes C's existing floor: total27ms, never27ms+duplicate C.
-        let receipt = self.close_post_cost(
-            control,
-            HelperPostCostInput {
-                recorded_cpu,
-                cpu,
-                wall,
-                helper_cpu: self.metrics.terminal_l_raw_ns,
-                unknown: self.terminal_reap.cost_unknown,
-                debt_before: self.terminal_reap.debt_before,
-            },
+        self.metrics.child_rollup_read_after_exit = true;
+        self.metrics.child_terminal_user_ticks = child.user;
+        self.metrics.child_terminal_system_ticks = child.system;
+        self.metrics.leader_child_user_ticks = rolled.ri_child_user_time;
+        self.metrics.leader_child_system_ticks = rolled.ri_child_system_time;
+        self.metrics.child_rollup_proven = Self::rollup_counters_match(
+            child.user,
+            child.system,
+            rolled.ri_child_user_time,
+            rolled.ri_child_system_time,
         );
-        let Some(receipt) = receipt else {
-            self.terminal_reap.retained = false;
-            self.metrics.terminal_attempt_retained = false;
-            return;
-        };
-        self.terminal_reap.retained = true;
-        self.terminal_reap.attempt_open = false;
-        self.terminal_reap.ending_clocks_known = receipt.clocks_known;
-        self.terminal_reap.rest_until_ns = receipt.rest_until_ns;
-        self.metrics.terminal_attempt_retained = true;
-        self.metrics.terminal_attempt_clock_known = receipt.clocks_known;
-        self.metrics.terminal_attempt_cpu_ns = cpu;
-        self.metrics.terminal_attempt_wall_ns = wall;
-    }
-    pub(crate) fn retain_reap_residual_cost(
-        &mut self,
-        control: &Control,
-        recorded_cpu: u64,
-        cpu: u64,
-        wall: u64,
-    ) {
-        if !self.usage_reconciled
-            || !self.reap_cost_pending
-            || self.post_commit_pending
-            || self.post_proof_pending
-        {
-            return;
-        }
-        let receipt = self.close_post_cost(
-            control,
-            HelperPostCostInput {
-                recorded_cpu,
-                cpu,
-                wall,
-                helper_cpu: self.reap_cost_helper,
-                unknown: self.reap_cost_unknown,
-                debt_before: self.reap_cost_before,
-            },
-        );
-        self.reap_cost_retained = receipt.is_some() && self.reap_residual_booked;
-        self.reap_cost_clock_known = receipt.is_some_and(|r| r.clocks_known);
-        self.reap_cost_rest_until = receipt.map_or(u64::MAX, |r| r.rest_until_ns);
-        self.metrics.terminal_residual_cost_retained = self.reap_cost_retained;
-        self.reap_cost_pending = false;
-    }
-    pub(crate) fn finish_reap_residual_payment(&mut self, control: &Control) -> bool {
-        let paid = self.usage_reconciled
-            && self.metrics.wait4_reads == 1
-            && self.reap_cost_retained
-            && self.reap_cost_clock_known
-            && !self.post_commit_pending
-            && !self.post_proof_pending
-            && self.metrics.terminal_residual_charged_ns >= self.reap_residual_required
-            && control.accounting.now() >= self.reap_cost_rest_until
-            && control.accounting.now() >= control.accounting.rest_until.load(Ordering::Acquire)
-            && Instant::now() >= self.debt_until;
-        self.metrics.terminal_residual_cost_paid = paid;
-        self.metrics.conservation_pass = self.metrics.conservation_comparison_pass && paid;
-        if self.metrics.conservation_pass {
-            self.finalize_rollup_basis(control);
-        } else {
-            control
-                .accounting
-                .resource_failed
-                .store(true, Ordering::Release);
-            self.reject(control, 4);
-        }
-        self.metrics.conservation_pass
-    }
-    pub(crate) fn terminal_reap_readiness(
-        &self,
-        control: &Control,
-        ticket: super::resolve::HelperTicket,
-    ) -> super::resolve::HelperReapReadiness {
-        let p = self.terminal_reap;
-        let observed = p.ri_attempted || self.terminal_accounting_pending;
-        if ticket != self.identity.ticket()
-            || p.ticket != Some(ticket)
-            || !self.retiring
-            || !p.physical_valid
-            || p.identity_lost
-            || !observed
-            || (p.initial_source_valid
-                && (self.metrics.terminal_ri_attempts != 1
-                    || self.metrics.terminal_ri_result.is_none()))
-            || !p.retained
-            || !p.ending_clocks_known
-            || self.post_commit_pending
-            || self.post_proof_pending
-            || self.pipe_open
-            || self.running
-            || self.usage_reconciled
-            || control.accounting.now() < p.rest_until_ns
-            || control.accounting.now() < control.accounting.rest_until.load(Ordering::Acquire)
-            || Instant::now() < self.debt_until
-        {
-            super::resolve::HelperReapReadiness::Held
-        } else {
-            super::resolve::HelperReapReadiness::Ready
-        }
-    }
-    pub(crate) fn terminal_physical_reobservation_pending(&self) -> bool {
-        self.retiring
-            && !self.terminal_reap.ri_attempted
-            && !self.terminal_reap.identity_lost
-            && self.terminal_reap.initial_source_valid
-            && !self.post_commit_pending
-            && !self.post_proof_pending
-    }
-    pub(crate) fn usage_handoff_pending(&self) -> bool {
-        self.post_commit_pending && !self.post_proof_pending
-    }
-    pub(crate) fn usage_observation_pending(&self) -> bool {
-        self.post_proof_pending
-    }
-    pub(crate) fn record_post_owner_cpu(&mut self, control: &Control, cpu: u64) {
-        self.metrics.post_units = self.metrics.post_units.saturating_add(1);
-        self.metrics.post_cpu_ns = self.metrics.post_cpu_ns.saturating_add(cpu);
-        self.metrics.post_max_cpu_ns = self.metrics.post_max_cpu_ns.max(cpu);
-        if cpu > UNIT_NS {
-            self.reject(control, 4);
-        }
-    }
-    #[cfg(target_os = "macos")]
-    pub(crate) fn observe_post_exit(&mut self, control: &Control) -> Result<bool, ()> {
-        if !self.retiring
-            || self.usage_reconciled
-            || self.post_commit_pending
-            || self.post_proof_pending
-        {
-            return Err(());
-        }
-        let ticket = self.identity.ticket();
-        if self.terminal_accounting_pending {
-            // This existing closed terminal grant needs its OWN wait4 as final
-            // A. Its complete cached exit/roster proof is distinct from RI as
-            // terminal accounting; no new RI query can remove that dependency.
-            let complete = self.grant.closed
-                && !self.running
-                && self.metrics.coverage_known
-                && super::resolve::helper_exited(self.identity.pid) == Ok(true)
-                && (0..usize::from(self.grant.reserved)).all(|index| {
-                    let m = self.members[index];
-                    (index == 1 && m.pid == 0 && self.grant.slots[index].ack_ns.is_some())
-                        || (m.pid > 0
-                            && m.image_phase == HelperImagePhase::Exited
-                            && (m.exit_abstime != 0 || m.rollup_exit_observed_ns != 0)
-                            && m.start_abstime != 0
-                            && m.final_image_version == m.audit_version
-                            && m.audit_version != 0)
-                });
-            self.terminal_reap.ticket = Some(ticket);
-            self.terminal_reap.debt_before = control.accounting.debt_total.load(Ordering::Acquire);
-            self.terminal_reap.attempt_open = true;
-            self.terminal_reap.cost_unknown = false;
-            self.terminal_reap.retained = false;
-            self.terminal_reap.ending_clocks_known = false;
-            self.metrics.terminal_attempt_retained = false;
-            self.metrics.terminal_attempt_clock_known = false;
-            self.terminal_reap.physical_valid = complete;
-            self.metrics.terminal_physical_valid = complete;
-            return if complete { Ok(false) } else { Err(()) };
-        }
-        if self.terminal_reap.ri_attempted || self.terminal_reap.identity_lost {
-            return Err(()); // one committed RI attempt, never a qualifying retry
-        }
-        let initial = !self.grant.opened && self.metrics.grants == 0;
-        self.terminal_reap.ticket = Some(ticket);
-        self.terminal_reap.debt_before = control.accounting.debt_total.load(Ordering::Acquire);
-        self.terminal_reap.attempt_open = true;
-        self.terminal_reap.cost_unknown = false;
-        // A previous held observation's paid receipt cannot authorize this
-        // current attempt before its own complete cost and fresh rest close.
-        self.terminal_reap.retained = false;
-        self.terminal_reap.ending_clocks_known = false;
-        self.metrics.terminal_attempt_retained = false;
-        self.metrics.terminal_attempt_clock_known = false;
-        if initial
-            && !self.terminal_reap.initial_source_valid
-            && let Some(baseline) = self.initial_startup
-            && baseline.charged
-            && self.initial_startup_source_matches(baseline)
-        {
-            self.terminal_reap.initial_source_valid = true;
-        }
-        if initial
-            && !self.terminal_reap.initial_source_valid
-            && self.paid_born_stopped_original(control).is_ok()
-        {
-            self.terminal_reap.initial_source_valid = true;
-            self.terminal_reap.initial_accounting_unknown = true;
-            self.metrics.initial_physical_only = true;
-        }
-        self.metrics.post_exit_observations = self.metrics.post_exit_observations.saturating_add(1);
-        self.post_proof_pending = true;
-        self.post_commit_pending = true;
-        self.post_cpu = 0;
-        self.post_late_cpu = 0;
-        self.post_late_known = true;
-        self.metrics.initial_post_exit_observation = initial;
-        let observed: Result<(), HelperObservationFailure> = (|| {
-            if initial {
-                // Missing/unpaid prerequisites hold the same owner; they are
-                // not an observed PID/token mismatch or terminal evidence.
-                let baseline = if self.terminal_reap.initial_accounting_unknown {
-                    self.paid_born_stopped_original(control)
-                } else {
-                    self.paid_initial_startup_for_attempt(control)
-                }
-                .map_err(|()| HelperObservationFailure::native(149, 0))?;
-                self.metrics.post_exit_user_before_ticks = baseline.usage.user_ticks;
-                self.metrics.post_exit_system_before_ticks = baseline.usage.system_ticks;
-                self.initial_terminal_physical(baseline)?;
-                self.terminal_reap.physical_valid = true;
-                self.metrics.terminal_physical_valid = true;
-                self.initial_terminal_ri(baseline)?;
-                if self.terminal_reap.initial_accounting_unknown {
-                    // Physical identity survives failed pregrant admission, but
-                    // no paid startup/L baseline exists. Even an available RI
-                    // supplies no accounting credit: retain UNKNOWN3ms/27ms.
-                    return Err(HelperObservationFailure::native(170, 0));
-                }
-                self.metrics.post_exit_user_after_ticks = self.members[0].user_ticks;
-                self.metrics.post_exit_system_after_ticks = self.members[0].system_ticks;
-                self.post_late_cpu =
-                    self.initial_terminal_delta(baseline, self.usage_observations[0])?;
-                return Ok(());
-            }
-            if self.pending_closure()
-                || !self.grant.closed
-                || !self.grant.charged_once
-                || !self.metrics.coverage_known
-                || super::resolve::helper_exited(self.identity.pid) != Ok(true)
-            {
-                return Err(HelperObservationFailure::mismatch(165));
-            }
-            let user = self.actual_user_ticks()?;
-            let system = self.actual_system_ticks()?;
-            self.metrics.post_exit_user_before_ticks = user;
-            self.metrics.post_exit_system_before_ticks = system;
-            self.terminal_reap.ri_attempted = true;
-            self.metrics.terminal_ri_attempts = self.metrics.terminal_ri_attempts.saturating_add(1);
-            for index in 0..usize::from(self.identity.expected_members) {
-                let member = self.members[index];
-                if member.pid <= 0
-                    || member.start_abstime == 0
-                    || member.final_image_version == 0
-                    || member.final_image_version != member.audit_version
-                {
-                    return Err(HelperObservationFailure::mismatch(166));
-                }
-                self.exited_member_usage(member.pid)?;
-                if (self.members[index].exit_abstime == 0
-                    && self.members[index].rollup_exit_observed_ns == 0)
-                    || helper_token_exited(&member.audit_token) != Ok(true)
-                {
-                    return Err(HelperObservationFailure::mismatch(167));
-                }
-                self.members[index].image_phase = HelperImagePhase::Exited;
-            }
-            let after_user = self.actual_user_ticks()?;
-            let after_system = self.actual_system_ticks()?;
-            self.metrics.post_exit_user_after_ticks = after_user;
-            self.metrics.post_exit_system_after_ticks = after_system;
-            if after_user != user || !self.closed_usage_covered() {
-                return Err(HelperObservationFailure::mismatch(168));
-            }
-            self.post_late_cpu = self.ticks_ns(after_system.checked_sub(system).ok_or(())?)?;
-            self.terminal_reap.physical_valid = true;
-            self.metrics.terminal_physical_valid = true;
-            Ok(())
-        })();
-        if let Err(failure) = observed {
-            self.terminal_reap.identity_lost |=
-                matches!(failure.kind, HelperObservationKind::Mismatch);
-            if self.terminal_reap.identity_lost {
-                self.terminal_reap.physical_valid = false;
-                self.metrics.terminal_physical_valid = false;
-            }
-            self.terminal_reap.counter_unknown = true;
-            self.metrics.terminal_attempt_unknown = true;
-            self.metrics.reconciliation_unproven =
-                self.metrics.reconciliation_unproven.saturating_add(1);
-            // UNKNOWN is retained raw and conservatively billed through the
-            // existing finite3ms lane. It is never zero or conservation credit.
-            self.post_late_cpu = u64::MAX;
-            self.metrics.terminal_l_raw_ns = u64::MAX;
-            self.post_late_known = false;
-            self.metrics.terminal_last_guard = failure.guard;
-            self.metrics.terminal_native_code = failure.native_code;
-            self.metrics.sample_stage = failure.guard;
-            self.reject(control, 5);
-        }
-        if observed.is_ok() {
-            self.metrics.terminal_l_raw_ns = self.post_late_cpu;
-        }
-        self.metrics.post_exit_observation_known = observed.is_ok();
-        observed.map(|()| true).map_err(|_| ())
+        self.metrics.child_rollup_proven
     }
     #[cfg(not(target_os = "macos"))]
-    pub(crate) fn observe_post_exit(&mut self, _: &Control) -> Result<bool, ()> {
-        Err(())
+    fn try_child_rollup(&mut self) -> bool {
+        false
     }
-    /// Raw timeval components remain distinct. The explicit interval covers
-    /// only separately truncated microsecond representation (own+one child),
-    /// not the later exit/calcru cutoff. Every new system upper residual is
-    /// charged in full; the exact-host kernel/tool basis remains a prerequisite.
-    #[cfg(target_os = "macos")]
-    pub(crate) fn reconcile_usage(
-        &mut self,
-        control: &Control,
-        reap: super::resolve::HelperReapUsage,
-    ) -> Result<(), ()> {
-        if self.usage_reconciled {
+    fn record_pause_ack(&mut self, elapsed: Duration) -> Result<(), ()> {
+        // Nonduplicated user counters, captured post-positive-ACK. A reaped
+        // child rollup replaces its live counter; it is never added twice.
+        let direct = helper_convert_ticks(self.members[0].user, self.timebase)?;
+        let child = helper_convert_ticks(
+            self.members[1].user.max(self.members[0].rolled_user),
+            self.timebase,
+        )?;
+        let user = direct.checked_add(child).ok_or(())?;
+        self.pause_user_baseline = Some(user);
+        self.metrics.pause_user_baseline_ns = user;
+        self.pause_ack = Some(elapsed);
+        self.metrics.pause_ack_ns = u64::try_from(elapsed.as_nanos()).map_err(|_| ())?;
+        Ok(())
+    }
+    fn terminal_pause_user(&mut self, user: u64) -> bool {
+        let Some(before) = self.pause_user_baseline else {
+            return true;
+        };
+        self.metrics.pause_user_checked = true;
+        self.metrics.pause_user_baseline_ns = before;
+        self.metrics.pause_terminal_user_ns = user;
+        self.metrics.pause_user_excess_ns = user.saturating_sub(before);
+        // wait4's user field has microsecond resolution. This is solely its
+        // one-microsecond observer rounding, never free CPU or a T allowance.
+        self.metrics.pause_user_quantization_ns = 1_000;
+        self.metrics.pause_user_pass =
+            user != u64::MAX && before.checked_add(1_000).is_some_and(|upper| user <= upper);
+        self.metrics.pause_user_pass
+    }
+    fn initial_kernel_tail_pending(&self) -> bool {
+        let i = self.metrics.initial;
+        let m = self.members[0];
+        !self.creation_settled
+            && !self.running
+            && !self.retiring
+            && !self.failed
+            && self.original_retained()
+            && i.valid == 63
+            && i.pid == self.identity.pid as u32
+            && i.pgid == self.pgid as u32
+            && i.birth == self.identity.start_identity
+            && i.start != 0
+            && i.start == m.start
+            && i.status == libc::SSTOP
+            && i.after_status == libc::SSTOP
+            && i.threads == 1
+            && i.running == 1
+            && i.priority == 4
+            && i.user_ticks == 0
+            && m.live
+            && m.verified
+            && !m.stopped
+    }
+    /// false is a retained, positively identified SSTOP/kernel-tail observation,
+    /// not admission. The caller pays this complete unit before re-observing.
+    pub(crate) fn settle_creation(&mut self, control: &Control) -> Result<bool, ()> {
+        if self.creation_settled {
+            return if self.failed { Err(()) } else { Ok(true) };
+        }
+        self.metrics.initial.readiness = -1;
+        if control.error().is_some() {
             return Err(());
         }
-        let initial_reap_permitted = self.terminal_reap.initial_source_valid
-            && self.terminal_reap_readiness(control, self.identity.ticket())
-                == super::resolve::HelperReapReadiness::Ready;
-        self.usage_reconciled = true;
-        let super::resolve::HelperReapUsage {
-            pid,
-            user_ns,
-            system_ns,
-            rss_bytes: rss,
-            observed_ns,
-            readings,
-        } = reap;
-        if pid != self.identity.pid
-            || readings != 1
-            || observed_ns == u64::MAX
-            || self.grant.close_ns.is_some_and(|close| observed_ns < close)
-            || user_ns == u64::MAX
-            || system_ns == u64::MAX
+        match self.sample(control) {
+            Ok(true) => {}
+            Ok(false) if self.initial_kernel_tail_pending() => {
+                self.metrics.initial.readiness = 0;
+                self.metrics.initial_pending_observations =
+                    self.metrics.initial_pending_observations.saturating_add(1);
+                return Ok(false);
+            }
+            Ok(false) => {
+                self.metrics.initial.readiness = -1;
+                self.reject(control, false);
+                return Err(());
+            }
+            Err(()) => {
+                self.metrics.initial.readiness = -1;
+                return Err(());
+            }
+        }
+        if self.metrics.qos_checked_mask & 1 == 0
+            || !self.confirmed_stopped
+            || self.members[0].birth != self.identity.start_identity
+            || control.error().is_some()
         {
-            self.metrics.coverage_known = false;
-            self.reject(control, 5);
-            self.settled_cpu = Some(u64::MAX);
-            self.finish_grant(control, 0);
+            self.metrics.initial.readiness = -1;
             return Err(());
         }
-        self.metrics.wait4_reads = readings;
-        self.terminal_reap.own_wait4 = initial_reap_permitted;
-        self.metrics.reap_user_ns = user_ns;
-        self.metrics.reap_system_ns = system_ns;
-        self.metrics.reap_quantization_ns = readings.checked_mul(2000).ok_or(())?;
-        let width = 1000;
-        let user_upper = user_ns.checked_add(width).ok_or(())?;
-        let system_upper = system_ns.checked_add(width).ok_or(())?;
-        self.metrics.reap_user_upper_ns = user_upper;
-        self.metrics.reap_system_upper_ns = system_upper;
-        let user_ticks = self.actual_user_ticks()?;
-        let system_ticks = self.actual_system_ticks()?;
-        self.metrics.reap_ri_user_ticks = user_ticks;
-        self.metrics.reap_ri_system_ticks = system_ticks;
-        let timebase = self.timebase;
-        self.metrics.reap_timebase_numer = timebase.numer;
-        self.metrics.reap_timebase_denom = timebase.denom;
-        let user_before = self.ticks_ns(user_ticks)?;
-        let system_before = self.ticks_ns(system_ticks)?;
-        // A one-nanosecond enclosing RI representation interval is explicit;
-        // raw RI ticks/timebase and timeval values are never epsilon-clamped.
-        let user_lower = user_before.saturating_sub(1);
-        let system_lower = system_before.saturating_sub(1);
-        let user_stable = user_ns <= user_before && user_upper >= user_lower;
-        let system_forward = system_upper >= system_lower;
-        self.post_proof_pending = true;
-        self.post_commit_pending = true;
-        self.post_cpu = 0;
-        if !self.startup_accounted && !self.terminal_reap.initial_accounting_unknown {
-            self.post_startup_cpu = if self.grant.opened {
-                self.grant.actual_baseline
-            } else {
-                user_before.checked_add(system_before).ok_or(())?
-            };
-            self.startup_accounted = true;
-        }
-        self.post_late_known = user_stable && system_forward;
-        self.post_unexplained_cpu = if system_forward {
-            let kernel = system_upper.checked_sub(system_lower).ok_or(())?;
-            if user_stable {
-                kernel
-            } else {
-                user_upper
-                    .checked_sub(user_lower)
-                    .and_then(|user| kernel.checked_add(user))
-                    .unwrap_or(u64::MAX)
+        self.creation_settled = true;
+        if control.foreground.load(Ordering::Acquire) {
+            self.pause_started = Some(Instant::now());
+            if self.record_pause_ack(Duration::ZERO).is_err() {
+                self.metrics.initial.readiness = -1;
+                self.reject(control, true);
+                return Err(());
             }
         } else {
-            u64::MAX
-        };
-        // This is wait4's residual cost, never an independent L observation.
-        self.post_late_cpu = 0;
-        self.settled_cpu = Some(user_upper.checked_add(system_upper).ok_or(())?);
-        if self.terminal_accounting_pending || self.pending_closure() {
-            self.finish_grant(control, 0);
-            // Without a causal closed roster this is terminal accounting only;
-            // the full uncertainty window remains in its failed receipt.
-            // Either final basis just charged the retained wait4 total in A.
-            // Its residual cannot also become a second helper/post CPU cost.
-            self.post_unexplained_cpu = 0;
-            self.post_late_known = true;
-        }
-        if self.metrics.grants == 0 && !self.metrics.initial_post_exit_observation {
-            self.metrics.startup_cpu_ns = user_before.checked_add(system_before).ok_or(())?;
-            self.startup_late_cpu_ns = self.metrics.late_kernel_cpu_ns;
-        }
-        // The wait4 residual is observation/failure cost, not independent
-        // evidence that can fund this same conservation comparison.
-        let _ = self.check_conservation(control, user_ns.checked_add(system_ns).ok_or(())?);
-        self.accounting_settled = self.retired_members_exited();
-        self.corroboration_pending = false;
-        self.reap_cost_before = control.accounting.debt_total.load(Ordering::Acquire);
-        self.reap_cost_pending = true;
-        self.reap_residual_booked = false;
-        self.reap_cost_retained = false;
-        self.reap_cost_unknown = false;
-        self.metrics.terminal_residual_cost_retained = false;
-        self.metrics.terminal_residual_cost_paid = false;
-        if rss > storage::HELPERS {
-            self.reject(control, 4);
-            return Err(());
-        }
-        if !self.post_late_known {
-            self.metrics.reconciliation_unproven =
-                self.metrics.reconciliation_unproven.saturating_add(1);
-            self.metrics.coverage_known = false;
-            self.reject(control, 5);
-            return Err(());
-        }
-        self.control_verdict(control)
-    }
-    fn conservation_independent_credit(&self) -> Option<(u64, u64)> {
-        let late = self
-            .metrics
-            .late_kernel_cpu_ns
-            .checked_sub(self.startup_late_cpu_ns)?;
-        let credit = self
-            .metrics
-            .startup_cpu_ns
-            .checked_add(self.metrics.charged_helper_cpu_ns)?
-            .checked_add(late)?
-            .checked_add(self.metrics.post_helper_cpu_ns)?;
-        (credit != u64::MAX).then_some((credit, late))
-    }
-    fn check_conservation(&mut self, control: &Control, wait4_ns: u64) -> Result<(), ()> {
-        let credit = self.conservation_independent_credit();
-        // Cost is the FULL residual, independently of the fixed T comparison.
-        // A known charged-prefix lower bound may price failure cost even when
-        // missing RI makes certification UNKNOWN; it never becomes L credit.
-        let actual_reap = self.metrics.wait4_reads == 1 && wait4_ns != u64::MAX;
-        let raw_residual = if actual_reap {
-            credit.map_or(u64::MAX, |(credit, _)| wait4_ns.saturating_sub(credit))
-        } else {
-            u64::MAX
-        };
-        let upper_residual = if actual_reap {
-            credit
-                .and_then(|(credit, _)| {
-                    wait4_ns.checked_add(2000).map(|u| u.saturating_sub(credit))
-                })
-                .unwrap_or(u64::MAX)
-        } else {
-            u64::MAX
-        };
-        self.metrics.terminal_residual_known_credit_ns =
-            credit.map_or(u64::MAX, |(credit, _)| credit);
-        self.metrics.terminal_residual_raw_ns = raw_residual;
-        self.metrics.terminal_residual_upper_ns = upper_residual;
-        self.reap_residual_required = upper_residual;
-        self.post_unexplained_cpu = self.post_unexplained_cpu.max(upper_residual);
-        let direct = u64::from(actual_reap);
-        let child = u64::from(actual_reap && self.qualified_reaped_child());
-        let count = direct.checked_add(child);
-        let teardown = count.and_then(|n| n.checked_mul(HELPER_TEARDOWN_NS));
-        self.metrics.conservation_direct_reaps = direct;
-        self.metrics.conservation_rollup_reaps = child;
-        self.metrics.conservation_teardown_per_process_ns = HELPER_TEARDOWN_NS;
-        self.metrics.conservation_teardown_ceiling_ns = teardown.unwrap_or(u64::MAX);
-        let allowance = self.metrics.wait4_reads.checked_mul(2000).and_then(|a| {
-            self.ticks_ns(self.metrics.counter_reads)
-                .ok()
-                .and_then(|t| a.checked_add(t))
-        });
-        let result = (|| {
-            if !actual_reap || self.terminal_reap.counter_unknown {
-                return None;
+            if self.signal_group(libc::SIGCONT).is_err() {
+                self.metrics.initial.readiness = -1;
+                self.reject(control, false);
+                return Err(());
             }
-            let (budget, late) = credit?;
-            let allowance = allowance?;
-            let pre_t = budget.checked_add(allowance)?;
-            let ceiling = pre_t.checked_add(teardown?)?;
-            Some((
-                budget,
-                allowance,
-                wait4_ns.saturating_sub(pre_t),
-                ceiling,
-                wait4_ns.saturating_sub(ceiling),
-                late,
-            ))
-        })();
-        self.metrics.conservation_checked = true;
-        self.metrics.conservation_known = result.is_some();
-        match result {
-            Some((budget, allowance, pre_t_gap, ceiling, excess, late)) => {
-                self.metrics.conservation_budget_ns = budget;
-                self.metrics.conservation_late_ns = late;
-                self.metrics.startup_late_excluded_ns = self.startup_late_cpu_ns;
-                self.metrics.conservation_allowance_ns = allowance;
-                self.metrics.conservation_pre_teardown_excess_ns = pre_t_gap;
-                self.metrics.conservation_total_ceiling_ns = ceiling;
-                self.metrics.conservation_excess_ns = excess;
-                self.metrics.conservation_comparison_pass = excess == 0;
-                // Actual certification waits for the FULL residual cost's
-                // retained unit and fresh debt, even if T covers the raw gap.
-                self.metrics.conservation_pass = excess == 0
-                    && (!self.usage_reconciled || self.metrics.terminal_residual_cost_paid);
-                if excess == 0 {
-                    return Ok(());
+            self.confirmed_stopped = false;
+            self.running = true;
+            for member in &mut self.members {
+                member.paused_user = None;
+            }
+        }
+        self.metrics.initial.readiness = 1;
+        Ok(true)
+    }
+    #[cfg(target_os = "macos")]
+    pub(crate) fn retire_members(&mut self) -> Result<(), ()> {
+        self.retiring = true;
+        self.ready = false;
+        self.pipe_open = false;
+        self.payload_admitted = false;
+        if self.own_wait4 || self.reap_authorized {
+            return Ok(());
+        } // no group OR escaped-token effects after Ready/own reap
+        if self.final_kill_attempted {
+            return Ok(());
+        }
+        if !self.positive_original() {
+            self.metrics.coverage_known = false;
+            return Err(());
+        }
+        // Retain escaped recipients as effects before any refusal; only exact
+        // audit-token signals may address them outside the pinned group.
+        let mut children = [0i32; 8];
+        helper_clear_errno();
+        let count = unsafe {
+            libc::proc_listchildpids(
+                self.identity.pid,
+                children.as_mut_ptr().cast(),
+                std::mem::size_of_val(&children) as i32,
+            )
+        };
+        let errno = io::Error::last_os_error()
+            .raw_os_error()
+            .unwrap_or(libc::EIO);
+        self.metrics.child_edge_result = count;
+        self.metrics.child_edge_errno = errno;
+        if !helper_census_known(count, errno) || count as usize >= children.len() {
+            self.metrics.coverage_known = false;
+            if self.identity.expected_members == 2 {
+                self.metrics.child_cost_unproven = true;
+            }
+        }
+        if helper_census_known(count, errno) && (count as usize) < children.len() {
+            for &pid in &children[..count as usize] {
+                if let Ok(member) = helper_audit_member(pid, self.identity.pid) {
+                    let _ = self.retain(member);
                 }
             }
-            None => {
-                self.metrics.conservation_budget_ns = credit.map_or(u64::MAX, |(credit, _)| credit);
-                self.metrics.conservation_allowance_ns = allowance.unwrap_or(u64::MAX);
-                self.metrics.conservation_pre_teardown_excess_ns = u64::MAX;
-                self.metrics.conservation_total_ceiling_ns = u64::MAX;
-                self.metrics.conservation_excess_ns = u64::MAX;
-                self.metrics.conservation_comparison_pass = false;
-                self.metrics.conservation_pass = false;
-            }
         }
-        self.finalize_rollup_basis(control);
-        control
-            .accounting
-            .resource_failed
-            .store(true, Ordering::Release);
-        self.reject(control, 4);
-        Err(())
-    }
-    pub(crate) fn finalize_rollup_basis(&mut self, control: &Control) {
-        if self.metrics.provisional_rollup_grants == 0 || self.metrics.rollup_revoked {
-            return;
+        if self.known_retained_child() {
+            let _ = self.try_child_rollup();
         }
-        if self.usage_reconciled
-            && self.metrics.wait4_reads == 1
-            && self.metrics.conservation_checked
-            && self.metrics.conservation_pass
-            && self.metrics.terminal_residual_cost_paid
-            && self.metrics.coverage_known
-        {
-            self.metrics.rollup_reconciled = true;
-            self.metrics.worst_grant.rollup_reconciled =
-                self.metrics.worst_grant.rollup_provisional;
-            return;
-        }
-        // Append a revocation bill; do not rewrite an earlier measured receipt
-        // or pretend its already-paid prefix rest covered a newly known cost.
-        self.metrics.rollup_revoked = true;
-        self.metrics.rollup_reconciled = false;
-        self.metrics.worst_grant.rollup_revoked = self.metrics.worst_grant.rollup_provisional;
-        self.metrics.rollup_fallback_worst.rollup_revoked = true;
-        self.metrics.rollup_fallback_charge_ns = self.metrics.provisional_rollup_fallback_delta_ns;
-        self.metrics.charged_ns = self
-            .metrics
-            .charged_ns
-            .saturating_add(self.metrics.rollup_fallback_charge_ns);
-        let before = self.metrics.debt_ns;
-        self.charge_helper_debt(control, self.metrics.provisional_rollup_debt_delta_ns);
-        self.metrics.rollup_fallback_debt_ns = self.metrics.debt_ns.saturating_sub(before);
-        if self.metrics.rollup_fallback_worst.q_ns > UNIT_NS {
-            control
-                .accounting
-                .resource_failed
-                .store(true, Ordering::Release);
-            self.reject(control, 4);
-        } else {
-            self.reject(control, 5);
-        }
-    }
-    pub(crate) fn commit_post_observation(
-        &mut self,
-        control: &Control,
-        cpu_ns: u64,
-        wall_ns: u64,
-    ) -> Result<(), ()> {
-        if !self.post_proof_pending {
+        let result = self.signal_group(libc::SIGKILL);
+        if !self.metrics.group_kill_attempted && !self.metrics.group_kill_not_attempted_terminal {
+            self.metrics.coverage_known = false;
             return Err(());
         }
-        self.post_cpu = cpu_ns;
-        if wall_ns == u64::MAX || cpu_ns == u64::MAX {
-            self.metrics.clock_failures = self.metrics.clock_failures.saturating_add(1);
-            self.post_late_cpu = u64::MAX;
-            self.post_late_known = false;
+        self.terminal_pending |= matches!(self.metrics.group_kill_errno, libc::EPERM | libc::ESRCH);
+        for member in self.retired.iter().filter(|m| m.pid > 0 && m.current) {
+            if helper_bsd(member.pid).is_ok_and(|info| {
+                Self::token_cleanup_required(
+                    member.current,
+                    helper_birth(&info) == Ok(member.birth),
+                    info.pbi_pgid != self.pgid as u32,
+                )
+            }) {
+                self.metrics.coverage_known = false;
+                self.metrics.child_cost_unproven = true;
+                self.metrics.escaped_kill_attempts =
+                    self.metrics.escaped_kill_attempts.saturating_add(1);
+                if let Err(errno) = helper_token_signal(&member.token, libc::SIGKILL) {
+                    self.metrics.escaped_kill_failures =
+                        self.metrics.escaped_kill_failures.saturating_add(1);
+                    self.metrics.escaped_kill_errno = errno;
+                }
+            }
         }
-        self.post_proof_pending = false;
-        self.commit_stopped_unit(control, Some(cpu_ns));
-        self.control_verdict(control)
-    }
-    fn control_verdict(&self, control: &Control) -> Result<(), ()> {
-        if self.metrics.coverage_known && control.error().is_none() {
+        if result.is_ok() || self.terminal_pending {
             Ok(())
         } else {
             Err(())
         }
     }
-    #[cfg(target_os = "macos")]
-    fn corroborate_stopped(&mut self, control: &Control) -> Result<(), ()> {
-        if !self.confirmed_stopped || self.pending_closure() || self.pipe_open {
-            return Err(());
+    #[cfg(not(target_os = "macos"))]
+    pub(crate) fn retire_members(&mut self) -> Result<(), ()> {
+        self.retiring = true;
+        Err(())
+    }
+    fn original_retained(&self) -> bool {
+        if !self.positive_original() {
+            return false;
         }
-        let user = self.actual_user_ticks()?;
-        let system = self.actual_system_ticks()?;
-        if !self.startup_accounted {
-            self.post_startup_cpu = self.ticks_ns(user.checked_add(system).ok_or(())?)?;
-            self.startup_accounted = true;
-        }
-        self.observed_post_revision = self.corroboration_revision;
-        self.post_cpu = 0;
-        self.post_late_cpu = 0;
-        self.post_late_known = true;
-        self.post_commit_pending = true;
-        for index in 0..2 {
-            if !self.member_continuity(index)? {
-                return Err(());
-            }
-        }
-        self.recheck_stopped_roster()?;
-        if self.pending_closure() || self.actual_user_ticks()? != user {
-            return Err(());
-        }
-        // This allocator/RSS metadata does not establish the stopped roster.
-        // Observe and charge it in this existing post-closure ordinary unit,
-        // before further grants; retain the conservative group peak as a bound.
-        let mixed = heaps()
-            .0
-            .checked_add(self.metrics.group_rss_peak)
-            .ok_or(())?;
-        self.metrics.mixed_heap_rss_peak = self.metrics.mixed_heap_rss_peak.max(mixed);
-        if mixed > HEAP_MAX {
-            self.reject(control, 4);
-            return Err(());
-        }
-        self.post_late_cpu =
-            self.ticks_ns(self.actual_system_ticks()?.checked_sub(system).ok_or(())?)?;
-        if !self.grant.opened && self.metrics.grants == 0 {
-            self.stage_initial_startup();
-        }
-        Ok(())
+        let m = self.members[0];
+        let live_pin = m.pid == self.identity.pid
+            && m.birth == self.identity.start_identity
+            && m.start != 0
+            && m.verified
+            && self.retired.iter().any(|r| {
+                r.pid == m.pid
+                    && r.birth == m.birth
+                    && r.current
+                    && r.token.value[5] == m.pid as u32
+            });
+        // Failed attachment still owns the exact typed native birth. No CONT
+        // was issued by this owner; terminal CPU will come from its own wait4,
+        // and missing QoS/admission can never turn this cleanup into trust.
+        live_pin || (!self.creation_settled && !self.running && m.pid == 0)
     }
     #[cfg(target_os = "macos")]
-    fn recheck_stopped_roster(&mut self) -> Result<(), ()> {
-        self.recheck_stopped_roster_expected(None)
-            .and_then(|same| if same { Ok(()) } else { Err(()) })
-    }
-    #[cfg(target_os = "macos")]
-    fn recheck_stopped_roster_expected(&mut self, expected: Option<&[i32]>) -> Result<bool, ()> {
-        let result = self.recheck_stopped_roster_inner(expected);
-        if result.is_err() {
-            for index in 0..usize::from(self.identity.expected_members) {
-                self.invalidate_slot(index);
-            }
+    fn original_exited(&mut self) -> bool {
+        if self.own_wait4 {
+            return true;
         }
-        result
-    }
-    #[cfg(target_os = "macos")]
-    fn recheck_stopped_roster_inner(&mut self, expected: Option<&[i32]>) -> Result<bool, ()> {
-        let mut pids = [0i32; 3];
-        let count = unsafe {
-            libc::proc_listpgrppids(
-                self.pgid,
-                pids.as_mut_ptr().cast(),
-                std::mem::size_of_val(&pids) as i32,
+        self.metrics.terminal_observations = self.metrics.terminal_observations.saturating_add(1);
+        self.metrics.terminal_last_guard = 1;
+        if !self.original_retained() {
+            return false;
+        }
+        let mut info = std::mem::MaybeUninit::<libc::siginfo_t>::zeroed();
+        let result = unsafe {
+            libc::waitid(
+                libc::P_PID,
+                self.identity.pid as libc::id_t,
+                info.as_mut_ptr(),
+                libc::WEXITED | libc::WNOHANG | libc::WNOWAIT,
             )
         };
-        if count == 0 {
-            return self.sample_exited_roster();
-        }
-        if count < 0 || count as usize > pids.len() {
-            return Err(());
-        }
-        let count = count as usize;
-        if count > usize::from(self.identity.expected_members) {
-            self.capture_members()?;
-            return Err(());
-        }
-        if let Some(expected) = expected
-            && (count != expected.len() || pids[..count].iter().any(|pid| !expected.contains(pid)))
-        {
-            // This is the final post-continuity census. Retain and stop newly
-            // discovered recipients before deciding that this grant is pending.
-            self.capture_members()?;
-            for member in self.retired_members.iter().filter(|member| {
-                member.pid > 0 && member.current && !expected.contains(&member.pid)
-            }) {
-                if matches!(helper_token_signal(&member.token,libc::SIGSTOP),Err(code) if code!=libc::ESRCH)
-                {
-                    return Err(());
-                }
-            }
-            return Ok(false);
-        }
-        if pids[..count]
-            .iter()
-            .any(|pid| !self.members.iter().any(|member| member.pid == *pid))
-        {
-            self.capture_members()?;
-            return Err(());
-        }
-        for member in self.members.into_iter().filter(|member| member.pid > 0) {
-            if !pids[..count].contains(&member.pid) {
-                if member.image_phase != HelperImagePhase::Exited
-                    || (member.exit_abstime == 0 && member.rollup_exit_observed_ns == 0)
-                {
-                    return Err(());
-                }
-                continue;
-            }
-            if member.image_phase == HelperImagePhase::Exited {
-                let mut usage = std::mem::MaybeUninit::<libc::rusage_info_v1>::uninit();
-                if unsafe { libc::proc_pid_rusage(member.pid, 1, usage.as_mut_ptr().cast()) } != 0 {
-                    return Err(());
-                }
-                let usage = unsafe { usage.assume_init() };
-                if usage.ri_proc_start_abstime != member.start_abstime
-                    || usage.ri_proc_exit_abstime == 0
-                {
-                    return Err(());
-                }
-                continue;
-            }
-            let mut children = [0i32; 3];
-            let found = unsafe {
-                libc::proc_listchildpids(
-                    member.pid,
-                    children.as_mut_ptr().cast(),
-                    std::mem::size_of_val(&children) as i32,
-                )
-            };
-            if found < 0
-                || found as usize >= children.len()
-                || children[..found as usize]
-                    .iter()
-                    .any(|pid| !pids[..count].contains(pid))
-            {
-                self.capture_members()?;
-                return Err(());
-            }
-        }
-        Ok(true)
-    }
-    #[cfg(not(target_os = "macos"))]
-    fn corroborate_stopped(&mut self, _: &Control) -> Result<(), ()> {
-        Err(())
-    }
-    #[cfg(not(target_os = "macos"))]
-    pub(crate) fn reconcile_usage(
-        &mut self,
-        _: &Control,
-        _: super::resolve::HelperReapUsage,
-    ) -> Result<(), ()> {
-        Err(())
-    }
-    fn commit_stopped_unit(&mut self, control: &Control, charged_cpu: Option<u64>) {
-        let cost = self
-            .post_cpu
-            .saturating_add(self.post_late_cpu)
-            .saturating_add(self.post_unexplained_cpu)
-            .saturating_add(self.post_startup_cpu);
-        if self.usage_reconciled && self.reap_cost_pending {
-            self.reap_cost_helper = self
-                .post_late_cpu
-                .saturating_add(self.post_unexplained_cpu)
-                .saturating_add(self.post_startup_cpu);
-            self.reap_cost_unknown = cost == u64::MAX;
-            self.reap_residual_booked = self.post_unexplained_cpu >= self.reap_residual_required;
-            self.metrics.terminal_residual_charged_ns = self.post_unexplained_cpu;
-        }
-        self.metrics.startup_charged_cpu_ns = self
-            .metrics
-            .startup_charged_cpu_ns
-            .saturating_add(self.post_startup_cpu);
-        self.metrics.unexplained_cpu_ns = self
-            .metrics
-            .unexplained_cpu_ns
-            .saturating_add(self.post_unexplained_cpu);
-        self.metrics.post_units = self.metrics.post_units.saturating_add(1);
-        self.metrics.post_cpu_ns = self.metrics.post_cpu_ns.saturating_add(self.post_cpu);
-        self.metrics.post_max_cpu_ns = self.metrics.post_max_cpu_ns.max(cost);
-        if self.post_late_known {
-            self.metrics.late_kernel_cpu_ns = self
-                .metrics
-                .late_kernel_cpu_ns
-                .saturating_add(self.post_late_cpu);
-            self.metrics.late_kernel_observations = self
-                .metrics
-                .late_kernel_observations
-                .saturating_add(u64::from(self.post_late_cpu != 0));
+        self.metrics.terminal_waitid_result = result;
+        self.metrics.terminal_waitid_errno = if result == 0 {
+            0
         } else {
-            self.metrics.unexplained_cpu_ns = self
-                .metrics
-                .unexplained_cpu_ns
-                .saturating_add(self.post_late_cpu);
-        }
-        // A proof-owned usage observation has already recorded its actual C
-        // through read_charge. Charge the inclusive C+L floor once, extending
-        // only its uncovered delta; controller-owned new units have no prior C.
-        let terminal_unknown = cost == u64::MAX
-            && ((self.terminal_reap.attempt_open
-                && self.terminal_reap.ticket == Some(self.identity.ticket()))
-                || (self.usage_reconciled && self.reap_cost_pending));
-        self.terminal_reap.cost_unknown |= terminal_unknown && self.terminal_reap.attempt_open;
-        let debt_cost = match charged_cpu {
-            Some(_) if terminal_unknown => {
-                // Preserve MAX as the raw unknown inclusive cost. Its existing
-                // finite3ms normalization includes C's already-paid floor;
-                // extend only the uncovered part to retain one full27ms debt.
-                control
-                    .accounting
-                    .clock_failed
-                    .store(true, Ordering::Release);
-                self.metrics.clock_failures = self.metrics.clock_failures.saturating_add(1);
-                self.metrics.coverage_known = false;
-                let funded = control
-                    .accounting
-                    .debt_total
-                    .load(Ordering::Acquire)
-                    .checked_sub(if self.usage_reconciled && self.reap_cost_pending {
-                        self.reap_cost_before
-                    } else {
-                        self.terminal_reap.debt_before
-                    })
-                    .filter(|debt| debt % 9 == 0)
-                    .map(|debt| debt / 9);
-                funded.map_or(u64::MAX, |funded| SPAN_NS.saturating_sub(funded))
-            }
-            Some(cpu) if cost != u64::MAX && cpu != u64::MAX => cost
-                .max(UNIT_NS)
-                .checked_sub(cpu.max(UNIT_NS))
-                .unwrap_or(u64::MAX),
-            Some(_) => u64::MAX,
-            None => cost.max(UNIT_NS),
+            io::Error::last_os_error()
+                .raw_os_error()
+                .unwrap_or(libc::EIO)
         };
-        self.charge_helper_debt(control, debt_cost);
-        if let Some(mut baseline) = self.initial_startup
-            && !baseline.charged
-            && self.initial_startup_source_matches(baseline)
-            && self.post_late_known
-            && cost != u64::MAX
-            && debt_cost != u64::MAX
-            && !control.accounting.clock_failed.load(Ordering::Acquire)
-            && let Some(ticks) = baseline
-                .usage
-                .user_ticks
-                .checked_add(baseline.usage.system_ticks)
-            && let Ok(cpu) = self.ticks_ns(ticks)
-            && cpu != u64::MAX
-            && self
-                .metrics
-                .startup_charged_cpu_ns
-                .checked_add(self.metrics.late_kernel_cpu_ns)
-                .is_some_and(|paid| paid >= cpu && paid != u64::MAX)
+        self.metrics.terminal_waitid_pid = 0;
+        self.metrics.terminal_waitid_code = 0;
+        self.metrics.terminal_last_guard = 2;
+        if result != 0 {
+            return false;
+        }
+        let info = unsafe { info.assume_init() };
+        self.metrics.terminal_waitid_pid = info.si_pid;
+        self.metrics.terminal_waitid_code = info.si_code;
+        self.metrics.terminal_last_guard = 3;
+        if info.si_pid != self.identity.pid
+            || !matches!(
+                info.si_code,
+                libc::CLD_EXITED | libc::CLD_KILLED | libc::CLD_DUMPED
+            )
         {
-            // This raw cut includes all previously charged startup/kernel
-            // growth once. Exclude that same prefix from later L; only a fresh
-            // terminal raw-system delta can extend the conservation RHS.
-            self.metrics.startup_cpu_ns = cpu;
-            self.startup_late_cpu_ns = self.metrics.late_kernel_cpu_ns;
-            baseline.charged = true;
-            baseline.rest_until_ns = control.accounting.rest_until.load(Ordering::Acquire);
-            self.metrics.initial_startup_baseline_ns = baseline.usage.observed_ns;
-            self.metrics.initial_startup_rest_until_ns = baseline.rest_until_ns;
-            self.initial_startup = Some(baseline);
+            return false;
         }
-        self.post_commit_pending = false;
-        self.corroboration_pending =
-            !self.retiring && self.corroboration_revision != self.observed_post_revision;
-        self.post_cpu = 0;
-        self.post_late_cpu = 0;
-        self.post_unexplained_cpu = 0;
-        self.post_startup_cpu = 0;
-        if cost > UNIT_NS {
-            self.reject(control, 4);
-        }
-    }
-    /// A later required observation closes continuity, rather than treating one
-    /// TASKALLINFO struct as an atomic stop/exec/roster transaction.
-    #[cfg(target_os = "macos")]
-    fn member_continuity(&mut self, index: usize) -> Result<bool, ()> {
-        match self.member_continuity_inner(index) {
-            Ok(stopped) => Ok(stopped),
-            Err(failure) => self.continuity_failure(failure),
-        }
-    }
-    #[cfg(target_os = "macos")]
-    fn member_continuity_inner(&mut self, index: usize) -> Result<bool, HelperObservationFailure> {
-        use std::os::unix::ffi::OsStrExt;
-        self.metrics.sample_stage = 80;
-        let prior = self.members[index];
-        if prior.pid == 0 {
-            return Ok(true);
-        }
-        if prior.image_phase == HelperImagePhase::Exited
-            && (prior.exit_abstime != 0 || prior.rollup_exit_observed_ns != 0)
-            && helper_token_exited(&prior.audit_token) == Ok(true)
-        {
-            if index == 1 {
-                let _ = self.observe_retired_child_rollup(None)?;
-            }
-            self.acknowledge_slot(index)?;
-            return Ok(true);
-        }
-        self.metrics.sample_stage = 81;
-        #[cfg(test)]
-        if index == 0 && std::mem::take(&mut self.exit_before_member_query) {
-            assert_eq!(
-                helper_token_signal(&prior.audit_token, libc::SIGKILL),
-                Ok(())
-            );
-            let until = Instant::now() + Duration::from_secs(1);
-            while super::resolve::helper_exited(self.pgid) != Ok(true) {
-                assert!(Instant::now() < until);
-                thread::sleep(Duration::from_micros(100));
-            }
-        }
-        let mut raw = std::mem::MaybeUninit::<libc::proc_taskallinfo>::uninit();
-        let size = std::mem::size_of::<libc::proc_taskallinfo>() as i32;
-        if unsafe {
+        let mut bsd = std::mem::MaybeUninit::<libc::proc_bsdinfo>::uninit();
+        let size = std::mem::size_of::<libc::proc_bsdinfo>() as i32;
+        let result = unsafe {
             libc::proc_pidinfo(
-                prior.pid,
-                libc::PROC_PIDTASKALLINFO,
+                self.identity.pid,
+                libc::PROC_PIDTBSDINFO,
                 0,
-                raw.as_mut_ptr().cast(),
+                bsd.as_mut_ptr().cast(),
                 size,
             )
-        } != size
-        {
-            let native_code = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
-            if index == 0 || native_code != libc::ESRCH {
-                return Err(HelperObservationFailure::native(81, native_code));
-            }
-            if self.observe_retired_child_rollup(None)? {
-                self.acknowledge_slot_at(index, Some(self.members[index].rollup_exit_observed_ns))?;
-                return Ok(true);
-            }
-            self.exited_member_usage(prior.pid)?;
-            self.members[index].image_phase = HelperImagePhase::Exited;
-            self.acknowledge_slot(index)?;
-            return Ok(true);
-        }
-        let raw = unsafe { raw.assume_init() };
-        let info = raw.pbsd;
-        let task = raw.ptinfo;
-        self.metrics.sample_stage = 82;
-        let birth = info
-            .pbi_start_tvsec
-            .checked_mul(1_000_000)
-            .and_then(|n| n.checked_add(info.pbi_start_tvusec))
-            .ok_or(())?;
-        let parent = if index == 0 {
-            unsafe { libc::getpid() }
+        };
+        self.metrics.terminal_bsd_result = result;
+        self.metrics.terminal_bsd_errno = if result == size {
+            0
         } else {
-            self.pgid
+            io::Error::last_os_error()
+                .raw_os_error()
+                .unwrap_or(libc::EIO)
         };
-        self.metrics.sample_stage = 83;
-        if info.pbi_pid != prior.pid as u32
-            || info.pbi_pgid != self.pgid as u32
-            || info.pbi_ppid != parent as u32
-            || info.pbi_uid != unsafe { libc::geteuid() }
-            || info.pbi_nice < 10
-            || birth != prior.birth
-        {
-            return Err(HelperObservationFailure::mismatch(0));
-        }
-        self.metrics.sample_stage = 84;
-        let mut image = [0u8; 4096];
-        let result = unsafe {
-            proc_pidpath_audittoken(
-                &prior.audit_token,
-                image.as_mut_ptr().cast(),
-                image.len() as u32,
-            )
-        };
-        if result <= 0 {
-            let native_code = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
-            if native_code != libc::ESRCH {
-                return Err(HelperObservationFailure::native(84, native_code));
-            }
-            let current =
-                helper_audit_member_checked(prior.pid, parent).map_err(|f| f.shifted(100))?;
-            self.metrics.sample_stage = 85;
-            self.retain_incarnation(current)?;
-            let mut member = prior;
-            member.audit_token = current.token;
-            member.audit_version = current.token.value[7];
-            if current.birth != prior.birth
-                || (index == 0 && current.token.value != prior.audit_token.value)
+        self.metrics.terminal_last_guard = 4;
+        if result == size {
+            let bsd = unsafe { bsd.assume_init() };
+            if bsd.pbi_pid != self.identity.pid as u32
+                || bsd.pbi_ppid != unsafe { libc::getpid() } as u32
+                || bsd.pbi_uid != unsafe { libc::geteuid() }
+                || bsd.pbi_pgid != self.pgid as u32
+                || helper_birth(&bsd) != Ok(self.identity.start_identity)
+                || bsd.pbi_status != libc::SZOMB
             {
-                return Err(HelperObservationFailure::mismatch(0));
+                return false;
             }
-            if member.audit_version == prior.audit_version {
-                return Err(HelperObservationFailure::native(84, native_code));
-            }
-            self.metrics.sample_stage = 86;
-            helper_token_signal(&member.audit_token, libc::SIGSTOP).map_err(|_| ())?;
-            member.exec_stop_version = member.audit_version;
-            self.note_incarnation(index, member);
-            self.members[index] = member;
-            self.confirmed_stopped = false;
-            let n = unsafe {
-                proc_pidpath_audittoken(
-                    &member.audit_token,
-                    image.as_mut_ptr().cast(),
-                    image.len() as u32,
-                )
-            };
-            self.metrics.sample_stage = 87;
-            if n <= 0 {
-                return Err(HelperObservationFailure::mismatch(0));
-            }
-            self.metrics.sample_stage = 88;
-            let end = image.iter().position(|n| *n == 0).ok_or(())?;
-            let allowed = index == 1
-                && current.birth == prior.birth
-                && member.audit_version > prior.audit_version
-                && prior.image_phase == HelperImagePhase::ParentClone
-                && self
-                    .identity
-                    .descendant_image
-                    .as_ref()
-                    .is_some_and(|expected| expected.as_os_str().as_bytes() == &image[..end]);
-            if !allowed {
-                return Err(HelperObservationFailure::mismatch(0));
-            }
-            self.members[index].image_phase = HelperImagePhase::Descendant;
-            self.metrics.verified_descendants =
-                self.metrics.verified_descendants.checked_add(1).ok_or(())?;
-            return Ok(false);
-        }
-        self.metrics.sample_stage = 89;
-        let end = image.iter().position(|n| *n == 0).ok_or(())?;
-        let expected = if index == 0 || prior.image_phase == HelperImagePhase::ParentClone {
-            &self.identity.image
+            self.metrics.terminal_last_guard = 5;
         } else {
-            self.identity.descendant_image.as_ref().ok_or(())?
-        };
-        self.metrics.sample_stage = 90;
-        if expected.as_os_str().as_bytes() != &image[..end] {
-            return Err(HelperObservationFailure::mismatch(0));
+            // Positive OWN WNOWAIT + original unreaped incarnation pin supplies
+            // exit. Query absence supplies no endpoint or new signaling right.
+            self.metrics.terminal_last_guard = 6;
         }
-        // A same-incarnation zombie transition is not a task identity change;
-        // it still needs fresh original WNOWAIT plus the complete exit proof.
-        if info.pbi_status == libc::SZOMB {
-            return Err(HelperObservationFailure::exited(91));
-        }
-        if task.pti_threadnum == 0 {
-            return Err(HelperObservationFailure::exited(129));
-        }
-        self.metrics.sample_stage = 92;
-        let current = HelperTaskObservation {
-            pid: info.pbi_pid as i32,
-            status: info.pbi_status,
-            threads: task.pti_threadnum,
-            running: task.pti_numrunning,
-            observed_ns: bootstrap::monotonic_ns().unwrap_or(u64::MAX),
-        };
-        #[cfg(test)]
-        let current = if INITIAL_CONTINUITY_RUNNING_FAULT.with(|fault| fault.replace(false)) {
-            HelperTaskObservation {
-                running: 1,
-                ..current
-            }
-        } else {
-            current
-        };
-        let initial_pending = self.initial_kernel_tail_pending(index, current);
-        if !initial_pending {
-            self.check_member_quiescence(index, current)?;
-        }
-        self.metrics.sample_stage = 93;
-        let mut usage = std::mem::MaybeUninit::<libc::rusage_info_v1>::uninit();
-        if unsafe { libc::proc_pid_rusage(prior.pid, 1, usage.as_mut_ptr().cast()) } != 0 {
-            return Err(HelperObservationFailure::native(
-                93,
-                std::io::Error::last_os_error().raw_os_error().unwrap_or(0),
-            ));
-        }
-        self.metrics.sample_stage = 94;
-        let usage = unsafe { usage.assume_init() };
-        self.observe_usage(index, prior.pid, &usage);
-        if usage.ri_proc_start_abstime != prior.start_abstime
-            || usage.ri_system_time < prior.system_ticks
-        {
-            return Err(HelperObservationFailure::mismatch(0));
-        }
-        if usage.ri_proc_exit_abstime != 0 {
-            return Err(HelperObservationFailure::exited(95));
-        }
-        self.metrics.sample_stage = 96;
-        let user_changed = usage.ri_user_time != prior.user_ticks;
-        let cpu = self.ticks_ns(
-            usage
-                .ri_user_time
-                .checked_add(usage.ri_system_time)
-                .ok_or(())?,
-        )?;
-        if cpu < prior.cpu {
-            return Err(HelperObservationFailure::mismatch(0));
-        }
-        self.members[index].cpu = cpu;
-        self.members[index].user_ticks = usage.ri_user_time;
-        self.members[index].system_ticks = usage.ri_system_time;
-        self.members[index].rss_peak = prior.rss_peak.max(usage.ri_resident_size);
-        if index == 0 {
-            if usage.ri_child_user_time < self.rolled_user_ticks
-                || usage.ri_child_system_time < self.rolled_system_ticks
-            {
-                return Err(HelperObservationFailure::mismatch(0));
-            }
-            self.rolled_user_ticks = usage.ri_child_user_time;
-            self.rolled_system_ticks = usage.ri_child_system_time;
-            self.metrics.observed_direct_cpu_ns = cpu;
-            self.metrics.rolled_descendant_cpu_ns = self.ticks_ns(
-                usage
-                    .ri_child_user_time
-                    .checked_add(usage.ri_child_system_time)
-                    .ok_or(())?,
-            )?;
-        } else {
-            self.metrics.observed_descendant_cpu_ns = cpu;
-        }
-        self.metrics.sample_stage = 97;
-        if user_changed {
-            self.invalidate_slot(index);
-            return Err(HelperObservationFailure::mismatch(0));
-        }
-        if initial_pending {
-            // Identity/path and the fresh same-start RI record above still
-            // require unchanged ZERO user CPU. Preserve custody and the same
-            // deadline/cost span; the parent must take a fresh full sample.
-            self.initial_stop_pending = true;
-            self.confirmed_stopped = false;
-            self.metrics.initial_continuity_pending_observations = self
-                .metrics
-                .initial_continuity_pending_observations
-                .saturating_add(1);
-            return Ok(false);
-        }
-        if prior.image_phase == HelperImagePhase::Descendant {
-            self.members[index].final_image_version = prior.audit_version;
-        }
-        self.acknowledge_slot(index)?;
-        self.task_observations[index] = current;
-        self.seal_post_ack_counter(index, current.observed_ns)?;
-        Ok(true)
+        self.exited = true;
+        self.running = false;
+        self.members[0].live = false;
+        true
     }
-    /// A failed STOP is not an exec barrier. While the original leader lives,
-    /// observe each exact current task and RI incarnation without signaling or
-    /// acknowledging any endpoint. Query unavailability may seek one complete
-    /// independent original-terminal proof; an observed mismatch never does.
-    #[cfg(target_os = "macos")]
-    fn pending_live_continuity(&mut self) -> Result<bool, ()> {
-        match self.pending_live_continuity_inner() {
-            Ok(()) => Ok(false),
-            Err(failure) => self.continuity_failure(failure),
-        }
+    #[cfg(not(target_os = "macos"))]
+    fn original_exited(&mut self) -> bool {
+        false
     }
     #[cfg(target_os = "macos")]
-    fn continuity_failure(&mut self, mut failure: HelperObservationFailure) -> Result<bool, ()> {
-        if failure.guard == 0 {
-            failure.guard = self.metrics.sample_stage;
-        }
-        self.metrics.sample_stage = failure.guard;
-        self.metrics.last_continuity_guard = failure.guard;
-        self.metrics.last_continuity_native_code = failure.native_code;
-        let eligible_query = failure.is_proc_esrch();
-        let stop = self.metrics.last_stop;
-        let defer_original_query = eligible_query
-            && failure.guard == 41
-            && self.stop_outcome == HelperStopOutcome::PendingTerminal
-            && self.stop_requested
-            && self.running
-            && !self.retiring
-            && !self.admission_failed
-            && self.grant.opened
-            && !self.grant.closed
-            && stop.result == -1
-            && matches!(stop.rawerrno, libc::EPERM | libc::ESRCH)
-            && stop.sequence == self.identity.sequence
-            && stop.pid == self.identity.pid
-            && stop.pgid == self.pgid
-            && stop.birth == self.identity.start_identity
-            && stop.start_abstime == self.members[0].start_abstime
-            && stop.audit_version == self.members[0].audit_version
-            && stop.attempt == self.metrics.stop_attempts
-            && self.members[0].pid == self.identity.pid
-            && self.members[0].birth == self.identity.start_identity
-            && self.members[0].audit_version != 0
-            && self.members[0].final_image_version == self.members[0].audit_version;
-        let result = match failure.kind {
-            HelperObservationKind::Mismatch => Err(()),
-            HelperObservationKind::NativeUnavailable | HelperObservationKind::ExitDuringRead
-                if (eligible_query
-                    || matches!(failure.kind, HelperObservationKind::ExitDuringRead))
-                    && self.metrics.coverage_known
-                    && self.metrics.clock_failures == 0 =>
-            {
-                // This is ONE independent terminal observation, not a retry of
-                // the failed native query or any STOP/CONT. Neither query errno
-                // nor an exited leader alone completes the terminal conjunction.
-                self.metrics.continuity_query_fallbacks =
-                    self.metrics.continuity_query_fallbacks.saturating_add(1);
-                self.metrics.sample_stage = 70; // original WNOWAIT after raced query
-                match self.observe_leader_exit() {
-                    Ok(Some(hint)) => {
-                        self.metrics.sample_stage = 71; // full original terminal proof
-                        let was_pending = self.query_terminal_pending;
-                        let proved = self.sample_exited_roster_with_hint(hint);
-                        if proved == Ok(true) && !was_pending {
-                            self.metrics.continuity_terminal_observations = self
-                                .metrics
-                                .continuity_terminal_observations
-                                .saturating_add(1);
-                        }
-                        proved
-                    }
-                    Ok(None) => {
-                        self.metrics.sample_stage = 72;
-                        if defer_original_query {
-                            // BSDINFO(arg0) ESRCH is not exit. Decision66050
-                            // already permits bounded exact observation while
-                            // this consumed failed STOP remains pending. Keep
-                            // the ORIGINAL windows open and every controller/
-                            // pipe cost in Q; helper_tick enforces the unchanged
-                            // <=1ms/deadline before any further work can resume.
-                            self.query_terminal_pending = true;
-                            self.metrics.continuity_pending_observations = self
-                                .metrics
-                                .continuity_pending_observations
-                                .saturating_add(1);
-                            Ok(false)
-                        } else {
-                            Err(())
-                        }
-                    }
-                    Err(()) => {
-                        self.metrics.sample_stage = 73;
-                        Err(())
-                    }
-                }
-            }
-            _ => {
-                self.metrics.sample_stage = 74;
-                Err(())
-            }
-        };
-        if result.is_err() {
-            // Actual mismatch, or an unavailable query WITHOUT the complete
-            // independently proved original terminal conjunction, is sticky.
-            self.metrics.coverage_known = false;
-            for index in 0..usize::from(self.identity.expected_members) {
-                self.invalidate_slot(index);
-            }
-        }
-        result
-    }
-    #[cfg(target_os = "macos")]
-    fn pending_live_continuity_inner(&mut self) -> Result<(), HelperObservationFailure> {
-        use std::os::unix::ffi::OsStrExt;
-        self.metrics.sample_stage = 39;
-        if !self.metrics.coverage_known || self.metrics.clock_failures != 0 {
-            return Err(HelperObservationFailure::mismatch(0));
-        }
-        let mut rss_sum = 0u64;
-        for index in 0..usize::from(self.identity.expected_members) {
-            self.metrics.sample_stage = 40;
-            let prior = self.members[index];
-            if prior.pid <= 0
-                || prior.start_abstime == 0
-                || prior.audit_version == 0
-                || prior.final_image_version != prior.audit_version
-                || !matches!(
-                    prior.image_phase,
-                    HelperImagePhase::Descendant | HelperImagePhase::Exited
-                )
-            {
-                return Err(HelperObservationFailure::mismatch(0));
-            }
-            if prior.image_phase == HelperImagePhase::Exited {
-                self.exited_member_usage(prior.pid)?;
-                if (prior.exit_abstime == 0 && prior.rollup_exit_observed_ns == 0)
-                    || helper_token_exited(&prior.audit_token) != Ok(true)
-                {
-                    return Err(HelperObservationFailure::mismatch(0));
-                }
-                continue;
-            }
-            let parent = if index == 0 {
-                unsafe { libc::getpid() }
-            } else {
-                self.pgid
-            };
-            #[cfg(test)]
-            if index == 0 && std::mem::take(&mut self.exit_before_pending_query) {
-                // Deterministic owned-process control: the original was just
-                // observed live; make it actually exit before the live query.
-                // Fixture synchronization is not a terminal proof or endpoint.
-                assert_eq!(
-                    helper_token_signal(&prior.audit_token, libc::SIGKILL),
-                    Ok(())
-                );
-                let until = Instant::now() + Duration::from_secs(1);
-                while super::resolve::helper_exited(self.pgid) != Ok(true) {
-                    assert!(Instant::now() < until);
-                    thread::sleep(Duration::from_micros(100));
-                }
-            }
-            let current = helper_audit_member_checked(prior.pid, parent)
-                .map_err(|f| f.shifted(if index == 0 { 40 } else { 150 }))?;
-            // Capture any actual exec successor before refusing it. No STOP is
-            // sent to either old or new task, and no image transition is admitted.
-            self.retain_incarnation(current)?;
-            self.metrics.sample_stage = 49;
-            if current.birth != prior.birth || current.token.value != prior.audit_token.value {
-                return Err(HelperObservationFailure::mismatch(0));
-            }
-            self.metrics.sample_stage = 50;
-            let mut raw = std::mem::MaybeUninit::<libc::proc_taskallinfo>::uninit();
-            let size = std::mem::size_of::<libc::proc_taskallinfo>() as i32;
-            if unsafe {
-                libc::proc_pidinfo(
-                    prior.pid,
-                    libc::PROC_PIDTASKALLINFO,
-                    0,
-                    raw.as_mut_ptr().cast(),
-                    size,
-                )
-            } != size
-            {
-                return Err(HelperObservationFailure::native(
-                    50,
-                    std::io::Error::last_os_error().raw_os_error().unwrap_or(0),
-                ));
-            }
-            self.metrics.sample_stage = 51;
-            let raw = unsafe { raw.assume_init() };
-            let birth = raw
-                .pbsd
-                .pbi_start_tvsec
-                .checked_mul(1_000_000)
-                .and_then(|n| n.checked_add(raw.pbsd.pbi_start_tvusec))
-                .ok_or(())?;
-            self.metrics.sample_stage = 52;
-            // Individual numeric guards distinguish observed identity changes
-            // from a task disappearing while its original process exits.
-            for (bad, guard) in [
-                (raw.pbsd.pbi_pid != prior.pid as u32, 120),
-                (raw.pbsd.pbi_ppid != parent as u32, 121),
-                (raw.pbsd.pbi_pgid != self.pgid as u32, 122),
-                (raw.pbsd.pbi_uid != unsafe { libc::geteuid() }, 123),
-                (raw.pbsd.pbi_nice < 10, 124),
-                (birth != prior.birth, 125),
-            ] {
-                if bad {
-                    return Err(HelperObservationFailure::mismatch(guard));
-                }
-            }
-            if raw.pbsd.pbi_status == libc::SZOMB || raw.ptinfo.pti_threadnum == 0 {
-                return Err(HelperObservationFailure::exited(128));
-            }
-            if raw.ptinfo.pti_threadnum != 1 {
-                return Err(HelperObservationFailure::mismatch(126));
-            }
-            if !(0..=1).contains(&raw.ptinfo.pti_numrunning) {
-                return Err(HelperObservationFailure::mismatch(127));
-            }
-            let mut path = [0u8; 4096];
-            self.metrics.sample_stage = 53;
-            if unsafe {
-                proc_pidpath_audittoken(
-                    &prior.audit_token,
-                    path.as_mut_ptr().cast(),
-                    path.len() as u32,
-                )
-            } <= 0
-            {
-                return Err(HelperObservationFailure::native(
-                    53,
-                    std::io::Error::last_os_error().raw_os_error().unwrap_or(0),
-                ));
-            }
-            self.metrics.sample_stage = 54;
-            let end = path.iter().position(|byte| *byte == 0).ok_or(())?;
-            let expected = if index == 0 {
-                &self.identity.image
-            } else {
-                self.identity.descendant_image.as_ref().ok_or(())?
-            };
-            self.metrics.sample_stage = 56;
-            if expected.as_os_str().as_bytes() != &path[..end] {
-                return Err(HelperObservationFailure::mismatch(0));
-            }
-            let mut usage = std::mem::MaybeUninit::<libc::rusage_info_v1>::uninit();
-            self.metrics.sample_stage = 57;
-            if unsafe { libc::proc_pid_rusage(prior.pid, 1, usage.as_mut_ptr().cast()) } != 0 {
-                return Err(HelperObservationFailure::native(
-                    57,
-                    std::io::Error::last_os_error().raw_os_error().unwrap_or(0),
-                ));
-            }
-            self.metrics.sample_stage = 58;
-            let usage = unsafe { usage.assume_init() };
-            self.observe_usage(index, prior.pid, &usage);
-            if usage.ri_proc_start_abstime != prior.start_abstime
-                || usage.ri_user_time < prior.user_ticks
-                || usage.ri_system_time < prior.system_ticks
-            {
-                return Err(HelperObservationFailure::mismatch(0));
-            }
-            if usage.ri_proc_exit_abstime != 0 {
-                return Err(HelperObservationFailure::exited(59));
-            }
-            let after = helper_audit_member_checked(prior.pid, parent)
-                .map_err(|f| f.shifted(if index == 0 { 60 } else { 160 }))?;
-            self.retain_incarnation(after)?;
-            self.metrics.sample_stage = 69;
-            if after.birth != prior.birth || after.token.value != prior.audit_token.value {
-                return Err(HelperObservationFailure::mismatch(0));
-            }
-            let cpu = self.ticks_ns(
-                usage
-                    .ri_user_time
-                    .checked_add(usage.ri_system_time)
-                    .ok_or(())?,
-            )?;
-            if cpu < prior.cpu {
-                return Err(HelperObservationFailure::mismatch(0));
-            }
-            self.members[index].cpu = cpu;
-            self.members[index].user_ticks = usage.ri_user_time;
-            self.members[index].system_ticks = usage.ri_system_time;
-            self.members[index].rss_peak = prior.rss_peak.max(usage.ri_resident_size);
-            rss_sum = rss_sum.checked_add(usage.ri_resident_size).ok_or(())?;
-            if index == 0 {
-                if usage.ri_child_user_time < self.rolled_user_ticks
-                    || usage.ri_child_system_time < self.rolled_system_ticks
-                {
-                    return Err(HelperObservationFailure::mismatch(0));
-                }
-                self.rolled_user_ticks = usage.ri_child_user_time;
-                self.rolled_system_ticks = usage.ri_child_system_time;
-                self.metrics.observed_direct_cpu_ns = cpu;
-                self.metrics.rolled_descendant_cpu_ns = self.ticks_ns(
-                    usage
-                        .ri_child_user_time
-                        .checked_add(usage.ri_child_system_time)
-                        .ok_or(())?,
-                )?;
-            } else {
-                self.metrics.observed_descendant_cpu_ns = cpu;
-            }
-        }
-        self.metrics.group_rss_peak = self.metrics.group_rss_peak.max(rss_sum);
-        self.metrics.separate_rss_sum = self.metrics.separate_rss_sum.max(
-            self.members[0]
-                .rss_peak
-                .checked_add(self.members[1].rss_peak)
-                .ok_or(())?,
-        );
-        if rss_sum > storage::HELPERS {
-            return Err(HelperObservationFailure::mismatch(0));
-        }
-        // This census only refuses unknown births. It neither closes a slot nor
-        // changes the source/platform premise into native absence-of-work proof.
-        let mut pids = [0i32; 3];
-        self.metrics.sample_stage = 75;
-        let count = unsafe {
-            libc::proc_listpgrppids(
-                self.pgid,
-                pids.as_mut_ptr().cast(),
-                std::mem::size_of_val(&pids) as i32,
-            )
-        };
-        if count < 0 {
-            return Err(HelperObservationFailure::native(
-                75,
-                std::io::Error::last_os_error().raw_os_error().unwrap_or(0),
-            ));
-        }
-        if count == 0 {
-            return Err(HelperObservationFailure::exited(75));
-        }
-        if count as usize > pids.len()
-            || pids[..count as usize]
-                .iter()
-                .any(|pid| !self.members.iter().any(|m| m.pid == *pid))
-        {
-            return Err(HelperObservationFailure::mismatch(76));
-        }
-        self.metrics.sample_stage = 76;
-        for member in self.members.iter().filter(|member| {
-            member.pid > 0 && member.exit_abstime == 0 && member.rollup_exit_observed_ns == 0
-        }) {
-            let mut children = [0i32; 3];
-            let found = unsafe {
-                libc::proc_listchildpids(
-                    member.pid,
-                    children.as_mut_ptr().cast(),
-                    std::mem::size_of_val(&children) as i32,
-                )
-            };
-            if found < 0 {
-                return Err(HelperObservationFailure::native(
-                    77,
-                    std::io::Error::last_os_error().raw_os_error().unwrap_or(0),
-                ));
-            }
-            if found as usize > children.len()
-                || children[..found as usize]
-                    .iter()
-                    .any(|pid| member.pid != self.pgid || self.members[1].pid != *pid)
-            {
-                return Err(HelperObservationFailure::mismatch(78));
-            }
-        }
-        Ok(())
-    }
-    #[cfg(target_os = "macos")]
-    fn exited_member_usage(&mut self, pid: i32) -> Result<(), ()> {
-        self.metrics.sample_stage = 110;
-        let index = self
+    fn retained_member_exited(&self, member: RetiredMember) -> bool {
+        let Some(known) = self
             .members
             .iter()
-            .position(|m| m.pid == pid && m.start_abstime != 0)
-            .ok_or(())?;
-        if index == 1
-            && self.members[1].rollup_exit_observed_ns != 0
-            && self.unique_admitted_child()
-            && helper_token_exited(&self.members[1].audit_token) == Ok(true)
-        {
-            return Ok(()); // retained conditional retirement, never a new RI exit
+            .find(|m| m.pid == member.pid && m.birth == member.birth && m.start != 0)
+        else {
+            return false;
+        };
+        if helper_token_exited(&member.token) != Ok(true) {
+            return false;
         }
-        self.metrics.sample_stage = 111;
-        let mut usage = std::mem::MaybeUninit::<libc::rusage_info_v1>::uninit();
-        if unsafe { libc::proc_pid_rusage(pid, 1, usage.as_mut_ptr().cast()) } != 0 {
-            self.metrics.sample_stage = 112;
-            let known = self.members[index];
-            if std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
-                && (known.exit_abstime != 0 || known.rollup_exit_observed_ns != 0)
-                && helper_token_exited(&known.audit_token) == Ok(true)
-                && self.retired_members.iter().any(|member| {
-                    member.current
-                        && member.pid == known.pid
-                        && member.birth == known.birth
-                        && member.token.value[7] == known.audit_version
-                })
-            {
-                // A previously captured exact exit/start record survives its
-                // parent's actual reap; absence alone never supplies this proof.
-                return Ok(());
+        let bsd = helper_bsd(member.pid);
+        if self.metrics.child_rollup_proven && known.terminal_ri_at.is_some() {
+            return match bsd {
+                Ok(info) => {
+                    helper_birth(&info) == Ok(member.birth) && info.pbi_status == libc::SZOMB
+                }
+                Err(()) => true,
+            };
+        }
+        if let Ok(ref info) = bsd {
+            if helper_birth(info) != Ok(member.birth) || info.pbi_status != libc::SZOMB {
+                return false;
             }
-            return Err(());
+            // Positive same-birth zombie + original token exit, not absence.
+            return true;
+        }
+        let mut usage = std::mem::MaybeUninit::<libc::rusage_info_v1>::uninit();
+        if unsafe { libc::proc_pid_rusage(member.pid, 1, usage.as_mut_ptr().cast()) } != 0 {
+            return false;
         }
         let usage = unsafe { usage.assume_init() };
-        self.observe_usage(index, pid, &usage);
-        let invalid_user_after_ack = self.grant.opened
-            && self.grant.slots[index].ack_ns.is_some()
-            && usage.ri_user_time != self.members[index].user_ticks;
-        self.metrics.sample_stage = 113;
-        if usage.ri_proc_start_abstime != self.members[index].start_abstime
-            || usage.ri_proc_exit_abstime == 0
+        usage.ri_proc_start_abstime == known.start && usage.ri_proc_exit_abstime != 0
+    }
+    pub(crate) fn observe_post_exit(&mut self, _: &Control) -> Result<bool, ()> {
+        Ok(self.original_exited())
+    }
+    pub(crate) fn terminal_reap_readiness(
+        &mut self,
+        _: &Control,
+        ticket: super::resolve::HelperTicket,
+    ) -> super::resolve::HelperReapReadiness {
+        if self.own_wait4 || ticket != self.identity.ticket() || !self.original_exited() {
+            return super::resolve::HelperReapReadiness::Held;
+        }
+        #[cfg(target_os = "macos")]
         {
-            return Err(());
-        }
-        self.metrics.sample_stage = 114;
-        let cpu = self.ticks_ns(
-            usage
-                .ri_user_time
-                .checked_add(usage.ri_system_time)
-                .ok_or(())?,
-        )?;
-        self.metrics.sample_stage = 115;
-        if cpu < self.members[index].cpu {
-            return Err(());
-        }
-        self.members[index].cpu = cpu;
-        self.members[index].user_ticks = usage.ri_user_time;
-        self.members[index].system_ticks = usage.ri_system_time;
-        self.members[index].exit_abstime = usage.ri_proc_exit_abstime;
-        self.metrics.sample_stage = 116;
-        if index == 0 {
-            let rolled = self.ticks_ns(
-                usage
-                    .ri_child_user_time
-                    .checked_add(usage.ri_child_system_time)
-                    .ok_or(())?,
-            )?;
-            if rolled < self.metrics.rolled_descendant_cpu_ns {
-                return Err(());
+            let Ok((pids, count)) = self.census() else {
+                return super::resolve::HelperReapReadiness::Held;
+            };
+            for &pid in &pids[..count] {
+                if pid == self.identity.pid {
+                    continue;
+                } // SAME positive own WNOWAIT above
+                self.metrics.terminal_member_pid = pid;
+                let Some(member) = self
+                    .retired
+                    .iter()
+                    .find(|m| m.pid == pid && m.current)
+                    .copied()
+                else {
+                    self.metrics.terminal_last_guard = 10;
+                    return super::resolve::HelperReapReadiness::Held;
+                };
+                if !self.retained_member_exited(member) {
+                    self.metrics.terminal_last_guard = 11;
+                    return super::resolve::HelperReapReadiness::Held;
+                }
             }
-            self.metrics.observed_direct_cpu_ns = cpu;
-            self.metrics.rolled_descendant_cpu_ns = rolled;
-            self.rolled_user_ticks = usage.ri_child_user_time;
-            self.rolled_system_ticks = usage.ri_child_system_time;
-        } else {
-            self.metrics.observed_descendant_cpu_ns = cpu;
+            for member in self
+                .retired
+                .iter()
+                .copied()
+                .filter(|m| m.pid > 0 && m.current && m.pid != self.identity.pid)
+            {
+                self.metrics.terminal_member_pid = member.pid;
+                if !self.retained_member_exited(member) {
+                    self.metrics.terminal_last_guard = 12;
+                    return super::resolve::HelperReapReadiness::Held;
+                }
+            }
         }
-        self.metrics.sample_stage = 117;
-        if invalid_user_after_ack {
-            self.invalidate_slot(index);
-            return Err(());
-        }
-        Ok(())
+        self.reap_authorized = true;
+        self.metrics.reap_authorized = true;
+        super::resolve::HelperReapReadiness::Ready
     }
-    pub(crate) fn attached(identity: super::resolve::HelperIdentity) -> Self {
-        let now = Instant::now();
-        let reserved = identity.expected_members;
-        Self {
-            pgid: identity.pgid,
-            running: false,
-            retiring: false,
-            changed: now,
-            ready: false,
-            creation_settled: false,
-            admission_failed: false,
-            #[cfg(test)]
-            admission_samples: 0,
-            #[cfg(test)]
-            fail_stop_verdict: false,
-            #[cfg(test)]
-            injected_stop_errno: None,
-            #[cfg(test)]
-            exit_before_pending_query: false,
-            #[cfg(test)]
-            exit_before_member_query: false,
-            initial_stop_pending: false,
-            confirmed_stopped: false,
-            identity,
-            stop_requested: false,
-            stop_outcome: HelperStopOutcome::None,
-            query_terminal_pending: false,
-            debt_until: now,
-            lane_cpu: 0,
-            members: [HelperMember::default(); 2],
-            task_observations: [HelperTaskObservation::default(); 2],
-            usage_observations: [HelperUsageObservation::default(); 2],
-            retired_members: [RetiredMember::default(); 8],
-            stopped_roster: [0; 8],
-            grant: HelperGrantLedger {
-                allocation: HelperAdaptiveGrant::new(reserved).allocation(reserved),
-                ..HelperGrantLedger::default()
-            },
-            adaptive_grant: HelperAdaptiveGrant::new(reserved),
-            corroboration_pending: true,
-            post_commit_pending: false,
-            post_cpu: 0,
-            post_late_cpu: 0,
-            post_unexplained_cpu: 0,
-            post_startup_cpu: 0,
-            startup_accounted: false,
-            initial_startup: None,
-            born_stopped_original: None,
-            retired_child_reap: None,
-            terminal_reap: HelperTerminalReap::default(),
-            reap_cost_before: 0,
-            reap_cost_helper: 0,
-            reap_cost_unknown: false,
-            reap_cost_pending: false,
-            reap_residual_required: 0,
-            reap_residual_booked: false,
-            reap_cost_retained: false,
-            reap_cost_clock_known: false,
-            reap_cost_rest_until: 0,
-            #[cfg(test)]
-            terminal_ri_unavailable: false,
-            #[cfg(test)]
-            rollup_double_count_fault: false,
-            rolled_user_ticks: 0,
-            rolled_system_ticks: 0,
-            grant_commit_pending: false,
-            pipe_open: false,
-            pipe_active: false,
-            payload_admitted: false,
-            corroboration_revision: 0,
-            observed_post_revision: 0,
-            post_proof_pending: false,
-            post_late_known: true,
-            settled_cpu: None,
-            usage_reconciled: false,
-            terminal_accounting_pending: false,
-            timebase: helper_timebase().unwrap_or_default(),
-            startup_late_cpu_ns: 0,
-            accounting_settled: false,
-            last_clock_ns: None,
-            metrics: HelperMetrics {
-                coverage_known: true,
-                ..HelperMetrics::default()
-            },
-        }
+    fn same_terminal(
+        a: super::resolve::HelperReapUsage,
+        b: super::resolve::HelperReapUsage,
+    ) -> bool {
+        a.pid == b.pid
+            && a.user_ns == b.user_ns
+            && a.system_ns == b.system_ns
+            && a.rss_bytes == b.rss_bytes
+            && a.observed_ns == b.observed_ns
+            && a.readings == b.readings
     }
-    /// Capture descendant effects before any refusal or leader reap, including
-    /// an unexpected escaped child. Signals bind Darwin's PID version token;
-    /// an old token cannot affect a later process that reuses the numeric PID.
-    #[cfg(target_os = "macos")]
-    fn retain_incarnation(&mut self, member: RetiredMember) -> Result<(), ()> {
-        if let Some(prior) = self.retired_members.iter().find(|prior| {
-            prior.pid == member.pid
-                && prior.birth == member.birth
-                && prior.token.value[7] == member.token.value[7]
-        }) {
-            return if prior.current && prior.token.value == member.token.value {
+    /// Reconcile the immutable original wait4 budget/cost verdict, not physical
+    /// completion. A pending group observation cannot erase or reject known
+    /// CPU. Detach/release still needs positive group-gone and paid debt.
+    pub(crate) fn reconcile_usage(
+        &mut self,
+        control: &Control,
+        usage: super::resolve::HelperReapUsage,
+    ) -> Result<(), ()> {
+        if let Some(prior) = self.terminal_usage {
+            if Self::same_terminal(prior, usage) && usage.group_gone {
+                self.group_gone = true;
+                if self.terminal_pending {
+                    self.terminal_pending = false;
+                    self.metrics.group_kill_raced_exit |= self.metrics.group_kill_attempted
+                        && matches!(self.metrics.group_kill_errno, libc::EPERM | libc::ESRCH);
+                }
+            }
+            return if Self::same_terminal(prior, usage) && self.terminal_pass {
                 Ok(())
             } else {
                 Err(())
             };
         }
-        let free = self
-            .retired_members
-            .iter()
-            .position(|prior| prior.pid == 0)
-            .ok_or(())?;
-        // Store the new physical recipient before any phase/version verdict;
-        // prior incarnations remain retained for read-only exit queries.
-        for prior in self
-            .retired_members
-            .iter_mut()
-            .filter(|prior| prior.pid == member.pid)
-        {
-            prior.current = false;
+        if usage.pid != self.identity.pid || usage.readings != 1 {
+            self.reject(control, false);
+            return Err(());
         }
-        self.retired_members[free] = member;
-        if let Some(index) = self.members.iter().position(|known| {
-            known.pid == member.pid
-                && known.birth == member.birth
-                && known.audit_version != 0
-                && known.audit_version != member.token.value[7]
-        }) {
-            let mut current = self.members[index];
-            current.audit_token = member.token;
-            current.audit_version = member.token.value[7];
-            self.note_incarnation(index, current);
-            if self.retiring {
-                self.metrics.coverage_known = false;
+        self.terminal_usage = Some(usage);
+        self.own_wait4 = true;
+        self.running = false;
+        self.group_gone = usage.group_gone;
+        self.metrics.wait4_reads = 1;
+        self.metrics.reap_user_ns = usage.user_ns;
+        self.metrics.reap_system_ns = usage.system_ns;
+        if self.known_retained_child() && !self.metrics.child_rollup_proven {
+            self.metrics.child_cost_unproven = true;
+            self.metrics.coverage_known = false;
+        }
+        self.metrics.reap_quantization_ns = 2_000;
+        self.metrics.reap_rss_bytes = usage.rss_bytes;
+        let rss_known = usage.rss_bytes != u64::MAX;
+        self.metrics.reap_rss_known = rss_known;
+        if !rss_known {
+            self.metrics.coverage_known = false;
+        }
+        let cpu = usage
+            .user_ns
+            .checked_add(1_000)
+            .and_then(|u| {
+                usage
+                    .system_ns
+                    .checked_add(1_000)
+                    .and_then(|s| u.checked_add(s))
+            })
+            .unwrap_or(u64::MAX);
+        self.metrics.charged_ns = cpu;
+        self.metrics.max_charge_ns = cpu;
+        let old = control
+            .accounting
+            .helper_job_cpu
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |v| {
+                Some(v.saturating_add(cpu))
+            })
+            .unwrap_or(u64::MAX);
+        let job = old.saturating_add(cpu);
+        self.metrics.job_cpu_ns = job;
+        let debt = control.helper_extend_debt(cpu);
+        self.metrics.debt_ns = debt;
+        self.debt_until = Instant::now()
+            .checked_add(Duration::from_nanos(debt))
+            .unwrap_or_else(Instant::now);
+        if self.group_gone && self.terminal_pending {
+            self.metrics.group_kill_raced_exit |= self.metrics.group_kill_attempted
+                && matches!(self.metrics.group_kill_errno, libc::EPERM | libc::ESRCH);
+            self.terminal_pending = false;
+        }
+        let clock_known = usage.observed_ns != 0 && usage.observed_ns != u64::MAX;
+        if !clock_known {
+            self.metrics.clock_failures += 1;
+            control
+                .accounting
+                .clock_failed
+                .store(true, Ordering::Release);
+        }
+        let pause_user_pass = self.terminal_pause_user(usage.user_ns);
+        self.terminal_pass = clock_known
+            && pause_user_pass
+            && cpu != u64::MAX
+            && cpu <= HELPER_COMMAND_CPU_NS
+            && job <= HELPER_JOB_CPU_NS
+            && rss_known
+            && usage.rss_bytes <= storage::HELPERS
+            && self.creation_settled
+            && self.metrics.qos_checked_mask & 1 != 0
+            && (self.identity.expected_members == 1 || self.metrics.verified_descendants == 1)
+            && self.metrics.coverage_known
+            && !self.failed;
+        if !self.terminal_pass {
+            if cpu == u64::MAX {
+                self.metrics.clock_failures += 1;
             }
+            self.reject(
+                control,
+                cpu > HELPER_COMMAND_CPU_NS
+                    || job > HELPER_JOB_CPU_NS
+                    || (rss_known && usage.rss_bytes > storage::HELPERS)
+                    || !pause_user_pass,
+            );
+            return Err(());
         }
         Ok(())
     }
-    #[cfg(target_os = "macos")]
-    fn capture_members(&mut self) -> Result<(), ()> {
-        let mut parents = [0i32; 9];
-        parents[0] = self.pgid;
-        let mut cursor = 0;
-        let mut end = 1;
-        let mut valid = true;
-        while cursor < end {
-            let parent = parents[cursor];
-            cursor += 1;
-            let mut children = [0i32; 3];
-            let bytes = unsafe {
-                libc::proc_listchildpids(
-                    parent,
-                    children.as_mut_ptr().cast(),
-                    std::mem::size_of_val(&children) as i32,
-                )
-            };
-            if bytes < 0 || bytes as usize > children.len() {
-                return Err(());
-            }
-            let count = bytes as usize;
-            if count >= children.len() {
-                valid = false;
-            }
-            for &pid in &children[..count] {
-                if pid <= 0 {
-                    return Err(());
-                }
-                if !self.stopped_roster.contains(&pid) {
-                    // This exact child came from an owned parent's census.
-                    // The unreaped original leader still pins the group: stop
-                    // its newly discovered roster before costly token queries.
-                    let free = self
-                        .stopped_roster
-                        .iter()
-                        .position(|known| *known == 0)
-                        .ok_or(())?;
-                    self.stopped_roster[free] = pid;
-                    self.stop_requested = true;
-                    self.confirmed_stopped = false;
-                    // This newly discovered recipient is a distinct roster
-                    // effect. Consume its roster entry/STOP state first; keep
-                    // its existing strict success-only signal policy.
-                    if matches!(
-                        self.stop_outcome,
-                        HelperStopOutcome::PendingTerminal | HelperStopOutcome::TerminalProven
-                    ) {
-                        // A failed consumed STOP cannot be repeated, even by
-                        // roster discovery. Retain the recipient below for
-                        // identity-safe cancellation and refuse this coverage.
-                        valid = false;
-                    } else if self.signal_group_stop().result != 0 {
-                        return Err(());
-                    }
-                }
-                let mut info = std::mem::MaybeUninit::<libc::proc_bsdinfo>::uninit();
-                let size = std::mem::size_of::<libc::proc_bsdinfo>() as i32;
-                if unsafe {
-                    libc::proc_pidinfo(
-                        pid,
-                        libc::PROC_PIDTBSDINFO,
-                        0,
-                        info.as_mut_ptr().cast(),
-                        size,
-                    )
-                } != size
-                {
-                    if std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
-                        && self
-                            .retired_members
-                            .iter()
-                            .any(|m| m.pid == pid && helper_token_exited(&m.token) == Ok(true))
-                    {
-                        continue;
-                    }
-                    return Err(());
-                }
-                let info = unsafe { info.assume_init() };
-                if info.pbi_ppid != parent as u32 || info.pbi_uid != unsafe { libc::geteuid() } {
-                    return Err(());
-                }
-                let birth = info
-                    .pbi_start_tvsec
-                    .checked_mul(1_000_000)
-                    .and_then(|s| s.checked_add(info.pbi_start_tvusec))
-                    .ok_or(())?;
-                if self.retiring
-                    || !self
-                        .retired_members
-                        .iter()
-                        .any(|m| m.pid == pid && m.birth == birth)
-                {
-                    let member = helper_audit_member(pid, parent)?;
-                    self.retain_incarnation(member)?;
-                }
-                if end < parents.len() {
-                    parents[end] = pid;
-                    end += 1;
-                } else {
-                    valid = false;
-                }
-            }
-        }
-        let logical_children = self
-            .retired_members
-            .iter()
-            .enumerate()
-            .filter(|(index, member)| {
-                member.pid > 0
-                    && member.pid != self.pgid
-                    && !self.retired_members[..*index]
-                        .iter()
-                        .any(|prior| prior.pid == member.pid && prior.birth == member.birth)
-            })
-            .count();
-        if logical_children > usize::from(self.identity.expected_members - 1) {
-            self.metrics.coverage_known = false;
-            valid = false;
-        }
-        if valid { Ok(()) } else { Err(()) }
+    pub(crate) fn retirement_settlement_observed(&self) -> bool {
+        // Unknown external CPU has no finite authoritative bill. Its bounded
+        // mandatory-observation fallback debt is not permission to release the
+        // original custody. Finite over-cap CPU and unknown RSS stay distinct.
+        let known_bill = self.metrics.charged_ns != u64::MAX
+            && self.metrics.charged_ns.max(UNIT_NS).checked_mul(9) == Some(self.metrics.debt_ns);
+        self.own_wait4
+            && self.group_gone
+            && !self.terminal_pending
+            && !self.metrics.child_cost_unproven
+            && known_bill
     }
-    #[cfg(target_os = "macos")]
-    pub(crate) fn retire_members(&mut self) -> Result<(), ()> {
-        let mut valid = self.capture_members().is_ok();
-        if super::resolve::helper_exited(self.pgid) == Ok(false) {
-            match helper_audit_member(self.pgid, unsafe { libc::getpid() }) {
-                Ok(member) => valid &= self.retain_incarnation(member).is_ok(),
-                Err(()) => valid = false,
-            }
-        }
-        for member in self
-            .retired_members
-            .iter()
-            .filter(|m| m.pid > 0 && m.current)
-        {
-            if !matches!(
-                self.stop_outcome,
-                HelperStopOutcome::PendingTerminal | HelperStopOutcome::TerminalProven
-            ) && matches!(helper_token_signal(&member.token,libc::SIGSTOP),Err(code) if code!=libc::ESRCH)
+    pub(crate) fn settle_quarantine(&mut self, _: &Control) -> bool {
+        if self.own_wait4 && !self.group_gone {
+            #[cfg(target_os = "macos")]
             {
-                valid = false;
-            }
-            if matches!(helper_token_signal(&member.token,libc::SIGKILL),Err(code) if code!=libc::ESRCH)
-            {
-                valid = false;
-            }
-        }
-        if valid { Ok(()) } else { Err(()) }
-    }
-    #[cfg(not(target_os = "macos"))]
-    pub(crate) fn retire_members(&mut self) -> Result<(), ()> {
-        Err(())
-    }
-    #[cfg(target_os = "macos")]
-    pub(crate) fn retired_members_exited(&self) -> bool {
-        if self.terminal_reap.own_wait4
-            && self.terminal_reap.initial_source_valid
-            && self.terminal_reap.physical_valid
-            && !self.terminal_reap.identity_lost
-            && (1..=2).contains(&self.identity.expected_members)
-            && !self.grant.opened
-            && self.metrics.grants == 0
-            && self.members[1].pid == 0
-            && self.metrics.descendants == 0
-            && self.metrics.verified_descendants == 0
-        {
-            // Actual own wait4 settled the already-validated single original
-            // child. Do not demand a second unavailable RI after that reap.
-            // The bounded fresh group observation remains a separate guard.
-            let mut pids = [0i32; 3];
-            return unsafe {
-                libc::proc_listpgrppids(
-                    self.pgid,
-                    pids.as_mut_ptr().cast(),
-                    std::mem::size_of_val(&pids) as i32,
-                )
-            } == 0;
-        }
-        self.retired_members
-            .iter()
-            .filter(|member| member.pid > 0 && member.current)
-            .all(|member| {
-                if helper_token_exited(&member.token) != Ok(true) {
-                    return false;
-                }
-                // An old task token's ESRCH is not logical process exit: exec keeps
-                // PID/birth while replacing the token. A live same-birth recipient
-                // therefore keeps original custody, even after its parent reaped.
-                let mut info = std::mem::MaybeUninit::<libc::proc_bsdinfo>::uninit();
-                let size = std::mem::size_of::<libc::proc_bsdinfo>() as i32;
-                let observed = unsafe {
-                    libc::proc_pidinfo(
-                        member.pid,
-                        libc::PROC_PIDTBSDINFO,
-                        0,
-                        info.as_mut_ptr().cast(),
-                        size,
+                let mut pids = [0i32; 3];
+                helper_clear_errno();
+                let count = unsafe {
+                    libc::proc_listpgrppids(
+                        self.pgid,
+                        pids.as_mut_ptr().cast(),
+                        std::mem::size_of_val(&pids) as i32,
                     )
                 };
-                let same_birth_zombie = if observed == size {
-                    let info = unsafe { info.assume_init() };
-                    let birth = info
-                        .pbi_start_tvsec
-                        .checked_mul(1_000_000)
-                        .and_then(|n| n.checked_add(info.pbi_start_tvusec));
-                    let Some(birth) = birth else {
-                        return false;
-                    };
-                    if birth != member.birth {
-                        return true;
-                    }
-                    if info.pbi_status != libc::SZOMB {
-                        return false;
-                    }
-                    true
-                } else {
-                    false
-                };
-                if !same_birth_zombie
-                    && std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH)
-                {
-                    return false;
-                }
-                let mut usage = std::mem::MaybeUninit::<libc::rusage_info_v1>::uninit();
-                if unsafe { libc::proc_pid_rusage(member.pid, 1, usage.as_mut_ptr().cast()) } == 0 {
-                    let usage = unsafe { usage.assume_init() };
-                    return self.members.iter().any(|known| {
-                        known.pid == member.pid
-                            && known.birth == member.birth
-                            && known.start_abstime != 0
-                            && known.start_abstime == usage.ri_proc_start_abstime
-                            && usage.ri_proc_exit_abstime != 0
-                    });
-                }
-                !same_birth_zombie
-                    && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
-            })
-    }
-    #[cfg(not(target_os = "macos"))]
-    pub(crate) fn retired_members_exited(&self) -> bool {
-        false
-    }
-    #[track_caller]
-    fn reject(&mut self, control: &Control, code: u8) {
-        if self.metrics.first_failure_line == 0 {
-            self.metrics.first_failure_line = std::panic::Location::caller().line();
-            self.metrics.first_failure_sample_stage = self.metrics.sample_stage;
-        }
-        self.ready = false;
-        self.admission_failed = true;
-        self.metrics.coverage_known &= code != 5;
-        if self.running && !self.stop_requested && !self.retiring {
-            // The original unreaped leader still pins this recorded group.
-            // Revoke it once, without treating signal delivery as a stop ACK.
-            if self.request_group_stop().is_err() {
-                self.metrics.coverage_known = false;
+                let errno = io::Error::last_os_error()
+                    .raw_os_error()
+                    .unwrap_or(libc::EIO);
+                self.metrics.terminal_census_result = count;
+                self.metrics.terminal_census_errno = errno;
+                self.group_gone = helper_census_empty(count, errno);
             }
         }
-        // Never replace an already observed cancellation/protocol outcome.
-        let _ = control
-            .cancel
-            .compare_exchange(0, code, Ordering::AcqRel, Ordering::Acquire);
-    }
-    fn live_stop_feedback_latency(&self) -> Option<u64> {
-        let stop = self.metrics.last_stop;
-        if !self.grant.closed
-            || stop.result != 0
-            || stop.attempt == 0
-            || stop.sequence != self.identity.sequence
-            || stop.pid != self.identity.pid
-            || stop.birth != self.identity.start_identity
-            || stop.audit_version != self.grant.slots[0].version
-            || stop.observed_ns == u64::MAX
-            || stop.observed_ns < self.grant.t0_ns
-        {
-            return None;
+        if self.own_wait4 && self.group_gone && self.terminal_pending {
+            self.terminal_pending = false;
+            self.metrics.group_kill_raced_exit |= self.metrics.group_kill_attempted
+                && matches!(self.metrics.group_kill_errno, libc::EPERM | libc::ESRCH);
         }
-        self.grant.slots[..usize::from(self.grant.reserved)]
+        self.retirement_settlement_observed()
+    }
+    #[cfg(test)]
+    pub(crate) fn fixture_early_original_settled(&self) -> bool {
+        self.retirement_settlement_observed()
+    }
+    #[cfg(test)]
+    pub(crate) fn fixture_descendant_identity(&self) -> Option<(i32, u64, u64, u32)> {
+        let m = self.members[1];
+        let token = self
+            .retired
             .iter()
-            .enumerate()
-            .filter_map(|(index, slot)| {
-                let member = self.members[index];
-                let task = self.task_observations[index];
-                let ack = slot.ack_ns?;
-                // Exited/rollup/through-closure endpoints are not STOP latency
-                // samples. They cannot contribute a fictitious zero or permit
-                // growth. Reserve the MAX delay of every actual live STOP ACK.
-                if slot.pid <= 0
-                    || slot.through_closure
-                    || ack == u64::MAX
-                    || member.image_phase != HelperImagePhase::Descendant
-                    || member.exit_abstime != 0
-                    || member.rollup_exit_observed_ns != 0
-                    || member.pid != slot.pid
-                    || member.birth != slot.birth
-                    || member.start_abstime != slot.start
-                    || member.audit_version != slot.version
-                    || member.final_image_version != slot.version
-                    || task.pid != slot.pid
-                    || !task.stopped()
-                    || task.observed_ns == u64::MAX
-                    || task.observed_ns < ack
-                {
-                    return None;
-                }
-                ack.checked_sub(stop.observed_ns)
-            })
-            .max()
-    }
-    /// Charge only endpoints belonging to this grant's completed causal roster.
-    /// Failed closure retains every uncertainty interval through settlement.
-    pub(crate) fn finish_grant(&mut self, control: &Control, controller_cpu: u64) {
-        self.metrics.controller_cpu_ns = self
-            .metrics
-            .controller_cpu_ns
-            .saturating_add(controller_cpu);
-        self.lane_cpu = self.lane_cpu.saturating_add(controller_cpu);
-        if !self.grant.opened {
-            return;
-        }
-        if self.grant.closed {
-            self.grant
-                .controller_end
-                .get_or_insert(self.metrics.controller_cpu_ns);
-            self.grant.pipe_end.get_or_insert(self.metrics.pipe_cpu_ns);
-        }
-        if self.grant.closed
-            && self.members[0].image_phase == HelperImagePhase::Exited
-            && !self.usage_reconciled
-        {
-            let wall = self.grant.slots[..usize::from(self.grant.reserved)]
-                .iter()
-                .try_fold(0u64, |total, slot| {
-                    let end = if slot.through_closure {
-                        self.grant.close_ns?
-                    } else {
-                        slot.ack_ns?
-                    };
-                    total.checked_add(end.checked_sub(self.grant.t0_ns)?)
-                });
-            if wall.is_some_and(|wall| wall > 25_000_000)
-                || self.grant_control_cpu().is_ok_and(|cpu| cpu > UNIT_NS)
-            {
-                control
-                    .accounting
-                    .resource_failed
-                    .store(true, Ordering::Release);
-                self.reject(control, 4);
-            }
-            if wall.is_none() {
-                self.reject(control, 5);
-            }
-            // WNOWAIT/RI close physical custody, not measured CPU accounting.
-            // Allow only paid raw drain/retirement until original wait4 arrives.
-            // C is frozen at this full active-owner handoff, not at STOP send.
-            self.terminal_accounting_pending = true;
-            self.grant_commit_pending = false;
-            self.corroboration_pending = false;
-            self.running = false;
-            return;
-        }
-        self.terminal_accounting_pending = false;
-        let now = self.ledger_clock().unwrap_or(u64::MAX);
-        let mut receipt = HelperGrantReceipt {
-            sequence: self.identity.sequence,
-            grant_index: self.grant.index,
-            pid: self.identity.pid,
-            pgid: self.pgid,
-            birth: self.identity.start_identity,
-            reserved: self.grant.reserved,
-            t0_ns: self.grant.t0_ns,
-            close_ns: self.grant.close_ns.unwrap_or(now),
-            c_ns: self.grant_control_cpu().unwrap_or(u64::MAX),
-            closed: self.grant.closed,
-            controller_baseline_ns: self.grant.controller_baseline,
-            controller_end_ns: self
-                .grant
-                .controller_end
-                .unwrap_or(self.metrics.controller_cpu_ns),
-            pipe_baseline_ns: self.grant.pipe_baseline,
-            pipe_end_ns: self.grant.pipe_end.unwrap_or(self.metrics.pipe_cpu_ns),
-            baseline_usage: self.grant.baseline_usage,
-            ack_usage: self.grant.ack_usage,
-            closure_usage: self.usage_observations,
-            ack_task: self.grant.ack_task,
-            ..HelperGrantReceipt::default()
-        };
-        let mut window = Some(0u64);
-        for index in 0..usize::from(self.grant.reserved) {
-            let slot = self.grant.slots[index];
-            let end = if !self.grant.closed {
-                now
-            } else if slot.through_closure {
-                self.grant.close_ns.unwrap_or(u64::MAX)
-            } else {
-                slot.ack_ns.unwrap_or(u64::MAX)
-            };
-            receipt.end_ns[index] = end;
-            receipt.member_pid[index] = slot.pid;
-            receipt.member_birth[index] = slot.birth;
-            receipt.member_start[index] = slot.start;
-            receipt.member_version[index] = slot.version;
-            window = window.and_then(|total| {
-                if end == u64::MAX {
-                    None
-                } else {
-                    end.checked_sub(self.grant.t0_ns)
-                        .and_then(|span| total.checked_add(span))
-                }
-            });
-        }
-        receipt.w_ns = window.unwrap_or(u64::MAX);
-        receipt.a_ns = self
-            .actual_cpu()
-            .ok()
-            .and_then(|actual| actual.checked_sub(self.grant.actual_baseline))
-            .unwrap_or(u64::MAX);
-        if let Ok(measured) = self.measured_components(&mut receipt) {
-            receipt.basis = HelperChargeBasis::Measured;
-            receipt.a_ns = measured;
-        }
-        self.grant.basis = receipt.basis;
-        receipt.q_ns = match receipt.basis {
-            HelperChargeBasis::Measured => receipt.a_ns,
-            HelperChargeBasis::Window => receipt.w_ns.max(receipt.a_ns),
-        }
-        .saturating_add(receipt.c_ns);
-        receipt.run_budget_ns = self.grant.allocation.run_ns;
-        receipt.target_a_ns = self.grant.allocation.target_a_ns;
-        receipt.controller_reserve_ns = self.grant.allocation.controller_reserve_ns;
-        receipt.stop_latency_reserve_ns = self.grant.allocation.stop_latency_reserve_ns;
-        let stop_latency = self.live_stop_feedback_latency();
-        receipt.observed_stop_latency_ns = stop_latency.unwrap_or(u64::MAX);
-        receipt.stop_latency_known = stop_latency.is_some();
-        let first = !self.grant.charged_once;
-        if first && receipt.closed {
-            self.adaptive_grant.observe(
-                receipt.reserved,
-                receipt.c_ns,
-                receipt.a_ns,
-                stop_latency,
-                receipt.basis == HelperChargeBasis::Measured
-                    && self.metrics.coverage_known
-                    && self.metrics.clock_failures == 0,
-            );
-        }
-        if first && receipt.basis == HelperChargeBasis::Measured && receipt.rollup_provisional {
-            let fallback = receipt.w_ns.max(receipt.a_ns).saturating_add(receipt.c_ns);
-            self.grant.rollup_registered = true;
-            self.grant.rollup_fallback_q = fallback;
-            self.grant.rollup_q_delta = fallback.saturating_sub(receipt.q_ns);
-            self.grant.rollup_debt_delta = fallback
-                .max(UNIT_NS)
-                .saturating_sub(receipt.q_ns.max(UNIT_NS));
-            self.metrics.provisional_rollup_grants =
-                self.metrics.provisional_rollup_grants.saturating_add(1);
-            self.metrics.provisional_rollup_fallback_delta_ns = self
-                .metrics
-                .provisional_rollup_fallback_delta_ns
-                .saturating_add(fallback.saturating_sub(receipt.q_ns));
-            self.metrics.provisional_rollup_debt_delta_ns = self
-                .metrics
-                .provisional_rollup_debt_delta_ns
-                .saturating_add(
-                    fallback
-                        .max(UNIT_NS)
-                        .saturating_sub(receipt.q_ns.max(UNIT_NS)),
-                );
-            if fallback >= self.metrics.rollup_fallback_worst.q_ns {
-                let mut bill = receipt;
-                bill.basis = HelperChargeBasis::Window;
-                bill.q_ns = fallback;
-                self.metrics.rollup_fallback_worst = bill;
-            }
-        }
-        if !first
-            && self.grant.rollup_registered
-            && !self.grant.rollup_fallback_recovered
-            && receipt.basis == HelperChargeBasis::Window
-            && receipt.q_ns != u64::MAX
-            && self.grant.charged != u64::MAX
-            && receipt.q_ns >= self.grant.rollup_fallback_q
-        {
-            // A reopened original window may already have paid this grant's
-            // fallback. Keep its historical provisional fact, but never bill
-            // the same known fallback a second time at terminal conservation.
-            self.metrics.provisional_rollup_fallback_delta_ns = self
-                .metrics
-                .provisional_rollup_fallback_delta_ns
-                .saturating_sub(self.grant.rollup_q_delta);
-            self.metrics.provisional_rollup_debt_delta_ns = self
-                .metrics
-                .provisional_rollup_debt_delta_ns
-                .saturating_sub(self.grant.rollup_debt_delta);
-            self.metrics.recovered_rollup_grants =
-                self.metrics.recovered_rollup_grants.saturating_add(1);
-            self.grant.rollup_fallback_recovered = true;
-        }
-        let additional = receipt
-            .q_ns
-            .max(self.grant.charged)
-            .saturating_sub(self.grant.charged);
-        self.grant.charged = self.grant.charged.max(receipt.q_ns);
-        self.grant.charged_once = true;
-        self.metrics.grants = self.metrics.grants.saturating_add(u64::from(first));
-        self.metrics.measured_grants = self.metrics.measured_grants.saturating_add(u64::from(
-            first && receipt.basis == HelperChargeBasis::Measured,
-        ));
-        self.metrics.window_grants = self.metrics.window_grants.saturating_add(u64::from(
-            first && receipt.basis == HelperChargeBasis::Window,
-        ));
-        self.metrics.charged_ns = self.metrics.charged_ns.saturating_add(additional);
-        if receipt.q_ns >= self.metrics.max_charge_ns {
-            self.metrics.max_charge_ns = receipt.q_ns;
-            self.metrics.worst_grant = receipt;
-        }
-        self.metrics.window_ns = self.metrics.window_ns.saturating_add(
-            receipt
-                .w_ns
-                .max(self.grant.reported_w)
-                .saturating_sub(self.grant.reported_w),
-        );
-        self.metrics.active_cpu_ns = self.metrics.active_cpu_ns.saturating_add(
-            receipt
-                .a_ns
-                .max(self.grant.reported_a)
-                .saturating_sub(self.grant.reported_a),
-        );
-        self.metrics.charged_helper_cpu_ns = self.metrics.charged_helper_cpu_ns.saturating_add(
-            receipt
-                .a_ns
-                .max(self.grant.reported_a)
-                .saturating_sub(self.grant.reported_a),
-        );
-        self.metrics.active_control_ns = self.metrics.active_control_ns.saturating_add(
-            receipt
-                .c_ns
-                .max(self.grant.reported_c)
-                .saturating_sub(self.grant.reported_c),
-        );
-        self.grant.reported_w = self.grant.reported_w.max(receipt.w_ns);
-        self.grant.reported_a = self.grant.reported_a.max(receipt.a_ns);
-        self.grant.reported_c = self.grant.reported_c.max(receipt.c_ns);
-        let debt_cost = if first {
-            receipt.q_ns.max(UNIT_NS)
-        } else {
-            additional
-        };
-        self.charge_helper_debt(control, debt_cost);
-        self.running = false;
-        self.grant_commit_pending = false;
-        if !matches!(
-            self.stop_outcome,
-            HelperStopOutcome::PendingTerminal | HelperStopOutcome::TerminalProven
-        ) {
-            self.stop_requested = false;
-            self.stop_outcome = HelperStopOutcome::None;
-        }
-        self.lane_cpu = 0;
-        self.corroboration_pending = self.grant.closed;
-        if receipt.q_ns > UNIT_NS || receipt.w_ns > 25_000_000 {
-            control
-                .accounting
-                .resource_failed
-                .store(true, Ordering::Release);
-            self.reject(control, 4);
-        }
-        let slot_cpu_exceeds_wall = (0..usize::from(receipt.reserved)).any(|index| {
-            receipt.monotonic_mask & (1 << index) != 0
-                && receipt.slot_a_ns[index] > receipt.end_ns[index].saturating_sub(receipt.t0_ns)
-        });
-        if !self.grant.closed
-            || receipt.a_ns > receipt.w_ns
-            || slot_cpu_exceeds_wall
-            || (receipt.live_child_cpu_ns != 0 && receipt.rollup_child_cpu_ns != 0)
-            || receipt.q_ns == u64::MAX
-        {
-            self.metrics.coverage_known = false;
-            self.metrics.unknown_windows = self.metrics.unknown_windows.saturating_add(1);
-            self.reject(control, 5);
-        }
-        if self.grant.closed && self.metrics.coverage_known && self.rollup_proof_valid() {
-            // One logical child reap, retained across later grant baselines.
-            // Never inferred from expected slots, an empty census or residual.
-            self.retired_child_reap = Some(self.grant.rollup);
-        }
-    }
-    #[cfg(target_os = "macos")]
-    fn sample_exited_roster(&mut self) -> Result<bool, ()> {
-        let hint = self.observe_leader_exit()?.ok_or(())?;
-        self.sample_exited_roster_with_hint(hint)
-    }
-    #[cfg(target_os = "macos")]
-    fn sample_exited_roster_with_hint(&mut self, hint: HelperExitHint) -> Result<bool, ()> {
-        self.metrics.sample_stage = 132;
-        self.validate_exit_hint(&hint)?;
-        if self.stop_outcome == HelperStopOutcome::PendingTerminal
-            && (!self.metrics.coverage_known
-                || self.metrics.clock_failures != 0
-                || self.metrics.last_stop.sequence != self.identity.sequence
-                || self.metrics.last_stop.pid != self.identity.pid
-                || self.metrics.last_stop.pgid != self.pgid
-                || self.metrics.last_stop.birth != self.identity.start_identity
-                || self.metrics.last_stop.start_abstime != self.members[0].start_abstime
-                || self.metrics.last_stop.audit_version != self.members[0].audit_version)
-        {
-            return Err(());
-        }
-        for index in 0..usize::from(self.identity.expected_members) {
-            self.metrics.sample_stage = 133;
-            let member = self.members[index];
-            if member.pid <= 0
-                || member.start_abstime == 0
-                || member.audit_version == 0
-                || member.audit_token.value[5] != member.pid as u32
-                || member.audit_token.value[7] != member.audit_version
-                || (self.stop_outcome == HelperStopOutcome::PendingTerminal
-                    && member.final_image_version != member.audit_version)
-                || !self.retired_members.iter().any(|retained| {
-                    retained.current
-                        && retained.pid == member.pid
-                        && retained.birth == member.birth
-                        && retained.token.value == member.audit_token.value
-                })
-                || (index == 0
-                    && (member.pid != self.pgid || member.birth != self.identity.start_identity))
-            {
-                return Err(()); // The possible unknown second slot stays open.
-            }
-            // Public task-token queries are unavailable after exit. The exact
-            // RI exit below is an observed terminal fact, NOT native proof that
-            // the vanished task token never exec'd. On this pending path that
-            // final-incarnation relation additionally requires the ALREADY
-            // admitted exact source/platform no-further-exec premise, after a
-            // fully observed final image/version. Unknown/pre-exec slots and
-            // every observed continuity failure refuse. Unsampled transient
-            // exec is outside this conditional source premise, not a theorem
-            // obtained from ESRCH plus a same-start RI record.
-            let native_exit = self.exited_member_usage(member.pid);
-            let rollup_exit = if index == 1 {
-                self.observe_retired_child_rollup(Some(&hint))?
-            } else {
-                false
-            };
-            if native_exit.is_err() && !rollup_exit {
-                return Err(());
-            }
-            self.metrics.sample_stage = 134;
-            if (self.members[index].exit_abstime == 0
-                && self.members[index].rollup_exit_observed_ns == 0)
-                || helper_token_exited(&member.audit_token) != Ok(true)
-            {
-                return Err(());
-            }
-            self.members[index].image_phase = HelperImagePhase::Exited;
-        }
-        self.metrics.sample_stage = 135;
-        if !self.retired_members_exited() {
-            return Err(());
-        }
-        self.metrics.sample_stage = 136;
-        if super::resolve::helper_exited(self.pgid) != Ok(true) {
-            return Err(());
-        }
-        self.metrics.sample_stage = 137;
-        let mut pids = [0i32; 3];
-        let count = unsafe {
-            libc::proc_listpgrppids(
-                self.pgid,
-                pids.as_mut_ptr().cast(),
-                std::mem::size_of_val(&pids) as i32,
-            )
-        };
-        if count < 0 || count as usize > pids.len() {
-            return Err(());
-        }
-        self.metrics.sample_stage = 138;
-        if pids[..count as usize].iter().any(|pid| {
-            !self.members.iter().any(|member| {
-                member.pid == *pid
-                    && member.exit_abstime != 0
-                    && member.rollup_exit_observed_ns == 0
-            })
-        }) {
-            if self.stop_outcome != HelperStopOutcome::PendingTerminal {
-                self.capture_members()?;
-            }
-            return Err(());
-        }
-        self.metrics.sample_stage = 139;
-        if !self.closed_usage_covered() {
-            self.metrics.coverage_known = false;
-            return Err(());
-        }
-        for index in 0..usize::from(self.identity.expected_members) {
-            if index == 0 {
-                self.metrics.sample_stage = 140;
-                self.validate_exit_hint(&hint)?;
-                self.metrics.sample_stage = 141;
-                self.acknowledge_slot_at(0, Some(hint.observed_ns))?;
-            } else {
-                self.acknowledge_slot(index)?;
-            }
-        }
-        self.metrics.sample_stage = 142;
-        self.close_roster()?;
-        self.confirmed_stopped = true;
-        if self.stop_outcome == HelperStopOutcome::PendingTerminal {
-            self.stop_outcome = HelperStopOutcome::TerminalProven;
-        }
-        if self.query_terminal_pending {
-            self.metrics.continuity_terminal_observations = self
-                .metrics
-                .continuity_terminal_observations
-                .saturating_add(1);
-            self.query_terminal_pending = false;
-        }
-        Ok(true)
-    }
-    fn closed_usage_covered(&self) -> bool {
-        (self.metrics.rolled_descendant_cpu_ns <= self.members[1].cpu
-            || ((self.members[1].exit_abstime != 0
-                || self.members[1].rollup_exit_observed_ns != 0)
-                && self.rolled_user_ticks == self.members[1].user_ticks
-                && self.rolled_system_ticks >= self.members[1].system_ticks))
-            && (self.identity.expected_members != 1
-                || (self.rolled_user_ticks == 0 && self.rolled_system_ticks == 0))
-    }
-    #[cfg(target_os = "macos")]
-    pub(crate) fn sample(&mut self, control: &Control) -> Result<bool, ()> {
-        self.sample_with_observations(control, None, None)
-    }
-    #[cfg(target_os = "macos")]
-    fn sample_with_hint(
-        &mut self,
-        control: &Control,
-        hint: Option<HelperStopHint>,
-    ) -> Result<bool, ()> {
-        self.sample_with_observations(control, hint, None)
-    }
-    #[cfg(target_os = "macos")]
-    fn sample_with_observations(
-        &mut self,
-        control: &Control,
-        hint: Option<HelperStopHint>,
-        mut exit_hint: Option<HelperExitHint>,
-    ) -> Result<bool, ()> {
-        #[cfg(test)]
-        {
-            self.admission_samples += 1;
-        }
-        self.metrics.sample_stage = 1;
-        let result = self.sample_inner(control, hint, &mut exit_hint);
-        if result.is_ok() {
-            self.metrics.sample_stage = 0;
-        }
-        result
-    }
-    #[cfg(target_os = "macos")]
-    fn sample_inner(
-        &mut self,
-        control: &Control,
-        hint: Option<HelperStopHint>,
-        exit_hint: &mut Option<HelperExitHint>,
-    ) -> Result<bool, ()> {
-        use std::os::unix::ffi::OsStrExt;
-        self.confirmed_stopped = false;
-        if let Some(exit) = exit_hint.as_ref() {
-            self.validate_exit_hint(exit)?;
-        }
-        if self.stop_outcome == HelperStopOutcome::PendingTerminal {
-            if hint.is_some() {
-                self.metrics.coverage_known = false;
-                return Err(()); // Failed STOP cannot consume a positive-STOP hint.
-            }
-            // Only independent original WNOWAIT and retained exit/RI/audit
-            // continuity may advance a failed STOP. No capture/second signal,
-            // stopped endpoint, exec transition or new work is admitted here.
-            let observed = match *exit_hint {
-                Some(exit) => Ok(Some(exit)),
-                None => self.observe_leader_exit(),
-            };
-            return match observed {
-                Ok(None) => self.pending_live_continuity(),
-                Ok(Some(exit)) => self.sample_exited_roster_with_hint(exit),
-                Err(_) => Err(()),
-            };
-        }
-        self.capture_members()?;
-        if let Some(hint) = &hint {
-            let now = self.ledger_clock()?;
-            if hint.ticket != self.identity.ticket()
-                || !self.grant.opened
-                || hint.grant_t0_ns != self.grant.t0_ns
-                || hint.stop_attempt != self.metrics.stop_attempts
-                || hint
-                    .snapshots
-                    .iter()
-                    .take(usize::from(self.identity.expected_members))
-                    .enumerate()
-                    .any(|(index, snapshot)| {
-                        let Some(snapshot) = snapshot else {
-                            return true;
-                        };
-                        let current = self.members[index];
-                        snapshot.observed_ns == u64::MAX
-                            || snapshot.observed_ns < self.grant.t0_ns
-                            || snapshot.observed_ns > now
-                            || snapshot.member.pid != current.pid
-                            || snapshot.member.birth != current.birth
-                            || snapshot.member.start_abstime != current.start_abstime
-                            || snapshot.member.audit_version != current.audit_version
-                            || snapshot.member.audit_token.value != current.audit_token.value
-                            || snapshot.member.final_image_version != current.audit_version
-                            || snapshot.member.image_phase != HelperImagePhase::Descendant
-                    })
-            {
-                for index in 0..usize::from(self.identity.expected_members) {
-                    self.invalidate_slot(index);
-                }
-                return Err(());
-            }
-        }
-        self.initial_stop_pending = false;
-        self.metrics.sample_stage = 2;
-        let mut pids = [0i32; 3];
-        let count = unsafe {
-            libc::proc_listpgrppids(
-                self.pgid,
-                pids.as_mut_ptr().cast(),
-                std::mem::size_of_val(&pids) as i32,
-            )
-        };
-        if count == 0 {
-            // Some Darwin census paths omit an unreaped zombie. A retained
-            // WNOWAIT leader plus exact positive exit records can close it;
-            // an empty census itself never does, especially for an unknown slot.
-            return match *exit_hint {
-                Some(exit) => self.sample_exited_roster_with_hint(exit),
-                None => self.sample_exited_roster(),
-            };
-        }
-        if count < 0 || count as usize > pids.len() {
-            return Err(());
-        }
-        let count = count as usize;
-        if count > self.identity.expected_members as usize || count > 2 {
-            return Err(());
-        }
-        let mut all_stopped = true;
-        let mut fresh_exec_ack = false;
-        let mut rss_sum = 0u64;
-        for &pid in &pids[..count] {
-            self.metrics.sample_stage = 3;
-            if pid <= 0 {
-                return Err(());
-            }
-            if pid == self.pgid && exit_hint.is_none() {
-                *exit_hint = self.observe_leader_exit()?;
-            }
-            if pid == self.pgid
-                && let Some(exit) = *exit_hint
-            {
-                // Darwin BSD/task path queries refuse a zombie, although the
-                // unreaped typed leader still pins its identity and group.
-                if self.members[0].pid != pid
-                    || self.members[0].birth != self.identity.start_identity
-                {
-                    return Err(());
-                }
-                self.exited_member_usage(pid)?;
-                self.members[0].image_phase = HelperImagePhase::Exited;
-                self.validate_exit_hint(&exit)?;
-                self.acknowledge_slot_at(0, Some(exit.observed_ns))?;
-                continue;
-            }
-            // One kernel snapshot supplies both identity/status and task-thread
-            // quiescence. Preserve every predicate while avoiding a second
-            // per-member BSD/task round trip in the same bounded sample.
-            self.metrics.sample_stage = 4;
-            let hinted = hint.as_ref().and_then(|hint| {
-                hint.snapshots
-                    .iter()
-                    .flatten()
-                    .find(|snapshot| snapshot.member.pid == pid)
-            });
-            let mut raw = std::mem::MaybeUninit::<libc::proc_taskallinfo>::uninit();
-            let size = std::mem::size_of::<libc::proc_taskallinfo>();
-            let observed = if let Some(snapshot) = hinted {
-                raw.write(snapshot.raw);
-                size as i32
-            } else {
-                unsafe {
-                    libc::proc_pidinfo(
-                        pid,
-                        libc::PROC_PIDTASKALLINFO,
-                        0,
-                        raw.as_mut_ptr().cast(),
-                        size as i32,
-                    )
-                }
-            };
-            if observed != size as i32 {
-                if std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
-                    && self
-                        .retired_members
-                        .iter()
-                        .any(|m| m.pid == pid && helper_token_exited(&m.token) == Ok(true))
-                {
-                    self.exited_member_usage(pid)?;
-                    if let Some(member) = self.members.iter_mut().find(|member| member.pid == pid) {
-                        member.image_phase = HelperImagePhase::Exited;
-                    }
-                    let index = self
-                        .members
-                        .iter()
-                        .position(|member| member.pid == pid)
-                        .ok_or(())?;
-                    self.acknowledge_slot(index)?;
-                    continue;
-                }
-                return Err(());
-            }
-            let raw = unsafe { raw.assume_init() };
-            self.metrics.sample_stage = 5;
-            let info = raw.pbsd;
-            let task = raw.ptinfo;
-            let birth = info
-                .pbi_start_tvsec
-                .checked_mul(1_000_000)
-                .and_then(|s| s.checked_add(info.pbi_start_tvusec))
-                .ok_or(())?;
-            if info.pbi_pid != pid as u32
-                || info.pbi_pgid != self.pgid as u32
-                || info.pbi_uid != unsafe { libc::geteuid() }
-                || info.pbi_nice < 10
-            {
-                return Err(());
-            }
-            let index = if pid == self.pgid {
-                if birth != self.identity.start_identity {
-                    return Err(());
-                }
-                0
-            } else {
-                if self.identity.expected_members != 2 || info.pbi_ppid != self.pgid as u32 {
-                    return Err(());
-                }
-                1
-            };
-            let prior = self.members[index];
-            self.task_observations[index] = HelperTaskObservation {
-                pid,
-                status: info.pbi_status,
-                threads: task.pti_threadnum,
-                running: task.pti_numrunning,
-                observed_ns: hinted.map_or_else(
-                    || bootstrap::monotonic_ns().unwrap_or(u64::MAX),
-                    |snapshot| snapshot.observed_ns,
-                ),
-            };
-            if prior.pid != 0 && (prior.pid != pid || prior.birth != birth) {
-                return Err(());
-            }
-            if prior.image_phase == HelperImagePhase::Exited {
-                return Err(());
-            }
-            let image_phase;
-            let mut preexec_observations = prior.preexec_observations;
-            let mut first_verified_descendant = false;
-            let mut member_fresh_exec_ack = false;
-            let mut audit_token = prior.audit_token;
-            let mut audit_version = prior.audit_version;
-            let mut exec_stop_version = prior.exec_stop_version;
-            self.metrics.sample_stage = 6;
-            if info.pbi_status != 5 || prior.pid == 0 {
-                let mut incarnation = if prior.audit_version != 0 {
-                    RetiredMember {
-                        pid,
-                        birth,
-                        token: prior.audit_token,
-                        current: true,
-                    }
-                } else if let Some(member) = self
-                    .retired_members
-                    .iter()
-                    .find(|member| member.pid == pid && member.birth == birth && member.current)
-                {
-                    *member
-                } else {
-                    helper_audit_member(
-                        pid,
-                        if index == 0 {
-                            unsafe { libc::getpid() }
-                        } else {
-                            self.pgid
-                        },
-                    )?
-                };
-                self.retain_incarnation(incarnation)?;
-                let previous_version = incarnation.token.value[7];
-                let mut incarnation_changed = false;
-                let mut image = [0u8; 4096];
-                let mut len = unsafe {
-                    proc_pidpath_audittoken(
-                        &incarnation.token,
-                        image.as_mut_ptr().cast(),
-                        image.len() as u32,
-                    )
-                };
-                if len <= 0 {
-                    if std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH) {
-                        return Err(());
-                    }
-                    // The BSD snapshot still described a live owned member,
-                    // but its prior task incarnation is gone. Retain the new
-                    // recipient before any image/version/timing refusal.
-                    let mut numeric_image = [0u8; 4096];
-                    if unsafe {
-                        libc::proc_pidpath(
-                            pid,
-                            numeric_image.as_mut_ptr().cast(),
-                            numeric_image.len() as u32,
-                        )
-                    } <= 0
-                    {
-                        return Err(());
-                    }
-                    let current = helper_audit_member(
-                        pid,
-                        if index == 0 {
-                            unsafe { libc::getpid() }
-                        } else {
-                            self.pgid
-                        },
-                    )?;
-                    self.retain_incarnation(current)?;
-                    if hinted.is_some() {
-                        // This exact first-proof snapshot became stale. Retain
-                        // the new actual recipient but never admit its old
-                        // positive endpoint or a changed-version hint.
-                        self.invalidate_slot(index);
-                        return Err(());
-                    }
-                    if current.birth != birth || current.token.value[7] == previous_version {
-                        return Err(());
-                    }
-                    incarnation = current;
-                    incarnation_changed = true;
-                    if exec_stop_version != incarnation.token.value[7] {
-                        helper_token_signal(&incarnation.token, libc::SIGSTOP).map_err(|_| ())?;
-                        exec_stop_version = incarnation.token.value[7];
-                    }
-                    // A successful STOP on the old Git task says nothing about
-                    // the new GPG task. Require a later fresh quiescence sample.
-                    fresh_exec_ack = true;
-                    member_fresh_exec_ack = true;
-                    self.confirmed_stopped = false;
-                    len = unsafe {
-                        proc_pidpath_audittoken(
-                            &incarnation.token,
-                            image.as_mut_ptr().cast(),
-                            image.len() as u32,
-                        )
-                    };
-                    if len <= 0 || image != numeric_image {
-                        return Err(());
-                    }
-                }
-                audit_token = incarnation.token;
-                audit_version = incarnation.token.value[7];
-                let end = image.iter().position(|b| *b == 0).ok_or(())?;
-                let observed = &image[..end];
-                if index == 0 {
-                    if observed != self.identity.image.as_os_str().as_bytes() || incarnation_changed
-                    {
-                        return Err(());
-                    }
-                    image_phase = HelperImagePhase::Descendant;
-                } else {
-                    let expected = self.identity.descendant_image.as_ref().ok_or(())?;
-                    if observed == expected.as_os_str().as_bytes() {
-                        if (incarnation_changed
-                            && (audit_version <= previous_version
-                                || !matches!(
-                                    prior.image_phase,
-                                    HelperImagePhase::Unobserved | HelperImagePhase::ParentClone
-                                )))
-                            || (prior.image_phase == HelperImagePhase::ParentClone
-                                && !incarnation_changed)
-                        {
-                            return Err(());
-                        }
-                        if exec_stop_version != audit_version {
-                            // The first roster STOP may have reached the clone
-                            // before this exact task was captured. Stop this
-                            // known verifier incarnation once, even when the
-                            // earlier clone image was too brief to observe.
-                            helper_token_signal(&audit_token, libc::SIGSTOP).map_err(|_| ())?;
-                            exec_stop_version = audit_version;
-                            fresh_exec_ack = true;
-                            member_fresh_exec_ack = true;
-                            self.confirmed_stopped = false;
-                        }
-                        first_verified_descendant =
-                            prior.image_phase != HelperImagePhase::Descendant;
-                        image_phase = HelperImagePhase::Descendant;
-                    } else if !incarnation_changed
-                        && observed == self.identity.image.as_os_str().as_bytes()
-                        && matches!(
-                            prior.image_phase,
-                            HelperImagePhase::Unobserved | HelperImagePhase::ParentClone
-                        )
-                    {
-                        // A signed Git verifier's fork initially has the same
-                        // already provisioned image. This finite phase can only
-                        // advance to the exact provisioned verifier, then exit.
-                        image_phase = HelperImagePhase::ParentClone;
-                        preexec_observations = preexec_observations.checked_add(1).ok_or(())?;
-                    } else {
-                        return Err(());
-                    }
-                }
-                if index == 1 && prior.pid == 0 {
-                    self.metrics.descendants = self.metrics.descendants.checked_add(1).ok_or(())?;
-                }
-            } else {
-                image_phase = HelperImagePhase::Exited;
-            }
-            self.metrics.sample_stage = 7;
-            let mut usage = std::mem::MaybeUninit::<libc::rusage_info_v1>::uninit();
-            if unsafe { libc::proc_pid_rusage(pid, 1, usage.as_mut_ptr().cast()) } != 0 {
-                return Err(());
-            }
-            let usage = unsafe { usage.assume_init() };
-            self.observe_usage(index, pid, &usage);
-            if usage.ri_proc_start_abstime == 0
-                || (prior.start_abstime != 0 && usage.ri_proc_start_abstime != prior.start_abstime)
-            {
-                return Err(());
-            }
-            // Capture the previous ACK before installing this sample's first
-            // tentative endpoint. RI start identity, token/image and positive
-            // thread quiescence are already established; the remaining RSS/CPU
-            // bookkeeping is still contemporaneous controller C. Unknown or
-            // changed-exec slots retain their full through-closure windows.
-            let acknowledged_before_sample =
-                self.grant.opened && self.grant.slots[index].ack_ns.is_some();
-            if self.grant.opened
-                && !self.grant.slots[index].through_closure
-                && prior.pid == pid
-                && prior.birth == birth
-                && prior.start_abstime != 0
-                && prior.audit_version != 0
-                && prior.audit_version == audit_version
-                && prior.audit_token.value == audit_token.value
-                && prior.image_phase == HelperImagePhase::Descendant
-                && image_phase == HelperImagePhase::Descendant
-                && !member_fresh_exec_ack
-                && info.pbi_status == 4
-                && task.pti_threadnum == 1
-                && task.pti_numrunning == 0
-            {
-                self.acknowledge_slot_at(index, hinted.map(|snapshot| snapshot.observed_ns))?;
-            }
-            if index == 0 && !self.ready && self.metrics.grants == 0 {
-                if usage.ri_user_time != 0 {
-                    return Err(());
-                }
-                self.metrics.initial_kernel_cpu_ns = self
-                    .metrics
-                    .initial_kernel_cpu_ns
-                    .max(self.ticks_ns(usage.ri_system_time)?);
-            }
-            let cpu = usage
-                .ri_user_time
-                .checked_add(usage.ri_system_time)
-                .ok_or(())?;
-            let cpu = self.ticks_ns(cpu)?;
-            if cpu < prior.cpu {
-                return Err(());
-            }
-            let invalid_user_after_ack = acknowledged_before_sample
-                && audit_version == prior.audit_version
-                && usage.ri_user_time != prior.user_ticks;
-            rss_sum = rss_sum.checked_add(usage.ri_resident_size).ok_or(())?;
-            self.members[index] = HelperMember {
-                pid,
-                birth,
-                cpu,
-                rss_peak: prior.rss_peak.max(usage.ri_resident_size),
-                start_abstime: usage.ri_proc_start_abstime,
-                image_phase,
-                preexec_observations,
-                audit_version,
-                final_image_version: if image_phase == HelperImagePhase::Descendant
-                    && info.pbi_status == 4
-                    && task.pti_threadnum == 1
-                    && task.pti_numrunning == 0
-                    && !member_fresh_exec_ack
-                {
-                    audit_version
-                } else if prior.final_image_version == audit_version {
-                    prior.final_image_version
-                } else {
-                    0
-                },
-                exec_stop_version,
-                audit_token,
-                user_ticks: usage.ri_user_time,
-                system_ticks: usage.ri_system_time,
-                exit_abstime: usage.ri_proc_exit_abstime,
-                rollup_exit_observed_ns: if image_phase == HelperImagePhase::Exited {
-                    prior.rollup_exit_observed_ns
-                } else {
-                    0
-                },
-            };
-            self.note_incarnation(index, self.members[index]);
-            if first_verified_descendant {
-                self.metrics.verified_descendants =
-                    self.metrics.verified_descendants.checked_add(1).ok_or(())?;
-            }
-            if index == 0 {
-                self.metrics.observed_direct_cpu_ns = cpu;
-                let rolled = usage
-                    .ri_child_user_time
-                    .checked_add(usage.ri_child_system_time)
-                    .ok_or(())?;
-                let rolled = self.ticks_ns(rolled)?;
-                if rolled < self.metrics.rolled_descendant_cpu_ns {
-                    return Err(());
-                }
-                self.metrics.rolled_descendant_cpu_ns = rolled;
-                self.rolled_user_ticks = usage.ri_child_user_time;
-                self.rolled_system_ticks = usage.ri_child_system_time;
-            } else {
-                self.metrics.observed_descendant_cpu_ns = cpu;
-            }
-            if invalid_user_after_ack {
-                self.invalidate_slot(index);
-                return Err(());
-            }
-            if image_phase == HelperImagePhase::Exited {
-                if usage.ri_proc_exit_abstime == 0 || helper_token_exited(&audit_token) != Ok(true)
-                {
-                    return Err(());
-                }
-                self.acknowledge_slot(index)?;
-            }
-            // Process status alone can precede task-thread quiescence. The
-            // n*wall grant requires one runnable thread per helper process.
-            if info.pbi_status != 5 {
-                if task.pti_threadnum != 1 || !(0..=1).contains(&task.pti_numrunning) {
-                    return Err(());
-                }
-                if index == 0 {
-                    self.initial_stop_pending = info.pbi_status == 4 && task.pti_numrunning == 1;
-                }
-                all_stopped &= info.pbi_status == 4 && task.pti_numrunning == 0;
-                if info.pbi_status == 4 && task.pti_numrunning == 0 && !member_fresh_exec_ack {
-                    self.acknowledge_slot(index)?;
-                }
-            }
-        }
-        all_stopped &= !fresh_exec_ack;
-        if !pids[..count].contains(&self.pgid) {
-            return Err(());
-        }
-        self.metrics.sample_stage = 8;
-        self.metrics.group_rss_peak = self.metrics.group_rss_peak.max(rss_sum);
-        let separate = self.members[0]
-            .rss_peak
-            .checked_add(self.members[1].rss_peak)
-            .ok_or(())?;
-        self.metrics.separate_rss_sum = self.metrics.separate_rss_sum.max(separate);
-        if rss_sum > storage::HELPERS {
-            self.reject(control, 4);
-            return Err(());
-        }
-        if all_stopped {
-            self.metrics.sample_stage = 9;
-            // Tentative endpoints become usable only after this SAME grant
-            // re-establishes current-task stop/exit continuity and a final
-            // complete roster. Every call here remains active controller CPU.
-            for index in 0..2 {
-                if !self.member_continuity(index)? {
-                    return Ok(false);
-                }
-            }
-            self.metrics.sample_stage = 130;
-            if !self.closed_usage_covered() {
-                self.metrics.coverage_known = false;
-                return Err(());
-            }
-            // One final census after continuity replaces the redundant earlier
-            // group-only query. It still checks the original roster plus every
-            // parent/child edge and captures any new effect before judgment.
-            self.metrics.sample_stage = 10;
-            if !self.recheck_stopped_roster_expected(Some(&pids[..count]))? {
-                return Ok(false);
-            }
-            self.metrics.sample_stage = 11;
-            self.close_roster()?;
-            self.confirmed_stopped = true;
-        }
-        Ok(all_stopped)
-    }
-    #[cfg(not(target_os = "macos"))]
-    pub(crate) fn sample(&mut self, _: &Control) -> Result<bool, ()> {
-        Err(())
+            .find(|r| r.pid == m.pid && r.birth == m.birth && r.current)?;
+        (m.pid > 0 && m.verified).then_some((m.pid, m.birth, m.start, token.token.value[7]))
     }
 }
 impl Control {
-    /// The helper cohort's conservative debt joins the canonical ledger. Its
-    /// measured owner/pipe CPU is already recorded by read_charge and control
-    /// ticks, so extending this debt must not add that CPU a second time.
     fn helper_extend_debt(&self, cost: u64) -> u64 {
-        if cost == 0 {
-            return 0;
-        }
-        let debt = if cost == u64::MAX {
-            self.accounting.clock_failed.store(true, Ordering::Release);
-            9 * SPAN_NS
-        } else {
-            match cost.checked_mul(9) {
-                Some(debt) => debt,
-                None => {
-                    self.accounting.clock_failed.store(true, Ordering::Release);
-                    9 * SPAN_NS
-                }
-            }
-        };
+        let debt = cost
+            .max(UNIT_NS)
+            .checked_mul(9)
+            .filter(|_| cost != u64::MAX)
+            .unwrap_or_else(|| {
+                self.accounting.clock_failed.store(true, Ordering::Release);
+                9 * SPAN_NS
+            });
         let now = self.accounting.now();
         if self
             .accounting
@@ -6554,212 +2614,133 @@ impl Control {
         self.accounting.debt_total.fetch_add(debt, Ordering::AcqRel);
         debt
     }
+    pub(crate) fn helper_controller_rest(&self) {
+        let until = self
+            .accounting
+            .helper_control_rest_until
+            .load(Ordering::Acquire);
+        let now = self.accounting.now();
+        if until > now {
+            thread::sleep(Duration::from_nanos(until - now));
+        }
+    }
+    pub(crate) fn helper_note_control_work(&self) {
+        self.accounting
+            .helper_control_work
+            .fetch_add(1, Ordering::AcqRel);
+    }
     pub(crate) fn helper_controller_marker(&self) -> Option<(u16, u64)> {
-        self.helper
-            .lock()
-            .ok()?
-            .as_ref()
-            .map(|h| (h.identity.sequence, h.metrics.controller_cpu_ns))
+        let owner = self.helper.lock().ok()?;
+        Some((
+            owner.as_ref().map_or(0, |h| h.identity.sequence),
+            self.accounting.helper_control_work.load(Ordering::Acquire),
+        ))
     }
     pub(crate) fn helper_account_controller(&self, before: Option<(u16, u64)>, inclusive_cpu: u64) {
-        self.helper_account_controller_clock(before, inclusive_cpu, cpu_ns);
+        let mut owner = self.helper.lock().unwrap_or_else(|p| p.into_inner());
+        if let Some(h) = owner.as_mut() {
+            let _ = h.account_controller(self, inclusive_cpu);
+        }
+        if before.is_none_or(|(_, epoch)| {
+            epoch == self.accounting.helper_control_work.load(Ordering::Acquire)
+        }) {
+            return;
+        }
+        self.accounting.charge(inclusive_cpu, inclusive_cpu);
+        let debt = inclusive_cpu
+            .max(UNIT_NS)
+            .checked_mul(9)
+            .filter(|_| inclusive_cpu != u64::MAX)
+            .unwrap_or(9 * SPAN_NS);
+        self.accounting.helper_control_rest_until.store(
+            self.accounting.now().saturating_add(debt),
+            Ordering::Release,
+        );
     }
-    fn helper_account_controller_clock(
-        &self,
-        before: Option<(u16, u64)>,
-        inclusive_cpu: u64,
-        mut clock: impl FnMut() -> u64,
-    ) {
-        let at = clock();
+    pub(crate) fn helper_tick(&self) {
         let mut owner = self.helper.lock().unwrap_or_else(|p| p.into_inner());
         let Some(h) = owner.as_mut() else {
             return;
         };
-        let already = before
-            .filter(|(sequence, _)| *sequence == h.identity.sequence)
-            .and_then(|(_, cpu)| h.metrics.controller_cpu_ns.checked_sub(cpu))
-            .unwrap_or(0);
-        let end = clock();
-        let tail = self.observe_interval(at, end);
-        let extra = inclusive_cpu
-            .checked_sub(already)
-            .and_then(|cpu| cpu.checked_add(tail))
-            .filter(|_| at != u64::MAX && end != u64::MAX)
-            .unwrap_or(u64::MAX);
-        let _ = h.account_controller(self, extra);
-        // The complete final control tick, including input/output and required
-        // clock checks, joins C before charging this grant. An admitted IO span
-        // cannot disappear merely because its owner has not reported it yet.
-        let finish_grant = h.grant_commit_pending && !(h.pipe_open && h.pipe_active);
-        let finish_post = h.post_commit_pending && !h.pending_closure() && !h.post_proof_pending;
-        if finish_grant || finish_post {
-            let begin = clock();
-            if finish_grant {
-                h.finish_grant(self, 0);
-            }
-            if h.post_commit_pending && !h.pending_closure() && !h.post_proof_pending {
-                h.commit_stopped_unit(self, None);
-            }
-            let cost = self.observe_interval(begin, clock());
-            h.account_finalization_tail(self, cost);
-            // This cutoff includes substantive finalization. The subsequent
-            // scalar receipt/debt writes remain inside the enclosing measured
-            // control tick. They do not recursively create work or debt. Idle
-            // control bookkeeping must never manufacture a stopped work unit.
-        }
-    }
-    pub(crate) fn helper_tick(&self) {
-        let mut helper = self.helper.lock().unwrap_or_else(|poisoned| {
-            self.cancel.store(4, Ordering::Release);
-            poisoned.into_inner()
-        });
-        let Some(h) = helper.as_mut() else {
-            return;
-        };
-        if h.retiring {
+        if h.reap_authorized || h.retiring || !h.creation_settled {
             return;
         }
-        let cpu_start = cpu_ns();
+        if self.error().is_some() {
+            self.helper_note_control_work();
+            let _ = h.retire_members();
+            return;
+        }
         let foreground = self.foreground.load(Ordering::Acquire);
-        let debts_paid = Instant::now() >= h.debt_until
-            && self.accounting.now() >= self.accounting.rest_until.load(Ordering::Acquire);
-        if h.admission_failed {
-            // Preserve possible execution/open windows through real retirement
-            // and reap. Failed admission is not permission to repeat expensive
-            // proof under this mutex or to invent a physically stopped seal.
-        } else if h.grant_commit_pending {
-            // Physically stopped; the final owner-CPU handoff is still open.
-        } else if h.running {
-            let mut sampled_exit = false;
-            #[cfg(target_os = "macos")]
-            let exit_observation = h.observe_leader_exit();
-            #[cfg(not(target_os = "macos"))]
-            let exit_observation =
-                super::resolve::helper_exited(h.pgid).map(|exited| exited.then_some(()));
-            match exit_observation {
-                Ok(Some(exit)) => {
-                    // An unreaped exit is a reason to attempt the existing
-                    // complete exit/usage/roster proof, not to signal a zombie.
-                    // Leader exit alone never closes a possible child slot.
-                    sampled_exit = true;
-                    #[cfg(target_os = "macos")]
-                    let observed = h.sample_with_observations(self, None, Some(exit));
-                    #[cfg(not(target_os = "macos"))]
-                    let observed = {
-                        let _ = exit;
-                        h.sample(self)
-                    };
-                    match observed {
-                        Ok(true) => {
-                            h.running = false;
-                            h.grant_commit_pending = true;
-                        }
-                        Ok(false) => {}
-                        Err(()) if !h.admission_failed => h.reject(self, 5),
-                        Err(()) => {}
-                    }
-                }
-                Ok(None) => {}
-                Err(_) => h.reject(self, 5),
-            }
-            let allocation_due = if h.running && !h.admission_failed && !h.stop_requested {
-                match h.ledger_clock().and_then(|now| {
-                    HelperAdaptiveGrant::due(h.grant.allocation, h.grant.t0_ns, now)
-                }) {
-                    Ok(due) => due,
-                    Err(()) => {
-                        h.reject(self, 5);
-                        false
-                    }
-                }
-            } else {
-                false
-            };
-            if h.running
-                && !h.admission_failed
-                && !h.stop_requested
-                && (!h.ready
-                    || foreground
-                    || self.error().is_some()
-                    // Leave room for actual stop/identity/roster closure and
-                    // its full controller charge under the unchanged1ms Q.
-                    || allocation_due)
-                && h.request_group_stop().is_err()
-            {
-                h.reject(self, 5);
-            }
-            if !sampled_exit && h.stop_requested && !h.admission_failed {
-                #[cfg(target_os = "macos")]
-                let (due, hint) = h.stop_observation_hint();
-                #[cfg(not(target_os = "macos"))]
-                let due = h.stop_observation_due();
-                if due {
-                    #[cfg(target_os = "macos")]
-                    let observed = h.sample_with_hint(self, hint);
-                    #[cfg(not(target_os = "macos"))]
-                    let observed = h.sample(self);
-                    match observed {
-                        Ok(true) => {
-                            h.running = false;
-                            h.grant_commit_pending = true;
-                        }
-                        Ok(false) => {}
-                        Err(()) if !h.admission_failed => h.reject(self, 5),
-                        Err(()) => {}
-                    }
-                }
-            }
-        } else if h.creation_settled
-            && h.corroboration_pending
-            && !h.post_commit_pending
-            && !h.pipe_open
-            && debts_paid
-        {
-            if h.corroborate_stopped(self).is_err() {
-                h.corroboration_pending = false;
-                h.confirmed_stopped = false;
-                if !h.admission_failed {
-                    h.reject(self, 5);
-                }
-            }
-        } else if h.ready
-            && !h.pending_closure()
-            && !h.pending_corroboration()
-            && h.members[0].image_phase != HelperImagePhase::Exited
-            && !foreground
-            && self.error().is_none()
-            && debts_paid
-        {
-            match h.refresh_pre_cont_baseline(self) {
-                Ok(false) => {} // fresh stopped C+L debt precedes any new grant
-                Err(()) => h.reject(self, 5),
-                Ok(true) => {
-                    if h.open_grant().is_err() {
-                        h.reject(self, 5);
-                    } else {
-                        h.confirmed_stopped = false;
-                        h.changed = Instant::now();
-                        if unsafe { libc::kill(-h.pgid, libc::SIGCONT) } == 0 {
-                            h.running = true;
-                        } else {
-                            h.reject(self, 5);
-                        }
-                    }
+        if foreground && h.pause_started.is_none() {
+            self.helper_note_control_work();
+            h.pause_started = Some(Instant::now());
+            h.pause_ack = None;
+            if let Err(errno) = h.signal_group(libc::SIGSTOP) {
+                h.pause_failed = true;
+                h.terminal_pending = true;
+                if !matches!(errno, libc::EPERM | libc::ESRCH) {
+                    h.reject(self, false);
                 }
             }
         }
-        let cpu = self.observe_interval(cpu_start, cpu_ns());
-        let _ = h.account_controller(self, cpu);
-        if !h.admission_failed && h.pending_closure() {
-            match h.pending_charge_lower_bound() {
-                Ok(cost) if cost > UNIT_NS => {
-                    self.accounting
-                        .resource_failed
-                        .store(true, Ordering::Release);
-                    h.reject(self, 4);
+        let due = h.last_sample.elapsed() >= HELPER_SAMPLE_INTERVAL
+            || (h.pause_started.is_some() && !h.confirmed_stopped);
+        #[cfg(test)]
+        let due = due
+            && !(self
+                .accounting
+                .helper_test_skip_live_sampling
+                .load(Ordering::Acquire)
+                && !foreground
+                && h.pause_started.is_none());
+        if due {
+            self.helper_note_control_work();
+            if h.sample(self).is_err() {
+                let _ = h.retire_members();
+                return;
+            }
+        }
+        if let Some(started) = h.pause_started {
+            if h.exited {
+                return;
+            }
+            if h.pause_ack.is_none() && started.elapsed() > HELPER_PAUSE_LIMIT {
+                h.reject(self, true);
+                let _ = h.retire_members();
+                return;
+            }
+            if h.confirmed_stopped
+                && h.pause_ack.is_none()
+                && h.record_pause_ack(started.elapsed()).is_err()
+            {
+                h.reject(self, true);
+                let _ = h.retire_members();
+                return;
+            }
+            if !foreground
+                && h.ready
+                && h.confirmed_stopped
+                && !h.pause_failed
+                && self.error().is_none()
+            {
+                self.helper_note_control_work();
+                // Re-read RI under the stopped identity before the one resume.
+                if !due && h.sample(self) != Ok(true) {
+                    h.reject(self, false);
+                    return;
                 }
-                Ok(_) => {}
-                Err(()) => h.reject(self, 5),
+                if h.signal_group(libc::SIGCONT).is_err() {
+                    h.reject(self, false);
+                    return;
+                }
+                h.pause_started = None;
+                h.pause_ack = None;
+                h.pause_user_baseline = None;
+                h.confirmed_stopped = false;
+                h.running = true;
+                for member in &mut h.members {
+                    member.paused_user = None;
+                }
             }
         }
     }
@@ -8851,6 +4832,11 @@ pub(crate) fn run<J: Job>(
     drop(gate);
     bootstrap::merge_usage(bootstrap_usage, &reactor, &accounting.control_cpu);
     loop {
+        if J::purpose() == bootstrap::Purpose::ReadPrepare
+            && let Some((_, control, _)) = &state
+        {
+            control.helper_controller_rest();
+        }
         let read_control_at = (J::purpose() == bootstrap::Purpose::ReadPrepare).then(cpu_ns);
         let helper_marker = if read_control_at.is_some() {
             state
@@ -8859,18 +4845,13 @@ pub(crate) fn run<J: Job>(
         } else {
             None
         };
-        let (has_helper, helper_running) = if read_control_at.is_some() {
-            state.as_ref().map_or((false, false), |(_, control, _)| {
-                control.helper.lock().map_or((true, false), |helper| {
-                    (
-                        helper.is_some(),
-                        helper.as_ref().is_some_and(HelperGroup::needs_active_poll),
-                    )
-                })
-            })
-        } else {
-            (false, false)
-        };
+        let has_helper = read_control_at.is_some()
+            && state.as_ref().is_some_and(|(_, control, _)| {
+                control
+                    .helper
+                    .lock()
+                    .map_or(true, |helper| helper.is_some())
+            });
         let mut fds = [
             libc::pollfd {
                 fd: 0,
@@ -8883,10 +4864,7 @@ pub(crate) fn run<J: Job>(
                 revents: 0,
             },
         ];
-        if has_helper && !helper_running {
-            thread::sleep(Duration::from_millis(1));
-        }
-        unsafe { libc::poll(fds.as_mut_ptr(), 2, if has_helper { 0 } else { 2 }) };
+        unsafe { libc::poll(fds.as_mut_ptr(), 2, if has_helper { 1 } else { 2 }) };
         let tick = read_control_at.unwrap_or_else(cpu_ns);
         let mut tick_guard = ControlTick {
             at: tick,
@@ -8897,6 +4875,9 @@ pub(crate) fn run<J: Job>(
         if read_control_at.is_some()
             && let Some((_, control, _)) = &state
         {
+            if fds.iter().any(|fd| fd.revents != 0) {
+                control.helper_note_control_work();
+            }
             control.helper_tick();
         }
         if !eof && (fds[0].revents & (libc::POLLIN | libc::POLLHUP)) != 0 {
@@ -9960,4443 +5941,431 @@ mod control_storage {
 }
 
 #[cfg(all(test, target_os = "macos"))]
-mod helper_admission_tests {
+mod helper_total_budget_tests {
     use super::*;
-
-    fn accounting_group() -> HelperGroup {
-        // No effect is created by these arithmetic controls. Keeping running
-        // false ensures their refusal cannot signal a numeric fixture identity.
-        HelperGroup::attached(super::super::resolve::HelperIdentity {
+    fn group() -> HelperGroup {
+        // API inputs only. No process exists at these labels, and none of these
+        // arithmetic tests calls a signal/census/native settlement method.
+        let mut h = HelperGroup::attached(super::super::resolve::HelperIdentity {
             sequence: 1,
-            pid: 0,
-            pgid: 0,
-            start_identity: 0,
+            pid: 101,
+            pgid: 101,
+            start_identity: 7,
             expected_members: 1,
-            image: PathBuf::from("/private/accounting-fixture"),
-            descendant_image: None,
-        })
-    }
-
-    fn measured_accounting_group(reserved: u8) -> HelperGroup {
-        // API predicate inputs only, never native identities or qualification.
-        // Rejection cannot signal these labels: running remains false.
-        let mut helper = accounting_group();
-        helper.identity.expected_members = reserved;
-        helper.timebase = HelperTimebase {
-            numer: 125,
-            denom: 3,
-        };
-        let now = bootstrap::monotonic_ns().unwrap();
-        let t0 = now - 10_000_000;
-        helper.grant.opened = true;
-        helper.grant.closed = true;
-        helper.grant.reserved = reserved;
-        helper.grant.t0_ns = t0;
-        helper.grant.close_ns = Some(now);
-        helper.grant.post_ack_mask = (1 << reserved) - 1;
-        helper.confirmed_stopped = true;
-        for index in 0..usize::from(reserved) {
-            let pid = 101 + index as i32;
-            let baseline = 1200 * (index as u64 + 1);
-            helper.members[index] = HelperMember {
-                pid,
-                birth: 1,
-                start_abstime: 1,
-                audit_version: 1,
-                final_image_version: 1,
-                image_phase: HelperImagePhase::Descendant,
-                cpu: helper.ticks_ns(baseline + 2400).unwrap(),
-                user_ticks: baseline + 2400,
-                ..HelperMember::default()
-            };
-            helper.grant.slots[index] = HelperSlotWindow {
-                pid,
-                birth: 1,
-                start: 1,
-                version: 1,
-                ack_ns: Some(t0 + 5_000_000),
-                through_closure: false,
-            };
-            helper.grant.baseline_usage[index] = HelperUsageObservation {
-                pid,
-                user_ticks: baseline,
-                observed_ns: t0 - 1,
-                ..HelperUsageObservation::default()
-            };
-            helper.usage_observations[index] = HelperUsageObservation {
-                pid,
-                user_ticks: baseline + 2400,
-                observed_ns: now - 1,
-                ..HelperUsageObservation::default()
-            };
-            helper.task_observations[index] = HelperTaskObservation {
-                pid,
-                status: 4,
-                threads: 1,
-                running: 0,
-                observed_ns: t0 + 5_000_000,
-            };
-        }
-        helper.grant.baseline_slots = helper.grant.slots;
-        helper.grant.actual_baseline = helper
-            .ticks_ns(
-                helper
-                    .grant
-                    .baseline_usage
-                    .iter()
-                    .map(|u| u.user_ticks)
-                    .sum(),
-            )
-            .unwrap();
-        helper
-    }
-
-    #[test]
-    fn adaptive_grant_allocation_reserves_both_slots_latency_and_full_controller_cost() {
-        for slots in [1, 2] {
-            let mut policy = HelperAdaptiveGrant::new(slots);
-            let first = policy.allocation(slots);
-            assert_eq!(first.target_a_ns, 550_000);
-            assert_eq!(first.run_ns, if slots == 1 { 350_000 } else { 175_000 });
-            assert_eq!(
-                HelperAdaptiveGrant::due(first, 100, 100 + first.run_ns - 1),
-                Ok(false)
-            );
-            // The freshly sampled clock after bounded work, not an old tick
-            // timestamp, triggers the very same native STOP decision.
-            assert_eq!(
-                HelperAdaptiveGrant::due(first, 100, 100 + first.run_ns),
-                Ok(true)
-            );
-            assert!(HelperAdaptiveGrant::due(first, 100, 99).is_err());
-            assert!(HelperAdaptiveGrant::due(first, 100, u64::MAX).is_err());
-            policy.observe(slots, 250_000, 600_000, Some(100_000), true);
-            let halved = policy.allocation(slots);
-            assert_eq!(halved.run_ns, first.run_ns / 2);
-            policy.observe(slots, 100_000, 100_000, Some(10_000), true);
-            let grown = policy.allocation(slots);
-            assert_eq!(
-                grown.run_ns,
-                (halved.run_ns + 10_000).min(policy.cap(slots))
-            );
-            assert_eq!(grown.controller_reserve_ns, 250_000);
-            assert_eq!(grown.stop_latency_reserve_ns, 100_000);
-            for _ in 0..100 {
-                policy.observe(slots, 250_000, 100_000, Some(100_000), true);
-            }
-            assert_eq!(policy.allocation(slots).run_ns, policy.cap(slots));
-            let before_unknown = policy.run_ns;
-            policy.observe(slots, u64::MAX, u64::MAX, None, false);
-            assert_eq!(
-                policy.run_ns, before_unknown,
-                "unknown proof cannot grow a grant"
-            );
-            policy.observe(slots, 700_000, 100_000, Some(200_000), true);
-            let high_cost = policy.allocation(slots);
-            assert_eq!(high_cost.target_a_ns, 100_000);
-            assert_eq!(high_cost.run_ns, 25_000);
-            eprintln!(
-                "adaptive_allocation synthetic_api=true native_qualification=false slots={slots} initial_run_ns={} initial_target_a_ns={} halved_run_ns={} grown_run_ns={} high_C_run_ns={} high_C_target_a_ns={} controller_reserve_ns={} stop_latency_reserve_ns={} unchanged_Q_limit_ns={UNIT_NS}",
-                first.run_ns,
-                first.target_a_ns,
-                halved.run_ns,
-                grown.run_ns,
-                high_cost.run_ns,
-                high_cost.target_a_ns,
-                high_cost.controller_reserve_ns,
-                high_cost.stop_latency_reserve_ns
-            );
-        }
-    }
-    #[test]
-    fn adaptive_grant_stop_latency_uses_max_live_ack_and_excludes_exit() {
-        for fault in [
-            "two_live",
-            "exited_child",
-            "exited_only",
-            "failed_signal",
-            "wrong_grant",
-            "wrong_identity",
-            "wrong_member",
-            "unobserved_ack",
-            "no_live_stop",
-            "reversed_ack",
-        ] {
-            let mut helper = measured_accounting_group(2);
-            helper.identity.pid = helper.members[0].pid;
-            helper.identity.pgid = helper.identity.pid;
-            helper.identity.start_identity = helper.members[0].birth;
-            let sent = helper.grant.t0_ns + 1_000_000;
-            helper.metrics.last_stop = HelperStopReceipt {
-                sequence: helper.identity.sequence,
-                pid: helper.identity.pid,
-                birth: helper.identity.start_identity,
-                audit_version: helper.members[0].audit_version,
-                observed_ns: sent,
-                attempt: 1,
-                result: 0,
-                ..HelperStopReceipt::default()
-            };
-            for index in 0..2 {
-                let ack = sent + if index == 0 { 100_000 } else { 300_000 };
-                helper.grant.slots[index].ack_ns = Some(ack);
-                helper.task_observations[index].observed_ns = ack;
-            }
-            match fault {
-                "exited_child" => helper.members[1].image_phase = HelperImagePhase::Exited,
-                "exited_only" => {
-                    helper.members[0].image_phase = HelperImagePhase::Exited;
-                    helper.members[1].image_phase = HelperImagePhase::Exited;
-                }
-                "failed_signal" => helper.metrics.last_stop.result = -1,
-                "wrong_grant" => helper.metrics.last_stop.observed_ns = helper.grant.t0_ns - 1,
-                "wrong_identity" => helper.metrics.last_stop.birth += 1,
-                "wrong_member" => helper.members[1].audit_version += 1,
-                "unobserved_ack" => helper.task_observations[1].observed_ns = sent,
-                "no_live_stop" => {
-                    helper.task_observations[0].status = 3;
-                    helper.task_observations[1].status = 3;
-                }
-                "reversed_ack" => helper.grant.slots[1].ack_ns = Some(sent - 1),
-                _ => {}
-            }
-            let latency = helper.live_stop_feedback_latency();
-            let expected = match fault {
-                "two_live" => Some(300_000),
-                "exited_child" | "wrong_member" | "unobserved_ack" | "reversed_ack" => {
-                    Some(100_000)
-                }
-                _ => None,
-            };
-            assert_eq!(latency, expected);
-            let mut policy = HelperAdaptiveGrant::new(2);
-            policy.observe(2, 250_000, 100_000, latency, true);
-            if latency.is_none() {
-                assert_eq!(
-                    policy.run_ns, 175_000,
-                    "exited/unknown/non-success cannot earn growth"
-                );
-            }
-            if fault == "two_live" {
-                assert_eq!(policy.stop_latency_reserve_ns, 300_000);
-                assert_eq!(policy.run_ns, 25_000);
-            }
-            eprintln!(
-                "adaptive_live_latency synthetic_api=true fault={fault} leader_ack_delay_ns=100000 child_ack_delay_ns=300000 observed_max_ns={latency:?} reserve_ns={} run_ns={} qualification=false",
-                policy.stop_latency_reserve_ns, policy.run_ns
-            );
-        }
-    }
-    #[test]
-    fn adaptive_grant_window_basis_finite_overshoot_shrinks_without_growth() {
-        let mut policy = HelperAdaptiveGrant::new(1);
-        assert_eq!(policy.run_ns, 350_000);
-        // A525us exceeds the NEW500us target after actual C grows250->300us,
-        // although it did not exceed the old550us target. Window basis blocks
-        // growth, never conservative shrink from a finite actual CPU sample.
-        policy.observe(1, 300_000, 525_000, Some(100_000), false);
-        assert_eq!(policy.target_a(), 500_000);
-        assert_eq!(policy.run_ns, 175_000);
-        policy.observe(1, 250_000, 100_000, Some(100_000), false);
-        assert_eq!(policy.run_ns, 175_000, "window basis cannot earn growth");
-        policy.observe(1, 250_000, 100_000, None, true);
-        assert_eq!(
-            policy.run_ns, 175_000,
-            "exited-only/no live STOP latency cannot earn growth"
-        );
-        eprintln!(
-            "adaptive_window_feedback synthetic_api=true C_reserve_ns={} new_target_A_ns={} observed_A_ns=525000 halved_run_ns={} measured_basis=false Q_limit_ns={UNIT_NS} qualification=false",
-            policy.controller_reserve_ns,
-            policy.target_a(),
-            policy.run_ns
-        );
-    }
-
-    #[test]
-    fn adaptive_grant_fixed_oversize_cannot_hide_actual_quantum_or_fresh_debt() {
-        // Deliberately broken allocation, synthetic raw counter API inputs.
-        // Actual endpoints/A/C and the existing resource/debt gates stay intact;
-        // the C source-known process control separately burns real helper CPU.
-        let control = Control::fixture(Instant::now() + Duration::from_secs(2));
-        let mut helper = measured_accounting_group(1);
-        helper.grant.allocation.run_ns = UNIT_NS;
-        helper.usage_observations[0].user_ticks += 24_000;
-        helper.members[0].user_ticks += 24_000;
-        helper.members[0].cpu += UNIT_NS;
-        helper.finish_grant(&control, 250_000);
-        let r = helper.metrics.worst_grant;
-        eprintln!(
-            "adaptive_fixed_oversize synthetic_api=true actual_process=false run_ns={} A_ns={} C_ns={} W_ns={} Q_ns={} debt_ns={} resource_refused={}",
-            r.run_budget_ns,
-            r.a_ns,
-            r.c_ns,
-            r.w_ns,
-            r.q_ns,
-            control.helper_debt_marker(),
-            control.error() == Some(w::Code::ResourceLimit)
-        );
-        assert_eq!(r.run_budget_ns, UNIT_NS);
-        assert!(r.a_ns >= UNIT_NS && r.q_ns > UNIT_NS);
-        assert_eq!(r.q_ns, r.a_ns + r.c_ns);
-        assert_eq!(control.error(), Some(w::Code::ResourceLimit));
-        assert_eq!(control.helper_debt_marker(), 9 * r.q_ns);
-        control.read_pay();
-        assert!(control.accounting.now() >= control.accounting.rest_until.load(Ordering::Acquire));
-    }
-
-    #[test]
-    fn measured_quantum_requires_all_closure_predicates_and_keeps_wall_hard() {
-        for fault in [
-            "valid",
-            "unknown",
-            "pre_ack",
-            "pre_ack_clock",
-            "roster",
-            "version",
-            "counter_reverse",
-            "timebase",
-            "slot_cpu",
-            "wall",
-        ] {
-            let control = Control::fixture(Instant::now() + Duration::from_secs(2));
-            let mut helper = measured_accounting_group(2);
-            match fault {
-                "valid" => {}
-                "unknown" => helper.grant.baseline_slots[1].pid = 0,
-                "pre_ack" => helper.grant.post_ack_mask &= !1,
-                "pre_ack_clock" => {
-                    helper.usage_observations[0].observed_ns = helper.grant.t0_ns + 1
-                }
-                "roster" => helper.grant.closed = false,
-                "version" => helper.grant.slots[0].version += 1,
-                "counter_reverse" => helper.usage_observations[0].user_ticks = 1,
-                "timebase" => helper.timebase.denom = 0,
-                "slot_cpu" => helper.grant.slots[0].ack_ns = Some(helper.grant.t0_ns + 50_000),
-                "wall" => {
-                    helper.grant.t0_ns -= 30_000_000;
-                    for slot in &mut helper.grant.slots {
-                        slot.ack_ns = Some(slot.ack_ns.unwrap() + 1);
-                    }
-                    for usage in &mut helper.grant.baseline_usage {
-                        usage.observed_ns = helper.grant.t0_ns - 1;
-                    }
-                }
-                _ => unreachable!(),
-            }
-            helper.finish_grant(&control, 100_000);
-            let receipt = helper.metrics.worst_grant;
-            if matches!(fault, "valid" | "wall") {
-                assert_eq!(receipt.basis, HelperChargeBasis::Measured);
-                assert_eq!(receipt.unknown_mask, 0);
-                assert_eq!(receipt.post_ack_mask, 3);
-                assert_eq!(receipt.slot_a_ns, [100_000, 100_000]);
-                assert_eq!(receipt.q_ns, 300_000);
-                assert_eq!(control.error().is_some(), fault == "wall");
-                if fault == "wall" {
-                    assert!(receipt.w_ns > 25_000_000);
-                }
-            } else {
-                assert_eq!(receipt.basis, HelperChargeBasis::Window);
-                assert_eq!(
-                    receipt.q_ns,
-                    receipt.w_ns.max(receipt.a_ns).saturating_add(receipt.c_ns)
-                );
-                assert!(helper.admission_failed);
-                if fault == "slot_cpu" {
-                    assert!(!helper.metrics.coverage_known);
-                }
-            }
-            assert!(helper.metrics.debt_ns >= 9 * receipt.q_ns.clamp(UNIT_NS, SPAN_NS));
-            control.read_pay();
-        }
-    }
-
-    #[test]
-    fn measured_terminal_wait4_is_settlement_only_and_conservation_excess_is_paid() {
-        let control = Control::fixture(Instant::now() + Duration::from_secs(2));
-        let mut helper = measured_accounting_group(1);
-        helper.members[0].image_phase = HelperImagePhase::Exited;
-        helper.finish_grant(&control, 100_000);
-        assert!(helper.terminal_accounting_pending && !helper.pending_closure());
-        assert!(helper.payload_input_blocked() && helper.open_grant().is_err());
-        assert_eq!(
-            helper.metrics.grants, 0,
-            "RI exit cannot manufacture wait4 accounting"
-        );
-        let frozen_c = helper.grant_control_cpu().unwrap();
-        helper.metrics.controller_cpu_ns += 777;
-        assert_eq!(helper.grant_control_cpu().unwrap(), frozen_c);
-        // This is an explicitly synthetic API input; the owned process control
-        // below independently supplies real wait4 bytes and positive CPU.
-        helper.usage_reconciled = true;
-        helper.metrics.wait4_reads = 1;
-        helper.metrics.reap_user_upper_ns = 150_000;
-        helper.metrics.reap_system_upper_ns = 0;
-        helper.settled_cpu = Some(150_000);
-        helper.finish_grant(&control, 0);
-        assert!(!helper.terminal_accounting_pending);
-        assert_eq!(
-            helper.metrics.worst_grant.basis,
-            HelperChargeBasis::Measured
-        );
-        assert_eq!(helper.metrics.worst_grant.a_ns, 100_000);
-        helper.post_proof_pending = true;
-        helper.post_commit_pending = true;
-        helper.metrics.counter_reads = 3;
-        let raw_wait4 = 2_500_000;
-        assert!(helper.check_conservation(&control, raw_wait4).is_err());
-        let excess = helper.metrics.conservation_excess_ns;
-        let residual = helper.metrics.terminal_residual_upper_ns;
-        assert!(excess > UNIT_NS && helper.post_unexplained_cpu == residual);
-        let debt_before = control.accounting.debt_total.load(Ordering::Acquire);
-        // The production adapter records C before this inclusive observation
-        // commits. Use this SAME control's canonical C floor in the API control.
-        control.accounting.charge(0, 0);
-        assert!(helper.commit_post_observation(&control, 0, 1).is_err());
-        assert_eq!(
-            control.accounting.debt_total.load(Ordering::Acquire) - debt_before,
-            9 * residual
-        );
-        assert_eq!(helper.metrics.unexplained_cpu_ns, residual);
-        assert_eq!(control.error(), Some(w::Code::ResourceLimit));
-        control.read_pay();
-    }
-
-    #[test]
-    fn teardown_fixed_ceiling_requires_proven_reaps_and_full_paid_residual() {
-        // Explicit synthetic actual-reap API inputs, never fabricated native
-        // receipts/qualification. Each mutation prices the SAME full residual;
-        // the constant comparison ceiling cannot pay that cost or grow from it.
-        for fault in [
-            "covered",
-            "over_T",
-            "missing_residual_debit",
-            "wait4_derived_T",
-            "unproven_child",
-            "qualified_child",
-        ] {
-            let control = Control::fixture(Instant::now() + Duration::from_secs(2));
-            let mut helper = if fault == "qualified_child" {
-                let mut h = retired_rollup_accounting_group();
-                h.retired_child_reap = Some(h.grant.rollup);
-                h
-            } else {
-                accounting_group()
-            };
-            helper.timebase = HelperTimebase {
-                numer: 125,
-                denom: 3,
-            };
-            helper.metrics.startup_cpu_ns = 100_000;
-            helper.metrics.counter_reads = 2;
-            helper.metrics.wait4_reads = 1;
-            helper.usage_reconciled = true;
-            if fault == "unproven_child" {
-                helper.identity.expected_members = 2;
-            }
-            let terminal = match fault {
-                "over_T" => 253_000,
-                "wait4_derived_T" => 600_000,
-                "unproven_child" | "qualified_child" => 350_000,
-                _ => 249_000,
-            };
-            let comparison = helper.check_conservation(&control, terminal);
-            let expected_n = if fault == "qualified_child" { 2 } else { 1 };
-            let expected_ceiling = 100_000 + 2_084 + expected_n * 150_000;
-            let expected_excess = terminal.saturating_sub(expected_ceiling);
-            let residual = terminal + 2_000 - 100_000;
-            assert_eq!(helper.metrics.conservation_direct_reaps, 1);
-            assert_eq!(helper.metrics.conservation_rollup_reaps, expected_n - 1);
-            assert_eq!(helper.metrics.conservation_teardown_per_process_ns, 150_000);
-            assert_eq!(
-                helper.metrics.conservation_total_ceiling_ns,
-                expected_ceiling
-            );
-            assert_eq!(helper.metrics.conservation_excess_ns, expected_excess);
-            assert_eq!(comparison.is_ok(), expected_excess == 0);
-            assert!(
-                !helper.metrics.conservation_pass,
-                "numeric T does not pay cost"
-            );
-            helper.reap_cost_before = control.accounting.debt_total.load(Ordering::Acquire);
-            helper.reap_cost_pending = true;
-            helper.post_proof_pending = true;
-            helper.post_commit_pending = true;
-            if fault == "missing_residual_debit" {
-                helper.post_unexplained_cpu = 0;
-            }
-            control.accounting.charge(0, 0);
-            let _ = helper.commit_post_observation(&control, 0, 1);
-            helper.retain_reap_residual_cost(&control, 0, 0, 1);
-            assert!(
-                !helper.metrics.terminal_residual_cost_paid,
-                "numeric/retained cost cannot manufacture paid rest"
-            );
-            control.read_pay();
-            thread::sleep(helper.debt_until.saturating_duration_since(Instant::now()));
-            let passed = helper.finish_reap_residual_payment(&control);
-            let expected_pass = expected_excess == 0 && fault != "missing_residual_debit";
-            eprintln!(
-                "teardown_fixed_ceiling synthetic_numeric_api=true actual_wait4=false qualification=false fault={fault} terminal_ns={terminal} credit_ns=100000 round_ns=2084 N={expected_n} T_per_process_ns=150000 ceiling_ns={expected_ceiling} remaining_excess_ns={expected_excess} full_residual_ns={residual} charged_residual_ns={} retained={} paid={} pass={passed} debt_ns={} rest_ns={}",
-                helper.metrics.terminal_residual_charged_ns,
-                helper.metrics.terminal_residual_cost_retained,
-                helper.metrics.terminal_residual_cost_paid,
-                control.accounting.debt_total.load(Ordering::Acquire),
-                control.accounting.rest_total.load(Ordering::Acquire)
-            );
-            assert_eq!(passed, expected_pass);
-            if fault == "missing_residual_debit" {
-                assert_eq!(helper.metrics.terminal_residual_charged_ns, 0);
-                assert!(!helper.metrics.terminal_residual_cost_retained);
-                assert_eq!(control.error(), Some(w::Code::ResourceLimit));
-            } else {
-                assert_eq!(helper.metrics.terminal_residual_charged_ns, residual);
-                assert!(helper.metrics.terminal_residual_cost_paid);
-                assert_eq!(
-                    control.accounting.debt_total.load(Ordering::Acquire),
-                    9 * UNIT_NS
-                );
-                if expected_excess != 0 {
-                    assert_eq!(control.error(), Some(w::Code::ResourceLimit));
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn measured_conservation_known_covered_numeric_input_is_positive_without_qualification() {
-        // A separate, explicitly synthetic API positive. These disjoint known
-        // credits total2.2ms; one microsecond-form terminal input of2.201ms is
-        // covered by the exact2,125ns allowance (one wait4, three125/3 ticks).
-        // No actual wait4 or installed-tool qualification is claimed here.
-        let control = Control::fixture(Instant::now() + Duration::from_secs(2));
-        let mut helper = accounting_group();
-        helper.timebase = HelperTimebase {
-            numer: 125,
-            denom: 3,
-        };
-        helper.metrics.startup_cpu_ns = 100_000;
-        helper.metrics.charged_helper_cpu_ns = 2_000_000;
-        helper.metrics.late_kernel_cpu_ns = 80_000;
-        helper.metrics.post_helper_cpu_ns = 20_000;
-        helper.metrics.wait4_reads = 1;
-        helper.metrics.counter_reads = 3;
-        helper.post_proof_pending = true;
-        helper.post_commit_pending = true;
-        let at = cpu_ns();
-        let wall = Instant::now();
-        let verdict = helper.check_conservation(&control, 2_201_000);
-        let cpu = control.observe_interval(at, cpu_ns());
-        let wall = u64::try_from(wall.elapsed().as_nanos()).unwrap();
-        control.accounting.charge(cpu, cpu);
-        let commit = helper.commit_post_observation(&control, cpu, wall);
-        control.read_pay();
-        eprintln!(
-            "measured_conservation_known_covered synthetic_numeric_api=true actual_wait4=false full_command_qualification=false terminal_ns=2201000 expected_credit_ns=2200000 expected_allowance_ns=2125 budget_ns={} allowance_ns={} excess_ns={} pass={} verdict_ok={} commit_ok={} observer_cpu_ns={cpu} debt_ns={} rest_total_ns={}",
-            helper.metrics.conservation_budget_ns,
-            helper.metrics.conservation_allowance_ns,
-            helper.metrics.conservation_excess_ns,
-            helper.metrics.conservation_pass,
-            verdict.is_ok(),
-            commit.is_ok(),
-            control.accounting.debt_total.load(Ordering::Acquire),
-            control.accounting.rest_total.load(Ordering::Acquire),
-        );
-        assert_eq!(verdict, Ok(()));
-        assert_eq!(commit, Ok(()));
-        assert_eq!(helper.metrics.conservation_budget_ns, 2_200_000);
-        assert_eq!(helper.metrics.conservation_allowance_ns, 2_125);
-        assert_eq!(helper.metrics.conservation_excess_ns, 0);
-        assert!(helper.metrics.conservation_pass);
-        assert_eq!(control.error(), None);
-        assert_eq!(
-            control.accounting.debt_total.load(Ordering::Acquire),
-            9 * cpu.max(UNIT_NS)
-        );
-    }
-
-    #[test]
-    fn initial_attach_original_requires_exact_stop_paid_birth_and_no_activation() {
-        // Synthetic API inputs only. The real Attach-panic process test below
-        // resolve's existing owner path checks the actual native/RI/wait4 cut.
-        for fault in [
-            "single",
-            "reserved_child",
-            "not_stopped",
-            "unfunded",
-            "unpaid",
-            "birth_clock",
-            "unknown_birth",
-            "unknown_unfunded",
-            "ticket",
-            "reservation",
-            "child",
-            "foreign",
-            "version",
-            "CONT",
-            "user",
-        ] {
-            let control = Control::fixture(Instant::now() + Duration::from_secs(2));
-            let mut helper = accounting_group();
-            helper.identity.pid = 101;
-            helper.identity.pgid = 101;
-            helper.identity.start_identity = 1;
-            helper.pgid = 101;
-            helper.identity.expected_members = if fault == "single" { 1 } else { 2 };
-            helper.confirmed_stopped = fault != "not_stopped";
-            helper.timebase = HelperTimebase {
-                numer: 125,
-                denom: 3,
-            };
-            let mut token = HelperAuditToken::default();
-            token.value[5] = 101;
-            token.value[7] = 3;
-            helper.members[0] = HelperMember {
-                pid: 101,
-                birth: 1,
-                start_abstime: 2,
-                audit_version: 3,
-                final_image_version: 3,
-                audit_token: token,
-                image_phase: HelperImagePhase::Descendant,
-                system_ticks: 2400,
-                cpu: 100_000,
-                ..HelperMember::default()
-            };
-            helper.usage_observations[0] = HelperUsageObservation {
-                pid: 101,
-                system_ticks: 2400,
-                observed_ns: 10,
-                ..HelperUsageObservation::default()
-            };
-            helper.retired_members[0] = RetiredMember {
-                pid: 101,
-                birth: 1,
-                token,
-                current: true,
-            };
-            helper.retain_born_stopped_original();
-            assert!(
-                !helper.creation_settled
-                    && !helper.startup_accounted
-                    && helper.initial_startup.is_none()
-            );
-            assert!(helper.paid_born_stopped_original(&control).is_err());
-            let before = control.helper_debt_marker();
-            let raw = if matches!(fault, "unknown_birth" | "unknown_unfunded") {
-                u64::MAX
-            } else {
-                20_000
-            };
-            control.accounting.charge(
-                if fault == "unknown_unfunded" {
-                    20_000
-                } else {
-                    raw
-                },
-                raw,
-            );
-            let marker = if fault == "unfunded" {
-                control.helper_debt_marker()
-            } else {
-                before
-            };
-            let receipt_known = fault != "birth_clock";
-            helper.retain_born_stopped_cost(&control, receipt_known, raw, marker);
-            match fault {
-                "ticket" => helper.identity.sequence += 1,
-                "reservation" => helper.identity.expected_members = 1,
-                "child" => helper.members[1].pid = 202,
-                "foreign" => {
-                    helper.retired_members[1] = RetiredMember {
-                        pid: 202,
-                        birth: 2,
-                        current: false,
-                        ..RetiredMember::default()
-                    }
-                }
-                "version" => helper.members[0].audit_version += 1,
-                "CONT" => helper.grant.opened = true,
-                "user" => helper.members[0].user_ticks = 1,
-                _ => {}
-            }
-            if fault != "unpaid" {
-                control.read_pay();
-            }
-            let eligible = helper.paid_born_stopped_original(&control).is_ok();
-            eprintln!(
-                "initial_attach_api synthetic=true actual_wait4=false fault={fault} expected_members={} creation_settled={} startup_accounted={} grant_open={} child_pid={} retained_original={} eligible={eligible} independent_startup_credit_ns={} debt_ns={} rest_ns={} qualification=false",
-                helper.identity.expected_members,
-                helper.creation_settled,
-                helper.startup_accounted,
-                helper.grant.opened,
-                helper.members[1].pid,
-                helper.born_stopped_original.is_some(),
-                helper.metrics.startup_cpu_ns,
-                control.accounting.debt_total.load(Ordering::Acquire),
-                control.accounting.rest_total.load(Ordering::Acquire)
-            );
-            assert_eq!(
-                eligible,
-                matches!(fault, "single" | "reserved_child" | "unknown_birth")
-            );
-            if fault == "unknown_birth" {
-                assert_eq!(control.helper_debt_marker() - before, 9 * SPAN_NS);
-                assert!(
-                    control.accounting.clock_failed.load(Ordering::Acquire),
-                    "UNKNOWN birth is never repaired into admission"
-                );
-            }
-            assert_eq!(
-                helper.metrics.startup_cpu_ns, 0,
-                "physical latch never supplies accounting credit"
-            );
-            control.read_pay();
-        }
-    }
-
-    #[test]
-    fn initial_startup_terminal_ri_requires_paid_original_raw_baseline_and_detects_skip() {
-        // Explicit numeric API inputs, no native identity/effect or wait4.
-        for fault in [
-            "valid",
-            "unpaid",
-            "missing",
-            "unknown_roster",
-            "identity",
-            "timebase",
-            "user",
-            "system",
-            "read_clock",
-            "skip_observation",
-            "pregrant_growth",
-        ] {
-            let control = Control::fixture(Instant::now() + Duration::from_secs(2));
-            let mut helper = accounting_group();
-            helper.identity.pid = 101;
-            helper.identity.pgid = 101;
-            helper.identity.start_identity = 1;
-            helper.pgid = 101;
-            helper.creation_settled = true;
-            helper.confirmed_stopped = true;
-            helper.startup_accounted = true;
-            helper.timebase = HelperTimebase {
-                numer: 125,
-                denom: 3,
-            };
-            let mut token = HelperAuditToken::default();
-            token.value[5] = 101;
-            token.value[7] = 3;
-            helper.members[0] = HelperMember {
-                pid: 101,
-                birth: 1,
-                start_abstime: 2,
-                audit_version: 3,
-                final_image_version: 3,
-                audit_token: token,
-                image_phase: HelperImagePhase::Descendant,
-                system_ticks: 2400,
-                cpu: 100_000,
-                ..HelperMember::default()
-            };
-            helper.usage_observations[0] = HelperUsageObservation {
-                pid: 101,
-                system_ticks: 2400,
-                observed_ns: 10,
-                ..HelperUsageObservation::default()
-            };
-            helper.retired_members[0] = RetiredMember {
-                pid: 101,
-                birth: 1,
-                token,
-                current: true,
-            };
-            helper.post_startup_cpu = 100_000;
-            helper.post_commit_pending = true;
-            helper.stage_initial_startup();
-            assert!(!helper.initial_startup.unwrap().charged);
-            helper.commit_stopped_unit(&control, None);
-            assert!(helper.initial_startup.unwrap().charged);
-            if fault != "unpaid" {
-                control.read_pay();
-                thread::sleep(helper.debt_until.saturating_duration_since(Instant::now()));
-            }
-            if fault == "pregrant_growth" {
-                // A separately paid stopped baseline refresh is absorbed into
-                // the retained startup cut once, not counted again as final L.
-                helper.members[0].system_ticks = 4800;
-                helper.members[0].cpu = 200_000;
-                helper.usage_observations[0].system_ticks = 4800;
-                helper.usage_observations[0].observed_ns = 15;
-                helper.post_late_cpu = 100_000;
-                helper.post_proof_pending = true;
-                helper.post_commit_pending = true;
-                helper.stage_initial_startup();
-                control.accounting.charge(0, 0);
-                helper.commit_post_observation(&control, 0, 1).unwrap();
-                control.read_pay();
-                thread::sleep(helper.debt_until.saturating_duration_since(Instant::now()));
-            }
-            match fault {
-                "missing" => helper.initial_startup = None,
-                "unknown_roster" => helper.identity.expected_members = 2,
-                "identity" => helper.members[0].audit_version += 1,
-                "timebase" => helper.timebase.numer += 1,
-                _ => {}
-            }
-            let baseline = helper.paid_initial_startup(&control);
-            if matches!(
-                fault,
-                "unpaid" | "missing" | "unknown_roster" | "identity" | "timebase"
-            ) {
-                assert!(
-                    baseline.is_err(),
-                    "{fault} cannot admit a terminal counter read"
-                );
-                control.read_pay();
-                continue;
-            }
-            let mut after = HelperUsageObservation {
-                pid: 101,
-                system_ticks: if fault == "pregrant_growth" {
-                    12000
-                } else {
-                    9600
-                },
-                observed_ns: 20,
-                ..HelperUsageObservation::default()
-            };
-            match fault {
-                "user" => after.user_ticks = 1,
-                "system" => after.system_ticks = 2399,
-                "read_clock" => after.observed_ns = 9,
-                _ => {}
-            }
-            let baseline_ticks = baseline.as_ref().unwrap().usage.system_ticks;
-            let delta = helper.initial_terminal_delta(baseline.unwrap(), after);
-            if matches!(fault, "user" | "system" | "read_clock") {
-                assert!(delta.is_err(), "{fault} cannot manufacture independent L");
-                continue;
-            }
-            assert_eq!(delta, Ok(300_000));
-            helper.metrics.wait4_reads = 1;
-            helper.metrics.counter_reads = 2;
-            if fault != "skip_observation" {
-                helper.post_proof_pending = true;
-                helper.post_commit_pending = true;
-                helper.post_late_cpu = delta.unwrap();
-                control.accounting.charge(0, 0);
-                helper.commit_post_observation(&control, 0, 1).unwrap();
-                control.read_pay();
-            }
-            let terminal = if fault == "pregrant_growth" {
-                500_000
-            } else {
-                400_000
-            };
-            let verdict = helper.check_conservation(&control, terminal);
-            assert_eq!(
-                verdict.is_ok(),
-                matches!(fault, "valid" | "pregrant_growth")
-            );
-            assert_eq!(
-                helper.metrics.startup_cpu_ns,
-                if fault == "pregrant_growth" {
-                    200_000
-                } else {
-                    100_000
-                }
-            );
-            if fault == "pregrant_growth" {
-                assert_eq!(helper.metrics.conservation_late_ns, 300_000);
-                assert_eq!(helper.metrics.startup_late_excluded_ns, 100_000);
-                assert_eq!(helper.metrics.conservation_budget_ns, 500_000);
-            }
-            assert_eq!(helper.metrics.conservation_allowance_ns, 2084);
-            if fault == "skip_observation" {
-                assert_eq!(helper.metrics.conservation_excess_ns, 147_916);
-                assert_eq!(control.error(), Some(w::Code::ResourceLimit));
-                helper.post_proof_pending = true;
-                helper.post_commit_pending = true;
-                control.accounting.charge(0, 0);
-                assert!(helper.commit_post_observation(&control, 0, 1).is_err());
-                control.read_pay();
-                assert_eq!(helper.metrics.unexplained_cpu_ns, 302_000);
-            }
-            eprintln!(
-                "initial_startup_api synthetic_numeric_api=true actual_wait4=false fault={fault} baseline_ticks={baseline_ticks} final_ticks={} startup_ns={} independent_delta_ns=300000 terminal_ns={terminal} allowance_ns=2084 budget_ns={} excess_ns={} pass={} debt_ns={} rest_ns={} full_command_qualification=false",
-                after.system_ticks,
-                helper.metrics.startup_cpu_ns,
-                helper.metrics.conservation_budget_ns,
-                helper.metrics.conservation_excess_ns,
-                verdict.is_ok(),
-                control.accounting.debt_total.load(Ordering::Acquire),
-                control.accounting.rest_total.load(Ordering::Acquire)
-            );
-        }
-    }
-
-    #[test]
-    fn initial_startup_unavailable_ri_readiness_requires_physical_retained_paid_attempt() {
-        // Synthetic physical-proof inputs exercise only the private API. The
-        // paired owned process witness supplies the actual BSD/WNOWAIT/RI path.
-        use crate::dream::resolve::HelperReapReadiness::{Held, Ready};
-        for fault in [
-            "valid_unavailable",
-            "identity",
-            "roster",
-            "unretained",
-            "unfunded_current",
-            "no_attempt",
-            "unpaid",
-            "clock",
-            "ticket",
-        ] {
-            let control = Control::fixture(Instant::now() + Duration::from_secs(2));
-            let mut helper = accounting_group();
-            helper.retiring = true;
-            let ticket = helper.identity.ticket();
-            helper.terminal_reap = HelperTerminalReap {
-                ticket: Some(ticket),
-                initial_source_valid: true,
-                physical_valid: true,
-                ri_attempted: true,
-                counter_unknown: true,
-                attempt_open: true,
-                ..HelperTerminalReap::default()
-            };
-            helper.metrics.terminal_ri_attempts = 1;
-            helper.metrics.terminal_ri_result = Some(-1);
-            helper.metrics.terminal_attempt_unknown = true;
-            helper.metrics.terminal_l_raw_ns = u64::MAX;
-            helper.post_proof_pending = true;
-            helper.post_commit_pending = true;
-            helper.post_late_known = false;
-            helper.post_late_cpu = u64::MAX;
-            control.accounting.charge(10, 10); // actual-C input already funded
-            assert!(helper.commit_post_observation(&control, 10, 1).is_err());
-            assert_eq!(helper.metrics.post_max_cpu_ns, u64::MAX);
-            assert_eq!(helper.metrics.unexplained_cpu_ns, u64::MAX);
-            assert_eq!(
-                control.accounting.debt_total.load(Ordering::Acquire),
-                9 * SPAN_NS
-            );
-            assert_eq!(helper.terminal_reap_readiness(&control, ticket), Held);
-            if fault == "unfunded_current" {
-                helper.terminal_reap.debt_before =
-                    control.accounting.debt_total.load(Ordering::Acquire);
-            }
-            if fault != "unretained" {
-                helper.retain_terminal_attempt_cost(&control, 10, 10, 1);
-            }
-            assert_eq!(helper.terminal_reap_readiness(&control, ticket), Held);
-            match fault {
-                "identity" => helper.terminal_reap.identity_lost = true,
-                "roster" => helper.terminal_reap.physical_valid = false,
-                "clock" => helper.terminal_reap.ending_clocks_known = false,
-                "no_attempt" => {
-                    helper.terminal_reap.ri_attempted = false;
-                    helper.metrics.terminal_ri_attempts = 0;
-                    helper.metrics.terminal_ri_result = None;
-                }
-                "ticket" => helper.terminal_reap.ticket.as_mut().unwrap().sequence += 1,
-                _ => {}
-            }
-            if fault != "unpaid" {
-                control.read_pay();
-                thread::sleep(helper.debt_until.saturating_duration_since(Instant::now()));
-            }
-            let readiness = helper.terminal_reap_readiness(&control, ticket);
-            assert_eq!(
-                readiness,
-                if fault == "valid_unavailable" {
-                    Ready
-                } else {
-                    Held
-                }
-            );
-            // A committed attempt cannot be sampled again, even to turn an
-            // accounting refusal into success. This call dispatches NO RI.
-            if fault != "no_attempt" {
-                assert!(helper.observe_post_exit(&control).is_err());
-                assert_eq!(helper.metrics.terminal_ri_attempts, 1);
-            }
-            helper.metrics.wait4_reads = 1;
-            assert!(helper.check_conservation(&control, 200_000).is_err());
-            assert!(!helper.metrics.conservation_pass);
-            assert_eq!(helper.metrics.conservation_excess_ns, u64::MAX);
-            control.read_pay();
-            eprintln!(
-                "initial_reap_api synthetic_physical_proof=true actual_wait4=false fault={fault} readiness={readiness:?} counter_unknown=true raw_l_ns={} raw_excess_ns={} debt_ns={} rest_ns={} accounting_success_is_permission=false",
-                helper.metrics.terminal_l_raw_ns,
-                helper.metrics.conservation_excess_ns,
-                control.accounting.debt_total.load(Ordering::Acquire),
-                control.accounting.rest_total.load(Ordering::Acquire)
-            );
-        }
-    }
-
-    #[test]
-    fn measured_child_rollup_is_one_logical_counter_not_a_second_live_child_charge() {
-        let control = Control::fixture(Instant::now() + Duration::from_secs(2));
-        let mut helper = measured_accounting_group(2);
-        helper.grant.baseline_usage[0].child_user_ticks = helper.grant.baseline_usage[1].user_ticks;
-        helper.usage_observations[0].child_user_ticks = helper.usage_observations[1].user_ticks;
-        helper.rolled_user_ticks = helper.members[1].user_ticks;
-        helper.metrics.rolled_descendant_cpu_ns = helper.members[1].cpu;
-        helper.finish_grant(&control, 100_000);
-        assert_eq!(
-            helper.metrics.worst_grant.basis,
-            HelperChargeBasis::Measured
-        );
-        assert_eq!(helper.metrics.worst_grant.slot_a_ns, [100_000, 100_000]);
-        assert_eq!(helper.metrics.charged_helper_cpu_ns, 200_000);
-        assert_eq!(helper.metrics.worst_grant.q_ns, 300_000);
-        control.read_pay();
-    }
-
-    fn retired_rollup_accounting_group() -> HelperGroup {
-        // Deliberately synthetic API proof inputs; no PID is signalled. The
-        // native component witnesses remain separate from these guard controls.
-        let mut helper = measured_accounting_group(2);
-        helper.identity.pid = helper.members[0].pid;
-        helper.identity.pgid = helper.members[0].pid;
-        helper.identity.start_identity = helper.members[0].birth;
-        helper.metrics.descendants = 1;
-        helper.metrics.verified_descendants = 1;
-        helper.grant.index = 1;
-        for index in 0..2 {
-            let member = &mut helper.members[index];
-            member.audit_token.value[5] = member.pid as u32;
-            member.audit_token.value[7] = member.audit_version;
-            helper.retired_members[index] = RetiredMember {
-                pid: member.pid,
-                birth: member.birth,
-                token: member.audit_token,
-                current: true,
-            };
-        }
-        let retired = helper.grant.t0_ns + 6_000_000;
-        helper.members[1].image_phase = HelperImagePhase::Exited;
-        helper.members[1].rollup_exit_observed_ns = retired;
-        helper.grant.slots[1].ack_ns = Some(retired);
-        helper.grant.baseline_usage[0].child_user_ticks = helper.grant.baseline_usage[1].user_ticks;
-        helper.usage_observations[0].child_user_ticks = helper.usage_observations[1].user_ticks;
-        helper.rolled_user_ticks = helper.members[1].user_ticks;
-        helper.metrics.rolled_descendant_cpu_ns = helper.members[1].cpu;
-        helper.grant.rollup = HelperChildRollupProof {
-            checked: true,
-            grant_t0_ns: helper.grant.t0_ns,
-            leader: helper.grant.slots[0],
-            child: helper.grant.slots[1],
-            leader_ack_ns: helper.grant.slots[0].ack_ns.unwrap(),
-            child_exit_observed_ns: retired,
-            read_ns: helper.usage_observations[0].observed_ns,
-            child_count: 0,
-            user_ticks: helper.rolled_user_ticks,
-            system_ticks: 0,
-        };
-        helper
-    }
-
-    #[test]
-    fn measured_retired_child_rollup_requires_unique_post_exit_exclusive_provenance() {
-        for fault in ["valid", "mixed_child", "pre_exit_read", "double_count"] {
-            let control = Control::fixture(Instant::now() + Duration::from_secs(2));
-            let mut helper = retired_rollup_accounting_group();
-            match fault {
-                "valid" => {}
-                "mixed_child" => {
-                    helper.retired_members[2] = RetiredMember {
-                        pid: 999,
-                        birth: 2,
-                        current: true,
-                        ..RetiredMember::default()
-                    }
-                }
-                "pre_exit_read" => {
-                    helper.grant.rollup.read_ns = helper.grant.rollup.child_exit_observed_ns - 1
-                }
-                "double_count" => helper.rollup_double_count_fault = true,
-                _ => unreachable!(),
-            }
-            helper.finish_grant(&control, 100_000);
-            let raw = helper.metrics.worst_grant;
-            if fault == "valid" {
-                assert_eq!(raw.basis, HelperChargeBasis::Measured);
-                assert_eq!(
-                    raw.counter_source[1],
-                    HelperCounterSource::LeaderChildRollup
-                );
-                assert_eq!(
-                    (raw.live_child_cpu_ns, raw.rollup_child_cpu_ns),
-                    (0, 100_000)
-                );
-                assert_eq!(raw.a_ns, 200_000);
-                assert!(raw.rollup_provisional && !raw.rollup_reconciled);
-                assert_eq!(helper.metrics.provisional_rollup_grants, 1);
-                control.read_pay();
-                thread::sleep(helper.debt_until.saturating_duration_since(Instant::now()));
-                helper.usage_reconciled = true;
-                helper.metrics.wait4_reads = 1;
-                assert!(helper.check_conservation(&control, 200_000).is_ok());
-                assert!(!helper.metrics.rollup_reconciled);
-                helper.reap_cost_before = control.accounting.debt_total.load(Ordering::Acquire);
-                helper.reap_cost_pending = true;
-                helper.post_proof_pending = true;
-                helper.post_commit_pending = true;
-                control.accounting.charge(0, 0);
-                helper.commit_post_observation(&control, 0, 1).unwrap();
-                helper.retain_reap_residual_cost(&control, 0, 0, 1);
-                control.read_pay();
-                thread::sleep(helper.debt_until.saturating_duration_since(Instant::now()));
-                assert!(helper.finish_reap_residual_payment(&control));
-                assert!(helper.metrics.rollup_reconciled && !helper.metrics.rollup_revoked);
-            } else {
-                assert_eq!(raw.basis, HelperChargeBasis::Window);
-                assert!(helper.admission_failed && control.error().is_some());
-                assert_eq!(helper.metrics.provisional_rollup_grants, 0);
-                if fault == "double_count" {
-                    assert!(!helper.metrics.coverage_known);
-                }
-            }
-            control.read_pay();
-        }
-    }
-
-    #[test]
-    fn measured_rollup_terminal_mismatch_appends_window_bill_without_rewriting_history() {
-        let control = Control::fixture(Instant::now() + Duration::from_secs(2));
-        let mut helper = retired_rollup_accounting_group();
-        helper.finish_grant(&control, 100_000);
-        let original = helper.metrics.worst_grant;
-        let fallback = original.w_ns.max(original.a_ns) + original.c_ns;
-        let uncovered = fallback.max(UNIT_NS) - original.q_ns.max(UNIT_NS);
-        control.read_pay(); // the original measured prefix is already paid
-        let paid = control.accounting.debt_total.load(Ordering::Acquire);
-        helper.usage_reconciled = true;
-        helper.metrics.wait4_reads = 1;
-        helper.post_proof_pending = true;
-        helper.post_commit_pending = true;
-        assert!(helper.check_conservation(&control, 2_000_000).is_err());
-        assert!(helper.metrics.rollup_revoked && !helper.metrics.rollup_reconciled);
-        assert_eq!(
-            helper.metrics.worst_grant.basis,
-            HelperChargeBasis::Measured
-        );
-        assert_eq!(helper.metrics.worst_grant.q_ns, original.q_ns);
-        assert!(helper.metrics.worst_grant.rollup_revoked);
-        assert_eq!(
-            helper.metrics.rollup_fallback_worst.basis,
-            HelperChargeBasis::Window
-        );
-        assert_eq!(helper.metrics.rollup_fallback_worst.q_ns, fallback);
-        assert_eq!(
-            helper.metrics.rollup_fallback_charge_ns,
-            fallback - original.q_ns
-        );
-        assert_eq!(helper.metrics.rollup_fallback_debt_ns, 9 * uncovered);
-        assert_eq!(
-            control.accounting.debt_total.load(Ordering::Acquire) - paid,
-            9 * uncovered
-        );
-        helper.finalize_rollup_basis(&control);
-        assert_eq!(
-            control.accounting.debt_total.load(Ordering::Acquire) - paid,
-            9 * uncovered
-        );
-        control.accounting.charge(0, 0);
-        assert!(helper.commit_post_observation(&control, 0, 1).is_err());
-        assert_eq!(control.error(), Some(w::Code::ResourceLimit));
-        control.read_pay();
-        assert!(std::mem::size_of::<HelperGroup>() < storage::CONTROL as usize);
-    }
-
-    #[test]
-    fn measured_rollup_reopened_window_does_not_pay_the_same_fallback_twice() {
-        let control = Control::fixture(Instant::now() + Duration::from_secs(2));
-        let mut helper = retired_rollup_accounting_group();
-        helper.finish_grant(&control, 100_000);
-        assert_eq!(helper.metrics.provisional_rollup_grants, 1);
-        helper.invalidate_slot(1);
-        helper.finish_grant(&control, 0);
-        assert_eq!(helper.metrics.recovered_rollup_grants, 1);
-        assert_eq!(helper.metrics.provisional_rollup_fallback_delta_ns, 0);
-        assert_eq!(helper.metrics.provisional_rollup_debt_delta_ns, 0);
-        let already = control.accounting.debt_total.load(Ordering::Acquire);
-        helper.usage_reconciled = true;
-        helper.metrics.wait4_reads = 1;
-        helper.finalize_rollup_basis(&control);
-        assert!(helper.metrics.rollup_revoked);
-        assert_eq!(helper.metrics.rollup_fallback_debt_ns, 0);
-        assert_eq!(
-            control.accounting.debt_total.load(Ordering::Acquire),
-            already
-        );
-        control.read_pay();
-    }
-
-    #[test]
-    fn terminal_payload_fence_keeps_accounting_and_raw_drain_separate_from_stdin_authority() {
-        // State/accounting controls only: no fixture PID is signalled and no
-        // payload callback runs here. The adapter's real write uses this same
-        // predicate while holding Control.helper through the bounded effect.
-        for state in [
-            HelperStopOutcome::None,
-            HelperStopOutcome::PendingTerminal,
-            HelperStopOutcome::TerminalProven,
-        ] {
-            let control = Control::fixture(Instant::now() + Duration::from_secs(2));
-            let mut helper = accounting_group();
-            helper.grant.opened = true;
-            helper.grant.reserved = 1;
-            helper.grant.t0_ns = bootstrap::monotonic_ns().unwrap();
-            helper.stop_outcome = state;
-            assert_eq!(
-                helper.terminal_observation_pending(),
-                state == HelperStopOutcome::PendingTerminal
-            );
-            assert_eq!(
-                helper.payload_input_blocked(),
-                state != HelperStopOutcome::None
-            );
-            let original_t0 = helper.grant.t0_ns;
-            helper.begin_pipe_accounting().unwrap();
-            assert!(helper.pipe_is_open() && helper.pipe_active);
-            assert!(
-                !helper.payload_pipe_is_open(),
-                "accounting scope never authorizes stdin"
-            );
-            helper.account_pipe(&control, 100, 100).unwrap();
-            assert!(!helper.pipe_is_open() && !helper.payload_admitted);
-            if state == HelperStopOutcome::PendingTerminal {
-                assert!(
-                    helper.begin_pipe().is_err(),
-                    "pending cannot open a new transport scope"
-                );
-                assert!(!helper.pipe_is_open() && !helper.payload_admitted);
-            } else {
-                helper.begin_pipe().unwrap();
-                assert!(helper.payload_pipe_is_open());
-                if state == HelperStopOutcome::TerminalProven {
-                    assert!(
-                        helper.payload_input_blocked(),
-                        "terminal raw drain is allowed, but per-write stdin admission remains blocked"
-                    );
-                }
-                helper.account_pipe(&control, 100, 100).unwrap();
-                assert!(!helper.payload_pipe_is_open() && !helper.payload_admitted);
-            }
-            assert_eq!(
-                helper.grant.t0_ns, original_t0,
-                "accounting never resets the original grant"
-            );
-            assert_eq!(helper.stop_outcome, state);
-        }
-        let control = Control::fixture(Instant::now() + Duration::from_secs(2));
-        let mut prequeued = accounting_group();
-        prequeued.begin_pipe().unwrap();
-        assert!(
-            !prequeued.pipe_active && prequeued.payload_pipe_is_open(),
-            "paid stopped prequeue remains a payload scope; active is cost attribution only"
-        );
-        prequeued.account_pipe(&control, 100, 100).unwrap();
-        let mut failed = accounting_group();
-        failed.grant.opened = true;
-        failed.admission_failed = true;
-        failed.begin_pipe().unwrap();
-        assert!(failed.pipe_is_open() && failed.pipe_active);
-        assert!(
-            !failed.payload_pipe_is_open(),
-            "failed helper cannot authorize a payload callback"
-        );
-        failed.account_pipe(&control, 100, 100).unwrap();
-        assert!(!failed.payload_admitted);
-    }
-
-    #[test]
-    fn controller_finalization_tail_charges_once_without_idle_debt_or_lost_observation() {
-        let control = Control::fixture(Instant::now() + Duration::from_secs(2));
-        let mut helper = accounting_group();
-        helper.confirmed_stopped = true;
-        helper.post_commit_pending = true;
-        helper.post_late_known = true;
-        helper.corroboration_revision = 1;
-        *control.helper.lock().unwrap() = Some(helper);
-        let mut clocks = [100, 200, 300, 700].into_iter();
-        control.helper_account_controller_clock(Some((1, 0)), 1_000, || clocks.next().unwrap());
-        assert!(clocks.next().is_none());
-        let charged = control.accounting.debt_total.load(Ordering::Acquire);
-        assert_eq!(charged, 18 * UNIT_NS);
-        {
-            let owner = control.helper.lock().unwrap();
-            let helper = owner.as_ref().unwrap();
-            assert_eq!(helper.metrics.post_units, 2);
-            assert_eq!(helper.metrics.post_cpu_ns, 1_500);
-            assert_eq!(helper.metrics.controller_cpu_ns, 1_500);
-            assert!(helper.corroboration_pending);
-            assert!(!helper.post_commit_pending && !helper.post_proof_pending);
-        }
-        for _ in 0..4 {
-            let marker = control.helper_controller_marker();
-            let mut clocks = [800, 900].into_iter();
-            control.helper_account_controller_clock(marker, 100, || clocks.next().unwrap());
-            assert!(
-                clocks.next().is_none(),
-                "idle ticks have no work-finalization clock"
-            );
-        }
-        assert_eq!(
-            control.accounting.debt_total.load(Ordering::Acquire),
-            charged
-        );
-        {
-            let mut owner = control.helper.lock().unwrap();
-            let helper = owner.as_mut().unwrap();
-            assert_eq!(helper.metrics.post_units, 2);
-            helper.post_commit_pending = true;
-            helper.post_proof_pending = true;
-            helper.post_cpu = 77;
-            helper.post_late_cpu = 88;
-            helper.observed_post_revision = 0;
-            helper.account_finalization_tail(&control, 200);
-            assert!(helper.post_commit_pending && helper.post_proof_pending);
-            assert_eq!((helper.post_cpu, helper.post_late_cpu), (77, 88));
-            assert_eq!(
-                (helper.corroboration_revision, helper.observed_post_revision),
-                (1, 0)
-            );
-            assert!(helper.corroboration_pending);
-            assert_eq!(helper.metrics.post_units, 3);
-        }
-        assert_eq!(
-            control.accounting.debt_total.load(Ordering::Acquire),
-            charged + 9 * UNIT_NS
-        );
-        control.read_pay();
-    }
-
-    #[test]
-    fn finalization_tail_clock_or_limit_failure_preserves_identity_and_finite_debt() {
-        for ending in [UNIT_NS + 301, 299, u64::MAX] {
-            let control = Control::fixture(Instant::now() + Duration::from_secs(2));
-            let mut helper = accounting_group();
-            let identity = helper.identity.ticket();
-            helper.confirmed_stopped = true;
-            helper.post_commit_pending = true;
-            helper.post_late_known = true;
-            *control.helper.lock().unwrap() = Some(helper);
-            let mut clocks = [100, 200, 300, ending].into_iter();
-            control.helper_account_controller_clock(Some((1, 0)), 0, || clocks.next().unwrap());
-            let owner = control.helper.lock().unwrap();
-            let helper = owner.as_ref().unwrap();
-            assert_eq!(helper.identity.ticket(), identity);
-            assert!(helper.admission_failed && !helper.ready);
-            assert!(control.error().is_some());
-            assert!(helper.metrics.post_max_cpu_ns > UNIT_NS);
-            assert!(helper.metrics.debt_ns >= 18 * UNIT_NS);
-            assert!(helper.metrics.debt_ns <= 36 * UNIT_NS);
-            if ending < 300 || ending == u64::MAX {
-                assert_eq!(helper.metrics.post_max_cpu_ns, u64::MAX);
-                assert!(!helper.metrics.coverage_known);
-            }
-            drop(owner);
-            control.read_pay();
-        }
-    }
-
-    #[test]
-    fn zero_additional_helper_cost_preserves_paid_and_outstanding_debt_exactly() {
-        let control = Control::fixture(Instant::now() + Duration::from_secs(2));
-        control.helper_extend_debt(1_000_000);
-        let until = control.accounting.rest_until.load(Ordering::Acquire);
-        let charged = control.accounting.debt_total.load(Ordering::Acquire);
-        control.helper_extend_debt(0);
-        assert_eq!(control.accounting.rest_until.load(Ordering::Acquire), until);
-        assert_eq!(
-            control.accounting.debt_total.load(Ordering::Acquire),
-            charged
-        );
-        control.read_pay();
-        let until = control.accounting.rest_until.load(Ordering::Acquire);
-        control.helper_extend_debt(0);
-        assert_eq!(control.accounting.rest_until.load(Ordering::Acquire), until);
-        assert_eq!(
-            control.accounting.debt_total.load(Ordering::Acquire),
-            charged
-        );
-    }
-
-    #[test]
-    fn unknown_helper_cost_retains_raw_failure_and_known_debt_with_finite_settlement() {
-        for grant in [false, true] {
-            let control = Control::fixture(Instant::now() + Duration::from_secs(2));
-            control.helper_extend_debt(UNIT_NS);
-            let mut helper = accounting_group();
-            let known = Instant::now() + Duration::from_millis(17);
-            helper.debt_until = known;
-            if grant {
-                helper.grant.opened = true;
-                helper.grant.reserved = 1;
-                helper.grant.t0_ns = bootstrap::monotonic_ns().unwrap();
-                helper.metrics.controller_cpu_ns = u64::MAX;
-                helper.finish_grant(&control, 0);
-                assert_eq!(helper.metrics.max_charge_ns, u64::MAX);
-                assert_eq!(helper.metrics.worst_grant.q_ns, u64::MAX);
-            } else {
-                helper.post_commit_pending = true;
-                helper.post_cpu = u64::MAX;
-                helper.commit_stopped_unit(&control, None);
-                assert_eq!(helper.metrics.post_max_cpu_ns, u64::MAX);
-                assert_eq!(helper.metrics.post_cpu_ns, u64::MAX);
-            }
-            let fallback = 9 * SPAN_NS;
-            assert_eq!(helper.metrics.debt_ns, fallback);
-            assert_eq!(
-                control.accounting.debt_total.load(Ordering::Acquire),
-                9 * UNIT_NS + fallback
-            );
-            assert!(helper.debt_until >= known + Duration::from_nanos(fallback));
-            assert!(helper.debt_until < Instant::now() + Duration::from_secs(1));
-            assert!(helper.admission_failed && !helper.ready && !helper.metrics.coverage_known);
-            assert!(control.accounting.clock_failed.load(Ordering::Acquire));
-            assert_eq!(control.error(), Some(w::Code::ResourceLimit));
-            control.read_pay();
-        }
-    }
-
-    #[test]
-    fn usage_c_and_l_share_one_fresh_floor_without_hiding_inclusive_overrun() {
-        for (cpu, late) in [(100_000, 200_000), (600_000, 600_000), (1_200_000, 600_000)] {
-            let control = Arc::new(Control::fixture(Instant::now() + Duration::from_secs(2)));
-            let mut budget = Budget::new_read(
-                control.clone(),
-                Arc::new(crossbeam_queue::ArrayQueue::new(1)),
-            );
-            let mut helper = accounting_group();
-            helper.post_proof_pending = true;
-            helper.post_commit_pending = true;
-            helper.post_late_known = true;
-            helper.post_late_cpu = late;
-            let recorded = budget.read_charge(cpu, cpu, 1, UNIT_NS);
-            assert_eq!(recorded.is_ok(), cpu <= UNIT_NS);
-            let combined = cpu + late;
-            let committed = helper.commit_post_observation(&control, cpu, 1);
-            assert_eq!(committed.is_ok(), combined <= UNIT_NS);
-            let expected = combined.max(UNIT_NS) * 9;
-            assert_eq!(
-                control.accounting.debt_total.load(Ordering::Acquire),
-                expected
-            );
-            assert_eq!(helper.metrics.debt_ns, expected - cpu.max(UNIT_NS) * 9);
-            assert_eq!(helper.metrics.post_cpu_ns, cpu);
-            assert_eq!(helper.metrics.post_max_cpu_ns, combined);
-            assert_eq!(helper.metrics.late_kernel_cpu_ns, late);
-            assert_eq!(budget.counters.cpu, cpu, "actual owner C is recorded once");
-            if combined > UNIT_NS {
-                assert_eq!(control.error(), Some(w::Code::ResourceLimit));
-                assert!(helper.admission_failed && !helper.ready);
-            }
-            control.read_pay();
-        }
-    }
-
-    #[test]
-    fn failed_stop_terminal_accounting_keeps_control_pipe_clock_debt_and_refusal() {
-        // Finite arithmetic controls only. No numeric fixture identity is ever
-        // signalled; the owned witness below supplies physical observation.
-        for outcome in [HelperStopOutcome::None, HelperStopOutcome::Delivered] {
-            let control = Control::fixture(Instant::now() + Duration::from_secs(2));
-            let mut helper = accounting_group();
-            helper.stop_requested = true;
-            helper.stop_outcome = outcome;
-            helper.grant.opened = true;
-            helper.grant.reserved = 1;
-            helper.grant.t0_ns = 1;
-            helper.grant.closed = true;
-            helper.grant.close_ns = Some(2);
-            helper.grant.slots[0].ack_ns = Some(2);
-            helper.finish_grant(&control, 0);
-            assert!(
-                !helper.stop_requested,
-                "successful discovery/STOP grants reset once"
-            );
-        }
-        for (window, actual, controller, pipe, valid) in [
-            (100_000, 90_000, 80_000, 70_000, true),
-            (900_000, 90_000, 80_000, 70_000, false),
-            (90_000, 900_000, 80_000, 70_000, false),
-        ] {
-            let control = Control::fixture(Instant::now() + Duration::from_secs(2));
-            let mut helper = accounting_group();
-            helper.stop_requested = true;
-            helper.stop_outcome = HelperStopOutcome::TerminalProven;
-            helper.grant.opened = true;
-            helper.grant.reserved = 1;
-            helper.grant.t0_ns = 1;
-            helper.grant.closed = true;
-            helper.grant.close_ns = Some(window + 1);
-            helper.grant.slots[0].ack_ns = Some(window + 1);
-            helper.members[0].cpu = actual;
-            helper.account_controller(&control, controller).unwrap();
-            helper.begin_pipe().unwrap();
-            helper.account_pipe(&control, pipe, pipe).unwrap();
-            helper.finish_grant(&control, 0);
-            let q = window.max(actual) + controller + pipe;
-            assert_eq!(helper.metrics.worst_grant.q_ns, q);
-            assert_eq!(helper.metrics.worst_grant.c_ns, controller + pipe);
-            assert_eq!(helper.metrics.debt_ns, 9 * q.max(UNIT_NS));
-            assert_eq!(helper.admission_failed, !valid);
-            assert!(helper.stop_requested && helper.open_grant().is_err());
-            if !valid {
-                assert_eq!(control.error(), Some(w::Code::ResourceLimit));
-            }
-        }
-        for unknown in [false, true] {
-            let control = Control::fixture(Instant::now() + Duration::from_secs(2));
-            let mut helper = accounting_group();
-            helper.stop_requested = true;
-            helper.stop_outcome = HelperStopOutcome::PendingTerminal;
-            helper.grant.opened = true;
-            helper.grant.reserved = 1;
-            helper.grant.t0_ns = 100;
-            helper.grant.closed = true;
-            helper.grant.close_ns = Some(50);
-            helper.grant.slots[0].ack_ns = Some(if unknown { u64::MAX } else { 50 });
-            helper.finish_grant(&control, 0);
-            assert_eq!(helper.metrics.worst_grant.q_ns, u64::MAX);
-            assert!(helper.admission_failed && !helper.metrics.coverage_known);
-            assert!(helper.stop_requested && helper.open_grant().is_err());
-            assert_eq!(control.error(), Some(w::Code::ResourceLimit));
-        }
-    }
-
-    struct OwnedChild {
-        pid: i32,
-        control: Arc<Control>,
-        reaped: bool,
-    }
-    impl OwnedChild {
-        fn reap(&mut self) {
-            if self.reaped {
-                return;
-            }
-            // The retained direct child pins this exact group until final kill.
-            if let Some(helper) = self
-                .control
-                .helper
-                .lock()
-                .unwrap_or_else(|p| p.into_inner())
-                .as_mut()
-            {
-                helper.retiring = true;
-            }
-            let kill_result = unsafe { libc::kill(-self.pid, libc::SIGKILL) };
-            let kill_errno = (kill_result != 0)
-                .then(|| std::io::Error::last_os_error().raw_os_error())
-                .flatten();
-            let mut status = 0;
-            loop {
-                let result = unsafe { libc::waitpid(self.pid, &mut status, 0) };
-                if result == self.pid {
-                    self.reaped = true;
-                    let group_result = unsafe { libc::kill(-self.pid, 0) };
-                    let group_errno = (group_result != 0)
-                        .then(|| std::io::Error::last_os_error().raw_os_error())
-                        .flatten();
-                    eprintln!(
-                        "owned_child_cleanup pid={} actual_waitpid_pid={result} status={status} original_reaped=true actual_wait4=false cpu_usage_unknown=true kill_result={kill_result} kill_errno={kill_errno:?} group_result={group_result} group_errno={group_errno:?} group_empty={}",
-                        self.pid,
-                        group_result == -1 && group_errno == Some(libc::ESRCH),
-                    );
-                    break;
-                }
-                let wait_errno = (result < 0)
-                    .then(|| std::io::Error::last_os_error().raw_os_error())
-                    .flatten();
-                eprintln!(
-                    "owned_child_cleanup pid={} waitpid_result={result} waitpid_errno={wait_errno:?} original_reaped=false kill_result={kill_result} kill_errno={kill_errno:?}",
-                    self.pid
-                );
-                assert_eq!(wait_errno, Some(libc::EINTR));
-            }
-        }
-    }
-    impl Drop for OwnedChild {
-        fn drop(&mut self) {
-            self.reap();
-        }
-    }
-
-    #[test]
-    fn initial_startup_owned_ungranted_exit_observes_raw_ri_before_actual_wait4() {
-        initial_startup_owned_case(false);
-    }
-    #[test]
-    fn initial_startup_owned_unavailable_ri_reaps_only_after_unknown_attempt_is_paid() {
-        initial_startup_owned_case(true);
-    }
-    fn initial_startup_owned_case(unavailable_ri: bool) {
-        // Source-known component only: the OS creates /bin/sleep suspended and
-        // this control NEVER grants CONT or application work. It exercises the
-        // existing stopped/startup/post-exit/reap machinery, not qualification
-        // or a passing native-birth profile for an installed tool.
-        let control = Arc::new(Control::fixture(Instant::now() + Duration::from_secs(2)));
-        let mut proof = crate::dream::read::helper_fixture_clock(control.clone());
-        let mut attr = std::mem::MaybeUninit::<libc::posix_spawnattr_t>::uninit();
-        assert_eq!(unsafe { libc::posix_spawnattr_init(attr.as_mut_ptr()) }, 0);
-        let mut attr = unsafe { attr.assume_init() };
-        assert_eq!(unsafe { libc::posix_spawnattr_setpgroup(&mut attr, 0) }, 0);
-        assert_eq!(
-            unsafe {
-                libc::posix_spawnattr_setflags(
-                    &mut attr,
-                    (libc::POSIX_SPAWN_START_SUSPENDED | libc::POSIX_SPAWN_SETPGROUP) as i16,
-                )
-            },
-            0
-        );
-        let argv = [
-            c"sleep".as_ptr().cast_mut(),
-            c"30".as_ptr().cast_mut(),
-            std::ptr::null_mut(),
-        ];
-        let env = [c"LANG=C".as_ptr().cast_mut(), std::ptr::null_mut()];
-        let mut pid = 0;
-        let spawned = unsafe {
-            libc::posix_spawn(
-                &mut pid,
-                c"/bin/sleep".as_ptr(),
-                std::ptr::null(),
-                &attr,
-                argv.as_ptr(),
-                env.as_ptr(),
-            )
-        };
-        assert!(pid > 0, "retain every positive original native effect");
-        let mut child = OwnedChild {
-            pid,
-            control: control.clone(),
-            reaped: false,
-        };
-        assert_eq!(unsafe { libc::posix_spawnattr_destroy(&mut attr) }, 0);
-        assert_eq!(spawned, 0);
-        let identity = helper_audit_member(pid, unsafe { libc::getpid() }).unwrap();
-        let mut helper = HelperGroup::attached(crate::dream::resolve::HelperIdentity {
-            sequence: 1,
-            pid,
-            pgid: pid,
-            start_identity: identity.birth,
-            expected_members: 1,
-            image: std::fs::canonicalize("/bin/sleep").unwrap(),
+            image: PathBuf::from("/private/api-fixture"),
             descendant_image: None,
         });
-        let mut budget = Budget::new_read(
-            control.clone(),
-            Arc::new(crossbeam_queue::ArrayQueue::new(1)),
-        );
-        let until = Instant::now() + Duration::from_millis(25);
-        let (sampled, sample_paid_ok, sample_cpu, sample_wall) = loop {
-            let at = cpu_ns();
-            let wall = Instant::now();
-            let sampled = helper.sample(&control);
-            let heap = heaps().1;
-            let cpu = control.observe_interval(at, cpu_ns());
-            let wall = u64::try_from(wall.elapsed().as_nanos()).unwrap();
-            let paid = budget.read_charge_observed_heap(cpu, cpu, wall, UNIT_NS, heap);
-            helper.record_post_owner_cpu(&control, cpu);
-            control.read_pay();
-            if sampled != Ok(false) || paid.is_err() || Instant::now() >= until {
-                break (sampled, paid.is_ok(), cpu, wall);
-            }
-            thread::sleep(Duration::from_micros(100));
-        };
-        // Component setup handoff only; no main proof/controller thread runs.
-        helper.creation_settled = sampled == Ok(true);
-        let at = cpu_ns();
-        let wall = Instant::now();
-        let corroborated = if sampled == Ok(true) {
-            helper.corroborate_stopped(&control)
-        } else {
-            Err(())
-        };
-        let corrob_cpu = control.observe_interval(at, cpu_ns());
-        let corrob_wall = u64::try_from(wall.elapsed().as_nanos()).unwrap();
-        let _ = helper.account_controller(&control, corrob_cpu);
-        if helper.post_commit_pending {
-            helper.commit_stopped_unit(&control, None);
-        } else {
-            let heap = heaps().1;
-            let _ = budget.read_charge_observed_heap(
-                corrob_cpu,
-                corrob_cpu,
-                corrob_wall,
-                UNIT_NS,
-                heap,
-            );
-        }
-        control.read_pay();
-        thread::sleep(helper.debt_until.saturating_duration_since(Instant::now()));
-        let baseline = helper.initial_startup;
-        let initial_eligible = helper.paid_initial_startup(&control).is_ok();
-        let premise_error = control.error();
-        let premise_ok = sampled == Ok(true)
-            && sample_paid_ok
-            && corroborated == Ok(())
-            && initial_eligible
-            && premise_error.is_none();
-        helper.retiring = true;
-        let wait_at = cpu_ns();
-        let wait_wall = Instant::now();
-        let terminal_deadline = wait_wall + Duration::from_secs(1);
-        let before_kill = crate::dream::resolve::helper_exited(pid);
-        // The independent original token is retained even when initial sample
-        // admission failed before populating HelperGroup.members. A missing
-        // fixture premise never supplies a zero/unobserved signaling token.
-        let kill_result = if before_kill == Ok(true) {
-            None
-        } else {
-            Some(helper_token_signal(&identity.token, libc::SIGKILL))
-        };
-        // A failed version-bound kill is not exit proof. The exact original
-        // direct-child WNOWAIT pin still permits mandatory group disposal;
-        // this is cleanup only, never another STOP/CONT or premise repair.
-        let fallback_pin = if kill_result.is_some_and(|result| result.is_err()) {
-            Some(crate::dream::resolve::helper_exited(pid))
-        } else {
-            None
-        };
-        let fallback_kill = if fallback_pin == Some(Ok(false)) {
-            let raw = unsafe { libc::kill(-pid, libc::SIGKILL) };
-            let errno = (raw != 0)
-                .then(|| std::io::Error::last_os_error().raw_os_error())
-                .flatten();
-            Some((raw, errno))
-        } else {
-            None
-        };
-        eprintln!(
-            "initial_startup_premise pid={pid} injected_ri_unavailable={unavailable_ri} birth={} captured_version={} member_pid={} member_birth={} member_start={} member_version={} member_final_version={} member_phase={} sampled={sampled:?} sample_paid={sample_paid_ok} sample_cpu_ns={sample_cpu} sample_wall_ns={sample_wall} corroborated={corroborated:?} initial_eligible={initial_eligible} premise_ok={premise_ok} control_error={premise_error:?} coverage_known={} sample_stage={} failure_line={} failure_stage={} task_status={} task_threads={} task_running={} usage_user_ticks={} usage_system_ticks={} usage_read_ns={} creation_settled={} confirmed_stopped={} startup_accounted={} baseline_charged={} timebase_numer={} timebase_denom={} debt_ns={} rest_until_ns={} rest_now_ns={} helper_debt_paid={} before_kill={before_kill:?} kill_result={kill_result:?} fallback_pin={fallback_pin:?} fallback_kill={fallback_kill:?} owner_reaped=false full_command_qualification=false",
-            identity.birth,
-            identity.token.value[7],
-            helper.members[0].pid,
-            helper.members[0].birth,
-            helper.members[0].start_abstime,
-            helper.members[0].audit_version,
-            helper.members[0].final_image_version,
-            helper.members[0].image_phase as u8,
-            helper.metrics.coverage_known,
-            helper.metrics.sample_stage,
-            helper.metrics.first_failure_line,
-            helper.metrics.first_failure_sample_stage,
-            helper.task_observations[0].status,
-            helper.task_observations[0].threads,
-            helper.task_observations[0].running,
-            helper.usage_observations[0].user_ticks,
-            helper.usage_observations[0].system_ticks,
-            helper.usage_observations[0].observed_ns,
-            helper.creation_settled,
-            helper.confirmed_stopped,
-            helper.startup_accounted,
-            baseline.is_some_and(|baseline| baseline.charged),
-            helper.timebase.numer,
-            helper.timebase.denom,
-            control.accounting.debt_total.load(Ordering::Acquire),
-            control.accounting.rest_until.load(Ordering::Acquire),
-            control.accounting.now(),
-            Instant::now() >= helper.debt_until,
-        );
-        let (terminal, terminal_at) = loop {
-            let observed = crate::dream::resolve::helper_exited(pid);
-            let now = Instant::now();
-            if observed == Ok(true) || observed.is_err() || now >= terminal_deadline {
-                break (observed, now);
-            }
-            thread::sleep(Duration::from_micros(100));
-        };
-        eprintln!(
-            "initial_startup_exit pid={pid} original_wnowait={terminal:?} elapsed_ns={} within_original_deadline={} owner_reaped=false premise_ok={premise_ok}",
-            terminal_at.duration_since(wait_wall).as_nanos(),
-            terminal_at <= terminal_deadline,
-        );
-        let heap = heaps().1;
-        let wait_cpu = control.observe_interval(wait_at, cpu_ns());
-        let wait_wall = u64::try_from(wait_wall.elapsed().as_nanos()).unwrap();
-        let wait_heap = heap;
-        let wait_prior_error = control.error();
-        let wait_debt_before = control.helper_debt_marker();
-        let wait_rest_before = control.accounting.rest_total.load(Ordering::Acquire);
-        let wait_paid =
-            budget.read_charge_observed_heap(wait_cpu, wait_cpu, wait_wall, UNIT_NS, heap);
-        let wait_added_debt = control.helper_debt_marker() - wait_debt_before;
-        control.read_pay();
-        let wait_observed_rest =
-            control.accounting.rest_total.load(Ordering::Acquire) - wait_rest_before;
-        // A measured physical observation may itself overrun/refuse. This
-        // component requires the exact unchanged Budget verdict and full fresh
-        // payment, not an unconditional observer-positivity theorem.
-        let wait_raw = if wait_cpu == u64::MAX || wait_wall == u64::MAX {
-            u64::MAX
-        } else {
-            wait_cpu
-        };
-        let wait_expected_error = if wait_raw > UNIT_NS || wait_heap > HEAP_MAX {
-            Some(w::Code::ResourceLimit)
-        } else {
-            wait_prior_error
-        };
-        helper.terminal_ri_unavailable = unavailable_ri;
-        let ticket = helper.identity.ticket();
-        *control.helper.lock().unwrap() = Some(helper);
-        let post_callback = if premise_ok && terminal == Ok(true) {
-            proof.helper_post_exit(ticket)
-        } else {
-            Err(crate::dream::entry::Invalid(
-                "source-known fixture premise refused",
-            ))
-        };
-        let post_callback_error = control.error();
-        let ready_callback = proof.helper_reap_ready(ticket);
-        let mut helper = control.helper.lock().unwrap().take().unwrap();
-        let post_cpu = helper.metrics.terminal_attempt_cpu_ns;
-        let post_callback_ok = post_callback.is_ok();
-        let post_retained = helper.metrics.terminal_attempt_retained;
-        let counter_unavailable = helper.metrics.terminal_attempt_unknown;
-        let after_payment =
-            ready_callback.unwrap_or(crate::dream::resolve::HelperReapReadiness::Held);
-        let reap_at = cpu_ns();
-        let reap_wall = Instant::now();
-        let mut status = 0;
-        let mut raw_usage = std::mem::MaybeUninit::<libc::rusage>::uninit();
-        let until = Instant::now() + Duration::from_secs(1);
-        let got = loop {
-            let got =
-                unsafe { libc::wait4(pid, &mut status, libc::WNOHANG, raw_usage.as_mut_ptr()) };
-            if got == pid
-                || (got < 0 && std::io::Error::last_os_error().raw_os_error() != Some(libc::EINTR))
-                || Instant::now() >= until
-            {
-                break got;
-            }
-            thread::sleep(Duration::from_micros(100));
-        };
-        if got == pid {
-            child.reaped = true;
-        }
-        if got != pid {
-            let wait4_errno = (got < 0)
-                .then(|| std::io::Error::last_os_error().raw_os_error())
-                .flatten();
-            // Preserve the failed original observation, then finish exact
-            // owned disposal before its assertion. Drop's receipt records the
-            // actual waitpid/status/group without fabricating wait4 usage.
-            child.reap();
-            let heap = heaps().1;
-            let cpu = control.observe_interval(reap_at, cpu_ns());
-            let wall = u64::try_from(reap_wall.elapsed().as_nanos()).unwrap();
-            let _ = budget.read_charge_observed_heap(cpu, cpu, wall, UNIT_NS, heap);
-            control.read_pay();
-            eprintln!(
-                "initial_startup_failed_reap pid={pid} wait4_result={got} wait4_errno={wait4_errno:?} original_reaped={} original_wnowait={terminal:?} premise_ok={premise_ok} cleanup_cpu_ns={cpu} cleanup_wall_ns={wall} debt_ns={} rest_ns={}",
-                child.reaped,
-                control.accounting.debt_total.load(Ordering::Acquire),
-                control.accounting.rest_total.load(Ordering::Acquire)
-            );
-        }
-        assert_eq!(
-            got, pid,
-            "actual original wait4 must return its retained PID"
-        );
-        let raw_usage = unsafe { raw_usage.assume_init() };
-        let raw_ns = |v: libc::timeval| (v.tv_sec as u64 * 1_000_000 + v.tv_usec as u64) * 1000;
-        let reap = crate::dream::resolve::HelperReapUsage {
-            pid: got,
-            user_ns: raw_ns(raw_usage.ru_utime),
-            system_ns: raw_ns(raw_usage.ru_stime),
-            rss_bytes: raw_usage.ru_maxrss as u64,
-            observed_ns: bootstrap::monotonic_ns().unwrap_or(u64::MAX),
+        h.creation_settled = true;
+        h.metrics.qos_checked_mask = 1;
+        h
+    }
+    fn usage(user: u64, system: u64, gone: bool) -> super::super::resolve::HelperReapUsage {
+        super::super::resolve::HelperReapUsage {
+            pid: 101,
+            user_ns: user,
+            system_ns: system,
+            rss_bytes: 1024,
+            observed_ns: 42,
             readings: 1,
-        };
-        let group_result = unsafe { libc::kill(-pid, 0) };
-        let group_errno = (group_result != 0)
-            .then(|| std::io::Error::last_os_error().raw_os_error())
-            .flatten();
-        let group_empty = group_result == -1 && group_errno == Some(libc::ESRCH);
-        let reconciled = helper.reconcile_usage(&control, reap);
-        let heap = heaps().1;
-        let cpu = control.observe_interval(reap_at, cpu_ns());
-        let wall = u64::try_from(reap_wall.elapsed().as_nanos()).unwrap();
-        let _ = budget.read_charge_observed_heap(cpu, cpu, wall, UNIT_NS, heap);
-        let _ = helper.commit_post_observation(&control, cpu, wall);
-        let full_cpu = control.observe_interval(reap_at, cpu_ns());
-        let full_wall = u64::try_from(reap_wall.elapsed().as_nanos()).unwrap();
-        helper.retain_reap_residual_cost(&control, cpu, full_cpu, full_wall);
-        control.read_pay();
-        thread::sleep(helper.debt_until.saturating_duration_since(Instant::now()));
-        let residual_ready = helper.finish_reap_residual_payment(&control);
-        eprintln!(
-            "initial_startup_residual pid={pid} scope=leader_wait4_subtree constant_T_ns={} direct_reaps={} qualified_rollup_reaps={} T_ceiling_ns={} independent_credit_ns={} rounding_ns={} full_ceiling_ns={} raw_residual_ns={} upper_residual_ns={} charged_residual_ns={} retained={} paid={} comparison_pass={} final_pass={residual_ready}",
-            HELPER_TEARDOWN_NS,
-            helper.metrics.conservation_direct_reaps,
-            helper.metrics.conservation_rollup_reaps,
-            helper.metrics.conservation_teardown_ceiling_ns,
-            helper.metrics.conservation_budget_ns,
-            helper.metrics.conservation_allowance_ns,
-            helper.metrics.conservation_total_ceiling_ns,
-            helper.metrics.terminal_residual_raw_ns,
-            helper.metrics.terminal_residual_upper_ns,
-            helper.metrics.terminal_residual_charged_ns,
-            helper.metrics.terminal_residual_cost_retained,
-            helper.metrics.terminal_residual_cost_paid,
-            helper.metrics.conservation_comparison_pass
-        );
-        eprintln!(
-            "initial_startup_owned source_known=true native_birth_profile_claim=false full_command_qualification=false pid={pid} injected_ri_unavailable={unavailable_ri} post_callback_ok={post_callback_ok} attempt_retained_before_reap={post_retained} after_attempt_payment={after_payment:?} actual_ri_attempts={} physical_valid={} attempt_unknown={} raw_l_ns={} attempt_retained={} bsd_result={} bsd_errno={:?} ri_result={:?} ri_errno={:?} ri_injection_applied={} last_guard={} native_code={} birth={} initial_eligible={initial_eligible} baseline_charged={} baseline_user_ticks={} baseline_system_ticks={} baseline_read_ns={} timebase_numer={} timebase_denom={} grants={} stop_attempts={} original_reaped={} wait4_pid={got} wait4_status={status} group_result={group_result} group_errno={group_errno:?} group_empty={group_empty} corrob_cpu_ns={corrob_cpu} post_cpu_ns={post_cpu} post_known={} initial_post_exit={} user_before_ticks={} system_before_ticks={} user_after_ticks={} system_after_ticks={} startup_ns={} independent_late_ns={} startup_late_excluded_ns={} wait4_user_ns={} wait4_system_ns={} wait4_reads={} counter_reads={} budget_ns={} allowance_ns={} excess_ns={} conservation_pass={} reconciled_ok={} debt_ns={} rest_ns={}",
-            helper.metrics.terminal_ri_attempts,
-            helper.metrics.terminal_physical_valid,
-            helper.metrics.terminal_attempt_unknown,
-            helper.metrics.terminal_l_raw_ns,
-            helper.metrics.terminal_attempt_retained,
-            helper.metrics.terminal_bsd_result,
-            helper.metrics.terminal_bsd_errno,
-            helper.metrics.terminal_ri_result,
-            helper.metrics.terminal_ri_errno,
-            helper.metrics.terminal_ri_injected_unavailable,
-            helper.metrics.terminal_last_guard,
-            helper.metrics.terminal_native_code,
-            identity.birth,
-            baseline.is_some_and(|b| b.charged),
-            baseline.map_or(0, |b| b.usage.user_ticks),
-            baseline.map_or(0, |b| b.usage.system_ticks),
-            baseline.map_or(0, |b| b.usage.observed_ns),
-            helper.timebase.numer,
-            helper.timebase.denom,
-            helper.metrics.grants,
-            helper.metrics.stop_attempts,
-            child.reaped,
-            helper.metrics.post_exit_observation_known,
-            helper.metrics.initial_post_exit_observation,
-            helper.metrics.post_exit_user_before_ticks,
-            helper.metrics.post_exit_system_before_ticks,
-            helper.metrics.post_exit_user_after_ticks,
-            helper.metrics.post_exit_system_after_ticks,
-            helper.metrics.startup_cpu_ns,
-            helper.metrics.conservation_late_ns,
-            helper.startup_late_cpu_ns,
-            reap.user_ns,
-            reap.system_ns,
-            helper.metrics.wait4_reads,
-            helper.metrics.counter_reads,
-            helper.metrics.conservation_budget_ns,
-            helper.metrics.conservation_allowance_ns,
-            helper.metrics.conservation_excess_ns,
-            helper.metrics.conservation_pass,
-            reconciled.is_ok(),
-            control.accounting.debt_total.load(Ordering::Acquire),
-            control.accounting.rest_total.load(Ordering::Acquire)
-        );
-        assert_eq!(sampled, Ok(true));
-        assert!(
-            sample_paid_ok && premise_ok,
-            "initial witness premise must hold before the terminal event"
-        );
-        assert_eq!(corroborated, Ok(()));
-        assert!(initial_eligible);
-        assert_eq!(kill_result, Some(Ok(())));
-        assert_eq!(
-            terminal,
-            Ok(true),
-            "original exit remains independently observable within the original one-second window"
-        );
-        assert!(
-            terminal_at <= terminal_deadline,
-            "late terminal observation cannot satisfy the original one-second window"
-        );
-        eprintln!(
-            "initial_startup_wait_budget pid={pid} cpu_ns={wait_cpu} wall_ns={wait_wall} heap_bytes={wait_heap} prior_error={wait_prior_error:?} expected_error={wait_expected_error:?} actual_error={:?} added_debt_ns={wait_added_debt} observed_fresh_rest_ns={wait_observed_rest} post_callback_error={post_callback_error:?} physical_component_only=true",
-            wait_paid.as_ref().err()
-        );
-        assert_eq!(wait_paid.as_ref().err().copied(), wait_expected_error);
-        let expected_wait_debt = 9 * if wait_raw == u64::MAX {
-            SPAN_NS
-        } else {
-            wait_raw.max(UNIT_NS)
-        };
-        assert_eq!(wait_added_debt, expected_wait_debt);
-        assert!(
-            control.accounting.now() >= control.accounting.rest_until.load(Ordering::Acquire),
-            "the unchanged fresh debt deadline must be fully paid before this verdict"
-        );
-        if wait_expected_error.is_some() {
-            assert!(
-                control.error().is_some(),
-                "physical settlement cannot erase an observer refusal"
-            );
+            group_gone: gone,
         }
-        assert_eq!(
-            after_payment,
-            super::super::resolve::HelperReapReadiness::Ready
-        );
-        assert_eq!(helper.metrics.terminal_ri_attempts, 1);
-        if unavailable_ri {
-            assert!(
-                counter_unavailable,
-                "configured accounting withholding must refuse"
-            );
-        }
-        if counter_unavailable {
-            assert!(post_callback.is_err() && post_retained);
-            assert!(matches!(
-                helper.metrics.terminal_last_guard,
-                160 | 162 | 164
-            ));
-            assert!(helper.metrics.terminal_attempt_unknown);
-            assert_eq!(helper.metrics.terminal_l_raw_ns, u64::MAX);
-            assert!(!helper.metrics.conservation_pass && reconciled.is_err());
-            assert_eq!(helper.metrics.conservation_excess_ns, u64::MAX);
-            assert_eq!(helper.metrics.conservation_late_ns, 0);
-            assert!(
-                helper.accounting_settled,
-                "physical own-wait4/group settlement needs no second RI"
-            );
-            assert_eq!(control.error(), Some(w::Code::ResourceLimit));
-        } else {
-            assert!(post_retained && helper.metrics.post_exit_observation_known);
-            assert_eq!(post_callback.is_ok(), post_callback_error.is_none());
-            if post_callback.is_err() {
-                assert_eq!(
-                    post_callback_error,
-                    Some(w::Code::ResourceLimit),
-                    "known physical/counter proof does not waive any prior or current cost refusal"
-                );
-            }
-        }
-        assert!(helper.metrics.initial_post_exit_observation);
-        assert_eq!(helper.metrics.grants, 0);
-        assert_eq!(helper.metrics.stop_attempts, 0);
-        assert!(
-            group_empty && libc::WIFSIGNALED(status) && libc::WTERMSIG(status) == libc::SIGKILL
-        );
-        let baseline = baseline.unwrap();
-        if counter_unavailable {
-            return;
-        }
-        assert_eq!(
-            baseline.usage.user_ticks,
-            helper.metrics.post_exit_user_after_ticks
-        );
-        assert_eq!(
-            helper.metrics.post_exit_system_before_ticks,
-            baseline.usage.system_ticks
-        );
-        let credit = helper_convert_ticks(baseline.usage.system_ticks, baseline.timebase).unwrap()
-            + helper_convert_ticks(
-                helper.metrics.post_exit_system_after_ticks - baseline.usage.system_ticks,
-                baseline.timebase,
-            )
-            .unwrap();
-        let allowance =
-            2000 + helper_convert_ticks(helper.metrics.counter_reads, baseline.timebase).unwrap();
-        let excess =
-            (reap.user_ns + reap.system_ns).saturating_sub(credit + allowance + HELPER_TEARDOWN_NS);
-        eprintln!(
-            "initial_startup_conservation_oracle pid={pid} raw_wait4_ns={} independent_credit_ns={credit} explicit_rounding_ns={allowance} fixed_T_ns={HELPER_TEARDOWN_NS} oracle_remaining_excess_ns={excess} observed_remaining_excess_ns={} numeric_covered={} observer_wait_refused={} actual_reaped={} group_empty={group_empty}",
-            reap.user_ns + reap.system_ns,
-            helper.metrics.conservation_excess_ns,
-            excess == 0,
-            wait_paid.is_err(),
-            child.reaped
-        );
-        assert_eq!(helper.metrics.conservation_budget_ns, credit);
-        assert_eq!(helper.metrics.conservation_excess_ns, excess);
-        assert_eq!(helper.metrics.conservation_pass, excess == 0);
-        assert_eq!(helper.metrics.conservation_direct_reaps, 1);
-        assert_eq!(helper.metrics.conservation_rollup_reaps, 0);
-        assert_eq!(
-            helper.metrics.conservation_teardown_ceiling_ns,
-            HELPER_TEARDOWN_NS
-        );
-        assert!(helper.metrics.terminal_residual_cost_paid);
-        assert!(
-            helper.metrics.terminal_residual_charged_ns
-                >= helper.metrics.terminal_residual_upper_ns
-        );
-        if excess != 0 {
-            assert!(reconciled.is_err());
-            assert_eq!(control.error(), Some(w::Code::ResourceLimit));
-        }
-    }
-
-    #[test]
-    fn measured_owned_cpu_wait4_detects_pre_ack_and_timebase_omission_without_qualification() {
-        owned_cpu_conservation_case(false);
     }
     #[test]
-    fn teardown_owned_post_sample_burn_above_fixed_ceiling_refuses_and_pays_full_residual() {
-        owned_cpu_conservation_case(true);
+    fn helper_total_unknown_rss_is_unproven_while_finite_excess_is_resource_limit() {
+        for rss in [u64::MAX, storage::HELPERS + 1] {
+            let c = Control::fixture(Instant::now() + Duration::from_secs(30));
+            let mut h = group();
+            let mut raw = usage(4_000, 1_000, true);
+            raw.rss_bytes = rss;
+            assert!(h.reconcile_usage(&c, raw).is_err());
+            assert_eq!(h.metrics.reap_rss_bytes, rss);
+            assert_eq!(h.metrics.reap_rss_known, rss != u64::MAX);
+            assert_eq!(h.metrics.charged_ns, 7_000);
+            assert_eq!(h.metrics.debt_ns, 9_000_000);
+            assert!(h.retirement_settlement_observed());
+            if rss == u64::MAX {
+                assert!(!h.metrics.coverage_known);
+                assert!(!c.accounting.resource_failed.load(Ordering::Acquire));
+                assert_eq!(c.error(), Some(w::Code::SourceUnavailable));
+            } else {
+                assert!(c.accounting.resource_failed.load(Ordering::Acquire));
+                assert_eq!(c.error(), Some(w::Code::ResourceLimit));
+            }
+        }
+        let c = Control::fixture(Instant::now() + Duration::from_secs(30));
+        let mut h = group();
+        let mut raw = usage(HELPER_COMMAND_CPU_NS, 0, true);
+        raw.rss_bytes = u64::MAX;
+        assert!(h.reconcile_usage(&c, raw).is_err());
+        assert!(c.accounting.resource_failed.load(Ordering::Acquire)); // independent finite CPU breach survives unknown RSS
     }
-    fn owned_cpu_conservation_case(post_sample_burn: bool) {
-        // One throwaway source-known process, no shell/exec/helpers. After fork
-        // the child uses only async-signal-safe libc calls and stack scalars.
-        // This is a counter/conservation witness, not native birth admission or
-        // an installed tool's lifetime qualification.
-        let owner = Arc::new(Control::fixture(Instant::now() + Duration::from_secs(2)));
-        let mut ready = [0; 2];
-        assert_eq!(unsafe { libc::pipe(ready.as_mut_ptr()) }, 0);
-        let mut ready_read = unsafe { File::from_raw_fd(ready[0]) };
-        let ready_write = unsafe { File::from_raw_fd(ready[1]) };
-        let child_begin_ns = bootstrap::monotonic_ns().unwrap();
-        let pid = unsafe { libc::fork() };
-        assert!(pid >= 0);
-        if pid == 0 {
-            unsafe {
-                libc::close(ready[0]);
-                if libc::setpgid(0, 0) != 0 {
-                    libc::_exit(90);
-                }
-                let mut start = std::mem::zeroed::<libc::timespec>();
-                let mut now = std::mem::zeroed::<libc::timespec>();
-                if libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut start) != 0 {
-                    libc::_exit(91);
-                }
-                loop {
-                    if libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut now) != 0 {
-                        libc::_exit(92);
-                    }
-                    let elapsed =
-                        (now.tv_sec - start.tv_sec) * 1_000_000_000 + now.tv_nsec - start.tv_nsec;
-                    if elapsed >= 2_000_000 {
-                        break;
-                    }
-                }
-                let byte = 1u8;
-                if libc::write(ready[1], (&byte as *const u8).cast(), 1) != 1 {
-                    libc::_exit(93);
-                }
-                if libc::kill(libc::getpid(), libc::SIGSTOP) != 0 {
-                    libc::_exit(94);
-                }
-                if post_sample_burn {
-                    // Deliberate source-known protocol fault: actual CPU AFTER
-                    // the retained last sample. No later counter is supplied
-                    // as credit. This never claims a valid helper quantum.
-                    if libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut start) != 0 {
-                        libc::_exit(95);
-                    }
-                    loop {
-                        if libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut now) != 0 {
-                            libc::_exit(96);
-                        }
-                        let elapsed = (now.tv_sec - start.tv_sec) * 1_000_000_000 + now.tv_nsec
-                            - start.tv_nsec;
-                        if elapsed >= 2_000_000 {
-                            break;
-                        }
-                    }
-                }
-                libc::_exit(0);
-            }
-        }
-        let mut child = OwnedChild {
-            pid,
-            control: owner,
-            reaped: false,
-        };
-        if unsafe { libc::setpgid(pid, pid) } != 0 {
-            // Still-unreaped direct custody is exact even if group setup failed.
-            unsafe {
-                libc::kill(pid, libc::SIGKILL);
-            }
-            panic!("owned conservation fixture group setup failed");
-        }
-        drop(ready_write);
-        let mut poll = libc::pollfd {
-            fd: ready_read.as_raw_fd(),
-            events: libc::POLLIN | libc::POLLHUP,
-            revents: 0,
-        };
-        assert_eq!(unsafe { libc::poll(&mut poll, 1, 1000) }, 1);
-        let mut byte = [0u8];
-        ready_read.read_exact(&mut byte).unwrap();
-        let mut stop_status = 0;
-        let deadline = Instant::now() + Duration::from_secs(1);
-        loop {
-            let result =
-                unsafe { libc::waitpid(pid, &mut stop_status, libc::WUNTRACED | libc::WNOHANG) };
-            if result == pid {
-                break;
-            }
-            assert!(
-                result == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EINTR)
-            );
-            assert!(Instant::now() < deadline);
-            thread::sleep(Duration::from_micros(100));
-        }
-        assert!(libc::WIFSTOPPED(stop_status));
-        let ack_ns = bootstrap::monotonic_ns().unwrap();
-        let identity = helper_audit_member(pid, unsafe { libc::getpid() }).unwrap();
-        let mut raw = std::mem::MaybeUninit::<libc::rusage_info_v1>::uninit();
-        assert_eq!(
-            unsafe { libc::proc_pid_rusage(pid, 1, raw.as_mut_ptr().cast()) },
-            0
-        );
-        let raw = unsafe { raw.assume_init() };
-        let read_ns = bootstrap::monotonic_ns().unwrap();
-        assert!(read_ns >= ack_ns && raw.ri_proc_exit_abstime == 0);
-        let timebase = helper_timebase().unwrap();
-        let ticks = raw.ri_user_time.checked_add(raw.ri_system_time).unwrap();
-        let measured = helper_convert_ticks(ticks, timebase).unwrap();
-        assert!(measured >= 2_000_000);
-        // Establish the already-closed accounting input from this actual
-        // one-process source-known stopped roster. It is intentionally NOT a
-        // passing1ms quantum: this component tests independent L/conservation.
-        let mut observed = HelperGroup::attached(crate::dream::resolve::HelperIdentity {
-            sequence: 1,
-            pid,
-            pgid: pid,
-            start_identity: identity.birth,
-            expected_members: 1,
-            image: std::env::current_exe().unwrap(),
-            descendant_image: None,
-        });
-        observed.timebase = timebase;
-        observed.members[0] = HelperMember {
-            pid,
-            birth: identity.birth,
-            cpu: measured,
-            start_abstime: raw.ri_proc_start_abstime,
-            audit_version: identity.token.value[7],
-            audit_token: identity.token,
-            final_image_version: identity.token.value[7],
-            image_phase: HelperImagePhase::Descendant,
-            user_ticks: raw.ri_user_time,
-            system_ticks: raw.ri_system_time,
+    #[test]
+    fn helper_total_pause_user_terminal_catches_growth_below_cpu_cap() {
+        let c = Control::fixture(Instant::now() + Duration::from_secs(30));
+        let mut h = group();
+        h.pause_started = Some(Instant::now());
+        h.pause_ack = Some(Duration::ZERO);
+        h.pause_user_baseline = Some(5_000);
+        assert!(h.reconcile_usage(&c, usage(25_000, 1_000, true)).is_err());
+        assert_eq!(h.metrics.charged_ns, 28_000);
+        assert!(h.metrics.charged_ns < HELPER_COMMAND_CPU_NS);
+        assert_eq!(h.metrics.debt_ns, 9_000_000);
+        assert!(h.metrics.pause_user_checked && !h.metrics.pause_user_pass);
+        assert_eq!(h.metrics.pause_user_excess_ns, 20_000);
+        assert_eq!(h.metrics.pause_user_quantization_ns, 1_000);
+        assert!(h.retirement_settlement_observed());
+        let mut h = group();
+        h.pause_user_baseline = Some(5_000);
+        assert!(h.terminal_pause_user(6_000));
+        assert!(!h.terminal_pause_user(6_001));
+    }
+    #[test]
+    fn helper_total_initial_kernel_tail_is_pending_only_with_full_zero_user_source() {
+        let mut h = group();
+        h.creation_settled = false;
+        let mut token = HelperAuditToken::default();
+        token.value[5] = 101;
+        h.members[0] = HelperMember {
+            pid: 101,
+            birth: 7,
+            start: 19,
+            verified: true,
+            live: true,
             ..HelperMember::default()
         };
-        observed.retired_members[0] = identity;
-        observed.observe_usage(0, pid, &raw);
-        observed.confirmed_stopped = true;
-        observed.grant.opened = true;
-        observed.grant.closed = true;
-        observed.grant.charged_once = true;
-        observed.grant.reserved = 1;
-        observed.grant.t0_ns = child_begin_ns;
-        observed.grant.slots[0].ack_ns = Some(ack_ns);
-        observed.grant.close_ns = Some(read_ns);
-        observed.metrics.grants = 1;
-        observed.metrics.charged_helper_cpu_ns = measured;
-        observed.retiring = true;
+        h.retired[0] = RetiredMember {
+            pid: 101,
+            birth: 7,
+            token,
+            current: true,
+        };
+        h.metrics.initial = HelperInitialObservation {
+            valid: 63,
+            pid: 101,
+            pgid: 101,
+            birth: 7,
+            start: 19,
+            status: libc::SSTOP,
+            after_status: libc::SSTOP,
+            threads: 1,
+            running: 1,
+            priority: 4,
+            user_ticks: 0,
+            ..HelperInitialObservation::default()
+        };
+        assert!(h.initial_kernel_tail_pending());
+        h.metrics.initial.user_ticks = 1;
+        assert!(!h.initial_kernel_tail_pending());
+        h.metrics.initial.user_ticks = 0;
+        h.metrics.initial.valid = 62;
+        assert!(!h.initial_kernel_tail_pending());
+        h.metrics.initial.valid = 63;
+        h.metrics.initial.running = 0;
+        assert!(!h.initial_kernel_tail_pending());
+        h.metrics.initial.running = 1;
+        h.running = true;
+        assert!(!h.initial_kernel_tail_pending());
+    }
+    #[test]
+    fn helper_total_terminal_pin_is_retained_before_missing_bsd_can_seek_own_exit() {
+        let mut h = group();
+        assert!(!h.original_retained()); // admitted fixture label has no native pin
+        let mut token = HelperAuditToken::default();
+        token.value[5] = 101;
+        h.members[0] = HelperMember {
+            pid: 101,
+            birth: 7,
+            start: 19,
+            verified: true,
+            ..HelperMember::default()
+        };
+        h.retired[0] = RetiredMember {
+            pid: 101,
+            birth: 7,
+            token,
+            current: true,
+        };
+        assert!(h.original_retained());
+        h.identity.start_identity = 8;
+        assert!(!h.original_retained());
+        h.identity.start_identity = 7;
+        h.members[0] = HelperMember::default();
+        h.creation_settled = false;
+        assert!(h.original_retained()); // typed unactivated birth, cleanup only
+        h.running = true;
+        assert!(!h.original_retained());
+    }
+    #[test]
+    fn helper_total_known_exit_before_kill_is_not_a_fabricated_kernel_signal_race() {
+        let c = Control::fixture(Instant::now() + Duration::from_secs(30));
+        let mut h = group();
+        h.terminal_pending = true;
+        h.metrics.group_kill_not_attempted_terminal = true;
+        h.reconcile_usage(&c, usage(4_000, 0, true)).unwrap();
+        assert!(h.retirement_settlement_observed());
+        assert!(h.metrics.group_kill_not_attempted_terminal);
+        assert!(!h.metrics.group_kill_attempted && !h.metrics.group_kill_raced_exit);
+        assert_eq!(h.metrics.group_kill_errno, 0);
+    }
+    #[test]
+    fn helper_total_reap_authorization_seals_effects_before_usage_callback() {
+        let mut h = group();
+        h.reap_authorized = true;
+        assert!(!h.own_wait4); // producer may consume wait4 before its callback
+        for signal in [libc::SIGSTOP, libc::SIGCONT, libc::SIGKILL] {
+            assert_eq!(h.signal_group(signal), Err(libc::EALREADY));
+        }
+        assert_eq!(h.retire_members(), Ok(())); // neither group nor escaped token effect
+        assert!(!h.metrics.group_kill_attempted && !h.metrics.pause_stop_attempted);
+        assert_eq!(h.metrics.escaped_kill_attempts, 0);
+        assert!(!h.retirement_settlement_observed());
+    }
+    #[test]
+    fn helper_total_known_wait4_is_paid_before_group_proof_without_double_billing() {
+        let c = Control::fixture(Instant::now() + Duration::from_secs(30));
+        let mut h = group();
+        let first = usage(4_000, 1_000, false);
+        assert_eq!(h.reconcile_usage(&c, first), Ok(()));
+        assert!(h.own_wait4 && !h.group_gone);
+        assert!(!h.retirement_settlement_observed());
+        assert!(!h.failed && h.metrics.coverage_known);
+        assert_eq!(h.metrics.charged_ns, 7_000);
+        assert_eq!(h.metrics.debt_ns, 9_000_000);
+        let debt = c.fixture_debt_totals();
+        let mut observed = first;
+        observed.group_gone = true;
+        assert_eq!(h.reconcile_usage(&c, observed), Ok(()));
+        assert!(h.retirement_settlement_observed());
+        assert_eq!(c.fixture_debt_totals(), debt);
+        assert_eq!(c.accounting.helper_job_cpu.load(Ordering::Acquire), 7_000);
+        assert_eq!(h.metrics.wait4_reads, 1);
+        observed.user_ns += 1;
+        assert!(h.reconcile_usage(&c, observed).is_err());
+        assert_eq!(c.fixture_debt_totals(), debt);
+    }
+    #[test]
+    fn helper_total_false_empty_census_never_proves_child_or_group_absence() {
+        assert!(helper_census_empty(0, 0));
+        assert!(!helper_census_empty(0, libc::EIO));
+        assert!(!helper_census_empty(0, libc::ESRCH));
+        assert!(!helper_census_empty(-1, libc::EIO));
+        assert!(!helper_census_empty(1, 0));
+        assert!(!helper_census_known(1, libc::EIO));
+        assert!(helper_census_known(1, 0));
+    }
+    #[test]
+    fn helper_total_already_exited_unrolled_child_still_has_unknown_cost() {
+        assert!(HelperGroup::rollup_counters_match(4, 7, 4, 8));
+        assert!(!HelperGroup::rollup_counters_match(4, 7, 3, 8));
+        assert!(!HelperGroup::rollup_counters_match(4, 7, 4, 6));
+        assert!(!HelperGroup::rollup_counters_match(0, 0, 0, 0));
+        let c = Control::fixture(Instant::now() + Duration::from_secs(30));
+        let mut h = group();
+        h.identity.expected_members = 2;
+        h.members[1] = HelperMember {
+            pid: 102,
+            birth: 9,
+            start: 21,
+            verified: true,
+            live: false,
+            user: 4,
+            system: 7,
+            terminal_ri_at: Some(Instant::now()),
+            ..HelperMember::default()
+        };
+        h.metrics.descendants = 1;
+        h.metrics.verified_descendants = 1;
+        assert!(h.reconcile_usage(&c, usage(1_000, 0, true)).is_err());
+        assert!(h.metrics.child_cost_unproven && !h.metrics.coverage_known);
+        assert_eq!(h.metrics.charged_ns, 3_000);
+        assert_eq!(h.metrics.debt_ns, 9_000_000);
+        assert!(!h.retirement_settlement_observed());
+    }
+    #[test]
+    fn helper_total_leader_exit_does_not_release_live_or_escaped_child_custody() {
+        assert!(!HelperGroup::final_kill_no_attempt_allowed(true, false));
+        assert!(!HelperGroup::final_kill_no_attempt_allowed(false, true));
+        assert!(HelperGroup::final_kill_no_attempt_allowed(true, true));
+        assert!(HelperGroup::token_cleanup_required(true, true, true));
+        assert!(!HelperGroup::token_cleanup_required(false, true, true));
+        assert!(!HelperGroup::token_cleanup_required(true, false, true));
+        let c = Control::fixture(Instant::now() + Duration::from_secs(30));
+        let mut h = group();
+        h.metrics.child_cost_unproven = true;
+        h.metrics.coverage_known = false;
+        assert!(h.reconcile_usage(&c, usage(1_000, 0, true)).is_err());
+        assert!(h.own_wait4 && h.group_gone);
+        assert!(!h.retirement_settlement_observed());
+        assert_eq!(h.metrics.charged_ns, 3_000); // known leader cost preserved, never a child's bill
+        assert!(h.metrics.child_cost_unproven);
+    }
+    #[test]
+    fn helper_total_per_member_read_gap_cannot_be_hidden_by_early_global_clock() {
+        let mut h = group();
+        let base = Instant::now();
+        h.members[0] = HelperMember {
+            pid: 101,
+            live: true,
+            ri_started: Some(base),
+            ..HelperMember::default()
+        };
+        h.members[1] = HelperMember {
+            pid: 102,
+            live: true,
+            ri_started: Some(base + Duration::from_millis(5)),
+            ..HelperMember::default()
+        };
+        assert!(h.record_sample_gap(base + Duration::from_millis(40)));
+        assert!(!h.record_member_gap(1, base + Duration::from_millis(60)));
+        assert_eq!(h.metrics.ri_gap_ns[1], 55_000_000);
         assert_eq!(
-            unsafe {
-                libc::kill(
-                    -pid,
-                    if post_sample_burn {
-                        libc::SIGCONT
-                    } else {
-                        libc::SIGKILL
-                    },
-                )
-            },
-            0
+            h.members[1].ri_started,
+            Some(base + Duration::from_millis(5))
         );
-        let deadline = Instant::now() + Duration::from_secs(1);
-        while super::super::resolve::helper_exited(pid) != Ok(true) {
-            assert!(Instant::now() < deadline);
-            thread::sleep(Duration::from_micros(100));
-        }
-        let post_at = cpu_ns();
-        let post_wall = Instant::now();
-        let post_observed = if post_sample_burn {
-            Ok(false)
-        } else {
-            observed.observe_post_exit(&child.control)
+        assert!(h.record_member_gap(0, base + Duration::from_millis(40)));
+        assert!(!h.record_member_gap(0, base + Duration::from_millis(60))); // return-time bound, previousstamp unmodified
+        assert_eq!(h.members[0].ri_started, Some(base));
+    }
+    #[test]
+    fn helper_total_sample_gap_is_observed_and_never_reset_on_a_miss() {
+        let mut h = group();
+        let now = Instant::now();
+        h.members[0] = HelperMember {
+            pid: 101,
+            live: true,
+            ri_started: Some(now - Duration::from_millis(51)),
+            ..HelperMember::default()
         };
-        assert_eq!(post_observed, Ok(!post_sample_burn));
-        let heap = heaps().1;
-        let post_cpu = child.control.observe_interval(post_at, cpu_ns());
-        let post_wall = u64::try_from(post_wall.elapsed().as_nanos()).unwrap();
-        let mut post_budget = Budget::new_read(
-            child.control.clone(),
-            Arc::new(crossbeam_queue::ArrayQueue::new(1)),
-        );
-        post_budget
-            .read_charge_observed_heap(post_cpu, post_cpu, post_wall, UNIT_NS, heap)
-            .unwrap();
-        if post_sample_burn {
-            observed.record_post_owner_cpu(&child.control, post_cpu);
-        } else {
-            observed
-                .commit_post_observation(&child.control, post_cpu, post_wall)
-                .unwrap();
-        }
-        child.control.read_pay();
-        let independent_late = observed.metrics.late_kernel_cpu_ns;
-        let mut status = 0;
-        let mut usage = std::mem::MaybeUninit::<libc::rusage>::uninit();
-        let deadline = Instant::now() + Duration::from_secs(1);
-        let wait4_pid = loop {
-            let got = unsafe { libc::wait4(pid, &mut status, libc::WNOHANG, usage.as_mut_ptr()) };
-            if got == pid {
-                break got;
+        let old = h.members[0].ri_started;
+        assert!(!h.record_sample_gap(now));
+        assert_eq!(h.metrics.max_sample_gap_ns, 51_000_000);
+        assert_eq!(h.members[0].ri_started, old);
+        h.creation_settled = false;
+        assert!(h.record_sample_gap(now)); // initial suspended birth has no active clock
+        h.creation_settled = true;
+        h.pause_started = old;
+        h.pause_ack = Some(Duration::ZERO);
+        assert!(!h.record_sample_gap(now)); // paused living members remain sampled
+    }
+    #[test]
+    fn helper_total_pause_ack_remains_binding_after_a_later_running_observation() {
+        let mut h = group();
+        h.pause_started = Some(Instant::now());
+        h.pause_ack = Some(Duration::from_millis(1));
+        h.confirmed_stopped = false;
+        let prior = HelperMember {
+            pid: 101,
+            paused_user: Some(7),
+            ..HelperMember::default()
+        };
+        assert!(h.retained_pause_matches(prior, 7, true));
+        assert!(!h.retained_pause_matches(prior, 8, true));
+        assert!(!h.retained_pause_matches(prior, 7, false));
+        assert!(!h.retained_pause_matches(HelperMember::default(), 0, true));
+        h.pause_started = None;
+        h.pause_ack = None;
+        assert!(h.retained_pause_matches(prior, 8, false));
+    }
+    #[test]
+    fn helper_total_nonpositive_or_mismatched_effect_never_signals_a_group() {
+        for (pid, pgid, birth) in [(0, 0, 0), (-1, -1, 1), (101, 102, 1), (101, 101, 0)] {
+            let mut h = group();
+            h.identity.pid = pid;
+            h.identity.pgid = pgid;
+            h.identity.start_identity = birth;
+            h.pgid = pgid;
+            for signal in [libc::SIGSTOP, libc::SIGCONT, libc::SIGKILL] {
+                assert_eq!(h.signal_group(signal), Err(libc::EINVAL));
             }
-            assert!(
-                got == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EINTR)
-            );
-            assert!(Instant::now() < deadline);
-            thread::sleep(Duration::from_micros(100));
-        };
-        child.reaped = true;
-        let wait4_observed_ns = bootstrap::monotonic_ns().unwrap_or(u64::MAX);
-        let usage = unsafe { usage.assume_init() };
-        let raw_wait4 =
-            |value: libc::timeval| (value.tv_sec as u64 * 1_000_000 + value.tv_usec as u64) * 1000;
-        // This typed record is constructed only after the actual retained
-        // wait4 returned this original PID. Preserve raw timeval fields below;
-        // neither this record nor its residual can supply independent L.
-        let reap = crate::dream::resolve::HelperReapUsage {
-            pid: wait4_pid,
-            user_ns: raw_wait4(usage.ru_utime),
-            system_ns: raw_wait4(usage.ru_stime),
-            rss_bytes: usage.ru_maxrss as u64,
-            observed_ns: wait4_observed_ns,
-            readings: 1,
-        };
-        let user = reap.user_ns;
-        let system = reap.system_ns;
-        let whole = user.checked_add(system).unwrap();
-        let group_result = unsafe { libc::kill(-pid, 0) };
-        let group_errno = (group_result != 0)
-            .then(|| std::io::Error::last_os_error().raw_os_error())
-            .flatten();
-        let group_empty = group_result == -1 && group_errno == Some(libc::ESRCH);
-        eprintln!(
-            "measured_cpu_terminal source_known=true full_command_qualification=false pid={pid} birth={} start_abstime={} audit_version={} original_reaped={} wait4_pid={} wait4_status={status} wait4_observed_ns={} wait4_readings={} wait4_user_sec={} wait4_user_usec={} wait4_system_sec={} wait4_system_usec={} wait4_user_ns={user} wait4_system_ns={system} wait4_rss_bytes={} group_result={group_result} group_errno={group_errno:?} group_empty={group_empty} independent_post_exit_known={} independent_post_exit_reads={} independent_post_exit_controller_cpu_ns={post_cpu} independent_post_exit_wall_ns={post_wall}",
-            identity.birth,
-            raw.ri_proc_start_abstime,
-            identity.token.value[7],
-            child.reaped,
-            reap.pid,
-            reap.observed_ns,
-            reap.readings,
-            usage.ru_utime.tv_sec,
-            usage.ru_utime.tv_usec,
-            usage.ru_stime.tv_sec,
-            usage.ru_stime.tv_usec,
-            reap.rss_bytes,
-            observed.metrics.post_exit_observation_known,
-            observed.metrics.post_exit_observations,
-        );
-        assert!(if post_sample_burn {
-            libc::WIFEXITED(status) && libc::WEXITSTATUS(status) == 0
-        } else {
-            libc::WIFSIGNALED(status) && libc::WTERMSIG(status) == libc::SIGKILL
-        });
+            assert!(!h.metrics.group_kill_attempted && !h.metrics.pause_stop_attempted);
+        }
+    }
+    #[test]
+    fn helper_total_wait4_once_has_independent_job_caps_and_fresh_debt() {
+        let c = Control::fixture(Instant::now() + Duration::from_secs(30));
+        let mut h = group();
+        let raw = usage(10_000, 4_000, true);
+        let admitted_at = Instant::now();
+        assert_eq!(h.reconcile_usage(&c, raw), Ok(()));
+        assert_eq!(h.metrics.charged_ns, 16_000);
+        assert_eq!(h.metrics.reap_quantization_ns, 2_000);
+        assert_eq!(h.metrics.debt_ns, 9_000_000);
+        assert!(h.debt_until >= admitted_at + Duration::from_millis(9));
+        let before = c.fixture_debt_totals();
+        assert_eq!(h.reconcile_usage(&c, raw), Ok(()));
+        assert_eq!(c.fixture_debt_totals(), before);
+        assert_eq!(c.accounting.helper_job_cpu.load(Ordering::Acquire), 16_000);
+        assert_eq!(h.metrics.wait4_reads, 1);
+        let c = Control::fixture(Instant::now() + Duration::from_secs(30));
+        c.accounting
+            .helper_job_cpu
+            .store(HELPER_JOB_CPU_NS - 1_000, Ordering::Release);
+        let mut h = group();
+        assert!(h.reconcile_usage(&c, usage(2_000, 0, true)).is_err());
+        assert_eq!(h.metrics.charged_ns, 4_000);
+        assert_eq!(h.metrics.job_cpu_ns, HELPER_JOB_CPU_NS + 3_000);
+        assert!(c.accounting.resource_failed.load(Ordering::Acquire));
+    }
+    #[test]
+    fn helper_total_terminal_excess_and_unknown_are_never_clamped_or_free() {
+        let c = Control::fixture(Instant::now() + Duration::from_secs(30));
+        let mut h = group();
         assert!(
-            group_empty,
-            "actual owned group settlement must be observed"
+            h.reconcile_usage(&c, usage(HELPER_COMMAND_CPU_NS + 1, 0, true))
+                .is_err()
         );
-        assert_ne!(reap.observed_ns, u64::MAX);
+        assert_eq!(h.metrics.charged_ns, HELPER_COMMAND_CPU_NS + 2_001);
+        assert_eq!(h.metrics.debt_ns, 9 * (HELPER_COMMAND_CPU_NS + 2_001));
+        assert!(h.retirement_settlement_observed()); // refusal and physical settlement differ
+        let c = Control::fixture(Instant::now() + Duration::from_secs(30));
+        let mut h = group();
+        assert!(h.reconcile_usage(&c, usage(u64::MAX, 0, true)).is_err());
+        assert_eq!(h.metrics.charged_ns, u64::MAX);
+        assert_eq!(h.metrics.debt_ns, 9 * SPAN_NS);
+        assert!(c.accounting.clock_failed.load(Ordering::Acquire));
+        assert!(h.own_wait4 && h.group_gone);
         assert!(
-            independent_late < measured,
-            "already-observed burn cannot be relabeled as terminal L"
+            !h.retirement_settlement_observed(),
+            "finite mandatory fallback is not an unknown helper CPU bill or release authority"
         );
-        assert!(whole >= 2_000_000);
-        // Independently reconstruct the admissible credit from the retained
-        // raw RI samples. The actual later wait4 is solely the LHS: stopped RI
-        // plus independent L need not cover an unobserved final kernel cutoff.
-        // That is a valid strict ResourceLimit refusal, not a failing theorem
-        // about this physical fixture. No residual is added to credit or L.
-        let raw_to_ns = |ticks: u64| {
-            u64::try_from(
-                (u128::from(ticks) * u128::from(timebase.numer))
-                    .div_ceil(u128::from(timebase.denom)),
-            )
-            .unwrap()
-        };
-        let oracle_observed_credit =
-            raw_to_ns(raw.ri_user_time.checked_add(raw.ri_system_time).unwrap());
-        let oracle_late = raw_to_ns(
-            observed
-                .metrics
-                .post_exit_system_after_ticks
-                .checked_sub(observed.metrics.post_exit_system_before_ticks)
-                .unwrap(),
-        );
-        let oracle_allowance = 2000 + raw_to_ns(observed.metrics.counter_reads);
-        let mutations: &[&str] = if post_sample_burn {
-            &["post_sample_burn"]
-        } else {
-            &[
-                "complete",
-                "pre_ack_omitted",
-                "timebase_omitted",
-                "controller_post_only",
-            ]
-        };
-        for &mutation in mutations {
-            let control = Arc::new(Control::fixture(Instant::now() + Duration::from_secs(2)));
-            let mut helper = accounting_group();
-            helper.timebase = timebase;
-            helper.metrics.wait4_reads = 1;
-            helper.metrics.counter_reads = observed.metrics.counter_reads;
-            helper.metrics.late_kernel_cpu_ns = independent_late;
-            helper.metrics.charged_helper_cpu_ns = match mutation {
-                "complete" | "post_sample_burn" => measured,
-                "pre_ack_omitted" | "controller_post_only" => 0,
-                "timebase_omitted" => {
-                    assert!(
-                        timebase.numer > timebase.denom,
-                        "exact-host omission witness requires a nonidentity Mach timebase"
-                    );
-                    ticks
-                }
-                _ => unreachable!(),
-            };
-            let oracle_credit = match mutation {
-                "complete" | "post_sample_burn" => oracle_observed_credit,
-                "pre_ack_omitted" | "controller_post_only" => 0,
-                "timebase_omitted" => raw.ri_user_time + raw.ri_system_time,
-                _ => unreachable!(),
-            }
-            .checked_add(oracle_late)
-            .unwrap();
-            let oracle_excess =
-                whole.saturating_sub(oracle_credit + oracle_allowance + HELPER_TEARDOWN_NS);
-            let oracle_residual_upper = (whole + 2000).saturating_sub(oracle_credit);
-            let oracle_pass = oracle_excess == 0;
-            if mutation == "controller_post_only" {
-                let mut budget = Budget::new_read(
-                    control.clone(),
-                    Arc::new(crossbeam_queue::ArrayQueue::new(1)),
-                );
-                for _ in 0..5 {
-                    let at = cpu_ns();
-                    let wall = Instant::now();
-                    while control.observe_interval(at, cpu_ns()) < 500_000 {
-                        std::hint::black_box(19u64.wrapping_mul(37));
-                    }
-                    let heap = heaps().1;
-                    let cpu = control.observe_interval(at, cpu_ns());
-                    let wall = u64::try_from(wall.elapsed().as_nanos()).unwrap();
-                    budget
-                        .read_charge_observed_heap(cpu, cpu, wall, UNIT_NS, heap)
-                        .unwrap();
-                    helper.metrics.post_cpu_ns += cpu;
-                    helper.metrics.post_units += 1;
-                    control.read_pay();
-                }
-                assert!(helper.metrics.post_cpu_ns >= 2_500_000);
-            }
-            helper.post_proof_pending = true;
-            helper.post_commit_pending = true;
-            let paid_controller_post = helper.metrics.post_cpu_ns;
-            let observation_at = cpu_ns();
-            let observation_wall = Instant::now();
-            let verdict = helper.check_conservation(&control, whole);
-            let excess = helper.metrics.conservation_excess_ns;
-            let residual_cost = helper.metrics.terminal_residual_upper_ns;
-            let before = control.accounting.debt_total.load(Ordering::Acquire);
-            let cpu = control.observe_interval(observation_at, cpu_ns());
-            let wall = u64::try_from(observation_wall.elapsed().as_nanos()).unwrap();
-            control.accounting.charge(cpu, cpu);
-            let commit = helper.commit_post_observation(&control, cpu, wall);
-            let debt = control.accounting.debt_total.load(Ordering::Acquire);
-            control.read_pay();
-            eprintln!(
-                "measured_cpu_conservation source_known=true conservation_only=true full_command_qualification=false mutation={mutation} pid={pid} birth={} audit_version={} ack_ns={ack_ns} counter_read_ns={read_ns} ri_user_ticks={} ri_system_ticks={} timebase_numer={} timebase_denom={} measured_ns={measured} wait4_pid={} wait4_status={status} post_sample_burn={post_sample_burn} fixed_T_ns={HELPER_TEARDOWN_NS} residual_cost_ns={residual_cost} independent_late_ns={independent_late} actual_window_ns={} post_exit_user_before_ticks={} post_exit_system_before_ticks={} post_exit_user_after_ticks={} post_exit_system_after_ticks={} wait4_user_ns={user} wait4_system_ns={system} wait4_reads={} counter_reads={} startup_cpu_ns={} charged_helper_cpu_ns={} post_helper_cpu_ns={} conservation_late_ns={} startup_late_excluded_ns={} budget_ns={} allowance_ns={} excess_ns={excess} pass={} oracle_credit_ns={oracle_credit} oracle_allowance_ns={oracle_allowance} oracle_excess_ns={oracle_excess} oracle_pass={oracle_pass} verdict_ok={} commit_ok={} paid_controller_post_cpu_ns={paid_controller_post} observer_cpu_ns={cpu} observer_wall_ns={wall} debt_before_ns={before} debt_ns={debt} rest_total_ns={} resource_failed={} original_reaped={} group_empty={group_empty}",
-                identity.birth,
-                identity.token.value[7],
-                raw.ri_user_time,
-                raw.ri_system_time,
-                timebase.numer,
-                timebase.denom,
-                reap.pid,
-                ack_ns - child_begin_ns,
-                observed.metrics.post_exit_user_before_ticks,
-                observed.metrics.post_exit_system_before_ticks,
-                observed.metrics.post_exit_user_after_ticks,
-                observed.metrics.post_exit_system_after_ticks,
-                helper.metrics.wait4_reads,
-                helper.metrics.counter_reads,
-                helper.metrics.startup_cpu_ns,
-                helper.metrics.charged_helper_cpu_ns,
-                helper.metrics.post_helper_cpu_ns,
-                helper.metrics.conservation_late_ns,
-                helper.metrics.startup_late_excluded_ns,
-                helper.metrics.conservation_budget_ns,
-                helper.metrics.conservation_allowance_ns,
-                helper.metrics.conservation_pass,
-                verdict.is_ok(),
-                commit.is_ok(),
-                control.accounting.rest_total.load(Ordering::Acquire),
-                control.accounting.resource_failed.load(Ordering::Acquire),
-                child.reaped,
-            );
-            // The original effect is already reaped, the group observation is
-            // retained, and all known reconciliation debt is paid before any
-            // expectation can panic. Every omission must still refuse; the
-            // unmutated physical input must match its independent raw oracle,
-            // including a possible measured terminal shortfall/refusal.
-            assert_eq!(helper.metrics.conservation_budget_ns, oracle_credit);
-            assert_eq!(helper.metrics.conservation_allowance_ns, oracle_allowance);
-            assert_eq!(helper.metrics.conservation_excess_ns, oracle_excess);
-            assert_eq!(residual_cost, oracle_residual_upper);
-            assert_eq!(
-                helper.metrics.conservation_teardown_ceiling_ns,
-                HELPER_TEARDOWN_NS
-            );
-            assert_eq!(helper.metrics.conservation_late_ns, oracle_late);
-            assert_eq!(verdict.is_ok(), oracle_pass);
-            assert_eq!(helper.metrics.conservation_pass, oracle_pass);
-            if mutation != "complete" {
-                assert!(
-                    oracle_excess > 0,
-                    "omission control must expose raw shortfall"
-                );
-                assert!(verdict.is_err());
-            }
-            if !oracle_pass {
-                assert!(commit.is_err());
-                assert_eq!(control.error(), Some(w::Code::ResourceLimit));
-                assert!(control.accounting.resource_failed.load(Ordering::Acquire));
-                assert_eq!(helper.metrics.unexplained_cpu_ns, oracle_residual_upper);
-            }
-            assert_eq!(
-                debt - before,
-                9 * cpu.saturating_add(residual_cost).max(UNIT_NS)
-            );
+    }
+    #[test]
+    fn helper_total_final_eperm_needs_own_reap_and_group_gone() {
+        for gone in [false, true] {
+            let c = Control::fixture(Instant::now() + Duration::from_secs(30));
+            let mut h = group();
+            h.terminal_pending = true;
+            h.metrics.group_kill_errno = libc::EPERM;
+            h.metrics.group_kill_attempted = true;
+            assert!(!h.retirement_settlement_observed());
+            assert!(h.reconcile_usage(&c, usage(5_000, 0, gone)).is_ok());
+            assert_eq!(h.retirement_settlement_observed(), gone);
+            assert_eq!(h.metrics.group_kill_raced_exit, gone);
+            assert_eq!(h.metrics.group_kill_errno, libc::EPERM);
         }
     }
-
     #[test]
-    fn failed_stop_pending_live_exec_change_is_sticky_and_retains_actual_successor() {
-        // Source-known deliberately invalid helper: a private shell is held on
-        // its own pipe, then actually execs sleep after a consumed injected
-        // failed STOP. This exercises a real task change, not saved-field edits.
-        // It is never an admitted production helper or a no-further-exec premise.
-        let control = Arc::new(Control::fixture(Instant::now() + Duration::from_secs(2)));
-        let mut proof = crate::dream::read::helper_fixture_clock(control.clone());
-        let mut pipe = [0; 2];
-        assert_eq!(unsafe { libc::pipe(pipe.as_mut_ptr()) }, 0);
-        let gate_read = unsafe { File::from_raw_fd(pipe[0]) };
-        let gate_write = unsafe { File::from_raw_fd(pipe[1]) };
-        assert_ne!(gate_read.as_raw_fd(), 0);
-        let mut actions = std::mem::MaybeUninit::<libc::posix_spawn_file_actions_t>::uninit();
-        assert_eq!(
-            unsafe { libc::posix_spawn_file_actions_init(actions.as_mut_ptr()) },
-            0
-        );
-        let mut actions = unsafe { actions.assume_init() };
-        assert_eq!(
-            unsafe {
-                libc::posix_spawn_file_actions_adddup2(&mut actions, gate_read.as_raw_fd(), 0)
-            },
-            0
-        );
-        assert_eq!(
-            unsafe { libc::posix_spawn_file_actions_addclose(&mut actions, gate_read.as_raw_fd()) },
-            0
-        );
-        assert_eq!(
-            unsafe {
-                libc::posix_spawn_file_actions_addclose(&mut actions, gate_write.as_raw_fd())
-            },
-            0
-        );
-        let mut attr = std::mem::MaybeUninit::<libc::posix_spawnattr_t>::uninit();
-        assert_eq!(unsafe { libc::posix_spawnattr_init(attr.as_mut_ptr()) }, 0);
-        let mut attr = unsafe { attr.assume_init() };
-        assert_eq!(unsafe { libc::posix_spawnattr_setpgroup(&mut attr, 0) }, 0);
-        assert_eq!(
-            unsafe {
-                libc::posix_spawnattr_setflags(
-                    &mut attr,
-                    (libc::POSIX_SPAWN_START_SUSPENDED | libc::POSIX_SPAWN_SETPGROUP) as i16,
-                )
-            },
-            0
-        );
-        let argv = [
-            c"sh".as_ptr().cast_mut(),
-            c"-c".as_ptr().cast_mut(),
-            c"IFS= read -r gate; exec /bin/sleep 30".as_ptr().cast_mut(),
-            std::ptr::null_mut(),
-        ];
-        let env = [c"LANG=C".as_ptr().cast_mut(), std::ptr::null_mut()];
-        let mut pid = 0;
-        let spawned = unsafe {
-            libc::posix_spawn(
-                &mut pid,
-                c"/bin/sh".as_ptr(),
-                &actions,
-                &attr,
-                argv.as_ptr(),
-                env.as_ptr(),
-            )
-        };
-        assert!(pid > 0, "retain the actual private effect before verdicts");
-        let mut child = OwnedChild {
-            pid,
-            control: control.clone(),
-            reaped: false,
-        };
-        assert_eq!(unsafe { libc::posix_spawnattr_destroy(&mut attr) }, 0);
-        assert_eq!(
-            unsafe { libc::posix_spawn_file_actions_destroy(&mut actions) },
-            0
-        );
-        assert_eq!(spawned, 0);
-        drop(gate_read);
-        let before = helper_audit_member(pid, unsafe { libc::getpid() }).unwrap();
-        let identity = super::super::resolve::HelperIdentity {
-            sequence: 1,
-            pid,
-            pgid: pid,
-            start_identity: before.birth,
-            expected_members: 1,
-            image: std::fs::canonicalize("/bin/sh").unwrap(),
-            descendant_image: None,
-        };
-        let ticket = identity.ticket();
-        proof.helper_attach(identity).unwrap();
-        let active_control_at = cpu_ns();
-        let failed = {
-            let mut owner = control.helper.lock().unwrap();
-            let helper = owner.as_mut().unwrap();
-            assert_eq!(helper.members[0].final_image_version, before.token.value[7]);
-            helper.open_grant().unwrap();
-            assert_eq!(unsafe { libc::kill(-pid, libc::SIGCONT) }, 0);
-            helper.running = true;
-            helper.confirmed_stopped = false;
-            helper.injected_stop_errno = Some(libc::EPERM);
-            assert_eq!(
-                helper.request_group_stop(),
-                Ok(HelperStopOutcome::PendingTerminal)
-            );
-            assert_eq!(helper.sample(&control), Ok(false));
-            assert!(helper.metrics.coverage_known && !helper.grant.closed);
-            assert!(
-                helper.stop_observation_due(),
-                "pending uses actual continuity, never status-only skip"
-            );
-            helper.metrics.first_failed_stop
-        };
-        assert_eq!(
-            unsafe { libc::write(gate_write.as_raw_fd(), b"go\n".as_ptr().cast(), 3) },
-            3
-        );
-        drop(gate_write);
-        let until = Instant::now() + Duration::from_secs(1);
-        let after = loop {
-            if let Ok(current) = helper_audit_member(pid, unsafe { libc::getpid() })
-                && current.token.value[7] != before.token.value[7]
-            {
-                break current;
-            }
-            assert!(
-                Instant::now() < until,
-                "private source must actually execute its exec control"
-            );
-            thread::sleep(Duration::from_micros(100));
-        };
-        assert_eq!(
-            before.birth, after.birth,
-            "exec preserves the original process birth"
-        );
-        assert_eq!(super::super::resolve::helper_exited(pid), Ok(false));
-        {
-            let mut owner = control.helper.lock().unwrap();
-            let helper = owner.as_mut().unwrap();
-            assert!(
-                helper.sample(&control).is_err(),
-                "actual live exec must refuse"
-            );
-            assert_eq!(
-                helper.metrics.continuity_query_fallbacks, 0,
-                "observed real exec is permanent refusal, never a raced-query exit candidate"
-            );
-            assert_eq!(helper.metrics.continuity_terminal_observations, 0);
-            assert!(!helper.metrics.coverage_known && !helper.grant.closed);
-            assert_eq!(helper.grant.slots[0].ack_ns, None);
-            assert_eq!(helper.stop_outcome, HelperStopOutcome::PendingTerminal);
-            assert_eq!(helper.metrics.stop_attempts, 1);
-            assert!(
-                helper.retired_members.iter().any(|member| member.current
-                    && member.pid == pid
-                    && member.birth == after.birth
-                    && member.token.value == after.token.value),
-                "new actual task is retained before refusal for identity-safe original cleanup"
-            );
-            let _ = helper.account_controller(
-                &control,
-                control.observe_interval(active_control_at, cpu_ns()),
-            );
-            helper.reject(&control, 5);
-            helper.retiring = true;
-            let _ = helper.retire_members(); // only exact retained-token cancellation; no second STOP
-            assert_eq!(helper.metrics.stop_attempts, 1);
-        }
-        let until = Instant::now() + Duration::from_secs(1);
-        while super::super::resolve::helper_exited(pid) != Ok(true) {
-            assert!(Instant::now() < until);
-            thread::sleep(Duration::from_micros(100));
-        }
-        {
-            let mut owner = control.helper.lock().unwrap();
-            let helper = owner.as_mut().unwrap();
-            assert!(
-                helper.sample_exited_roster().is_err(),
-                "later exit cannot erase observed exec refusal"
-            );
-            assert!(!helper.grant.closed && !helper.metrics.coverage_known);
-        }
-        let reaping_at = cpu_ns();
-        let reap_wall = Instant::now();
-        let mut status = 0;
-        let mut usage = std::mem::MaybeUninit::<libc::rusage>::uninit();
-        loop {
-            let reaped = unsafe { libc::wait4(pid, &mut status, 0, usage.as_mut_ptr()) };
-            if reaped == pid {
-                child.reaped = true;
-                break;
-            }
-            assert_eq!(
-                std::io::Error::last_os_error().raw_os_error(),
-                Some(libc::EINTR)
-            );
-        }
-        let usage = unsafe { usage.assume_init() };
-        assert!(libc::WIFSIGNALED(status) && libc::WTERMSIG(status) == libc::SIGKILL);
-        assert_eq!(unsafe { libc::kill(-pid, 0) }, -1);
-        assert_eq!(
-            std::io::Error::last_os_error().raw_os_error(),
-            Some(libc::ESRCH)
-        );
-        {
-            let mut owner = control.helper.lock().unwrap();
-            let helper = owner.as_mut().unwrap();
-            let user =
-                (usage.ru_utime.tv_sec as u64 * 1_000_000 + usage.ru_utime.tv_usec as u64) * 1000;
-            let system =
-                (usage.ru_stime.tv_sec as u64 * 1_000_000 + usage.ru_stime.tv_usec as u64) * 1000;
-            let _ = helper.reconcile_usage(
-                &control,
-                crate::dream::resolve::HelperReapUsage {
-                    pid: helper.identity.pid,
-                    user_ns: user,
-                    system_ns: system,
-                    rss_bytes: usage.ru_maxrss as u64,
-                    observed_ns: bootstrap::monotonic_ns().unwrap(),
-                    readings: 1,
-                },
-            );
-            let cost = control.observe_interval(reaping_at, cpu_ns());
-            let wall = u64::try_from(reap_wall.elapsed().as_nanos()).unwrap_or(u64::MAX);
-            let mut observed = Budget::new_read(
-                control.clone(),
-                Arc::new(crossbeam_queue::ArrayQueue::new(1)),
-            );
-            let _ = observed.read_charge(cost, cost, wall, UNIT_NS);
-            let _ = helper.commit_post_observation(&control, cost, wall);
-            let receipt = helper.metrics.worst_grant;
-            eprintln!(
-                "failed_stop_real_exec source_known=true source_premise_deliberately_broken=true injected_errno={} pid={} birth={} original_version={} actual_exec_version={} original_token_gone={:?} stop_attempts={} t0_ns={} failed_observed_ns={} end_ns={} w_ns={} a_ns={} c_ns={} q_ns={} debt_ns={} wait4_pid={} wait4_user_ns={} wait4_system_ns={} coverage_known={} terminal_accepted=false",
-                failed.rawerrno,
-                pid,
-                before.birth,
-                before.token.value[7],
-                after.token.value[7],
-                helper_token_exited(&before.token),
-                helper.metrics.stop_attempts,
-                receipt.t0_ns,
-                failed.observed_ns,
-                receipt.end_ns[0],
-                receipt.w_ns,
-                receipt.a_ns,
-                receipt.c_ns,
-                receipt.q_ns,
-                helper.metrics.debt_ns,
-                pid,
-                user,
-                system,
-                helper.metrics.coverage_known
-            );
-            assert!(!helper.metrics.coverage_known && !helper.grant.closed);
-            assert_eq!(helper.metrics.stop_attempts, 1);
-        }
-        control.read_pay();
-        proof.helper_detach(ticket).unwrap();
-        assert!(control.helper.lock().unwrap().is_none());
-    }
-
-    #[test]
-    fn failed_stop_pending_terminal_uses_independent_original_exit_and_actual_reap() {
-        // These errno values are injected source-known controls. No failed
-        // kernel STOP is claimed, and no cause is assigned to historic errno.
-        for injected_errno in [libc::EPERM, libc::ESRCH] {
-            let control = Arc::new(Control::fixture(Instant::now() + Duration::from_secs(2)));
-            let mut proof = crate::dream::read::helper_fixture_clock(control.clone());
-            let mut attr = std::mem::MaybeUninit::<libc::posix_spawnattr_t>::uninit();
-            assert_eq!(unsafe { libc::posix_spawnattr_init(attr.as_mut_ptr()) }, 0);
-            let mut attr = unsafe { attr.assume_init() };
-            assert_eq!(unsafe { libc::posix_spawnattr_setpgroup(&mut attr, 0) }, 0);
-            assert_eq!(
-                unsafe {
-                    libc::posix_spawnattr_setflags(
-                        &mut attr,
-                        (libc::POSIX_SPAWN_START_SUSPENDED | libc::POSIX_SPAWN_SETPGROUP) as i16,
-                    )
-                },
-                0
-            );
-            let argv = [
-                c"sleep".as_ptr().cast_mut(),
-                c"30".as_ptr().cast_mut(),
-                std::ptr::null_mut(),
-            ];
-            let env = [c"LANG=C".as_ptr().cast_mut(), std::ptr::null_mut()];
-            let mut pid = 0;
-            let spawned = unsafe {
-                libc::posix_spawn(
-                    &mut pid,
-                    c"/bin/sleep".as_ptr(),
-                    std::ptr::null(),
-                    &attr,
-                    argv.as_ptr(),
-                    env.as_ptr(),
-                )
-            };
-            assert!(pid > 0);
-            let mut child = OwnedChild {
-                pid,
-                control: control.clone(),
-                reaped: false,
-            };
-            assert_eq!(unsafe { libc::posix_spawnattr_destroy(&mut attr) }, 0);
-            assert_eq!(spawned, 0);
-            let mut info = std::mem::MaybeUninit::<libc::proc_bsdinfo>::uninit();
-            let size = std::mem::size_of::<libc::proc_bsdinfo>() as i32;
-            assert_eq!(
-                unsafe {
-                    libc::proc_pidinfo(
-                        pid,
-                        libc::PROC_PIDTBSDINFO,
-                        0,
-                        info.as_mut_ptr().cast(),
-                        size,
-                    )
-                },
-                size
-            );
-            let info = unsafe { info.assume_init() };
-            let identity = super::super::resolve::HelperIdentity {
-                sequence: 1,
-                pid,
-                pgid: pid,
-                start_identity: info.pbi_start_tvsec * 1_000_000 + info.pbi_start_tvusec,
-                expected_members: 1,
-                image: std::fs::canonicalize("/bin/sleep").unwrap(),
-                descendant_image: None,
-            };
-            let ticket = identity.ticket();
-            proof.helper_attach(identity).unwrap();
-            let (failed, active_control_at) = {
-                let mut owner = control.helper.lock().unwrap();
-                let helper = owner.as_mut().unwrap();
-                helper.open_grant().unwrap();
-                let active_control_at = cpu_ns();
-                assert_eq!(unsafe { libc::kill(-pid, libc::SIGCONT) }, 0);
-                helper.running = true;
-                helper.confirmed_stopped = false;
-                helper.injected_stop_errno = Some(injected_errno);
-                assert_eq!(
-                    helper.request_group_stop(),
-                    Ok(HelperStopOutcome::PendingTerminal)
-                );
-                let failed = helper.metrics.first_failed_stop;
-                assert!(
-                    failed.injected && failed.result == -1 && failed.rawerrno == injected_errno
-                );
-                assert_eq!(
-                    (failed.pid, failed.pgid, failed.birth),
-                    (pid, pid, ticket.start_identity)
-                );
-                assert!(failed.start_abstime > 0 && failed.audit_version > 0);
-                assert_eq!(super::super::resolve::helper_exited(pid), Ok(false));
-                assert_eq!(
-                    helper.sample(&control),
-                    Ok(false),
-                    "live original cannot satisfy terminal proof"
-                );
-                assert!(!helper.confirmed_stopped && !helper.grant.closed);
-                assert_eq!(helper.grant.slots[0].ack_ns, None);
-                assert!(
-                    helper.open_grant().is_err(),
-                    "no replacement grant while pending"
-                );
-                assert!(
-                    helper.request_group_stop().is_err(),
-                    "consumed STOP cannot repeat"
-                );
-                assert_eq!(helper.metrics.stop_attempts, 1);
-                // Owned cancellation uses the retained audit token, not an
-                // unbound numeric PGID, and never installs a STOP endpoint.
-                assert_eq!(
-                    helper_token_signal(&helper.members[0].audit_token, libc::SIGKILL),
-                    Ok(())
-                );
-                (failed, active_control_at)
-            };
-            let until = Instant::now() + Duration::from_secs(1);
-            while super::super::resolve::helper_exited(pid) != Ok(true) {
-                assert!(
-                    Instant::now() < until,
-                    "original child cancellation must terminate"
-                );
-                thread::sleep(Duration::from_micros(100));
-            }
-            {
-                let mut owner = control.helper.lock().unwrap();
-                let helper = owner.as_mut().unwrap();
-                // Binding/unknown-slot negatives have independent original
-                // owners in typed_exit_hint_keeps_first_positive_time... .
-                // This positive never restores a failed owner's custody fields
-                // or clears the now-sticky stale-observation refusal.
-                assert_eq!(helper.sample(&control), Ok(true));
-                let active_control = control.observe_interval(active_control_at, cpu_ns());
-                let _ = helper.account_controller(&control, active_control);
-                assert_eq!(helper.stop_outcome, HelperStopOutcome::TerminalProven);
-                assert!(helper.grant.closed && helper.members[0].exit_abstime > 0);
-                assert!(helper.grant.slots[0].ack_ns.unwrap() >= failed.observed_ns);
-                assert_eq!(helper.metrics.stop_attempts, 1);
-                assert!(helper.request_group_stop().is_err());
-                assert!(
-                    helper.open_grant().is_err(),
-                    "terminal observation never authorizes CONT"
-                );
-                // Charge the entire original interval, including this control
-                // witness. Any real resource overrun remains a refusal.
-                let finalize_at = cpu_ns();
-                helper.finish_grant(&control, 0);
-                helper.account_finalization_tail(
-                    &control,
-                    control.observe_interval(finalize_at, cpu_ns()),
-                );
-                assert!(helper.terminal_accounting_pending);
-                assert_eq!(
-                    helper.metrics.grants, 0,
-                    "actual wait4 is still outstanding"
-                );
-                assert!(helper.grant.slots[0].ack_ns.unwrap() >= failed.observed_ns);
-                assert!(helper.metrics.debt_ns >= 9 * UNIT_NS);
-                assert!(helper.stop_requested);
-            }
-            let reap_control_at = cpu_ns();
-            let reap_wall_at = Instant::now();
-            let mut status = 0;
-            let mut usage = std::mem::MaybeUninit::<libc::rusage>::uninit();
-            let actual_reap = loop {
-                let reaped = unsafe { libc::wait4(pid, &mut status, 0, usage.as_mut_ptr()) };
-                if reaped == pid {
-                    break reaped;
-                }
-                assert_eq!(
-                    std::io::Error::last_os_error().raw_os_error(),
-                    Some(libc::EINTR)
-                );
-            };
-            child.reaped = true;
-            let usage = unsafe { usage.assume_init() };
-            assert!(libc::WIFSIGNALED(status) && libc::WTERMSIG(status) == libc::SIGKILL);
-            assert_eq!(unsafe { libc::kill(-pid, 0) }, -1);
-            assert_eq!(
-                std::io::Error::last_os_error().raw_os_error(),
-                Some(libc::ESRCH)
-            );
-            {
-                let mut owner = control.helper.lock().unwrap();
-                let helper = owner.as_mut().unwrap();
-                helper.retiring = true;
-                let user = (usage.ru_utime.tv_sec as u64 * 1_000_000
-                    + usage.ru_utime.tv_usec as u64)
-                    * 1000;
-                let system = (usage.ru_stime.tv_sec as u64 * 1_000_000
-                    + usage.ru_stime.tv_usec as u64)
-                    * 1000;
-                let reconciled = helper.reconcile_usage(
-                    &control,
-                    crate::dream::resolve::HelperReapUsage {
-                        pid: helper.identity.pid,
-                        user_ns: user,
-                        system_ns: system,
-                        rss_bytes: usage.ru_maxrss as u64,
-                        observed_ns: bootstrap::monotonic_ns().unwrap(),
-                        readings: 1,
-                    },
-                );
-                // Match helper_usage's owner observation: actual wait4 and
-                // reconciliation CPU joins newly observed late kernel CPU
-                // before detach pays the resulting fresh ordinary debt.
-                let used = control.observe_interval(reap_control_at, cpu_ns());
-                let wall = u64::try_from(reap_wall_at.elapsed().as_nanos()).unwrap_or(u64::MAX);
-                let mut observed = Budget::new_read(
-                    control.clone(),
-                    Arc::new(crossbeam_queue::ArrayQueue::new(1)),
-                );
-                let recorded = observed.read_charge(used, used, wall, UNIT_NS);
-                let committed = helper.commit_post_observation(&control, used, wall);
-                let receipt = helper.metrics.worst_grant;
-                eprintln!(
-                    "failed_stop_terminal source_known_injected=true kernel_stop_call_performed=false injected_errno={} sequence={} pid={} pgid={} birth={} start_abstime={} audit_version={} failed_observed_ns={} terminal_end_ns={} roster_close_ns={} stop_attempts={} w_ns={} a_ns={} c_ns={} q_ns={} debt_ns={} wait4_pid={} wait4_user_ns={} wait4_system_ns={} reconciliation_ok={} reap_control_cpu_ns={} post_observation_ok={} late_kernel_cpu_ns={} resource_verdict={:?}",
-                    failed.rawerrno,
-                    failed.sequence,
-                    failed.pid,
-                    failed.pgid,
-                    failed.birth,
-                    failed.start_abstime,
-                    failed.audit_version,
-                    failed.observed_ns,
-                    receipt.end_ns[0],
-                    receipt.close_ns,
-                    helper.metrics.stop_attempts,
-                    receipt.w_ns,
-                    receipt.a_ns,
-                    receipt.c_ns,
-                    receipt.q_ns,
-                    helper.metrics.debt_ns,
-                    actual_reap,
-                    user,
-                    system,
-                    reconciled.is_ok(),
-                    used,
-                    recorded.is_ok() && committed.is_ok(),
-                    helper.metrics.late_kernel_cpu_ns,
-                    control.error()
-                );
-                assert_eq!(helper.metrics.stop_attempts, 1);
-                assert!(helper.accounting_settled && helper.retired_members_exited());
-                assert!(!helper.post_proof_pending && !helper.post_commit_pending);
-                if receipt.q_ns > UNIT_NS {
-                    assert_eq!(control.error(), Some(w::Code::ResourceLimit));
-                }
-            }
-            // This is source-known observation/settlement evidence, never a
-            // qualifying command or a native failed-STOP cause assertion.
-            control.read_pay(); // helper_usage's original owner pays before detach.
-            proof.helper_detach(ticket).unwrap();
-            assert!(control.helper.lock().unwrap().is_none());
-            assert!(
-                control.accounting.now() >= control.accounting.rest_until.load(Ordering::Acquire),
-                "no proof resumes with unpaid observation debt"
-            );
-        }
-    }
-
-    #[test]
-    fn typed_stop_hint_requires_same_grant_incarnation_and_actual_positive_clock() {
-        // Source-known hint/control witnesses; none executes a candidate or
-        // certifies a complete helper command. Each negative keeps its own
-        // original real effect through actual settlement, never resets a fault.
-        for fault in [
-            "valid",
-            "wall_30ms",
-            "initial_second_pending",
-            "sequence",
-            "grant",
-            "attempt",
-            "birth",
-            "version",
-            "token",
-            "preexec",
-            "unknown_clock",
-            "reversed_clock",
-            "future_clock",
-            "guard92_threads",
-            "guard92_running",
-            "guard92_status",
-        ] {
-            let control = Arc::new(Control::fixture(Instant::now() + Duration::from_secs(2)));
-            let mut proof = crate::dream::read::helper_fixture_clock(control.clone());
-            let mut attr = std::mem::MaybeUninit::<libc::posix_spawnattr_t>::uninit();
-            assert_eq!(unsafe { libc::posix_spawnattr_init(attr.as_mut_ptr()) }, 0);
-            let mut attr = unsafe { attr.assume_init() };
-            assert_eq!(unsafe { libc::posix_spawnattr_setpgroup(&mut attr, 0) }, 0);
-            assert_eq!(
-                unsafe {
-                    libc::posix_spawnattr_setflags(
-                        &mut attr,
-                        (libc::POSIX_SPAWN_START_SUSPENDED | libc::POSIX_SPAWN_SETPGROUP) as i16,
-                    )
-                },
-                0
-            );
-            let argv = [
-                c"sleep".as_ptr().cast_mut(),
-                c"30".as_ptr().cast_mut(),
-                std::ptr::null_mut(),
-            ];
-            let env = [c"LANG=C".as_ptr().cast_mut(), std::ptr::null_mut()];
-            let mut pid = 0;
-            let result = unsafe {
-                libc::posix_spawn(
-                    &mut pid,
-                    c"/bin/sleep".as_ptr(),
-                    std::ptr::null(),
-                    &attr,
-                    argv.as_ptr(),
-                    env.as_ptr(),
-                )
-            };
-            assert!(pid > 0, "retain the positive owned native effect");
-            let mut child = OwnedChild {
-                pid,
-                control: control.clone(),
-                reaped: false,
-            };
-            assert_eq!(unsafe { libc::posix_spawnattr_destroy(&mut attr) }, 0);
-            assert_eq!(result, 0);
-            let mut info = std::mem::MaybeUninit::<libc::proc_bsdinfo>::uninit();
-            let size = std::mem::size_of::<libc::proc_bsdinfo>() as i32;
-            assert_eq!(
-                unsafe {
-                    libc::proc_pidinfo(
-                        pid,
-                        libc::PROC_PIDTBSDINFO,
-                        0,
-                        info.as_mut_ptr().cast(),
-                        size,
-                    )
-                },
-                size
-            );
-            let info = unsafe { info.assume_init() };
-            let identity = super::super::resolve::HelperIdentity {
-                sequence: 1,
-                pid,
-                pgid: pid,
-                start_identity: info.pbi_start_tvsec * 1_000_000 + info.pbi_start_tvusec,
-                expected_members: 1,
-                image: std::fs::canonicalize("/bin/sleep").unwrap(),
-                descendant_image: None,
-            };
-            let ticket = identity.ticket();
-            if fault == "initial_second_pending" {
-                INITIAL_CONTINUITY_RUNNING_FAULT.with(|injected| injected.set(true));
-            }
-            proof.helper_attach(identity).unwrap();
-            if fault == "initial_second_pending" {
-                assert!(!INITIAL_CONTINUITY_RUNNING_FAULT.with(|injected| injected.get()));
-                let owner = control.helper.lock().unwrap();
-                let helper = owner.as_ref().unwrap();
-                assert!(helper.metrics.initial_continuity_pending_observations >= 1);
-                assert!(
-                    helper.admission_samples >= 2,
-                    "pending requires a fresh full sample"
-                );
-                assert!(helper.confirmed_stopped && helper.task_observations[0].stopped());
-                assert!(!helper.creation_settled && !helper.ready && !helper.running);
-                assert!(!helper.grant.opened && !helper.initial_stop_pending);
-                assert_eq!(
-                    helper.metrics.stop_attempts, 0,
-                    "no STOP substitute or CONT grant"
-                );
-                assert_eq!(helper.members[0].user_ticks, 0);
-                assert!(helper.metrics.coverage_known);
-                assert_eq!(helper.metrics.first_quiescence_failure.current.pid, 0);
-                eprintln!(
-                    "initial_continuity_pending source_known_injected_second_snapshot=true pid={pid} status=4 threads=1 injected_running=1 pending_observations={} full_samples={} final_status={} final_threads={} final_running={} user_ticks=0 creation_settled=false ready=false running=false grant_opened=false stop_attempts=0 original_still_owned=true full_command_qualification=false",
-                    helper.metrics.initial_continuity_pending_observations,
-                    helper.admission_samples,
-                    helper.task_observations[0].status,
-                    helper.task_observations[0].threads,
-                    helper.task_observations[0].running,
-                );
-            }
-            let active_at = cpu_ns();
-            {
-                let mut owner = control.helper.lock().unwrap();
-                let helper = owner.as_mut().unwrap();
-                helper.open_grant().unwrap();
-                // Every arm observes the same already START_SUSPENDED original.
-                // This component has not paid/admitted native creation and must
-                // not CONT it. The wall-only arm delays its first positive STOP
-                // observation; it does not need application CPU to prove the
-                // independent hard wall guard.
-                helper.running = true;
-                helper.confirmed_stopped = false;
-                assert_eq!(
-                    helper.request_group_stop(),
-                    Ok(HelperStopOutcome::Delivered)
-                );
-            }
-            if fault == "wall_30ms" {
-                // Delay the FIRST positive observation, never an already
-                // captured endpoint. No work/CONT is admitted during this wait.
-                thread::sleep(Duration::from_millis(30));
-            }
-            let until = Instant::now() + Duration::from_secs(1);
-            let mut hint = loop {
-                let owner = control.helper.lock().unwrap();
-                let helper = owner.as_ref().unwrap();
-                let (due, hint) = helper.stop_observation_hint();
-                if due && let Some(hint) = hint {
-                    break hint;
-                }
-                assert!(
-                    Instant::now() < until,
-                    "owned STOP must reach an actual positive snapshot"
-                );
-                drop(owner);
-                thread::sleep(Duration::from_micros(100));
-            };
-            let observed = hint.snapshots[0].unwrap().observed_ns;
-            match fault {
-                "valid" | "wall_30ms" | "initial_second_pending" => {}
-                "sequence" => hint.ticket.sequence += 1,
-                "grant" => hint.grant_t0_ns += 1,
-                "attempt" => hint.stop_attempt += 1,
-                "birth" => hint.snapshots[0].as_mut().unwrap().member.birth += 1,
-                "version" => hint.snapshots[0].as_mut().unwrap().member.audit_version += 1,
-                "token" => hint.snapshots[0].as_mut().unwrap().member.audit_token.value[7] += 1,
-                "preexec" => {
-                    hint.snapshots[0]
-                        .as_mut()
-                        .unwrap()
-                        .member
-                        .final_image_version = 0
-                }
-                "unknown_clock" => hint.snapshots[0].as_mut().unwrap().observed_ns = u64::MAX,
-                "reversed_clock" => {
-                    hint.snapshots[0].as_mut().unwrap().observed_ns = hint.grant_t0_ns - 1
-                }
-                "future_clock" => hint.snapshots[0].as_mut().unwrap().observed_ns = u64::MAX - 1,
-                "guard92_threads" | "guard92_running" | "guard92_status" => {}
-                _ => unreachable!(),
-            }
-            {
-                let mut owner = control.helper.lock().unwrap();
-                let helper = owner.as_mut().unwrap();
-                let result = if fault.starts_with("guard92_") {
-                    // Explicitly injected raw-field negatives through the SAME
-                    // production predicate. The original native snapshot/child
-                    // is real and stays owned until the actual reap below;
-                    // these cases do not assert a historical kernel cause.
-                    let snapshot = hint.snapshots[0].unwrap();
-                    let mut current = HelperTaskObservation {
-                        pid: snapshot.raw.pbsd.pbi_pid as i32,
-                        status: snapshot.raw.pbsd.pbi_status,
-                        threads: snapshot.raw.ptinfo.pti_threadnum,
-                        running: snapshot.raw.ptinfo.pti_numrunning,
-                        observed_ns: snapshot.observed_ns,
-                    };
-                    assert!(current.stopped());
-                    match fault {
-                        "guard92_threads" => current.threads = 2,
-                        "guard92_running" => current.running = 1,
-                        "guard92_status" => current.status = 3,
-                        _ => unreachable!(),
-                    }
-                    assert!(
-                        !helper.initial_kernel_tail_pending(0, current),
-                        "runtime/open-grant observations cannot inherit creation pending authority"
-                    );
-                    let failure = helper.check_member_quiescence(0, current).unwrap_err();
-                    assert_eq!(failure.guard, 92);
-                    let retained = helper.metrics.first_quiescence_failure;
-                    assert_eq!(retained.current.threads, current.threads);
-                    assert_eq!(retained.current.running, current.running);
-                    assert_eq!(retained.current.status, current.status);
-                    assert_eq!(retained.current.pid, pid);
-                    assert!(retained.first.stopped());
-                    eprintln!(
-                        "quiescence_guard source_known_injected_raw=true predicate={fault} pid={pid} first_status={} first_threads={} first_running={} continuity_status={} continuity_threads={} continuity_running={} original_still_owned=true full_command_qualification=false",
-                        retained.first.status,
-                        retained.first.threads,
-                        retained.first.running,
-                        current.status,
-                        current.threads,
-                        current.running,
-                    );
-                    helper.continuity_failure(failure)
-                } else {
-                    helper.sample_with_hint(&control, Some(hint))
-                };
-                let member = helper.members[0];
-                let task = helper.task_observations[0];
-                let raw_usage = helper.usage_observations[0];
-                eprintln!(
-                    "typed_stop_hint_sample source_known=true fault={fault} pid={pid} grant_t0_ns={} hint_observed_ns={observed} sample_ok={} sample_stage={} first_failure_line={} first_failure_stage={} creation_settled={} ready={} running={} grants={} user_ticks={} system_ticks={} raw_ri_user_ticks={} raw_ri_system_ticks={} raw_ri_read_ns={} image_phase={} final_version={} audit_version={} task_status={} task_threads={} task_running={} stopped={} closed={} stop_attempts={} actual_CONT=false qualification=false",
-                    helper.grant.t0_ns,
-                    result.is_ok(),
-                    helper.metrics.sample_stage,
-                    helper.metrics.first_failure_line,
-                    helper.metrics.first_failure_sample_stage,
-                    helper.creation_settled,
-                    helper.ready,
-                    helper.running,
-                    helper.metrics.grants,
-                    member.user_ticks,
-                    member.system_ticks,
-                    raw_usage.user_ticks,
-                    raw_usage.system_ticks,
-                    raw_usage.observed_ns,
-                    member.image_phase as u8,
-                    member.final_image_version,
-                    member.audit_version,
-                    task.status,
-                    task.threads,
-                    task.running,
-                    helper.confirmed_stopped,
-                    helper.grant.closed,
-                    helper.metrics.stop_attempts
-                );
-                if matches!(fault, "valid" | "wall_30ms" | "initial_second_pending") {
-                    assert_eq!(
-                        member.user_ticks, 0,
-                        "this unadmitted stopped control never runs user code"
-                    );
-                    assert_eq!(result, Ok(true));
-                    assert!(helper.grant.closed && helper.confirmed_stopped);
-                    assert_eq!(
-                        helper.grant.slots[0].ack_ns,
-                        Some(observed),
-                        "only the genuine first positive observation becomes a validated tentative endpoint"
-                    );
-                    let _ = helper.account_controller(
-                        &control,
-                        control.observe_interval(active_at, cpu_ns()),
-                    );
-                    helper.finish_grant(&control, 0);
-                    if fault == "wall_30ms" {
-                        let receipt = helper.metrics.worst_grant;
-                        assert_eq!(receipt.basis, HelperChargeBasis::Measured);
-                        assert!(
-                            receipt.q_ns <= UNIT_NS,
-                            "wall mutant must have an independently passing CPU quantum"
-                        );
-                        assert!(receipt.w_ns > 25_000_000);
-                        assert_eq!(control.error(), Some(w::Code::ResourceLimit));
-                    }
-                    eprintln!(
-                        "typed_stop_hint source_known=true pid={pid} observed_ns={observed} end_ns={} close_ns={} c_ns={} q_ns={} stop_attempts={}",
-                        helper.metrics.worst_grant.end_ns[0],
-                        helper.metrics.worst_grant.close_ns,
-                        helper.metrics.worst_grant.c_ns,
-                        helper.metrics.worst_grant.q_ns,
-                        helper.metrics.stop_attempts
-                    );
-                } else {
-                    assert!(
-                        result.is_err(),
-                        "stale or unbound positive hint admitted: {fault}"
-                    );
-                    assert!(
-                        !helper.grant.closed
-                            && !helper.confirmed_stopped
-                            && !helper.metrics.coverage_known
-                    );
-                    assert_eq!(helper.grant.slots[0].ack_ns, None);
-                    helper.reject(&control, 5);
-                }
-                assert_eq!(helper.metrics.stop_attempts, 1);
-            }
-            child.reap();
-            assert_eq!(unsafe { libc::kill(-pid, 0) }, -1);
-            assert_eq!(
-                std::io::Error::last_os_error().raw_os_error(),
-                Some(libc::ESRCH)
-            );
-            proof.helper_detach(ticket).unwrap();
-            assert!(control.helper.lock().unwrap().is_none());
-        }
-    }
-
-    #[test]
-    fn typed_exit_hint_keeps_first_positive_time_and_rejects_stale_signal_or_unknown_proof() {
-        // Each independent original child is actually observed with WNOWAIT
-        // and reaped. Injected STOP errno never creates an exit observation.
-        // These source-known controls do not qualify complete helper commands.
-        for fault in [
-            "valid",
-            "sequence",
-            "grant",
-            "attempt",
-            "birth",
-            "start",
-            "version",
-            "token",
-            "preexec",
-            "unknown_clock",
-            "reversed_clock",
-            "future_clock",
-            "failed_signal_time",
-            "unknown_second_slot",
-        ] {
-            let control = Arc::new(Control::fixture(Instant::now() + Duration::from_secs(2)));
-            let mut proof = crate::dream::read::helper_fixture_clock(control.clone());
-            let mut attr = std::mem::MaybeUninit::<libc::posix_spawnattr_t>::uninit();
-            assert_eq!(unsafe { libc::posix_spawnattr_init(attr.as_mut_ptr()) }, 0);
-            let mut attr = unsafe { attr.assume_init() };
-            assert_eq!(unsafe { libc::posix_spawnattr_setpgroup(&mut attr, 0) }, 0);
-            assert_eq!(
-                unsafe {
-                    libc::posix_spawnattr_setflags(
-                        &mut attr,
-                        (libc::POSIX_SPAWN_START_SUSPENDED | libc::POSIX_SPAWN_SETPGROUP) as i16,
-                    )
-                },
-                0
-            );
-            let argv = [
-                c"sleep".as_ptr().cast_mut(),
-                c"30".as_ptr().cast_mut(),
-                std::ptr::null_mut(),
-            ];
-            let env = [c"LANG=C".as_ptr().cast_mut(), std::ptr::null_mut()];
-            let mut pid = 0;
-            let result = unsafe {
-                libc::posix_spawn(
-                    &mut pid,
-                    c"/bin/sleep".as_ptr(),
-                    std::ptr::null(),
-                    &attr,
-                    argv.as_ptr(),
-                    env.as_ptr(),
-                )
-            };
-            assert!(pid > 0, "retain the positive owned native effect");
-            let mut child = OwnedChild {
-                pid,
-                control: control.clone(),
-                reaped: false,
-            };
-            assert_eq!(unsafe { libc::posix_spawnattr_destroy(&mut attr) }, 0);
-            assert_eq!(result, 0);
-            let mut info = std::mem::MaybeUninit::<libc::proc_bsdinfo>::uninit();
-            let size = std::mem::size_of::<libc::proc_bsdinfo>() as i32;
-            assert_eq!(
-                unsafe {
-                    libc::proc_pidinfo(
-                        pid,
-                        libc::PROC_PIDTBSDINFO,
-                        0,
-                        info.as_mut_ptr().cast(),
-                        size,
-                    )
-                },
-                size
-            );
-            let info = unsafe { info.assume_init() };
-            let identity = super::super::resolve::HelperIdentity {
-                sequence: 1,
-                pid,
-                pgid: pid,
-                start_identity: info.pbi_start_tvsec * 1_000_000 + info.pbi_start_tvusec,
-                expected_members: 1,
-                image: std::fs::canonicalize("/bin/sleep").unwrap(),
-                descendant_image: None,
-            };
-            let ticket = identity.ticket();
-            proof.helper_attach(identity).unwrap();
-            let active_at = cpu_ns();
-            let failed = {
-                let mut owner = control.helper.lock().unwrap();
-                let helper = owner.as_mut().unwrap();
-                if fault == "unknown_second_slot" {
-                    helper.identity.expected_members = 2;
-                }
-                helper.open_grant().unwrap();
-                assert!(
-                    helper.observe_leader_exit().unwrap().is_none(),
-                    "a live original supplies no positive exit observation"
-                );
-                assert_eq!(unsafe { libc::kill(-pid, libc::SIGCONT) }, 0);
-                helper.running = true;
-                helper.confirmed_stopped = false;
-                helper.injected_stop_errno = Some(libc::EPERM);
-                assert_eq!(
-                    helper.request_group_stop(),
-                    Ok(HelperStopOutcome::PendingTerminal)
-                );
-                let failed = helper.metrics.first_failed_stop;
-                assert_eq!(
-                    helper_token_signal(&helper.members[0].audit_token, libc::SIGKILL),
-                    Ok(())
-                );
-                failed
-            };
-            let until = Instant::now() + Duration::from_secs(1);
-            let mut hint = loop {
-                let owner = control.helper.lock().unwrap();
-                let helper = owner.as_ref().unwrap();
-                if let Some(hint) = helper.observe_leader_exit().unwrap() {
-                    break hint;
-                }
-                assert!(
-                    Instant::now() < until,
-                    "original owned leader must actually terminate"
-                );
-                drop(owner);
-                thread::sleep(Duration::from_micros(100));
-            };
-            let captured_positive = hint.observed_ns;
-            assert!(
-                captured_positive > failed.observed_ns,
-                "positive WNOWAIT observation is causally later than consumed signal result"
-            );
-            match fault {
-                "valid" => {}
-                "sequence" => hint.ticket.sequence += 1,
-                "grant" => hint.grant_t0_ns += 1,
-                "attempt" => hint.stop_attempt += 1,
-                "birth" => hint.leader.birth += 1,
-                "start" => hint.leader.start_abstime += 1,
-                "version" => hint.leader.audit_version += 1,
-                "token" => hint.leader.audit_token.value[7] += 1,
-                "preexec" => hint.leader.final_image_version = 0,
-                "unknown_clock" => hint.observed_ns = u64::MAX,
-                "reversed_clock" => hint.observed_ns = hint.grant_t0_ns - 1,
-                "future_clock" => hint.observed_ns = u64::MAX - 1,
-                "failed_signal_time" => hint.observed_ns = failed.observed_ns,
-                "unknown_second_slot" => {}
-                _ => unreachable!(),
-            }
-            let submitted = hint.observed_ns;
-            {
-                let mut owner = control.helper.lock().unwrap();
-                let helper = owner.as_mut().unwrap();
-                if fault == "unknown_second_slot" {
-                    helper.identity.expected_members = 2;
-                }
-                let result = helper.sample_with_observations(&control, None, Some(hint));
-                let _ = helper
-                    .account_controller(&control, control.observe_interval(active_at, cpu_ns()));
-                if fault == "valid" {
-                    assert_eq!(result, Ok(true));
-                    assert!(helper.grant.closed && helper.confirmed_stopped);
-                    assert_eq!(
-                        helper.grant.slots[0].ack_ns,
-                        Some(captured_positive),
-                        "full exact exit/RI/audit/roster validates the actual first positive endpoint"
-                    );
-                    helper.finish_grant(&control, 0);
-                } else {
-                    assert!(
-                        result.is_err(),
-                        "unbound exit observation admitted: {fault}"
-                    );
-                    assert!(!helper.grant.closed && !helper.confirmed_stopped);
-                    assert_eq!(
-                        helper.grant.slots[0].ack_ns, None,
-                        "invalid or incomplete proof cannot install an exit endpoint"
-                    );
-                    helper.reject(&control, 5);
-                }
-                assert_eq!(helper.metrics.stop_attempts, 1);
-            }
-            let reap_at = cpu_ns();
-            let reap_wall = Instant::now();
-            let mut status = 0;
-            let mut usage = std::mem::MaybeUninit::<libc::rusage>::uninit();
-            loop {
-                let reaped = unsafe { libc::wait4(pid, &mut status, 0, usage.as_mut_ptr()) };
-                if reaped == pid {
-                    child.reaped = true;
-                    break;
-                }
-                assert_eq!(
-                    std::io::Error::last_os_error().raw_os_error(),
-                    Some(libc::EINTR)
-                );
-            }
-            let usage = unsafe { usage.assume_init() };
-            assert!(libc::WIFSIGNALED(status) && libc::WTERMSIG(status) == libc::SIGKILL);
-            assert_eq!(unsafe { libc::kill(-pid, 0) }, -1);
-            assert_eq!(
-                std::io::Error::last_os_error().raw_os_error(),
-                Some(libc::ESRCH)
-            );
-            {
-                let mut owner = control.helper.lock().unwrap();
-                let helper = owner.as_mut().unwrap();
-                helper.retiring = true;
-                let user = (usage.ru_utime.tv_sec as u64 * 1_000_000
-                    + usage.ru_utime.tv_usec as u64)
-                    * 1000;
-                let system = (usage.ru_stime.tv_sec as u64 * 1_000_000
-                    + usage.ru_stime.tv_usec as u64)
-                    * 1000;
-                let _ = helper.reconcile_usage(
-                    &control,
-                    crate::dream::resolve::HelperReapUsage {
-                        pid: helper.identity.pid,
-                        user_ns: user,
-                        system_ns: system,
-                        rss_bytes: usage.ru_maxrss as u64,
-                        observed_ns: bootstrap::monotonic_ns().unwrap(),
-                        readings: 1,
-                    },
-                );
-                let used = control.observe_interval(reap_at, cpu_ns());
-                let wall = u64::try_from(reap_wall.elapsed().as_nanos()).unwrap_or(u64::MAX);
-                let mut observed = Budget::new_read(
-                    control.clone(),
-                    Arc::new(crossbeam_queue::ArrayQueue::new(1)),
-                );
-                let _ = observed.read_charge(used, used, wall, UNIT_NS);
-                let _ = helper.commit_post_observation(&control, used, wall);
-                let receipt = helper.metrics.worst_grant;
-                eprintln!(
-                    "typed_exit_hint source_known=true fault={fault} pid={pid} failed_signal_ns={} captured_positive_ns={captured_positive} submitted_ns={submitted} end_ns={} close_ns={} w_ns={} a_ns={} c_ns={} q_ns={} debt_ns={} stop_attempts={} wait4_pid={pid} wait4_user_ns={user} wait4_system_ns={system} coverage_known={} full_command_qualification=false",
-                    failed.observed_ns,
-                    receipt.end_ns[0],
-                    receipt.close_ns,
-                    receipt.w_ns,
-                    receipt.a_ns,
-                    receipt.c_ns,
-                    receipt.q_ns,
-                    helper.metrics.debt_ns,
-                    helper.metrics.stop_attempts,
-                    helper.metrics.coverage_known
-                );
-                assert_eq!(helper.metrics.stop_attempts, 1);
-                if fault == "valid" {
-                    assert_eq!(receipt.end_ns[0], captured_positive);
-                } else {
-                    assert!(!helper.metrics.coverage_known && !helper.grant.closed);
-                }
-            }
-            control.read_pay();
-            proof.helper_detach(ticket).unwrap();
-            assert!(control.helper.lock().unwrap().is_none());
-        }
-    }
-
-    #[test]
-    fn continuity_query_races_require_independent_original_terminal_and_never_erase_exec() {
-        // Each mode owns an independent original process. Held-order test hooks
-        // cause actual exit between a negative WNOWAIT and the live query;
-        // they never fabricate its native result, identity or terminal endpoint.
-        for mode in ["pending_exit", "member_exit", "native_error_live"] {
-            let control = Arc::new(Control::fixture(Instant::now() + Duration::from_secs(2)));
-            let mut proof = crate::dream::read::helper_fixture_clock(control.clone());
-            let mut attr = std::mem::MaybeUninit::<libc::posix_spawnattr_t>::uninit();
-            assert_eq!(unsafe { libc::posix_spawnattr_init(attr.as_mut_ptr()) }, 0);
-            let mut attr = unsafe { attr.assume_init() };
-            assert_eq!(unsafe { libc::posix_spawnattr_setpgroup(&mut attr, 0) }, 0);
-            assert_eq!(
-                unsafe {
-                    libc::posix_spawnattr_setflags(
-                        &mut attr,
-                        (libc::POSIX_SPAWN_START_SUSPENDED | libc::POSIX_SPAWN_SETPGROUP) as i16,
-                    )
-                },
-                0
-            );
-            let argv = [
-                c"sleep".as_ptr().cast_mut(),
-                c"30".as_ptr().cast_mut(),
-                std::ptr::null_mut(),
-            ];
-            let env = [c"LANG=C".as_ptr().cast_mut(), std::ptr::null_mut()];
-            let mut pid = 0;
-            let result = unsafe {
-                libc::posix_spawn(
-                    &mut pid,
-                    c"/bin/sleep".as_ptr(),
-                    std::ptr::null(),
-                    &attr,
-                    argv.as_ptr(),
-                    env.as_ptr(),
-                )
-            };
-            assert!(pid > 0, "retain the positive owned native effect");
-            let mut child = OwnedChild {
-                pid,
-                control: control.clone(),
-                reaped: false,
-            };
-            assert_eq!(unsafe { libc::posix_spawnattr_destroy(&mut attr) }, 0);
-            assert_eq!(result, 0);
-            let mut info = std::mem::MaybeUninit::<libc::proc_bsdinfo>::uninit();
-            let size = std::mem::size_of::<libc::proc_bsdinfo>() as i32;
-            assert_eq!(
-                unsafe {
-                    libc::proc_pidinfo(
-                        pid,
-                        libc::PROC_PIDTBSDINFO,
-                        0,
-                        info.as_mut_ptr().cast(),
-                        size,
-                    )
-                },
-                size
-            );
-            let info = unsafe { info.assume_init() };
-            let identity = super::super::resolve::HelperIdentity {
-                sequence: 1,
-                pid,
-                pgid: pid,
-                start_identity: info.pbi_start_tvsec * 1_000_000 + info.pbi_start_tvusec,
-                expected_members: 1,
-                image: std::fs::canonicalize("/bin/sleep").unwrap(),
-                descendant_image: None,
-            };
-            let ticket = identity.ticket();
-            proof.helper_attach(identity).unwrap();
-            let active_at = cpu_ns();
-            {
-                let mut owner = control.helper.lock().unwrap();
-                let helper = owner.as_mut().unwrap();
-                helper.open_grant().unwrap();
-                assert!(
-                    helper.observe_leader_exit().unwrap().is_none(),
-                    "held original is actually live"
-                );
-                helper.running = true;
-                helper.confirmed_stopped = false;
-                let observed = if mode == "member_exit" {
-                    assert_eq!(
-                        helper.request_group_stop(),
-                        Ok(HelperStopOutcome::Delivered)
-                    );
-                    let (_, hint) = helper.stop_observation_hint();
-                    let hint = hint.expect("the original is still kernel-stopped");
-                    helper.exit_before_member_query = true;
-                    helper.sample_with_hint(&control, Some(hint))
-                } else {
-                    assert_eq!(unsafe { libc::kill(-pid, libc::SIGCONT) }, 0);
-                    helper.injected_stop_errno = Some(libc::EPERM);
-                    assert_eq!(
-                        helper.request_group_stop(),
-                        Ok(HelperStopOutcome::PendingTerminal)
-                    );
-                    if mode == "pending_exit" {
-                        helper.exit_before_pending_query = true;
-                        helper.sample(&control)
-                    } else {
-                        // The failure is explicitly injected; the subsequent
-                        // actual original WNOWAIT is still negative and must refuse.
-                        helper.continuity_failure(HelperObservationFailure::native(41, libc::EIO))
-                    }
-                };
-                let expected_terminal = mode != "native_error_live";
-                assert_eq!(observed, if expected_terminal { Ok(true) } else { Err(()) });
-                assert!(
-                    !helper.exit_before_pending_query && !helper.exit_before_member_query,
-                    "the deterministic held-order effect actually ran"
-                );
-                assert_eq!(
-                    helper.metrics.continuity_query_fallbacks,
-                    u64::from(expected_terminal),
-                    "other native errors are fatal, with no terminal observation attempt"
-                );
-                assert_eq!(
-                    helper.metrics.continuity_terminal_observations,
-                    u64::from(expected_terminal)
-                );
-                assert_eq!(helper.metrics.stop_attempts, 1);
-                let _ = helper
-                    .account_controller(&control, control.observe_interval(active_at, cpu_ns()));
-                if expected_terminal {
-                    assert!(
-                        helper.grant.closed
-                            && helper.confirmed_stopped
-                            && helper.metrics.coverage_known
-                    );
-                    helper.finish_grant(&control, 0);
-                } else {
-                    assert!(
-                        !helper.grant.closed
-                            && !helper.confirmed_stopped
-                            && !helper.metrics.coverage_known
-                    );
-                    assert_eq!(helper.grant.slots[0].ack_ns, None);
-                    assert_eq!(super::super::resolve::helper_exited(pid), Ok(false));
-                    helper.reject(&control, 5);
-                    assert_eq!(
-                        helper_token_signal(&helper.members[0].audit_token, libc::SIGKILL),
-                        Ok(())
-                    );
-                }
-            }
-            let until = Instant::now() + Duration::from_secs(1);
-            while super::super::resolve::helper_exited(pid) != Ok(true) {
-                assert!(Instant::now() < until);
-                thread::sleep(Duration::from_micros(100));
-            }
-            if mode == "native_error_live" {
-                let mut owner = control.helper.lock().unwrap();
-                assert!(
-                    owner.as_mut().unwrap().sample_exited_roster().is_err(),
-                    "later actual exit cannot erase the failed independent terminal proof"
-                );
-            }
-            let reap_at = cpu_ns();
-            let reap_wall = Instant::now();
-            let mut status = 0;
-            let mut usage = std::mem::MaybeUninit::<libc::rusage>::uninit();
-            loop {
-                let reaped = unsafe { libc::wait4(pid, &mut status, 0, usage.as_mut_ptr()) };
-                if reaped == pid {
-                    child.reaped = true;
-                    break;
-                }
-                assert_eq!(
-                    std::io::Error::last_os_error().raw_os_error(),
-                    Some(libc::EINTR)
-                );
-            }
-            let usage = unsafe { usage.assume_init() };
-            assert!(libc::WIFSIGNALED(status) && libc::WTERMSIG(status) == libc::SIGKILL);
-            assert_eq!(unsafe { libc::kill(-pid, 0) }, -1);
-            assert_eq!(
-                std::io::Error::last_os_error().raw_os_error(),
-                Some(libc::ESRCH)
-            );
-            {
-                let mut owner = control.helper.lock().unwrap();
-                let helper = owner.as_mut().unwrap();
-                helper.retiring = true;
-                let user = (usage.ru_utime.tv_sec as u64 * 1_000_000
-                    + usage.ru_utime.tv_usec as u64)
-                    * 1000;
-                let system = (usage.ru_stime.tv_sec as u64 * 1_000_000
-                    + usage.ru_stime.tv_usec as u64)
-                    * 1000;
-                let _ = helper.reconcile_usage(
-                    &control,
-                    crate::dream::resolve::HelperReapUsage {
-                        pid: helper.identity.pid,
-                        user_ns: user,
-                        system_ns: system,
-                        rss_bytes: usage.ru_maxrss as u64,
-                        observed_ns: bootstrap::monotonic_ns().unwrap(),
-                        readings: 1,
-                    },
-                );
-                let used = control.observe_interval(reap_at, cpu_ns());
-                let wall = u64::try_from(reap_wall.elapsed().as_nanos()).unwrap_or(u64::MAX);
-                let mut observed = Budget::new_read(
-                    control.clone(),
-                    Arc::new(crossbeam_queue::ArrayQueue::new(1)),
-                );
-                let _ = observed.read_charge(used, used, wall, UNIT_NS);
-                let _ = helper.commit_post_observation(&control, used, wall);
-                let receipt = helper.metrics.worst_grant;
-                eprintln!(
-                    "continuity_query_race source_known=true mode={mode} native_error_injected={} pid={pid} birth={} guard={} native_code={} fallback_attempts={} independent_terminal_observations={} stop_attempts={} t0_ns={} end_ns={} close_ns={} w_ns={} a_ns={} c_ns={} q_ns={} debt_ns={} wait4_pid={pid} wait4_user_ns={user} wait4_system_ns={system} coverage_known={} full_command_qualification=false",
-                    mode == "native_error_live",
-                    ticket.start_identity,
-                    helper.metrics.last_continuity_guard,
-                    helper.metrics.last_continuity_native_code,
-                    helper.metrics.continuity_query_fallbacks,
-                    helper.metrics.continuity_terminal_observations,
-                    helper.metrics.stop_attempts,
-                    receipt.t0_ns,
-                    receipt.end_ns[0],
-                    receipt.close_ns,
-                    receipt.w_ns,
-                    receipt.a_ns,
-                    receipt.c_ns,
-                    receipt.q_ns,
-                    helper.metrics.debt_ns,
-                    helper.metrics.coverage_known
-                );
-                assert_eq!(helper.metrics.stop_attempts, 1);
-            }
-            control.read_pay();
-            proof.helper_detach(ticket).unwrap();
-            assert!(control.helper.lock().unwrap().is_none());
-        }
-    }
-
-    #[test]
-    fn esrch_live_query_remains_unacknowledged_pending_until_terminal_or_real_budget_failure() {
-        assert!(
-            !HelperObservationFailure::native(44, libc::ESRCH).is_proc_esrch(),
-            "Mach status3 is not a proc errno"
-        );
-        assert!(!HelperObservationFailure::native(41, libc::EIO).is_proc_esrch());
-        for mode in ["delayed_exit", "over_q", "unknown_clock", "delivered_esrch"] {
-            let control = Arc::new(Control::fixture(Instant::now() + Duration::from_secs(2)));
-            let mut proof = crate::dream::read::helper_fixture_clock(control.clone());
-            let mut attr = std::mem::MaybeUninit::<libc::posix_spawnattr_t>::uninit();
-            assert_eq!(unsafe { libc::posix_spawnattr_init(attr.as_mut_ptr()) }, 0);
-            let mut attr = unsafe { attr.assume_init() };
-            assert_eq!(unsafe { libc::posix_spawnattr_setpgroup(&mut attr, 0) }, 0);
-            assert_eq!(
-                unsafe {
-                    libc::posix_spawnattr_setflags(
-                        &mut attr,
-                        (libc::POSIX_SPAWN_START_SUSPENDED | libc::POSIX_SPAWN_SETPGROUP) as i16,
-                    )
-                },
-                0
-            );
-            let argv = [
-                c"sleep".as_ptr().cast_mut(),
-                c"30".as_ptr().cast_mut(),
-                std::ptr::null_mut(),
-            ];
-            let env = [c"LANG=C".as_ptr().cast_mut(), std::ptr::null_mut()];
-            let mut pid = 0;
-            let result = unsafe {
-                libc::posix_spawn(
-                    &mut pid,
-                    c"/bin/sleep".as_ptr(),
-                    std::ptr::null(),
-                    &attr,
-                    argv.as_ptr(),
-                    env.as_ptr(),
-                )
-            };
-            assert!(pid > 0, "retain the positive owned native effect");
-            let mut child = OwnedChild {
-                pid,
-                control: control.clone(),
-                reaped: false,
-            };
-            assert_eq!(unsafe { libc::posix_spawnattr_destroy(&mut attr) }, 0);
-            assert_eq!(result, 0);
-            let mut info = std::mem::MaybeUninit::<libc::proc_bsdinfo>::uninit();
-            let size = std::mem::size_of::<libc::proc_bsdinfo>() as i32;
-            assert_eq!(
-                unsafe {
-                    libc::proc_pidinfo(
-                        pid,
-                        libc::PROC_PIDTBSDINFO,
-                        0,
-                        info.as_mut_ptr().cast(),
-                        size,
-                    )
-                },
-                size
-            );
-            let info = unsafe { info.assume_init() };
-            let identity = super::super::resolve::HelperIdentity {
-                sequence: 1,
-                pid,
-                pgid: pid,
-                start_identity: info.pbi_start_tvsec * 1_000_000 + info.pbi_start_tvusec,
-                expected_members: 1,
-                image: std::fs::canonicalize("/bin/sleep").unwrap(),
-                descendant_image: None,
-            };
-            let ticket = identity.ticket();
-            proof.helper_attach(identity).unwrap();
-            let active_at = cpu_ns();
-            {
-                let mut owner = control.helper.lock().unwrap();
-                let helper = owner.as_mut().unwrap();
-                helper.open_grant().unwrap();
-                helper.running = true;
-                helper.confirmed_stopped = false;
-                if mode == "delivered_esrch" {
-                    assert_eq!(
-                        helper.request_group_stop(),
-                        Ok(HelperStopOutcome::Delivered)
-                    );
-                } else {
-                    assert_eq!(unsafe { libc::kill(-pid, libc::SIGCONT) }, 0);
-                    helper.injected_stop_errno = Some(libc::EPERM);
-                    assert_eq!(
-                        helper.request_group_stop(),
-                        Ok(HelperStopOutcome::PendingTerminal)
-                    );
-                }
-                assert_eq!(super::super::resolve::helper_exited(pid), Ok(false));
-                // Explicit source-known injection of the exact BSD query outcome.
-                // The actual original is still live and cannot supply an exit ACK.
-                let observed =
-                    helper.continuity_failure(HelperObservationFailure::native(41, libc::ESRCH));
-                if mode == "delivered_esrch" {
-                    assert!(
-                        observed.is_err(),
-                        "a query cannot create failed-STOP authority"
-                    );
-                    assert!(!helper.query_terminal_pending && !helper.metrics.coverage_known);
-                    assert_eq!(helper.metrics.continuity_pending_observations, 0);
-                    helper.reject(&control, 5);
-                } else {
-                    assert_eq!(observed, Ok(false));
-                    assert!(helper.query_terminal_pending && helper.metrics.coverage_known);
-                    assert_eq!(helper.metrics.continuity_pending_observations, 1);
-                    assert_eq!(helper.stop_outcome, HelperStopOutcome::PendingTerminal);
-                    assert!(helper.open_grant().is_err());
-                    assert!(helper.request_group_stop().is_err());
-                }
-                assert!(!helper.confirmed_stopped && !helper.grant.closed && helper.running);
-                assert_eq!(helper.grant.slots[0].ack_ns, None);
-                assert_eq!(helper.metrics.continuity_terminal_observations, 0);
-                assert_eq!(helper.metrics.stop_attempts, 1);
-                let _ = helper
-                    .account_controller(&control, control.observe_interval(active_at, cpu_ns()));
-                if mode == "over_q" {
-                    // Conservative old-window fault: expand, never shorten, the
-                    // original live interval and exercise the real tick's Q guard.
-                    helper.grant.t0_ns = bootstrap::monotonic_ns()
-                        .unwrap()
-                        .checked_sub(2 * UNIT_NS)
-                        .unwrap();
-                }
-                if mode == "unknown_clock" {
-                    helper.last_clock_ns = Some(u64::MAX);
-                }
-            }
-            if matches!(mode, "over_q" | "unknown_clock") {
-                control.helper_tick();
-                let owner = control.helper.lock().unwrap();
-                let helper = owner.as_ref().unwrap();
-                assert!(helper.admission_failed && !helper.ready && !helper.confirmed_stopped);
-                assert_eq!(helper.metrics.continuity_terminal_observations, 0);
-                assert_eq!(helper.metrics.stop_attempts, 1);
-                assert_eq!(super::super::resolve::helper_exited(pid), Ok(false));
-                if mode == "over_q" {
-                    assert_eq!(control.error(), Some(w::Code::ResourceLimit));
-                } else {
-                    assert!(helper.metrics.clock_failures > 0 && !helper.metrics.coverage_known);
-                }
-            }
-            {
-                let owner = control.helper.lock().unwrap();
-                let helper = owner.as_ref().unwrap();
-                assert_eq!(
-                    helper_token_signal(&helper.members[0].audit_token, libc::SIGKILL),
-                    Ok(())
-                );
-            }
-            let until = Instant::now() + Duration::from_secs(1);
-            while super::super::resolve::helper_exited(pid) != Ok(true) {
-                assert!(Instant::now() < until);
-                thread::sleep(Duration::from_micros(100));
-            }
-            if mode == "delayed_exit" {
-                control.helper_tick();
-                let mut owner = control.helper.lock().unwrap();
-                let helper = owner.as_mut().unwrap();
-                assert!(helper.grant.closed && helper.confirmed_stopped);
-                assert!(!helper.query_terminal_pending);
-                assert_eq!(helper.metrics.continuity_terminal_observations, 1);
-                assert_eq!(helper.stop_outcome, HelperStopOutcome::TerminalProven);
-                let finalize_at = cpu_ns();
-                helper.finish_grant(&control, 0);
-                helper.account_finalization_tail(
-                    &control,
-                    control.observe_interval(finalize_at, cpu_ns()),
-                );
-            }
-            let reap_at = cpu_ns();
-            let reap_wall = Instant::now();
-            let mut status = 0;
-            let mut usage = std::mem::MaybeUninit::<libc::rusage>::uninit();
-            loop {
-                let reaped = unsafe { libc::wait4(pid, &mut status, 0, usage.as_mut_ptr()) };
-                if reaped == pid {
-                    child.reaped = true;
-                    break;
-                }
-                assert_eq!(
-                    std::io::Error::last_os_error().raw_os_error(),
-                    Some(libc::EINTR)
-                );
-            }
-            let usage = unsafe { usage.assume_init() };
-            assert!(libc::WIFSIGNALED(status) && libc::WTERMSIG(status) == libc::SIGKILL);
-            assert_eq!(unsafe { libc::kill(-pid, 0) }, -1);
-            assert_eq!(
-                std::io::Error::last_os_error().raw_os_error(),
-                Some(libc::ESRCH)
-            );
-            {
-                let mut owner = control.helper.lock().unwrap();
-                let helper = owner.as_mut().unwrap();
-                helper.retiring = true;
-                let user = (usage.ru_utime.tv_sec as u64 * 1_000_000
-                    + usage.ru_utime.tv_usec as u64)
-                    * 1000;
-                let system = (usage.ru_stime.tv_sec as u64 * 1_000_000
-                    + usage.ru_stime.tv_usec as u64)
-                    * 1000;
-                let _ = helper.reconcile_usage(
-                    &control,
-                    crate::dream::resolve::HelperReapUsage {
-                        pid: helper.identity.pid,
-                        user_ns: user,
-                        system_ns: system,
-                        rss_bytes: usage.ru_maxrss as u64,
-                        observed_ns: bootstrap::monotonic_ns().unwrap(),
-                        readings: 1,
-                    },
-                );
-                let used = control.observe_interval(reap_at, cpu_ns());
-                let wall = u64::try_from(reap_wall.elapsed().as_nanos()).unwrap_or(u64::MAX);
-                let mut observed = Budget::new_read(
-                    control.clone(),
-                    Arc::new(crossbeam_queue::ArrayQueue::new(1)),
-                );
-                let _ = observed.read_charge(used, used, wall, UNIT_NS);
-                let _ = helper.commit_post_observation(&control, used, wall);
-                let receipt = helper.metrics.worst_grant;
-                eprintln!(
-                    "continuity_esrch_pending source_known_injected_query=true mode={mode} pid={pid} birth={} native_guard={} native_code={} pending_observations={} terminal_observations={} stop_attempts={} t0_ns={} end_ns={} close_ns={} w_ns={} a_ns={} c_ns={} q_ns={} debt_ns={} wait4_pid={pid} wait4_user_ns={user} wait4_system_ns={system} clock_failures={} resource_verdict={:?} full_command_qualification=false",
-                    ticket.start_identity,
-                    helper.metrics.last_continuity_guard,
-                    helper.metrics.last_continuity_native_code,
-                    helper.metrics.continuity_pending_observations,
-                    helper.metrics.continuity_terminal_observations,
-                    helper.metrics.stop_attempts,
-                    receipt.t0_ns,
-                    receipt.end_ns[0],
-                    receipt.close_ns,
-                    receipt.w_ns,
-                    receipt.a_ns,
-                    receipt.c_ns,
-                    receipt.q_ns,
-                    helper.metrics.debt_ns,
-                    helper.metrics.clock_failures,
-                    control.error()
-                );
-                assert_eq!(helper.metrics.stop_attempts, 1);
-                if mode != "delayed_exit" {
-                    assert!(helper.admission_failed);
-                }
-            }
-            control.read_pay();
-            proof.helper_detach(ticket).unwrap();
-            assert!(control.helper.lock().unwrap().is_none());
-        }
-    }
-
-    #[test]
-    fn failed_group_stop_verdict_does_not_repeat_or_close_real_owned_child() {
-        let control = Arc::new(Control::fixture(Instant::now() + Duration::from_secs(2)));
-        let mut proof = crate::dream::read::helper_fixture_clock(control.clone());
-        let mut attr = std::mem::MaybeUninit::<libc::posix_spawnattr_t>::uninit();
-        assert_eq!(unsafe { libc::posix_spawnattr_init(attr.as_mut_ptr()) }, 0);
-        let mut attr = unsafe { attr.assume_init() };
-        assert_eq!(unsafe { libc::posix_spawnattr_setpgroup(&mut attr, 0) }, 0);
-        assert_eq!(
-            unsafe {
-                libc::posix_spawnattr_setflags(
-                    &mut attr,
-                    (libc::POSIX_SPAWN_START_SUSPENDED | libc::POSIX_SPAWN_SETPGROUP) as i16,
-                )
-            },
-            0
-        );
-        let argv = [
-            c"sleep".as_ptr().cast_mut(),
-            c"30".as_ptr().cast_mut(),
-            std::ptr::null_mut(),
-        ];
-        let env = [c"LANG=C".as_ptr().cast_mut(), std::ptr::null_mut()];
-        let mut pid = 0;
-        let result = unsafe {
-            libc::posix_spawn(
-                &mut pid,
-                c"/bin/sleep".as_ptr(),
-                std::ptr::null(),
-                &attr,
-                argv.as_ptr(),
-                env.as_ptr(),
-            )
-        };
-        assert!(pid > 0, "retain the positive owned native effect");
-        let mut child = OwnedChild {
-            pid,
-            control: control.clone(),
-            reaped: false,
-        };
-        assert_eq!(unsafe { libc::posix_spawnattr_destroy(&mut attr) }, 0);
-        assert_eq!(result, 0);
-        let mut info = std::mem::MaybeUninit::<libc::proc_bsdinfo>::uninit();
-        let size = std::mem::size_of::<libc::proc_bsdinfo>() as i32;
-        assert_eq!(
-            unsafe {
-                libc::proc_pidinfo(
-                    pid,
-                    libc::PROC_PIDTBSDINFO,
-                    0,
-                    info.as_mut_ptr().cast(),
-                    size,
-                )
-            },
-            size
-        );
-        let info = unsafe { info.assume_init() };
-        let identity = super::super::resolve::HelperIdentity {
-            sequence: 1,
-            pid,
-            pgid: pid,
-            start_identity: info.pbi_start_tvsec * 1_000_000 + info.pbi_start_tvusec,
-            expected_members: 1,
-            image: std::fs::canonicalize("/bin/sleep").unwrap(),
-            descendant_image: None,
-        };
-        let ticket = identity.ticket();
-        proof.helper_attach(identity).unwrap();
-        let samples = {
-            let mut owner = control.helper.lock().unwrap();
-            let helper = owner.as_mut().unwrap();
-            assert!(helper.confirmed_stopped);
-            helper.open_grant().unwrap();
-            // The real child remains kernel-stopped. A possible interval still
-            // cannot be closed merely by an attempted STOP or a refusal.
-            helper.running = true;
-            helper.confirmed_stopped = false;
-            helper.fail_stop_verdict = true;
-            assert!(helper.request_group_stop().is_err());
-            assert!(
-                !helper.fail_stop_verdict,
-                "the causal verdict fault executed"
-            );
-            assert_eq!(helper.metrics.last_stop.result, 0);
-            assert_eq!(helper.metrics.last_stop.rawerrno, 0);
-            helper.reject(&control, 5); // the old ordering issued a second STOP here
-            assert!(helper.request_group_stop().is_err());
-            assert_eq!(helper.metrics.stop_attempts, 1);
-            assert_eq!(
-                helper.metrics.stop_failures, 0,
-                "native outcome was not fabricated"
-            );
-            assert_eq!(helper.metrics.last_stop.pgid, pid);
-            assert_eq!(helper.metrics.last_stop.sequence, ticket.sequence);
-            assert!(helper.stop_requested && helper.admission_failed);
-            assert!(helper.running && helper.pending_closure());
-            assert!(!helper.confirmed_stopped && !helper.grant.closed);
-            assert_eq!(helper.grant.slots[0].ack_ns, None);
-            helper.admission_samples
-        };
-        control.helper_tick();
-        {
-            let owner = control.helper.lock().unwrap();
-            let helper = owner.as_ref().unwrap();
-            assert_eq!(helper.metrics.stop_attempts, 1);
-            assert_eq!(helper.admission_samples, samples);
-            assert!(!helper.confirmed_stopped && !helper.grant.closed);
-            assert_eq!(super::super::resolve::helper_exited(pid), Ok(false));
-        }
-        assert!(proof.helper_retire(ticket).is_err());
-        child.reap();
-        assert_eq!(unsafe { libc::kill(-pid, 0) }, -1);
-        assert_eq!(
-            std::io::Error::last_os_error().raw_os_error(),
-            Some(libc::ESRCH)
-        );
-        proof.helper_detach(ticket).unwrap();
-        assert!(control.helper.lock().unwrap().is_none());
-    }
-
-    #[test]
-    fn failed_admission_stops_repeated_sampling_and_retains_real_open_custody() {
-        let control = Arc::new(Control::fixture(Instant::now() + Duration::from_secs(2)));
-        let mut proof = crate::dream::read::helper_fixture_clock(control.clone());
-        let mut attr = std::mem::MaybeUninit::<libc::posix_spawnattr_t>::uninit();
-        assert_eq!(unsafe { libc::posix_spawnattr_init(attr.as_mut_ptr()) }, 0);
-        let mut attr = unsafe { attr.assume_init() };
-        assert_eq!(unsafe { libc::posix_spawnattr_setpgroup(&mut attr, 0) }, 0);
-        assert_eq!(
-            unsafe {
-                libc::posix_spawnattr_setflags(
-                    &mut attr,
-                    (libc::POSIX_SPAWN_START_SUSPENDED | libc::POSIX_SPAWN_SETPGROUP) as i16,
-                )
-            },
-            0
-        );
-        let argv = [
-            c"sleep".as_ptr().cast_mut(),
-            c"30".as_ptr().cast_mut(),
-            std::ptr::null_mut(),
-        ];
-        let env = [c"LANG=C".as_ptr().cast_mut(), std::ptr::null_mut()];
-        let mut pid = 0;
-        let result = unsafe {
-            libc::posix_spawn(
-                &mut pid,
-                c"/bin/sleep".as_ptr(),
-                std::ptr::null(),
-                &attr,
-                argv.as_ptr(),
-                env.as_ptr(),
-            )
-        };
-        assert!(pid > 0, "private process must retain its positive effect");
-        let mut child = OwnedChild {
-            pid,
-            control: control.clone(),
-            reaped: false,
-        };
-        assert_eq!(unsafe { libc::posix_spawnattr_destroy(&mut attr) }, 0);
-        assert_eq!(result, 0);
-        let mut info = std::mem::MaybeUninit::<libc::proc_bsdinfo>::uninit();
-        let size = std::mem::size_of::<libc::proc_bsdinfo>() as i32;
-        assert_eq!(
-            unsafe {
-                libc::proc_pidinfo(
-                    pid,
-                    libc::PROC_PIDTBSDINFO,
-                    0,
-                    info.as_mut_ptr().cast(),
-                    size,
-                )
-            },
-            size
-        );
-        let info = unsafe { info.assume_init() };
-        let identity = super::super::resolve::HelperIdentity {
-            sequence: 1,
-            pid,
-            pgid: pid,
-            start_identity: info.pbi_start_tvsec * 1_000_000 + info.pbi_start_tvusec,
-            expected_members: 1,
-            image: std::fs::canonicalize("/bin/sleep").unwrap(),
-            descendant_image: None,
-        };
-        let ticket = identity.ticket();
-        *control.helper.lock().unwrap() = Some(HelperGroup::attached(identity));
-        let observing = Instant::now();
-        loop {
-            let mut owner = control.helper.lock().unwrap();
-            let helper = owner.as_mut().unwrap();
-            match helper.sample(&control) {
-                Ok(true) => {
-                    helper.settle_creation(&control).unwrap();
-                    break;
-                }
-                Ok(false)
-                    if helper.initial_stop_pending
-                        && observing.elapsed() < Duration::from_millis(25) => {}
-                result => panic!("actual suspended birth: {result:?}"),
-            }
-            drop(owner);
-            thread::sleep(Duration::from_micros(100));
-        }
-        let marker = control.helper_controller_marker();
-        let at = cpu_ns();
-        control.helper_tick();
-        control.helper_account_controller(marker, control.observe_interval(at, cpu_ns()));
-        control.read_pay();
-        loop {
-            let owner = control.helper.lock().unwrap();
-            let helper = owner.as_ref().unwrap();
-            assert!(!helper.pending_corroboration() && helper.confirmed_stopped);
-            if Instant::now() >= helper.debt_until {
-                break;
-            }
-            drop(owner);
-            thread::sleep(Duration::from_millis(1));
-        }
-        assert!(control.error().is_none());
-        assert!(
-            !control
-                .helper
-                .lock()
-                .unwrap()
-                .as_ref()
-                .unwrap()
-                .retired_members_exited(),
-            "a retained live incarnation is not an exit acknowledgement"
-        );
-        let (t0, samples) = {
-            let mut owner = control.helper.lock().unwrap();
-            let helper = owner.as_mut().unwrap();
-            helper.open_grant().unwrap();
-            helper.ready = true;
-            helper.changed = Instant::now();
-            assert_eq!(unsafe { libc::kill(-pid, libc::SIGCONT) }, 0);
-            helper.running = true;
-            helper.confirmed_stopped = false;
-            // Causal negative: the real process cannot match this exact image.
-            helper.identity.image = PathBuf::from("/private/unavailable-helper-image");
-            (helper.grant.t0_ns, helper.admission_samples)
-        };
-        // Drive a real stopped kernel endpoint before the intended image
-        // fault. The admission hint itself must not install any stop seal.
-        assert_eq!(unsafe { libc::kill(-pid, libc::SIGSTOP) }, 0);
-        let until = Instant::now() + Duration::from_secs(1);
-        loop {
-            let owner = control.helper.lock().unwrap();
-            let helper = owner.as_ref().unwrap();
-            assert_eq!(helper.grant.t0_ns, t0);
-            assert!(!helper.confirmed_stopped && !helper.grant.closed);
-            if helper.stop_observation_due() {
-                break;
-            }
-            assert!(Instant::now() < until, "owned STOP tail must settle");
-            drop(owner);
-            thread::sleep(Duration::from_micros(100));
-        }
-        control.foreground.store(true, Ordering::Release);
-        control.helper_tick();
-        let rejected_samples = {
-            let owner = control.helper.lock().unwrap();
-            let helper = owner.as_ref().unwrap();
-            assert!(helper.admission_failed && !helper.ready && !helper.needs_active_poll());
-            assert!(helper.stop_requested && !helper.confirmed_stopped);
-            assert!(helper.running && helper.pending_closure() && !helper.grant.closed);
-            assert_eq!(helper.grant.t0_ns, t0);
-            assert_eq!(helper.admission_samples, samples + 1);
-            helper.admission_samples
-        };
+    fn helper_total_idle_control_does_not_extend_terminal_debt() {
+        let c = Control::fixture(Instant::now() + Duration::from_secs(30));
+        let mut h = group();
+        h.reconcile_usage(&c, usage(10_000, 0, true)).unwrap();
+        let until = c.accounting.rest_until.load(Ordering::Acquire);
         for _ in 0..8 {
-            let marker = control.helper_controller_marker();
-            let at = cpu_ns();
-            control.helper_tick();
-            control.helper_account_controller(marker, control.observe_interval(at, cpu_ns()));
+            let marker = c.helper_controller_marker();
+            c.helper_account_controller(marker, 100);
         }
-        {
-            let owner = control.helper.lock().unwrap();
-            let helper = owner.as_ref().unwrap();
-            assert_eq!(helper.admission_samples, rejected_samples);
-            assert_eq!(helper.identity.ticket(), ticket);
-            assert_eq!(helper.grant.t0_ns, t0);
-            assert!(helper.running && helper.pending_closure() && !helper.grant.closed);
-            assert!(helper.stop_requested && !helper.confirmed_stopped);
-            assert!(helper.metrics.controller_cpu_ns > 0);
-        }
-        assert!(proof.helper_retire(ticket).is_err());
-        let exiting = Instant::now();
-        while super::super::resolve::helper_exited(pid) != Ok(true) {
-            assert!(
-                exiting.elapsed() < Duration::from_secs(1),
-                "private original leader must actually exit"
-            );
-            thread::sleep(Duration::from_micros(100));
-        }
-        {
-            let mut owner = control.helper.lock().unwrap();
-            let helper = owner.as_mut().unwrap();
-            assert!(
-                helper.retired_members_exited(),
-                "exact unreaped exit has positive start/RI/token proof"
-            );
-            let start = helper.members[0].start_abstime;
-            helper.members[0].start_abstime = start.checked_add(1).unwrap();
-            assert!(
-                !helper.retired_members_exited(),
-                "same numeric PID without exact retained start does not close custody"
-            );
-            helper.members[0].start_abstime = start;
-            helper.identity.expected_members = 2;
-            assert!(
-                helper.sample_exited_roster().is_err(),
-                "an unobserved possible descendant stays unproven"
-            );
-            assert!(!helper.grant.closed);
-            helper.identity.expected_members = 1;
-            assert_eq!(helper.sample_exited_roster(), Ok(true));
-            assert!(helper.grant.closed && helper.members[0].exit_abstime != 0);
-        }
-        child.reap();
-        assert_eq!(unsafe { libc::kill(-pid, 0) }, -1);
-        assert_eq!(
-            std::io::Error::last_os_error().raw_os_error(),
-            Some(libc::ESRCH)
+        assert_eq!(c.accounting.rest_until.load(Ordering::Acquire), until);
+        assert_eq!(c.fixture_debt_totals().0, 9_000_000);
+        let marker = c.helper_controller_marker();
+        c.helper_note_control_work();
+        c.helper_account_controller(marker, 100);
+        assert_eq!(c.fixture_debt_totals().0, 18_000_000);
+        assert!(
+            c.accounting
+                .helper_control_rest_until
+                .load(Ordering::Acquire)
+                > c.accounting.now()
         );
-        proof.helper_detach(ticket).unwrap();
-        assert!(control.helper.lock().unwrap().is_none());
     }
 }
 

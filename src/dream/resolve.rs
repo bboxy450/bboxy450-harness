@@ -55,6 +55,9 @@ pub(crate) struct HelperReapUsage {
     pub(crate) rss_bytes: u64,
     pub(crate) observed_ns: u64,
     pub(crate) readings: u64,
+    /// Positive group-absence observation after the original own wait4. The
+    /// immutable CPU receipt can be billed first; only this flag may upgrade.
+    pub(crate) group_gone: bool,
 }
 /// Private settlement permission, separate from proof/accounting success. The
 /// original controller retains its ticket and every pin while this is Held.
@@ -830,6 +833,17 @@ fn helper_reap_ready(ticket: HelperTicket) -> Result<HelperReapReadiness, Invali
             .helper_reap_ready(ticket)
     })
 }
+fn helper_consume_reap_usage(ticket: HelperTicket, usage: HelperReapUsage) -> Result<(), Invalid> {
+    helper_catch(|| {
+        SELECTED.with(|slot| {
+            slot.borrow_mut()
+                .as_mut()
+                .ok_or(Invalid("selected helper owner unavailable"))?
+                .pace
+                .helper_usage(ticket, usage)
+        })
+    })
+}
 /// Observe completion without reaping. The direct leader pins its process-group
 /// identity until controller retirement and the final group signal have finished.
 pub(crate) fn helper_exited(pid: i32) -> Result<bool, Invalid> {
@@ -1312,6 +1326,15 @@ pub(crate) fn helper_creation_reserve(cost: u16) -> Result<u16, Invalid> {
     })
 }
 #[cfg(target_os = "macos")]
+pub(crate) fn helper_spawn_background(attr: &mut libc::posix_spawnattr_t) -> i32 {
+    unsafe extern "C" {
+        fn posix_spawnattr_set_qos_class_np(attr: *mut libc::posix_spawnattr_t, class: u32) -> i32;
+    }
+    // QOS_CLASS_BACKGROUND is atomic with creation, before user code. The
+    // controller independently observes PRI4 before any helper pipe service.
+    unsafe { posix_spawnattr_set_qos_class_np(attr, 0x09) }
+}
+#[cfg(target_os = "macos")]
 struct NativeSpawn {
     image: std::ffi::CString,
     args: Vec<std::ffi::CString>,
@@ -1474,6 +1497,7 @@ impl NativeSpawn {
         let null = c"/dev/null";
         let mut codes = vec![
             unsafe { libc::posix_spawnattr_setpgroup(&mut prepared.attr, 0) },
+            helper_spawn_background(&mut prepared.attr),
             unsafe {
                 libc::posix_spawnattr_setflags(
                     &mut prepared.attr,
@@ -1632,7 +1656,7 @@ fn span_wall(start: HelperStamp, end: HelperStamp) -> u64 {
         .and_then(|elapsed| u64::try_from(elapsed.as_nanos()).ok())
         .unwrap_or(u64::MAX)
 }
-fn helper_timeval_ns(time: libc::timeval) -> u64 {
+pub(crate) fn helper_timeval_ns(time: libc::timeval) -> u64 {
     u64::try_from(time.tv_sec)
         .ok()
         .zip(
@@ -1646,6 +1670,22 @@ fn helper_timeval_ns(time: libc::timeval) -> u64 {
                 .and_then(|whole| whole.checked_add(micros * 1000))
         })
         .unwrap_or(u64::MAX)
+}
+fn helper_maxrss_bytes(raw: libc::c_long) -> u64 {
+    let Ok(rss) = u64::try_from(raw) else {
+        return u64::MAX;
+    };
+    #[cfg(target_os = "macos")]
+    {
+        rss
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        rss.checked_mul(1024).unwrap_or(u64::MAX)
+    }
+}
+fn helper_group_absence_observed(result: i32, error: Option<i32>) -> bool {
+    result == -1 && error == Some(libc::ESRCH)
 }
 fn helper_catch<T>(f: impl FnOnce() -> Result<T, Invalid>) -> Result<T, Invalid> {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(f))
@@ -1936,12 +1976,13 @@ fn selected_command_input_owned(
         let pipe = pipe
             .as_mut()
             .ok_or(Invalid("helper output pipe unavailable"))?;
+        let mut exited = false;
+        let mut output_eof = false;
         loop {
             helper_hook(retained_ticket, 1)?;
             let poll = helper_stamp(HelperPhase::FirstPoll, false);
             let mut poll_end = poll;
             let mut known_clock = poll.cpu != u64::MAX;
-            let mut exited = false;
             // Reuse this admitted pipe span and its pre-reserved capture. Each
             // round retains the nonreaping exit sample; a blocked/interrupted
             // operation yields to the same control/debt handoff without retry.
@@ -1950,7 +1991,7 @@ fn selected_command_input_owned(
             if known_clock {
                 for _ in 0..64 {
                     let mut yield_io = false;
-                    if let Some(input) = input {
+                    if !exited && let Some(input) = input {
                         if sent == input.len() {
                             stdin.take();
                         } else if let Some(stdin) = stdin.as_mut() {
@@ -1984,7 +2025,10 @@ fn selected_command_input_owned(
                         }
                     }
                     match pipe.read(&mut chunk) {
-                        Ok(0) => yield_io = true,
+                        Ok(0) => {
+                            output_eof = true;
+                            yield_io = true;
+                        }
                         Ok(n) => {
                             if bytes.len() + n > OUTPUT {
                                 return Err(Invalid("resource_limit: helper output bound"));
@@ -2001,11 +2045,13 @@ fn selected_command_input_owned(
                         }
                         Err(_) => return Err(Invalid("helper output unavailable")),
                     }
-                    exited = helper_exited(pgid)?;
+                    if !exited {
+                        exited = helper_exited(pgid)?;
+                    }
                     poll_end = helper_stamp(HelperPhase::FirstPoll, true);
                     let used = span_cpu(poll, poll_end);
                     known_clock = used != u64::MAX;
-                    if exited || yield_io || !known_clock || used >= 400_000 {
+                    if yield_io || !known_clock || used >= 400_000 {
                         break;
                     }
                 }
@@ -2018,7 +2064,14 @@ fn selected_command_input_owned(
                 return Err(Invalid("helper IO checkpoint clock unavailable"));
             }
             if exited {
-                return Ok(());
+                if input.is_some_and(|input| sent != input.len()) {
+                    return Err(Invalid(
+                        "helper exited before all admitted stdin was written",
+                    ));
+                }
+                if output_eof {
+                    return Ok(());
+                }
             }
         }
     });
@@ -2096,17 +2149,16 @@ fn selected_command_input_owned(
         let _ = helper_catch(|| helper_hook(retained_ticket, 2))
             .map(|_| retired = Err(Invalid("selected helper retirement recovered")));
     }
-    unsafe {
-        libc::kill(-pgid, libc::SIGKILL);
-    }
+    // The existing controller owns the one final kill and its raw errno.
+    // EPERM/ESRCH remains pending until this original wait4 plus group-gone.
     let mut status = None;
     let mut usage = unsafe { std::mem::zeroed::<libc::rusage>() };
     let mut settlement_error = None;
     let mut reap_observed_ns = u64::MAX;
     let mut group_gone = false;
     let needs_post_exit = std::cell::Cell::new(false);
-    let post_exit_attempted = std::cell::Cell::new(false);
     let reap_ready = std::cell::Cell::new(false);
+    let pending_usage = std::cell::Cell::new(None);
     let mut settle = || {
         if status.is_none() {
             match helper_exited(pgid) {
@@ -2123,7 +2175,7 @@ fn selected_command_input_owned(
                     }
                     if reaped != pgid {
                         settlement_error = Some(Invalid("selected helper direct join unavailable"));
-                        return false;
+                        return true; // same owner retains unknown custody
                     }
                     reap_observed_ns = super::bootstrap::monotonic_ns().unwrap_or(u64::MAX);
                     status = Some(if libc::WIFEXITED(raw) {
@@ -2131,11 +2183,23 @@ fn selected_command_input_owned(
                     } else {
                         -1
                     });
-                    return true;
+                    pending_usage.set(Some(HelperReapUsage {
+                        pid: pgid,
+                        user_ns: helper_timeval_ns(usage.ru_utime),
+                        system_ns: helper_timeval_ns(usage.ru_stime),
+                        rss_bytes: helper_maxrss_bytes(usage.ru_maxrss),
+                        observed_ns: reap_observed_ns,
+                        readings: 1,
+                        group_gone: false,
+                    }));
+                    // Release cleanup's SELECTED borrow before booking and
+                    // paying this known immutable receipt. Group proof may
+                    // still be pending; it cannot erase the known CPU bill.
+                    return false;
                 }
                 Err(error) => {
                     settlement_error = Some(error);
-                    return false;
+                    return true; // an unavailable observation is not settlement
                 }
             }
         }
@@ -2143,7 +2207,12 @@ fn selected_command_input_owned(
         // No signals are sent after the leader's reap, so pid reuse cannot turn
         // a delayed control tick into an effect on an unrelated group.
         let exists = unsafe { libc::kill(-pgid, 0) };
-        if exists != 0 && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH) {
+        let error = if exists == -1 {
+            std::io::Error::last_os_error().raw_os_error()
+        } else {
+            None
+        };
+        if helper_group_absence_observed(exists, error) {
             group_gone = true;
             return false;
         }
@@ -2151,6 +2220,7 @@ fn selected_command_input_owned(
     };
     let mut cleanup_panic = false;
     let mut post_exit_error = None;
+    let mut usage_error = None;
     loop {
         let mut exhausted = false;
         let mut called = false;
@@ -2184,13 +2254,17 @@ fn selected_command_input_owned(
             // only the exact controller's physical/retained/paid predicate
             // below may release its original direct-child pin.
             needs_post_exit.set(false);
-            if !post_exit_attempted.replace(true)
-                && let Err(error) = helper_catch(|| helper_hook(retained_ticket, 4))
-            {
+            if let Err(error) = helper_catch(|| helper_hook(retained_ticket, 4)) {
                 post_exit_error = Some(error);
             }
             let ready = helper_catch(|| helper_reap_ready(retained_ticket));
             reap_ready.set(ready == Ok(HelperReapReadiness::Ready));
+            continue;
+        }
+        if let Some(known) = pending_usage.take() {
+            if let Err(error) = helper_consume_reap_usage(retained_ticket, known) {
+                usage_error.get_or_insert(error);
+            }
             continue;
         }
         if exhausted {
@@ -2200,32 +2274,26 @@ fn selected_command_input_owned(
     drop(settle);
     let user = helper_timeval_ns(usage.ru_utime);
     let system = helper_timeval_ns(usage.ru_stime);
-    #[cfg(target_os = "macos")]
-    let rss = usage.ru_maxrss as u64;
-    #[cfg(not(target_os = "macos"))]
-    let rss = (usage.ru_maxrss as u64).saturating_mul(1024);
+    let rss = helper_maxrss_bytes(usage.ru_maxrss);
     let measured = if status.is_some() && group_gone {
-        helper_catch(|| {
-            SELECTED.with(|slot| {
-                slot.borrow_mut()
-                    .as_mut()
-                    .ok_or(Invalid("selected helper owner unavailable"))?
-                    .pace
-                    .helper_usage(
-                        retained_ticket,
-                        HelperReapUsage {
-                            pid: pgid,
-                            user_ns: user,
-                            system_ns: system,
-                            rss_bytes: rss,
-                            observed_ns: reap_observed_ns,
-                            readings: 1,
-                        },
-                    )
-            })
-        })
+        helper_consume_reap_usage(
+            retained_ticket,
+            HelperReapUsage {
+                pid: pgid,
+                user_ns: user,
+                system_ns: system,
+                rss_bytes: rss,
+                observed_ns: reap_observed_ns,
+                readings: 1,
+                group_gone,
+            },
+        )
     } else {
         Err(Invalid("selected helper usage unavailable"))
+    };
+    let measured = match usage_error {
+        Some(error) => Err(error),
+        None => measured,
     };
     let detached = if group_gone && status.is_some() {
         helper_catch(|| helper_hook(retained_ticket, 3))
@@ -3870,14 +3938,14 @@ mod selected_helper_process_tests {
                 }
                 vec!["echo".to_owned()]
             } else {
-                let valid = matches!(args,[mode] if matches!(mode.as_str(),"echo"|"stall"|"ticks"|"pair"))
+                let valid = matches!(args,[mode] if matches!(mode.as_str(),"echo"|"stall"|"ticks"|"pair"|"burn"|"burn-live"|"pair-burn"|"wait-burn-short"))
                     || matches!(args,[mode,value] if mode=="emit"&&value.len()<=32);
                 if !valid {
                     return Err(Invalid("private fixture argument unavailable"));
                 }
                 args.to_vec()
             };
-            let pair = args[0] == "pair";
+            let pair = matches!(args[0].as_str(), "pair" | "pair-burn");
             Ok(ToolRequest {
                 image: image.path.clone(),
                 args,
@@ -3963,11 +4031,17 @@ mod selected_helper_process_tests {
         Attach,
         Before,
         Cleanup,
+        TerminalBeforePoll,
     }
     struct State {
         control: Arc<Control>,
         groups: Mutex<Vec<i32>>,
         tickets: Mutex<Vec<HelperTicket>>,
+        terminal_usage: Mutex<Vec<HelperReapUsage>>,
+        terminal_debt: AtomicU64,
+        terminal_metrics: Mutex<Option<c1::HelperMetrics>>,
+        terminal_before_poll_seen: AtomicBool,
+        terminal_accounting_only: AtomicBool,
         paused: AtomicBool,
         stale_rejected: AtomicBool,
         native_calls: AtomicU64,
@@ -4092,7 +4166,45 @@ mod selected_helper_process_tests {
             result
         }
         fn helper_poll(&mut self, ticket: HelperTicket) -> Result<(), Invalid> {
+            let terminal_control = self.take_panic(PanicAt::TerminalBeforePoll);
+            if terminal_control {
+                let until = Instant::now() + Duration::from_secs(2);
+                loop {
+                    let observed = self
+                        .state
+                        .control
+                        .helper
+                        .lock()
+                        .unwrap()
+                        .as_ref()
+                        .is_some_and(|h| {
+                            h.identity.ticket() == ticket && h.exit_observed() && !h.retiring
+                        });
+                    if observed {
+                        break;
+                    }
+                    assert!(
+                        Instant::now() < until,
+                        "fixture must observe original exit before terminal pipe poll"
+                    );
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+                self.state
+                    .terminal_before_poll_seen
+                    .store(true, Ordering::Release);
+            }
             let result = self.inner.helper_poll(ticket);
+            if terminal_control && result.is_ok() {
+                let owner = self.state.control.helper.lock().unwrap();
+                let h = owner.as_ref().unwrap();
+                self.state.terminal_accounting_only.store(
+                    h.identity.ticket() == ticket
+                        && h.exit_observed()
+                        && h.pipe_is_open()
+                        && !h.payload_pipe_is_open(),
+                    Ordering::Release,
+                );
+            }
             if result.is_ok()
                 && *self
                     .state
@@ -4146,7 +4258,23 @@ mod selected_helper_process_tests {
             ticket: HelperTicket,
             usage: HelperReapUsage,
         ) -> Result<(), Invalid> {
-            self.inner.helper_usage(ticket, usage)
+            self.state.terminal_usage.lock().unwrap().push(usage);
+            let result = self.inner.helper_usage(ticket, usage);
+            if let Some(h) = self
+                .state
+                .control
+                .helper
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .as_ref()
+                .filter(|h| h.identity.ticket() == ticket)
+            {
+                self.state
+                    .terminal_debt
+                    .store(h.metrics.debt_ns, Ordering::Release);
+                *self.state.terminal_metrics.lock().unwrap() = Some(h.metrics);
+            }
+            result
         }
         fn cleanup(&mut self, step: &mut dyn FnMut() -> bool) {
             let active = self
@@ -4166,6 +4294,7 @@ mod selected_helper_process_tests {
         state: Arc<State>,
         stop: Arc<AtomicBool>,
         controller: Option<std::thread::JoinHandle<()>>,
+        monitor_prejoined: bool,
         owner: Option<std::thread::JoinHandle<()>>,
         result: mpsc::Receiver<Result<Vec<Vec<u8>>, Invalid>>,
     }
@@ -4202,10 +4331,21 @@ mod selected_helper_process_tests {
         }
         fn start_with(
             cwd: &Path,
+            bindings: SelectedBindings,
+            pause: bool,
+            panic_at: PanicAt,
+            deadline: Duration,
+            job: impl FnOnce(&Path) -> Result<Vec<Vec<u8>>, Invalid> + Send + 'static,
+        ) -> Self {
+            Self::start_with_sampling(cwd, bindings, pause, panic_at, deadline, false, job)
+        }
+        fn start_with_sampling(
+            cwd: &Path,
             mut bindings: SelectedBindings,
             pause: bool,
             panic_at: PanicAt,
             deadline: Duration,
+            skip_live_sampling: bool,
             job: impl FnOnce(&Path) -> Result<Vec<Vec<u8>>, Invalid> + Send + 'static,
         ) -> Self {
             let _prepared_image = io_image(); // Compilation/hash pinning precedes the job clock.
@@ -4215,10 +4355,16 @@ mod selected_helper_process_tests {
             std::fs::set_permissions(&scratch, std::fs::Permissions::from_mode(0o700)).unwrap();
             bindings.scratch = Some(scratch);
             let control = Arc::new(Control::fixture(Instant::now() + deadline));
+            control.fixture_skip_live_sampling(skip_live_sampling);
             let state = Arc::new(State {
                 control,
                 groups: Mutex::new(vec![]),
                 tickets: Mutex::new(vec![]),
+                terminal_usage: Mutex::new(vec![]),
+                terminal_debt: AtomicU64::new(0),
+                terminal_metrics: Mutex::new(None),
+                terminal_before_poll_seen: AtomicBool::new(false),
+                terminal_accounting_only: AtomicBool::new(false),
                 paused: AtomicBool::new(false),
                 stale_rejected: AtomicBool::new(false),
                 native_calls: AtomicU64::new(0),
@@ -4237,19 +4383,14 @@ mod selected_helper_process_tests {
             let tick_state = state.clone();
             let tick_stop = stop.clone();
             let controller = std::thread::spawn(move || {
+                crate::dream::read::helper_fixture_priority();
                 while !tick_stop.load(Ordering::Acquire) {
+                    tick_state.control.helper_controller_rest();
                     let marker = tick_state.control.helper_controller_marker();
                     let at = c1::cpu_ns();
                     tick_state.control.helper_tick();
-                    let runnable = tick_state
-                        .control
-                        .helper
-                        .lock()
-                        .unwrap_or_else(|error| error.into_inner())
-                        .as_ref()
-                        .is_some_and(|group| group.needs_active_poll());
-                    // Match the real control owner: active helper quantum is
-                    // polled directly; timer sleeps occur only while stopped.
+                    // Continuous external helpers need no quantum spin. These
+                    // bounded control ticks retain the <=50ms sample cadence.
                     let paused = tick_state.control.foreground.load(Ordering::Acquire)
                         && tick_state
                             .control
@@ -4264,9 +4405,7 @@ mod selected_helper_process_tests {
                         marker,
                         tick_state.control.observe_interval(at, c1::cpu_ns()),
                     );
-                    if !runnable {
-                        std::thread::sleep(Duration::from_millis(1));
-                    }
+                    std::thread::sleep(Duration::from_millis(1));
                 }
             });
             let (tx, result) = mpsc::channel();
@@ -4289,6 +4428,7 @@ mod selected_helper_process_tests {
                 state,
                 stop,
                 controller: Some(controller),
+                monitor_prejoined: false,
                 owner: Some(owner),
                 result,
             }
@@ -4301,8 +4441,21 @@ mod selected_helper_process_tests {
                 std::thread::sleep(Duration::from_micros(100));
             }
         }
-        fn finish(mut self) -> Result<Vec<Vec<u8>>, Invalid> {
-            let result = self.result.recv_timeout(Duration::from_secs(2));
+        fn stop_monitor_for_terminal_control(&mut self) {
+            assert!(!self.monitor_prejoined);
+            self.stop.store(true, Ordering::Release);
+            self.controller
+                .take()
+                .expect("same controller monitor")
+                .join()
+                .unwrap();
+            self.monitor_prejoined = true;
+        }
+        fn finish(self) -> Result<Vec<Vec<u8>>, Invalid> {
+            self.finish_with_limit(Duration::from_secs(2))
+        }
+        fn finish_with_limit(mut self, limit: Duration) -> Result<Vec<Vec<u8>>, Invalid> {
+            let result = self.result.recv_timeout(limit);
             if result.is_err() {
                 let code = self.state.control.error();
                 let snapshot = self
@@ -4319,17 +4472,15 @@ mod selected_helper_process_tests {
                                 h.running,
                                 h.retiring,
                                 h.ready,
-                                h.closure_observed(),
-                                h.pending_closure(),
-                                h.pending_corroboration(),
-                                h.terminal_observation_pending(),
+                                h.confirmed_stopped,
+                                h.payload_input_blocked(),
                                 h.pipe_is_open(),
                             ),
                             (
                                 h.debt_until
                                     .saturating_duration_since(Instant::now())
                                     .as_nanos(),
-                                h.metrics.grants,
+                                h.metrics.live_sample_count,
                                 h.metrics.charged_ns,
                                 h.metrics.max_charge_ns,
                                 h.metrics.controller_cpu_ns,
@@ -4337,10 +4488,12 @@ mod selected_helper_process_tests {
                                 h.metrics.first_failure_line,
                                 h.metrics.first_failure_sample_stage,
                             ),
+                            h.metrics,
                         )
                     });
                 eprintln!(
-                    "dream-read fixture_result_failure limit_ns=2000000000 receive_error={:?} control_before_cancel={code:?} foreground={} owner_finished={} controller_finished={} native_calls={} preparation_live_before_grant={} groups={:?} helper_snapshot={snapshot:?} lifecycle_fields=running,retiring,ready,closure_observed,pending_closure,pending_corroboration,terminal_pending,pipe_open cost_fields=debt_remaining_ns,grants,charged_ns,max_q_ns,controller_cpu_ns,pipe_cpu_ns,first_failure_line,first_failure_stage",
+                    "dream-read fixture_result_failure limit_ns={} receive_error={:?} control_before_cancel={code:?} foreground={} owner_finished={} controller_finished={} native_calls={} preparation_live_before_run={} groups={:?} helper_snapshot={snapshot:?} lifecycle_fields=running,retiring,ready,confirmed_stopped,payload_blocked,pipe_open cost_fields=debt_remaining_ns,live_samples,charged_ns,max_command_cpu_ns,controller_cpu_ns,pipe_cpu_ns,first_failure_line,first_failure_stage",
+                    limit.as_nanos(),
                     result.as_ref().err(),
                     self.state.control.foreground.load(Ordering::Acquire),
                     self.owner.as_ref().unwrap().is_finished(),
@@ -4351,7 +4504,7 @@ mod selected_helper_process_tests {
                         .load(Ordering::Acquire),
                     *self.state.groups.lock().unwrap(),
                 );
-                // The original two-second observation has FAILED. Preserve its
+                // The original bounded observation has FAILED. Preserve its
                 // state first, then use the same owned cancellation/retirement
                 // path to join; settlement cannot turn this timeout into pass.
                 let _ = self.state.control.cancel.compare_exchange(
@@ -4363,7 +4516,15 @@ mod selected_helper_process_tests {
             }
             let owner = self.owner.take().unwrap().join();
             self.stop.store(true, Ordering::Release);
-            let controller = self.controller.take().unwrap().join();
+            let controller = if let Some(controller) = self.controller.take() {
+                controller.join()
+            } else {
+                assert!(
+                    self.monitor_prejoined,
+                    "a missing monitor must have joined explicitly"
+                );
+                Ok(())
+            };
             let empty = self
                 .state
                 .control
@@ -4412,6 +4573,227 @@ mod selected_helper_process_tests {
             if let Some(controller) = self.controller.take() {
                 let _ = controller.join();
             }
+        }
+    }
+    #[cfg(target_os = "macos")]
+    fn two_phase_terminal_receipt(receipts: &[HelperReapUsage]) -> HelperReapUsage {
+        assert_eq!(receipts.len(), 2, "known bill precedes group-proof upgrade");
+        let first = receipts[0];
+        let last = receipts[1];
+        assert!(!first.group_gone && last.group_gone);
+        assert_eq!(
+            (
+                first.pid,
+                first.user_ns,
+                first.system_ns,
+                first.rss_bytes,
+                first.observed_ns,
+                first.readings
+            ),
+            (
+                last.pid,
+                last.user_ns,
+                last.system_ns,
+                last.rss_bytes,
+                last.observed_ns,
+                last.readings
+            ),
+            "group proof upgrades the same single actual wait4 receipt"
+        );
+        assert_eq!(first.readings, 1);
+        last
+    }
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn natural_exit_allows_only_accounting_before_original_wait4() {
+        let home = tempfile::tempdir().unwrap();
+        let run = Run::start(
+            home.path(),
+            vec!["emit:after-exit"],
+            false,
+            PanicAt::TerminalBeforePoll,
+            Duration::from_secs(10),
+        );
+        let state = run.state.clone();
+        assert_eq!(run.finish().unwrap(), vec![b"after-exit".to_vec()]);
+        assert!(state.terminal_before_poll_seen.load(Ordering::Acquire));
+        assert!(state.terminal_accounting_only.load(Ordering::Acquire));
+        let raw = two_phase_terminal_receipt(&state.terminal_usage.lock().unwrap());
+        let metrics = state
+            .terminal_metrics
+            .lock()
+            .unwrap()
+            .expect("terminal metrics");
+        assert_eq!(metrics.wait4_reads, 1);
+        assert_eq!(metrics.job_cpu_ns, raw.user_ns + raw.system_ns + 2_000);
+        assert!(metrics.reap_authorized && metrics.group_kill_not_attempted_terminal);
+        assert!(!metrics.group_kill_attempted);
+        assert!(state.control.helper.lock().unwrap().is_none());
+    }
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn external_total_budget_terminal_pause_user_guard_catches_unobserved_resume() {
+        let home = tempfile::tempdir().unwrap();
+        let mut run = Run::start(
+            home.path(),
+            vec!["wait-burn-short"],
+            false,
+            PanicAt::None,
+            Duration::from_secs(10),
+        );
+        run.wait(|| home.path().join("ready").is_file());
+        run.state.control.foreground.store(true, Ordering::Release);
+        run.wait(|| {
+            run.state
+                .control
+                .helper
+                .lock()
+                .unwrap()
+                .as_ref()
+                .is_some_and(|h| {
+                    h.confirmed_stopped
+                        && h.metrics.pause_stop_attempted
+                        && h.metrics.pause_ack_ns <= 100_000_000
+                })
+        });
+        // Stop only this sampling thread. The same controller PROCESS, proof
+        // owner, descriptors, affine ticket and unreaped child remain alive.
+        run.stop_monitor_for_terminal_control();
+        let state = run.state.clone();
+        let ticket = *state.tickets.lock().unwrap().last().unwrap();
+        std::fs::write(home.path().join("release"), b"release").unwrap();
+        {
+            let owner = state.control.helper.lock().unwrap();
+            let h = owner.as_ref().unwrap();
+            assert_eq!(h.identity.ticket(), ticket);
+            assert!(h.confirmed_stopped && h.metrics.pause_stop_attempted && !h.retiring);
+            assert!(state.control.foreground.load(Ordering::Acquire));
+            // Deliberately broken/external resume of ONLY the exact original
+            // pinned group; this is not product resume authority.
+            assert_eq!(unsafe { libc::kill(-ticket.pgid, libc::SIGCONT) }, 0);
+        }
+        run.wait(|| helper_exited(ticket.pid) == Ok(true));
+        // Wake the foreground-parked proof owner for original settlement. Its
+        // first cancellation cause remains; terminal resource refusal is an
+        // independent mandatory axis, not a reason to rewrite that cause.
+        state.control.cancel.store(1, Ordering::Release);
+        assert!(run.finish().is_err());
+        assert_eq!(state.control.cancel.load(Ordering::Acquire), 1);
+        assert_eq!(
+            state.control.error(),
+            Some(crate::dream::c1_wire::Code::ResourceLimit)
+        );
+        let raw = two_phase_terminal_receipt(&state.terminal_usage.lock().unwrap());
+        let m = state
+            .terminal_metrics
+            .lock()
+            .unwrap()
+            .expect("terminal metrics");
+        let cpu = raw.user_ns + raw.system_ns + 2_000;
+        assert!(raw.group_gone && raw.readings == 1 && cpu < 250_000_000);
+        assert!(m.pause_user_checked && !m.pause_user_pass);
+        assert!(m.pause_user_excess_ns > 0);
+        assert_eq!(m.pause_user_quantization_ns, 1_000);
+        assert_eq!(m.charged_ns, cpu);
+        assert_eq!(m.job_cpu_ns, cpu);
+        assert_eq!(m.wait4_reads, 1);
+        assert_eq!(m.debt_ns, 9 * cpu.max(1_000_000));
+        let end = crate::dream::bootstrap::monotonic_ns().unwrap();
+        assert!(end >= raw.observed_ns + m.debt_ns);
+        assert!(state.control.helper.lock().unwrap().is_none());
+        eprintln!(
+            "helper_total_pause_terminal_actual pid={} own_wait4=true group_gone=true monitor_thread_joined=true controller_process_alive=true external_resume=true foreground=true pause_ack_ns={} raw_user_ns={} baseline_ns={} terminal_user_ns={} excess_ns={} quantization_ns={} rounded_cpu_ns={cpu} command_cap_ns=250000000 debt_ns={} resource_axis=true first_cancel_preserved=true runtime_approved=false qualification=false",
+            raw.pid,
+            m.pause_ack_ns,
+            raw.user_ns,
+            m.pause_user_baseline_ns,
+            m.pause_terminal_user_ns,
+            m.pause_user_excess_ns,
+            m.pause_user_quantization_ns,
+            m.debt_ns
+        );
+    }
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn external_total_budget_terminal_wait4_refuses_unseen_and_rolled_overrun() {
+        for (mode, skip_live_sampling) in
+            [("burn", true), ("pair-burn", true), ("burn-live", false)]
+        {
+            let home = tempfile::tempdir().unwrap();
+            let run = Run::start_with_sampling(
+                home.path(),
+                SelectedBindings::default(),
+                false,
+                PanicAt::None,
+                Duration::from_secs(10),
+                skip_live_sampling,
+                move |cwd| command(cwd, mode, None).map(|(_, bytes)| vec![bytes]),
+            );
+            let state = run.state.clone();
+            // This new total-budget witness includes >2.25s mandatory helper
+            // rest. Every existing transport witness retains its 2s gate.
+            let result = run.finish_with_limit(Duration::from_secs(5));
+            assert!(result.is_err(), "an actual >250ms wait4 must refuse");
+            assert_eq!(
+                state.control.error(),
+                Some(crate::dream::c1_wire::Code::ResourceLimit)
+            );
+            let receipts = state.terminal_usage.lock().unwrap();
+            let raw = two_phase_terminal_receipt(&receipts);
+            assert!(raw.group_gone && raw.readings == 1);
+            assert!(raw.observed_ns != 0 && raw.observed_ns != u64::MAX);
+            let cpu = raw
+                .user_ns
+                .checked_add(raw.system_ns)
+                .unwrap()
+                .checked_add(2_000)
+                .unwrap();
+            assert!(
+                cpu > 250_000_000,
+                "terminal excess cannot be clipped: {raw:?}"
+            );
+            if skip_live_sampling {
+                assert!(
+                    cpu >= 260_000_000,
+                    "finite burner completed after last live sample: {raw:?}"
+                );
+            }
+            if mode == "pair-burn" {
+                assert!(
+                    raw.user_ns + raw.system_ns >= 260_000_000,
+                    "own-wait4 must include reaped child CPU: {raw:?}"
+                );
+                assert!(home.path().join("descendant").is_file());
+            }
+            let debt = state.terminal_debt.load(Ordering::Acquire);
+            assert_eq!(debt, 9 * cpu.max(1_000_000));
+            let metrics = state
+                .terminal_metrics
+                .lock()
+                .unwrap()
+                .expect("terminal metrics");
+            assert_eq!(metrics.job_cpu_ns, cpu);
+            assert_eq!(metrics.wait4_reads, 1);
+            if !skip_live_sampling {
+                assert!(metrics.group_kill_attempted);
+                assert!(metrics.observed_direct_cpu_ns > 250_000_000);
+                assert!(metrics.max_sample_gap_ns <= 50_000_000);
+            }
+            let end = crate::dream::bootstrap::monotonic_ns().unwrap();
+            assert!(
+                end >= raw.observed_ns + debt,
+                "full fresh helper debt must follow actual reap"
+            );
+            assert!(state.control.helper.lock().unwrap().is_none());
+            eprintln!(
+                "helper_total_budget_actual decision=66280 mode={mode} skip_live_sampling_control={skip_live_sampling} pid={} actual_own_wait4=true group_gone={} raw_user_ns={} raw_system_ns={} rounded_cpu_ns={cpu} command_cap_ns=250000000 excess_ns={} reaped_at_ns={} debt_ns={debt} observed_after_payment_ns={end} resource_limit=true source_known_private_fixture=true runtime_approved=false qualification=false",
+                raw.pid,
+                raw.group_gone,
+                raw.user_ns,
+                raw.system_ns,
+                cpu - 250_000_000,
+                raw.observed_ns
+            );
         }
     }
     #[cfg(target_os = "macos")]
@@ -4839,6 +5221,25 @@ ex+0H79O/1fH+gEAutvxjuOWPgOixgmpMN4FZgi8rDsaoZ5XKYDx1uUJHA0=
     }
     #[test]
     fn helper_measurement_units_preserve_unknown_and_reversed_samples() {
+        for (result, error, absent) in [
+            (-1, Some(libc::ESRCH), true),
+            (0, None, false),
+            (0, Some(libc::ESRCH), false),
+            (-1, Some(libc::EPERM), false),
+            (-1, Some(libc::EIO), false),
+            (-1, None, false),
+            (1, Some(libc::ESRCH), false),
+        ] {
+            assert_eq!(helper_group_absence_observed(result, error), absent);
+        }
+        for raw in [-1, -2, libc::c_long::MIN] {
+            assert_eq!(helper_maxrss_bytes(raw), u64::MAX);
+        }
+        assert_eq!(helper_maxrss_bytes(0), 0);
+        #[cfg(target_os = "macos")]
+        assert_eq!(helper_maxrss_bytes(17), 17);
+        #[cfg(not(target_os = "macos"))]
+        assert_eq!(helper_maxrss_bytes(17), 17 * 1024);
         assert_eq!(
             helper_timeval_ns(libc::timeval {
                 tv_sec: 2,

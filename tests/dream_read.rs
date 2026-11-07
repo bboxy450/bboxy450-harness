@@ -2938,12 +2938,10 @@ fn assert_proof_helper_gates(metrics: &str) {
     let life = helper_record(metrics, "helper_lifetime");
     assert!(life.contains("coverage_known=true"));
     assert!(metric(life, "settled") > 0 && metric(life, "descendants") > 0);
+    assert!(metric(life, "charge_ns") > 0 && metric(life, "debt_ns") > 0);
     assert!(
-        metric(life, "grants") > 0 && metric(life, "charge_ns") > 0 && metric(life, "debt_ns") > 0
-    );
-    assert!(
-        metric(life, "max_charge_ns") <= 1_000_000,
-        "ordinary shared helper grant gate: {life}"
+        metric(life, "max_charge_ns") <= 250_000_000,
+        "external helper terminal command CPU cap (66280): {life}"
     );
     assert!(
         metric(life, "observed_direct_cpu_ns") > 0
@@ -2952,6 +2950,13 @@ fn assert_proof_helper_gates(metrics: &str) {
     assert!(
         metric(life, "rolled_descendant_cpu_ns") > 0 && metric(life, "reaped_rollup_cpu_ns") > 0
     );
+    let total = helper_record(metrics, "helper_total_budget");
+    assert_eq!(metric(total, "expected_priority"), 4);
+    assert_eq!(metric(total, "command_cap_ns"), 250_000_000);
+    assert_eq!(metric(total, "job_cap_ns"), 3_000_000_000);
+    assert!(metric(total, "terminal_job_cpu_ns") <= 3_000_000_000);
+    assert!(metric(total, "terminal_wait4_reads") > 0);
+    assert!(metric(total, "qos_checked_mask") > 0);
     let memory = helper_record(metrics, "helper_memory");
     assert_eq!(metric(memory, "group_rss_limit_bytes"), 16 * 1024 * 1024);
     assert_eq!(metric(memory, "mixed_limit_bytes"), 96 * 1024 * 1024);
@@ -3551,174 +3556,6 @@ fn signature_boundary_controls_refuse_before_helper_birth() {
     );
     eprintln!(
         "signature_scratch_source_mutant expected_exit=81 observed_exit=81 causal_assertion=GS2_refuses_detached_scratch real_pair=false"
-    );
-}
-
-#[test]
-#[ignore = "load-sensitive budget/wall window; re-enable via tasks/2026-11-06-qos-builds-never-starve-mcp"]
-fn member_windows_use_post_ack_unequal_endpoints_and_closed_roster() {
-    // Only the canonical finite C program is launched here. No Git/GPG tool
-    // qualification or managed Read availability follows from this component.
-    let home = tempfile::Builder::new()
-        .prefix("dream-read-member-window-")
-        .tempdir_in("/private/tmp")
-        .unwrap();
-    let source = Path::new(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/tests/fixtures/dream-read/proof-helper-probe.c"
-    ));
-    let probe = home.path().join("probe");
-    provision_command(
-        Path::new("/usr/bin/clang"),
-        &[
-            "-O2",
-            "-std=c11",
-            "-Wall",
-            "-Wextra",
-            "-Werror",
-            source.to_str().unwrap(),
-            "-o",
-            probe.to_str().unwrap(),
-        ],
-        home.path(),
-        None,
-    );
-    let control = capability_command(&probe, &["ledger-controls"], home.path(), "ledger-controls");
-    let controls: serde_json::Value = serde_json::from_slice(&control.stdout).unwrap();
-    assert_eq!(controls["causal_controls"], 27);
-    assert_eq!(controls["tool_availability"], "verification_unproven");
-    let native = home.path().join("native");
-    private_dir(&native);
-    let output = capability_command(
-        &probe,
-        &["native", native.to_str().unwrap()],
-        home.path(),
-        "native",
-    );
-    let evidence: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    let ledger = &evidence["member_windows"];
-    assert_eq!(ledger["basis"], "canonical_private_c_program_only");
-    let t0 = ledger["t0_ns"].as_u64().unwrap();
-    let close = ledger["tclose_ns"].as_u64().unwrap();
-    let first = ledger["endpoint_ns"][0].as_u64().unwrap();
-    let second = ledger["endpoint_ns"][1].as_u64().unwrap();
-    assert!(t0 <= first && first < second && second <= close);
-    let windows = ledger["W_ns"].as_u64().unwrap();
-    let actual = ledger["A_ns"].as_u64().unwrap();
-    let controller = ledger["C_ns"].as_u64().unwrap();
-    let slot_actual = [
-        ledger["slot_A_ns"][0].as_u64().unwrap(),
-        ledger["slot_A_ns"][1].as_u64().unwrap(),
-    ];
-    assert_eq!(windows, (first - t0) + (second - t0));
-    assert!(
-        windows < 2 * (second - t0),
-        "unequal endpoints must retain their actual independent bounds"
-    );
-    assert!(actual <= windows, "unexplained A>W cannot acquire coverage");
-    assert!(slot_actual[0] <= first - t0);
-    assert!(slot_actual[1] <= second - t0);
-    let member_charge = match ledger["charge_basis"].as_str().unwrap() {
-        "measured" => {
-            assert_eq!(ledger["unknown_mask"], 0);
-            for field in [
-                "baseline_mask",
-                "counter_identity_mask",
-                "counter_mask",
-                "conversion_mask",
-            ] {
-                assert_eq!(ledger[field].as_u64().unwrap() & 3, 3, "{field}");
-            }
-            assert_eq!(
-                (ledger["post_ack_mask"].as_u64().unwrap()
-                    | ledger["wait4_mask"].as_u64().unwrap())
-                    & 3,
-                3,
-                "each measured slot needs its post-ACK or retained wait4 counters"
-            );
-            assert_eq!(actual, slot_actual[0] + slot_actual[1]);
-            actual
-        }
-        "window" => windows.max(actual),
-        other => panic!("unsupported member charge basis {other}"),
-    };
-    assert_eq!(ledger["Q_ns"].as_u64().unwrap(), member_charge + controller);
-    assert!(ledger["Q_ns"].as_u64().unwrap() <= 1_000_000);
-    assert!(
-        windows <= 25_000_000,
-        "the wall gate applies to either basis"
-    );
-    assert!(
-        ledger["post_cpu_ns"].as_u64().unwrap() + ledger["late_kernel_ns"].as_u64().unwrap()
-            <= 1_000_000
-    );
-    assert!(
-        ledger["debt_deadline_ns"].as_u64().unwrap() >= close + 18_000_000,
-        "active and later ordinary units owe separate fresh minimum9ms rests"
-    );
-    assert_eq!(ledger["roster_closed"], true);
-    assert_eq!(evidence["reaped"], true);
-    for field in ["leader", "child"] {
-        let pid = evidence[field].as_i64().unwrap() as i32;
-        let name = format!("{field}_birth");
-        let birth = evidence[name.as_str()].as_u64().unwrap();
-        assert!(process_sample(pid).is_none_or(|now| now.birth != birth));
-    }
-    let unavailable = Command::new(&probe)
-        .args([
-            "git",
-            "/unsupported/git",
-            "/unsupported/gpg",
-            home.path().to_str().unwrap(),
-            home.path().to_str().unwrap(),
-            "unadmitted",
-            home.path().to_str().unwrap(),
-            "uncreated-trace",
-            "uncreated-output",
-        ])
-        .current_dir(home.path())
-        .env_clear()
-        .stdin(Stdio::null())
-        .output()
-        .unwrap();
-    assert_eq!(unavailable.status.code(), Some(81));
-    let refusal: serde_json::Value = serde_json::from_slice(&unavailable.stdout).unwrap();
-    assert_eq!(refusal["availability"], "verification_unproven");
-    assert_eq!(refusal["whole_command_lifetime_coverage"], false);
-    assert!(
-        !home.path().join("uncreated-trace").exists()
-            && !home.path().join("uncreated-output").exists()
-    );
-    let retained = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("target")
-        .join(format!(
-            "dream-read-member-window-component-{}",
-            ulid::Ulid::new()
-        ));
-    private_dir(&retained);
-    for (name, bytes) in [
-        ("ledger-controls.stdout", control.stdout),
-        ("native.stdout", output.stdout),
-        ("native.stderr", output.stderr),
-        ("unavailable.stdout", unavailable.stdout),
-        ("unavailable.stderr", unavailable.stderr),
-    ] {
-        private_file(&retained.join(name), &bytes);
-    }
-    private_file(
-        &retained.join("proof-helper-probe.c"),
-        &std::fs::read(source).unwrap(),
-    );
-    private_file(&retained.join("probe"), &std::fs::read(&probe).unwrap());
-    std::fs::set_permissions(
-        retained.join("probe"),
-        std::fs::Permissions::from_mode(0o700),
-    )
-    .unwrap();
-    private_file(&retained.join("component.json"),&w::canonical(&serde_json::json!({"profile":"read-helper-native/1","kind":"nonqualifying_component_evidence","source_sha256":w::hash(std::fs::read(source).unwrap()).0,"probe_sha256":w::hash(std::fs::read(&probe).unwrap()).0,"os":{"release":os_release(),"arch":std::env::consts::ARCH},"commands":{"compile":["/usr/bin/clang","-O2","-std=c11","-Wall","-Wextra","-Werror","proof-helper-probe.c","-o","probe"],"controls":["probe","ledger-controls"],"native":["probe","native","private-native-dir"]},"exits":{"compile":0,"controls":0,"native":0,"unavailable":81}})).unwrap());
-    eprintln!(
-        "member-window-component retained={} clang_exit=0 controls_exit=0 native_exit=0 unavailable_exit=81 basis=canonical_private_c_program_only",
-        retained.display()
     );
 }
 
@@ -4442,7 +4279,10 @@ async fn qualifying_helper_foreground_cancel_settles_actual_descendant_before_do
     let lifetime = helper_record(&metrics, "helper_lifetime");
     assert!(lifetime.contains("coverage_known=true"), "{lifetime}");
     assert!(metric(lifetime, "settled") > 0 && metric(lifetime, "observed_descendant_cpu_ns") > 0);
-    assert!(metric(lifetime, "max_charge_ns") <= 1_000_000, "{lifetime}");
+    assert!(
+        metric(lifetime, "max_charge_ns") <= 250_000_000,
+        "{lifetime}"
+    );
     assert!(done.result_sha256.is_none() && done.pages == 0);
     assert!(!job.path.join("output/result.json").exists());
     for prior in observed {

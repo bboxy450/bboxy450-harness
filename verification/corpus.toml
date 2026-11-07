@@ -1472,26 +1472,6 @@ expected = "safety"
 frontend = "project"
 
 [[model]]
-name = "BrokenHarnessDreamReadHelperInitialStop"
-expected = "safety"
-frontend = "project"
-
-[[model]]
-name = "BrokenHarnessDreamReadHelperStopAck"
-expected = "safety"
-frontend = "project"
-
-[[model]]
-name = "BrokenHarnessDreamReadHelperDescendantCharge"
-expected = "safety"
-frontend = "project"
-
-[[model]]
-name = "BrokenHarnessDreamReadHelperControllerCharge"
-expected = "safety"
-frontend = "project"
-
-[[model]]
 name = "BrokenHarnessDreamReadHelperMainOverlap"
 expected = "safety"
 frontend = "project"
@@ -1518,11 +1498,6 @@ frontend = "project"
 
 [[model]]
 name = "BrokenHarnessDreamReadHelperNativeInclusive"
-expected = "safety"
-frontend = "project"
-
-[[model]]
-name = "BrokenHarnessDreamReadHelperRunnableCharge"
 expected = "safety"
 frontend = "project"
 
@@ -1593,131 +1568,6 @@ frontend = "project"
 
 [[model]]
 name = "BrokenHarnessDreamReadHelperExecEarlyRelease"
-expected = "safety"
-frontend = "project"
-
-[[model]]
-name = "HarnessDreamReadMemberWindow"
-expected = "pass"
-frontend = "project"
-
-[[model]]
-name = "BrokenHarnessDreamReadMemberWindowUnequalStop"
-expected = "safety"
-frontend = "project"
-
-[[model]]
-name = "BrokenHarnessDreamReadMemberWindowBackdatedBirth"
-expected = "safety"
-frontend = "project"
-
-[[model]]
-name = "BrokenHarnessDreamReadMemberWindowStaleExec"
-expected = "safety"
-frontend = "project"
-
-[[model]]
-name = "BrokenHarnessDreamReadMemberWindowTransient"
-expected = "safety"
-frontend = "project"
-
-[[model]]
-name = "BrokenHarnessDreamReadMemberWindowBlockedStop"
-expected = "safety"
-frontend = "project"
-
-[[model]]
-name = "BrokenHarnessDreamReadMemberWindowRequiredController"
-expected = "safety"
-frontend = "project"
-
-[[model]]
-name = "BrokenHarnessDreamReadMemberWindowActiveOverWindow"
-expected = "safety"
-frontend = "project"
-
-[[model]]
-name = "BrokenHarnessDreamReadMemberWindowLateKernel"
-expected = "safety"
-frontend = "project"
-
-[[model]]
-name = "BrokenHarnessDreamReadMemberWindowOmitPipe"
-expected = "safety"
-frontend = "project"
-
-[[model]]
-name = "BrokenHarnessDreamReadMemberWindowDoublePipe"
-expected = "safety"
-frontend = "project"
-
-[[model]]
-name = "BrokenHarnessDreamReadMemberWindowOmitRollup"
-expected = "safety"
-frontend = "project"
-
-[[model]]
-name = "BrokenHarnessDreamReadMemberWindowDoubleRollup"
-expected = "safety"
-frontend = "project"
-
-[[model]]
-name = "BrokenHarnessDreamReadMemberWindowRetiredCoverage"
-expected = "safety"
-frontend = "project"
-
-[[model]]
-name = "BrokenHarnessDreamReadMemberWindowDebtReset"
-expected = "safety"
-frontend = "project"
-
-[[model]]
-name = "BrokenHarnessDreamReadMemberWindowContinueOverlap"
-expected = "safety"
-frontend = "project"
-
-[[model]]
-name = "BrokenHarnessDreamReadMemberWindowMainOverlap"
-expected = "safety"
-frontend = "project"
-
-[[model]]
-name = "BrokenHarnessDreamReadMemberWindowClockRelease"
-expected = "safety"
-frontend = "project"
-
-[[model]]
-name = "BrokenHarnessDreamReadMemberWindowStopRelease"
-expected = "safety"
-frontend = "project"
-
-[[model]]
-name = "BrokenHarnessDreamReadMemberWindowRevokeRelease"
-expected = "safety"
-frontend = "project"
-
-[[model]]
-name = "BrokenHarnessDreamReadMemberWindowCancelRelease"
-expected = "safety"
-frontend = "project"
-
-[[model]]
-name = "BrokenHarnessDreamReadMemberWindowPanicRelease"
-expected = "safety"
-frontend = "project"
-
-[[model]]
-name = "BrokenHarnessDreamReadMemberWindowAba"
-expected = "safety"
-frontend = "project"
-
-[[model]]
-name = "BrokenHarnessDreamReadMemberWindowOverLimit"
-expected = "safety"
-frontend = "project"
-
-[[model]]
-name = "BrokenHarnessDreamReadMemberWindowLateKernelReplay"
 expected = "safety"
 frontend = "project"
 
@@ -1813,21 +1663,6 @@ frontend = "project"
 
 [[model]]
 name = "BrokenHarnessDreamReadQualificationEarlyTrust"
-expected = "safety"
-frontend = "project"
-
-[[model]]
-name = "BrokenHarnessDreamReadMemberWindowFailedAdmissionSample"
-expected = "safety"
-frontend = "project"
-
-[[model]]
-name = "BrokenHarnessDreamReadMemberWindowInitialCreation"
-expected = "safety"
-frontend = "project"
-
-[[model]]
-name = "BrokenHarnessDreamReadMemberWindowInitialDebt"
 expected = "safety"
 frontend = "project"
 
@@ -1998,11 +1833,6 @@ frontend = "project"
 
 [[model]]
 name = "BrokenHarnessDreamReadGitSigTempScratchReplacement"
-expected = "safety"
-frontend = "project"
-
-[[model]]
-name = "BrokenHarnessDreamReadMemberWindowAccountingTailDebt"
 expected = "safety"
 frontend = "project"
 
@@ -2182,27 +2012,6 @@ expected = "safety"
 frontend = "project"
 
 [[model]]
-name = "HarnessDreamReadInitialQuiescence"
-expected = "pass"
-frontend = "project"
-
-[[model]]
-name = "BrokenHarnessDreamReadInitialQuiescenceAcceptPending"
-expected = "safety"
-frontend = "project"
-
-[[model]]
-name = "BrokenHarnessDreamReadInitialQuiescenceRuntimePending"
-expected = "safety"
-frontend = "project"
-
-[[model]]
-name = "BrokenHarnessDreamReadInitialQuiescenceSkipFresh"
-expected = "safety"
-frontend = "project"
-
-
-[[model]]
 name = "HarnessDreamReadPrivateVerdicts"
 expected = "pass"
 frontend = "project"
@@ -2225,107 +2034,96 @@ frontend = "project"
 # Decision66236: paired named measured-basis, conservation and wall controls.
 
 [[model]]
-name = "BrokenHarnessDreamReadMemberWindowMeasuredOpenSlot"
+name = "Q2HelperTotalBudget"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenQ2HelperTotalBudgetNoQos"
 expected = "safety"
 frontend = "project"
 
 [[model]]
-name = "BrokenHarnessDreamReadMemberWindowPreAckCounters"
+name = "BrokenQ2HelperTotalBudgetLiveOnlyTrust"
 expected = "safety"
 frontend = "project"
 
 [[model]]
-name = "BrokenHarnessDreamReadMemberWindowMeasuredOmitRollup"
+name = "BrokenQ2HelperTotalBudgetDropChildRollup"
 expected = "safety"
 frontend = "project"
 
 [[model]]
-name = "BrokenHarnessDreamReadMemberWindowMeasuredRawTicks"
+name = "BrokenQ2HelperTotalBudgetNoLiveKill"
 expected = "safety"
 frontend = "project"
 
 [[model]]
-name = "BrokenHarnessDreamReadMemberWindowMeasuredNoWallGate"
+name = "BrokenQ2HelperTotalBudgetSkipDebt"
 expected = "safety"
 frontend = "project"
 
 [[model]]
-name = "BrokenHarnessDreamReadMemberWindowMeasuredMultiThread"
-expected = "safety"
-frontend = "project"
-
-# Clarified66236: qualified unique leader-child rollup counter provenance.
-
-[[model]]
-name = "BrokenHarnessDreamReadMemberWindowMixedChildRollup"
+name = "BrokenQ2HelperTotalBudgetForegroundResume"
 expected = "safety"
 frontend = "project"
 
 [[model]]
-name = "BrokenHarnessDreamReadMemberWindowPreExitRollup"
+name = "BrokenQ2HelperTotalBudgetEpermSettled"
 expected = "safety"
 frontend = "project"
 
 [[model]]
-name = "BrokenHarnessDreamReadMemberWindowDoubleCountRollup"
+name = "BrokenQ2HelperTotalBudgetStaleUnknown"
 expected = "safety"
 frontend = "project"
 
 [[model]]
-name = "BrokenHarnessDreamReadMemberWindowInitialCorroborationUnpaidStage"
+name = "BrokenQ2HelperTotalBudgetTerminalPauseUser"
 expected = "safety"
 frontend = "project"
 
 [[model]]
-name = "BrokenHarnessDreamReadMemberWindowInitialTerminalObservationSkipped"
+name = "BrokenQ2HelperTotalBudgetNoAttemptLiveChild"
 expected = "safety"
 frontend = "project"
 
 [[model]]
-name = "BrokenHarnessDreamReadMemberWindowTeardownOverCeiling"
+name = "BrokenQ2HelperTotalBudgetSkipEscapedCleanup"
 expected = "safety"
 frontend = "project"
 
 [[model]]
-name = "BrokenHarnessDreamReadMemberWindowUnchargedTeardownResidual"
+name = "BrokenQ2HelperTotalBudgetLeaderOnlySettlement"
 expected = "safety"
 frontend = "project"
 
 [[model]]
-name = "BrokenHarnessDreamReadMemberWindowWait4DerivedTeardownCeiling"
+name = "BrokenQ2HelperTotalBudgetUnqualifiedRollup"
 expected = "safety"
 frontend = "project"
 
 [[model]]
-name = "BrokenHarnessDreamReadMemberWindowUnprovenChildTeardownCount"
+name = "BrokenQ2HelperTotalBudgetDropNativeErrno"
 expected = "safety"
 frontend = "project"
 
 [[model]]
-name = "BrokenHarnessDreamReadMemberWindowEarlyBornUnpaidPhysicalReap"
-expected = "safety"
-frontend = "project"
-[[model]]
-name = "BrokenHarnessDreamReadMemberWindowFixedOversizeRunWindow"
+name = "BrokenQ2HelperTotalBudgetReapSeal"
 expected = "safety"
 frontend = "project"
 
 [[model]]
-name = "BrokenHarnessDreamReadMemberWindowMinLiveStopLatency"
+name = "BrokenQ2HelperTotalBudgetUnknownCpuRelease"
 expected = "safety"
 frontend = "project"
 
 [[model]]
-name = "BrokenHarnessDreamReadMemberWindowExitOrFailedStopGrowth"
+name = "BrokenQ2HelperTotalBudgetUnknownRssTrust"
 expected = "safety"
 frontend = "project"
 
 [[model]]
-name = "BrokenHarnessDreamReadMemberWindowWindowBasisNoDecrease"
-expected = "safety"
-frontend = "project"
-
-[[model]]
-name = "BrokenHarnessDreamReadMemberWindowPendingSecondGrantCommit"
-expected = "safety"
+name = "BrokenQ2HelperTotalBudgetBlockedExitDrain"
+expected = "liveness"
 frontend = "project"
