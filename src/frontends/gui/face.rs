@@ -2378,7 +2378,7 @@ pub fn zoom_text(e: &mut c::Element, scale: f32) {
                                 rect.y *= scale;
                                 rect.w *= scale;
                                 rect.h *= scale;
-                                (rect, paint.clone())
+                                (rect, *paint)
                             })
                             .collect();
                     }
