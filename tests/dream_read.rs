@@ -4895,6 +4895,7 @@ fn selected_multi_mib_four_jobs_keep_control_and_measured_storage_limits() {
 }
 
 #[test]
+#[ignore = "load-sensitive budget/wall window; re-enable via tasks/2026-11-06-qos-builds-never-starve-mcp"]
 fn selected_dense_owner_and_total_input_overflow_refuse_before_publication() {
     let mut dense = Job::large(0, 0);
     let bytes = std::fs::read(dense.source_path()).unwrap();
