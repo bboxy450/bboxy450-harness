@@ -2270,3 +2270,62 @@ frontend = "project"
 name = "BrokenHarnessDreamReadMemberWindowDoubleCountRollup"
 expected = "safety"
 frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadMemberWindowInitialCorroborationUnpaidStage"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadMemberWindowInitialTerminalObservationSkipped"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadMemberWindowTeardownOverCeiling"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadMemberWindowUnchargedTeardownResidual"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadMemberWindowWait4DerivedTeardownCeiling"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadMemberWindowUnprovenChildTeardownCount"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadMemberWindowEarlyBornUnpaidPhysicalReap"
+expected = "safety"
+frontend = "project"
+[[model]]
+name = "BrokenHarnessDreamReadMemberWindowFixedOversizeRunWindow"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadMemberWindowMinLiveStopLatency"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadMemberWindowExitOrFailedStopGrowth"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadMemberWindowWindowBasisNoDecrease"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadMemberWindowPendingSecondGrantCommit"
+expected = "safety"
+frontend = "project"

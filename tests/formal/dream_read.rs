@@ -3220,6 +3220,18 @@ fn member_window_projection(
         "MixedChildRollup",
         "PreExitRollup",
         "DoubleCountRollup",
+        "InitialCorroborationUnpaidStage",
+        "InitialTerminalObservationSkipped",
+        "TeardownOverCeiling",
+        "UnchargedTeardownResidual",
+        "Wait4DerivedTeardownCeiling",
+        "UnprovenChildTeardownCount",
+        "EarlyBornUnpaidPhysicalReap",
+        "FixedOversizeRunWindow",
+        "MinLiveStopLatency",
+        "ExitOrFailedStopGrowth",
+        "WindowBasisNoDecrease",
+        "PendingSecondGrantCommit",
     ];
     let name = format!("DreamReadMemberWindow{}", suffix[control as usize]);
     const PH: usize = 0;
@@ -4245,6 +4257,8 @@ fn member_window_projection(
     );
     if measured_law {
         extend_member_window_measured_law(&mut m, control, forged_terminal_control);
+        extend_member_window_adaptive_grants(&mut m, control);
+        extend_adaptive_latency_provenance(&mut m, control);
     }
     if control != 0 {
         // TLC otherwise expands the state-only ORs as alternative next-state
@@ -4335,12 +4349,36 @@ fn member_window_projection(
             27 => &["InitialCorroborationRequiresBothPriorDebtsPaid"],
             28 => &["DebtNeverDropsObservedOutstandingWork"],
             29 | 30 => &["MeasuredNeedsClosure"],
-            31 | 32 => &["ChargedCoversBurned", "ConservationFailureRetainsRawAndRefusesTrust"],
+            31 | 32 => &[
+                "ChargedCoversBurned",
+                "ConservationFailureRetainsRawAndRefusesTrust",
+            ],
             33 => &["WallBounded"],
             34 => &["MeasuredNeedsClosure", "PerSlotMeasuredCpuFitsWindow"],
             35 => &["MeasuredNeedsClosure", "RollupRequiresUniqueAdmittedChild"],
             36 => &["MeasuredNeedsClosure", "RollupNeedsCausalExitAndLeaderAck"],
             37 => &["MeasuredNeedsClosure", "RollupCountedOnce"],
+            38 => &["InitialCorroborationStageRequiresFreshPaidRest"],
+            39 => &["InitialEligibleTerminalRiAttemptPrecedesOwnWait4"],
+            40 => &[
+                "ChargedCoversBurned",
+                "ConservationFailureRetainsRawAndRefusesTrust",
+            ],
+            41 => &["TerminalResidualIsFullyChargedOutsideConservationCredit"],
+            42 => &["TeardownCeilingIsIndependentFixedPerActualReap"],
+            43 => &["TeardownChildCountNeedsQualifiedRetainedReapProof"],
+            44 => &["BornStoppedCreationFaultReapNeedsPaidOriginalPhysicalLatch"],
+            45 => &["IssuedAdaptiveGrantUsesMeasuredCostAndStopLatencyCap"],
+            46 => &["AdaptiveLatencyRetainsMaximumValidLiveAck"],
+            47 => &[
+                "AdaptiveLatencyRetainsMaximumValidLiveAck",
+                "AdaptiveGrowthNeedsMeasuredLiveSuccessfulStopAck",
+            ],
+            48 => &["WindowBasisAboveNewTargetHalvesPriorRun"],
+            49 => &[
+                "PendingDirectExitCannotAdmitExpensiveWorkOrTrust",
+                "SecondDirectGrantCommitNeedsOwnWait4AndPriorCredit",
+            ],
             _ => unreachable!(),
         };
         assert!(
@@ -4432,9 +4470,55 @@ fn extend_member_window_measured_law(m: &mut Model, control: u8, forged_terminal
     const ROLL_DELTA: usize = 96;
     const FALLBACK_DEBT: usize = 97;
     const ROLL_ZERO_CHILDREN: usize = 98;
+    const INITIAL_STAGE: usize = 99;
+    const INITIAL_CPU: usize = 100;
+    const INITIAL_PRIOR_DEBT: usize = 101;
+    const INITIAL_READY: usize = 102;
+    const STARTUP_KNOWN: usize = 103;
+    const STARTUP_CLOSED: usize = 104;
+    const STARTUP_PAID: usize = 105;
+    const STARTUP_TIMEBASE: usize = 106;
+    const STARTUP_CHARGED: usize = 107;
+    const INITIAL_ATTEMPT: usize = 108;
+    const INITIAL_READ_KNOWN: usize = 109;
+    const INITIAL_RAW_SYSTEM: usize = 110;
+    const INITIAL_L: usize = 111;
+    const INITIAL_REST_PAID: usize = 112;
+    const INITIAL_LAST_CPU: usize = 113;
+    const INITIAL_COST_BOUND: usize = 114;
+    const INITIAL_ATTEMPT_DEBT: usize = 115;
+    const INITIAL_UNKNOWN: usize = 116;
+    const INITIAL_UNKNOWN_DEBT: usize = 117;
+    const ACTUAL_REAPS: usize = 118;
+    const TEARDOWN_LIMIT: usize = 119;
+    const TEARDOWN_ALLOWANCE: usize = 120;
+    const RESIDUAL: usize = 121;
+    const RESIDUAL_CHARGED: usize = 122;
+    const RESIDUAL_TOTAL: usize = 123;
+    const RESIDUAL_OBSERVED: usize = 124;
+    const RESIDUAL_PAID: usize = 125;
+    const RESIDUAL_KNOWN: usize = 126;
+    const INDEPENDENT_AT_BILL: usize = 127;
+    const QUALIFIED_CHILD_REAP: usize = 128;
+    const BORN_LATCH: usize = 129;
+    const BORN_SOURCE: usize = 130;
+    const BORN_COST_SEEN: usize = 131;
+    const BORN_COST_RETAINED: usize = 132;
+    const BORN_BIRTH_CLOCKS: usize = 133;
+    const BORN_COST_PAID: usize = 134;
+    const BORN_NATIVE_COST: usize = 135;
+    const BORN_NATIVE_DEBT: usize = 136;
+    const BORN_EXPECTED_SLOTS: usize = 137;
+    const BORN_CHILD_ACTIVATED: usize = 138;
+    const BORN_FRESH_SOURCE: usize = 139;
+    const BORN_PHYSICAL: usize = 140;
+    const BORN_ATTEMPT_RETAINED: usize = 141;
+    const BORN_ATTEMPT_END_CLOCKS: usize = 142;
+    const BORN_ACCOUNTING_UNKNOWN: usize = 143;
+    const BORN_RAW_NATIVE_KNOWN: usize = 144;
     assert_eq!(m.variables.len(), LAW);
     for (name, max) in [
-        ("measuredLawProfile", 19),
+        ("measuredLawProfile", 46),
         ("basisWindowMeasured", 1),
         ("slot0CountersReadNonePreAckPostAckRetainedWait4", 3),
         (
@@ -4469,9 +4553,11 @@ fn extend_member_window_measured_law(m: &mut Model, control: u8, forged_terminal
         ("rollupChildExitProvenBeforeRead", 1),
         ("rollupLeaderAckBeforeRead", 1),
         ("qualifiedChildRollupAttributionCount", 2),
-        ("rollupCumulativeChildNs", 250_000),
-        ("rollupBaselineChildNs", 125_000),
-        ("priorLiveChildCreditNs", 125_000),
+        // Profile43 retains actual first-grant live300us, then cumulative
+        // child350us with that SAME300us baseline and a50us nonduplicate delta.
+        ("rollupCumulativeChildNs", 350_000),
+        ("rollupBaselineChildNs", 300_000),
+        ("priorLiveChildCreditNs", 300_000),
         ("rollupDuplicateLiveChildNs", 125_000),
         ("rawGrantQuantumNs", 3_000_000),
         ("rawGrantBasisWindowMeasured", 1),
@@ -4482,6 +4568,52 @@ fn extend_member_window_measured_law(m: &mut Model, control: u8, forged_terminal
         ("rollupCurrentDeltaNs", 250_000),
         ("retainedFallbackDebtMs", 27),
         ("rollupLeaderChildCountZeroBeforeRead", 1),
+        ("initialStoppedCorroborationStage", 5),
+        ("initialStoppedCorroborationInclusiveCpuNs", 1_164_833),
+        ("initialStoppedCorroborationPriorDebtMs", 9),
+        ("initialStoppedCorroborationPaidSeal", 1),
+        ("initialStartupRawBaselineKnown", 1),
+        ("initialStartupOriginalRosterClosed", 1),
+        ("initialStartupRetainedPaidEvidence", 1),
+        ("initialStartupRetainedTimebaseKnownUnchanged", 1),
+        ("initialStartupCreditCommitted", 1),
+        ("initialTerminalRiAttemptedBeforeWait4", 1),
+        ("initialTerminalRiKnown", 1),
+        ("initialTerminalIndependentRawSystemDeltaNs", 75_000),
+        ("initialTerminalCreditedKernelNs", 75_000),
+        ("initialTerminalObservationCostPaidBeforeWait4", 1),
+        ("initialStoppedCorroborationLastInclusiveCpuNs", 1_000_000),
+        ("initialTerminalRetainedCostBoundNs", 3_000_000),
+        ("initialTerminalRetainedAttemptDebtMs", 27),
+        ("initialTerminalConservationUnknown", 1),
+        ("initialTerminalUnknownVerdictDebtMs", 27),
+        ("actualProvenReapedProcessCount", 2),
+        ("fixedExitTeardownLimitPerProcessNs", 3_000_000),
+        ("separateExitTeardownConservationAllowanceNs", 6_000_000),
+        ("actualTerminalResidualCpuNs", 8_000_000),
+        ("terminalResidualChargedAsCostNs", 8_000_000),
+        ("terminalResidualInclusiveCostBoundNs", 8_250_000),
+        ("terminalResidualCostObserved", 1),
+        ("terminalResidualFullCostPaid", 1),
+        ("terminalResidualCostKnown", 1),
+        ("independentMemberCreditsBeforeResidualBillNs", 8_000_000),
+        ("qualifiedUniqueGitReapedChildCountedOnce", 1),
+        ("bornStoppedOriginalPhysicalLatch", 1),
+        ("bornStoppedExactSourceAtAttach", 1),
+        ("bornStoppedNativeCostObserved", 1),
+        ("bornStoppedNativeCostRetainedFunded", 1),
+        ("bornStoppedReceiptClosingClocksKnown", 1),
+        ("bornStoppedNativeCostPaidReceipt", 1),
+        ("bornStoppedNativeInclusiveCostBoundNs", 3_000_000),
+        ("bornStoppedNativeCreatedDebtMs", 27),
+        ("bornStoppedRetainedExpectedMembers", 2),
+        ("bornStoppedImplicitReservedSlotActivated", 1),
+        ("bornStoppedFreshOriginalTerminalSourceKnown", 1),
+        ("bornStoppedFreshPhysicalClosureValidated", 1),
+        ("bornStoppedTerminalAttemptRetained", 1),
+        ("bornStoppedTerminalAttemptClosingClocksKnown", 1),
+        ("bornStoppedStartupAccountingUnproven", 1),
+        ("bornStoppedOriginalNativeAdmissionCostKnown", 1),
     ] {
         m.variables.push(Variable::new(name, 0, max, 0));
     }
@@ -4501,13 +4633,102 @@ fn extend_member_window_measured_law(m: &mut Model, control: u8, forged_terminal
         );
     }
     let new_law = eq(LAW, 0).negate();
+    let initial_only = Int(19).lt(Var(LAW)).and(Var(LAW).lt(Int(38)));
+    let initial_eligible = all([
+        initial_only.clone(),
+        eq(49, 0),
+        eq(INITIAL_READY, 1),
+        eq(STARTUP_CHARGED, 1),
+        eq(STARTUP_KNOWN, 1),
+        eq(STARTUP_CLOSED, 1),
+        eq(STARTUP_PAID, 1),
+        eq(STARTUP_TIMEBASE, 1),
+        Var(5).eq(Var(6)),
+    ]);
+    let early_born = Int(28).lt(Var(LAW)).and(Var(LAW).lt(Int(38)));
+    // Physical custody is independent of numerical startup/L credit. Expected
+    // member2 is an UNACTIVATED reservation under the reviewed no-CONT source
+    // law, not proof of an actual child or a count-zero absence inference.
+    let born_original = all([
+        early_born.clone(),
+        eq(BORN_LATCH, 1),
+        eq(BORN_SOURCE, 1),
+        eq(BORN_EXPECTED_SLOTS, 1).or(eq(BORN_EXPECTED_SLOTS, 2)),
+        eq(BORN_CHILD_ACTIVATED, 0),
+        eq(49, 0),
+        eq(BORN_COST_SEEN, 1),
+        eq(BORN_COST_RETAINED, 1),
+        eq(BORN_BIRTH_CLOCKS, 1),
+        eq(BORN_COST_PAID, 1),
+        eq(BORN_ACCOUNTING_UNKNOWN, 1),
+        Var(5).eq(Var(6)),
+        Var(16).eq(Var(17)),
+    ]);
+    let born_reap_ready = all([
+        born_original.clone(),
+        eq(BORN_FRESH_SOURCE, 1),
+        eq(BORN_PHYSICAL, 1),
+        eq(INITIAL_ATTEMPT, 1),
+        eq(BORN_ATTEMPT_RETAINED, 1),
+        eq(BORN_ATTEMPT_END_CLOCKS, 1),
+        eq(INITIAL_REST_PAID, 1),
+        eq(INITIAL_COST_BOUND, 3_000_000),
+        eq(INITIAL_ATTEMPT_DEBT, 27),
+    ]);
+    let unknown_conservation_route = all([
+        eq(LAW, 21),
+        initial_eligible.clone(),
+        eq(INITIAL_READ_KNOWN, 0),
+    ])
+    .or(born_reap_ready.clone());
     let mut direct_exit = None;
     let mut implicit_exit = None;
     let mut unexpected_wait4 = None;
+    let mut excessive_wait4 = None;
+    let mut excessive_rollup_wait4 = None;
     let mut rollup_continue = None;
+    let mut initial_exit = None;
+    let mut within_grant_unknown = None;
+    let mut early_birth = None;
+    let mut early_attach = None;
     // All physical lifecycle actions are shared. Only the numeric charge
     // projection has separate alternatives; neither path can mint a new owner.
     for action in &mut m.actions {
+        if action.name == "ConfirmCanonicalCreationOwnershipAndBothDebtsSettled" {
+            action.guard = action.guard.clone().and(early_born.clone().negate());
+        }
+        if action.name == "AttachCurrentStoppedBirth" {
+            let mut attached = action.clone();
+            attached.name = "RetainExactBornStoppedPhysicalLatchBeforeAttachCallbackReturns".into();
+            attached.guard = attached.guard.and(early_born.clone());
+            attached.updates.push((BORN_LATCH, Var(BORN_SOURCE)));
+            early_attach = Some(attached);
+            action.guard = action.guard.clone().and(early_born.clone().negate());
+        }
+        if action.name == "OpenUnknownImplicitSlotWithoutInventingBirthTime" {
+            // Profile3's unknown/unaccounted reserved child is observed DURING
+            // the original admitted grant, after honest stopped startup. It
+            // must not poison creation/stopped-stage admission beforehand.
+            // Keep the same original pre-CONT slot start and no child ACK.
+            let mut unknown = action.clone();
+            unknown.name = "OpenWithinGrantUnknownImplicitSlotRetainsOriginalWindow".into();
+            unknown.guard = unknown.guard.and(eq(LAW, 3));
+            unknown.updates.push((42, Int(1)));
+            within_grant_unknown = Some(unknown);
+            action.guard = action.guard.clone().and(eq(LAW, 3).negate());
+        }
+        if action
+            .name
+            .starts_with("InitialCorroborationCreationSettled")
+        {
+            action.guard = action.guard.clone().and(eq(LAW, 0));
+        }
+        if action.name == "ObserveOrdinaryControllerTailBeforeInitialCorroboration" {
+            action.guard = action
+                .guard
+                .clone()
+                .and(eq(LAW, 0).or(eq(INITIAL_STAGE, 0)));
+        }
         // Correlated profiles select one observation trajectory. LAW0 alone
         // retains the complete independent legacy fault/foreground product;
         // duplicating it for every numeric constant proves no additional law.
@@ -4534,15 +4755,20 @@ fn extend_member_window_measured_law(m: &mut Model, control: u8, forged_terminal
             action.guard = action.guard.clone().and(eq(LAW, 3).negate());
         }
         if action.name == "RetireRetainsOriginalWindowsAndSignalingCustody" {
-            action.guard = action.guard.clone().and(eq(LAW, 0).or(all([
-                eq(27, 0),
-                eq(28, 0),
-                all([eq(LAW, 12), eq(PENDING, 1)]).or(all([
-                    Int(0).lt(Var(QNS)),
-                    eq(46, 1),
-                    eq(LAW, 1).or(eq(LAW, 15)).negate().or(eq(49, 2)),
+            action.guard = action.guard.clone().and(
+                eq(LAW, 0).or(all([
+                    eq(27, 0),
+                    eq(28, 0),
+                    all([initial_eligible.clone(), eq(49, 0), eq(0, 3)])
+                        .or(all([born_original.clone(), eq(0, 3)]))
+                        .or(all([eq(LAW, 12).or(eq(LAW, 44)), eq(PENDING, 1)]))
+                        .or(all([
+                            Int(0).lt(Var(QNS)),
+                            eq(46, 1),
+                            eq(LAW, 1).or(eq(LAW, 15)).negate().or(eq(49, 2)),
+                        ])),
                 ])),
-            ])));
+            );
         }
         if action.name == "ObserveExactOriginalExitAndRetainedUsage"
             || action.name == "ActuallyReapOriginalGroupAfterRetirement"
@@ -4571,10 +4797,38 @@ fn extend_member_window_measured_law(m: &mut Model, control: u8, forged_terminal
         {
             action.guard = action.guard.clone().and(eq(LAW, 0));
         }
+        if action.name == "ObserveExactOriginalExitAndRetainedUsage" {
+            let mut observed = action.clone();
+            observed.name = "ObserveUngrantOriginalExitWithIndependentRawKernelTruth".into();
+            observed.guard = observed.guard.and(initial_only.clone()).and(
+                early_born
+                    .clone()
+                    .negate()
+                    .or(all([born_original.clone(), eq(BORN_FRESH_SOURCE, 1)])),
+            );
+            observed.updates.push((BORN_PHYSICAL, Int(1)));
+            observed.updates.retain(|(slot, _)| *slot != 8);
+            observed.updates.extend([
+                (8, Int(0)),
+                (BURNED, Var(BURNED).plus(Var(INITIAL_RAW_SYSTEM))),
+            ]);
+            initial_exit = Some(observed);
+            action.guard = action.guard.clone().and(initial_only.clone().negate());
+        }
         if action.name == "CreateStoppedRetainsOriginalEffect" {
             action
                 .updates
                 .extend([(BURNED, Int(125_000)), (CHARGED, Int(125_000))]);
+            let mut born = action.clone();
+            born.name = "CreateOriginalSuspendedEffectWithoutClaimingStartupCredit".into();
+            born.guard = born.guard.and(early_born.clone());
+            for (slot, value) in &mut born.updates {
+                if *slot == CHARGED {
+                    *value = Int(0);
+                }
+            }
+            early_birth = Some(born);
+            action.guard = action.guard.clone().and(early_born.clone().negate());
         }
         if action.name == "CheckedT0OpensEveryReservedSlotBeforeCont"
             || action.name == "ContinueOnlyAfterClosureCorroborationAndAllDebt"
@@ -4590,6 +4844,13 @@ fn extend_member_window_measured_law(m: &mut Model, control: u8, forged_terminal
                 (ORIGIN1, Int(0)),
             ]);
             action.guard = action.guard.clone().and(eq(PENDING, 0));
+            if action.name == "CheckedT0OpensEveryReservedSlotBeforeCont" {
+                action.guard = action
+                    .guard
+                    .clone()
+                    .and(initial_only.clone().negate())
+                    .and(eq(LAW, 0).or(eq(INITIAL_READY, 1)));
+            }
         }
         if action.name == "ContinueOnlyAfterClosureCorroborationAndAllDebt" {
             let mut second = action.clone();
@@ -4617,7 +4878,10 @@ fn extend_member_window_measured_law(m: &mut Model, control: u8, forged_terminal
             // Profile1 supplies the two-grant accumulation witness. Each
             // remaining correlated profile focuses one grant plus its selected
             // terminal/late/post observation, retaining the global two bound.
-            action.guard = action.guard.clone().and(eq(LAW, 0).or(eq(LAW, 1)));
+            action.guard = action
+                .guard
+                .clone()
+                .and(eq(LAW, 0).or(eq(LAW, 1)).or(Int(37).lt(Var(LAW))));
         }
         if action
             .name
@@ -4631,7 +4895,8 @@ fn extend_member_window_measured_law(m: &mut Model, control: u8, forged_terminal
             if action.name.ends_with("Case2") {
                 let mut exited = action.clone();
                 exited.name = "ObserveDirectOriginalExitRetainsIdentityBeforeOwnWait4".into();
-                exited.guard = exited.guard.and(eq(LAW, 12));
+                let direct_profile = eq(LAW, 12).or(all([eq(LAW, 44), eq(49, 2)]));
+                exited.guard = exited.guard.and(direct_profile.clone());
                 for (slot, value) in &mut exited.updates {
                     if *slot == 7 {
                         *value = Int(4);
@@ -4639,7 +4904,7 @@ fn extend_member_window_measured_law(m: &mut Model, control: u8, forged_terminal
                 }
                 exited.updates.push((ORIGIN0, Int(2)));
                 direct_exit = Some(exited);
-                action.guard = action.guard.clone().and(eq(LAW, 12).negate());
+                action.guard = action.guard.clone().and(direct_profile.negate());
             }
         }
         if action.name == "AckKnownMember1AfterCheckedHostClockCase1" {
@@ -4649,7 +4914,8 @@ fn extend_member_window_measured_law(m: &mut Model, control: u8, forged_terminal
                 .and(eq(LAW, 17).negate().or(eq(READ1, 4)));
             let exited_profile = eq(LAW, 13)
                 .or(all([eq(LAW, 15), eq(49, 2)]))
-                .or(all([Int(15).lt(Var(LAW)), Var(LAW).lt(Int(20))]));
+                .or(all([Int(15).lt(Var(LAW)), Var(LAW).lt(Int(20))]))
+                .or(all([eq(LAW, 43), eq(49, 2)]));
             let mut exited = action.clone();
             exited.name = "ObserveImplicitChildExitWithoutInventingOwnWait4".into();
             exited.guard = exited.guard.and(exited_profile.clone());
@@ -4663,18 +4929,55 @@ fn extend_member_window_measured_law(m: &mut Model, control: u8, forged_terminal
             action.guard = action.guard.clone().and(exited_profile.negate());
         }
         if action.name == "ActuallyReapOriginalGroupAfterRetirement" {
+            let attempted = initial_eligible
+                .clone()
+                .negate()
+                .or(all([eq(INITIAL_ATTEMPT, 1), eq(INITIAL_REST_PAID, 1)]))
+                .or(Bool(control == 39));
+            action.guard = action
+                .guard
+                .clone()
+                .and(attempted)
+                .and(early_born.clone().negate().or(born_reap_ready.clone()));
+            // N starts with actual original own wait4, never expected slots,
+            // census or residual. The separately qualified child alternative
+            // below may add exactly one original Git-reaped GPG once.
+            action.updates.extend([
+                (ACTUAL_REAPS, Int(1)),
+                (TEARDOWN_ALLOWANCE, Var(TEARDOWN_LIMIT)),
+            ]);
+            let mut rollup_over = action.clone();
+            rollup_over.name =
+                "ActualWait4IndependentlyRevealsOverTwoCeilingsRollupTeardownCpu".into();
+            rollup_over.guard = rollup_over.guard.and(eq(LAW, 19));
+            rollup_over.updates.extend([
+                (WAIT4, Var(BURNED).plus(Int(400_000))),
+                (BURNED, Var(BURNED).plus(Int(400_000))),
+            ]);
+            excessive_rollup_wait4 = Some(rollup_over);
+            let mut over = action.clone();
+            over.name = "ActualWait4IndependentlyRevealsOverCeilingTeardownCpu".into();
+            over.guard = over.guard.and(eq(LAW, 28));
+            over.updates.extend([
+                (WAIT4, Var(BURNED).plus(Int(250_000))),
+                (BURNED, Var(BURNED).plus(Int(250_000))),
+            ]);
+            excessive_wait4 = Some(over);
             let mut independent = action.clone();
             independent.name = "ActualWait4IndependentlyRevealsUnchargedCpu".into();
-            independent.guard = independent.guard.and(eq(LAW, 14).or(eq(LAW, 19)));
+            independent.guard = independent.guard.and(eq(LAW, 14).or(eq(LAW, 22)));
             independent.updates.extend([
                 (WAIT4, Var(BURNED).plus(Int(125_000))),
                 (BURNED, Var(BURNED).plus(Int(125_000))),
             ]);
             unexpected_wait4 = Some(independent);
-            action.guard = action
-                .guard
-                .clone()
-                .and(eq(LAW, 14).or(eq(LAW, 19)).negate());
+            action.guard = action.guard.clone().and(
+                eq(LAW, 14)
+                    .or(eq(LAW, 19))
+                    .or(eq(LAW, 22))
+                    .or(eq(LAW, 28))
+                    .negate(),
+            );
             action.updates.push((WAIT4, Var(BURNED)));
         }
         if action
@@ -4711,8 +5014,581 @@ fn extend_member_window_measured_law(m: &mut Model, control: u8, forged_terminal
         direct_exit.expect("shared direct exit action"),
         implicit_exit.expect("shared implicit exit action"),
         unexpected_wait4.expect("shared actual wait4 action"),
+        excessive_wait4.expect("shared over-ceiling actual wait4 action"),
+        excessive_rollup_wait4.expect("shared over-two-ceilings rollup actual wait4 action"),
         rollup_continue.expect("shared second-grant continuation"),
+        initial_exit.expect("shared initial original exit"),
+        within_grant_unknown.expect("shared running-grant unknown-slot observation"),
+        early_birth.expect("shared retained suspended original birth"),
+        early_attach.expect("shared original stopped attachment"),
     ]);
+    // Clarification2/11:45: at most ONE unique admitted child is counted
+    // without a fabricated controller-owned child wait4. Original retired
+    // identity/closed child-count-zero, leader ACK before qualified rollup,
+    // exclusive nonduplicated child delta and actual original LEADER wait4
+    // prove Git already reaped that child. No expected slot/unknown birth,
+    // census alone, repeated grant/read or CPU residual can add N.
+    let qualified_child_reap = all([
+        eq(READ1, 4),
+        eq(ORIGIN1, 2),
+        eq(8, 4),
+        eq(18, 1),
+        eq(19, 1),
+        eq(ROLL_UNIQUE, 1),
+        eq(ROLL_MIXED, 0),
+        eq(ROLL_EXIT, 1),
+        eq(ROLL_ACK, 1),
+        eq(ROLL_ZERO_CHILDREN, 1),
+        eq(ROLL_COUNT, 1),
+        eq(ROLL_DUPLICATE, 0),
+        Var(ROLL_DELTA).eq(Var(ROLL_CUMULATIVE).minus(Var(ROLL_BASELINE))),
+        Var(ROLL_BASELINE).eq(Var(PRIOR_LIVE)),
+        Var(REPORTED).eq(Var(A0).plus(Var(ROLL_DELTA))),
+        Var(5).eq(Var(6)),
+    ]);
+    let mut reaped_children = vec![];
+    for action in &mut m.actions {
+        if action.name == "ActuallyReapOriginalGroupAfterRetirement"
+            || action.name.starts_with("ActualWait4IndependentlyReveals")
+        {
+            let mut child = action.clone();
+            child.name.push_str("WithExactlyOneQualifiedGitReapedChild");
+            child.guard = child.guard.and(qualified_child_reap.clone());
+            child
+                .updates
+                .retain(|(slot, _)| ![ACTUAL_REAPS, TEARDOWN_ALLOWANCE].contains(slot));
+            child.updates.extend([
+                (ACTUAL_REAPS, Int(2)),
+                (QUALIFIED_CHILD_REAP, Int(1)),
+                (
+                    TEARDOWN_ALLOWANCE,
+                    Var(TEARDOWN_LIMIT).plus(Var(TEARDOWN_LIMIT)),
+                ),
+            ]);
+            reaped_children.push(child);
+            action.guard = action
+                .guard
+                .clone()
+                .and(qualified_child_reap.clone().negate());
+        }
+    }
+    m.actions.extend(reaped_children);
+    // Representative five-slice refinement of already-proved STOPPED work.
+    // The C implementation has at most11 checkpoints plus one separate kernel
+    // accounting unit (12 total; its single-member control uses8+1). This is
+    // NOT that maximum: these five correlated costs retain the observed total
+    // 1_164_833ns while each nominal slice is <=500us and the hard gate stays1ms.
+    // No open/running grant is split. Every new slice invalidates the seal and
+    // records its OWN fresh9ms debt; first CONT waits for the final paid seal.
+    act(
+        m,
+        "ObserveInitialOriginalStoppedSingleSlotAndClosedChildAbsence",
+        all([
+            initial_only.clone(),
+            eq(0, 3),
+            eq(52, 1),
+            eq(7, 3),
+            eq(8, 1),
+            eq(STARTUP_CLOSED, 1),
+            eq(49, 0),
+            eq(27, 0),
+            eq(28, 0),
+            eq(37, 0),
+            Var(5).eq(Var(6)),
+        ]),
+        &[
+            (8, Int(0)),
+            (14, Int(1)),
+            (15, Int(1)),
+            (18, Int(1)),
+            (19, Int(1)),
+        ],
+    );
+    let slices = [250_000, 250_000, 250_000, 250_000, 164_833];
+    for (stage, cpu) in slices.into_iter().enumerate() {
+        let stage = stage as i64;
+        assert!(cpu <= 500_000, "stopped slice nominal must remain <=0.5ms");
+        act(
+            m,
+            &format!("InitialStoppedCorroborationMeasuredSlice{stage}"),
+            all([
+                new_law.clone(),
+                eq(0, 3),
+                eq(52, 1),
+                eq(53, 0),
+                initial_only.clone().negate().or(all([
+                    eq(8, 0),
+                    eq(18, 1),
+                    eq(STARTUP_KNOWN, 1),
+                    eq(STARTUP_PAID, 1),
+                    eq(STARTUP_TIMEBASE, 1),
+                ])),
+                eq(INITIAL_STAGE, stage),
+                eq(7, 3),
+                eq(49, 0),
+                eq(37, 0),
+                eq(38, 0),
+                eq(42, 0),
+                Var(5).eq(Var(6)),
+                all([eq(27, 0), eq(28, 0)]).or(all([
+                    Bool(control == 38 && stage == 1),
+                    eq(27, 9),
+                    eq(28, 9),
+                ])),
+            ]),
+            &[
+                (INITIAL_STAGE, Int(stage + 1)),
+                (INITIAL_CPU, Var(INITIAL_CPU).plus(Int(cpu))),
+                (INITIAL_LAST_CPU, Int(cpu)),
+                (INITIAL_PRIOR_DEBT, Var(27)),
+                (INITIAL_READY, Int(0)),
+                (STARTUP_CHARGED, Int(1)),
+                (27, Var(27).plus(Int(9))),
+                (28, Var(28).plus(Int(9))),
+            ],
+        );
+    }
+    act(
+        m,
+        "SealInitialStoppedCorroborationOnlyAfterEverySlicePaid",
+        all([
+            new_law.clone(),
+            eq(0, 3),
+            eq(52, 1),
+            eq(53, 0),
+            eq(INITIAL_STAGE, 5),
+            eq(27, 0),
+            eq(28, 0),
+            eq(7, 3),
+            eq(49, 0),
+            eq(37, 0),
+            eq(38, 0),
+            Var(5).eq(Var(6)),
+        ]),
+        &[(INITIAL_READY, Int(1)), (53, Int(1))],
+    );
+    for profile in 20..=28 {
+        // One original stopped helper, no child, no grant and no CONT. Missing
+        // baseline/roster/payment/timebase are retained independent premises;
+        // they are never repaired from terminal wait4 or controller CPU.
+        act(
+            m,
+            &format!("ConfigureUngrantStartupTerminalProfile{profile}"),
+            all([eq(2, 0), eq(0, 0)]),
+            &[
+                (LAW, Int(profile)),
+                (TEARDOWN_LIMIT, Int(150_000)),
+                (1, Int(2)),
+                (2, Int(1)),
+                (STARTUP_KNOWN, Int(i64::from(profile != 23))),
+                (STARTUP_CLOSED, Int(i64::from(profile != 24))),
+                (STARTUP_PAID, Int(i64::from(profile != 25))),
+                (STARTUP_TIMEBASE, Int(i64::from(profile != 26))),
+                (
+                    INITIAL_RAW_SYSTEM,
+                    Int(if profile == 27 { 0 } else { 75_000 }),
+                ),
+            ],
+        );
+    }
+    // The SAME created/attached owner is retained across an Attach callback
+    // panic BEFORE creation settlement/first corroboration. Its fixed public
+    // source forbids an implicit child before CONT; expected2 is kept consumed.
+    for profile in 29..=37 {
+        act(
+            m,
+            &format!("ConfigureEarlyBornStoppedCreationFaultProfile{profile}"),
+            all([eq(2, 0), eq(0, 0)]),
+            &[
+                (LAW, Int(profile)),
+                (TEARDOWN_LIMIT, Int(150_000)),
+                (1, Int(2)),
+                (2, Int(1)),
+                (BORN_SOURCE, Int(i64::from(profile != 31))),
+                (BORN_EXPECTED_SLOTS, Int(if profile == 30 { 1 } else { 2 })),
+                (BORN_FRESH_SOURCE, Int(i64::from(profile != 33))),
+                (BORN_ATTEMPT_END_CLOCKS, Int(i64::from(profile != 34))),
+                (BORN_ACCOUNTING_UNKNOWN, Int(1)),
+                (INITIAL_RAW_SYSTEM, Int(0)),
+            ],
+        );
+    }
+    act(
+        m,
+        "AttachCallbackFaultRetainsOriginalSuspendedEffectBeforeCreationSettlement",
+        all([
+            early_born.clone(),
+            eq(0, 3),
+            eq(52, 0),
+            eq(37, 0),
+            eq(BORN_COST_SEEN, 0),
+        ]),
+        &[(37, Int(5)), (26, Int(0)), (34, Int(0))],
+    );
+    for profile in 29..=37 {
+        let native_known = !matches!(profile, 32 | 36 | 37);
+        let receipt_clocks_known = profile != 36;
+        let funded = !matches!(profile, 35 | 37);
+        let bound = if native_known { 2_000_000 } else { 3_000_000 };
+        let debt = if profile == 35 {
+            0
+        } else if profile == 37 {
+            9
+        } else if native_known {
+            18
+        } else {
+            27
+        };
+        act(
+            m,
+            &format!("RetainActualNativeBirthCostDespiteAttachFaultProfile{profile}"),
+            all([
+                eq(LAW, profile),
+                eq(0, 3),
+                eq(52, 0),
+                eq(37, 5),
+                eq(BORN_COST_SEEN, 0),
+                eq(27, 0),
+                eq(28, 0),
+            ]),
+            &[
+                (BORN_COST_SEEN, Int(1)),
+                (BORN_NATIVE_COST, Int(bound)),
+                (BORN_COST_RETAINED, Int(i64::from(funded))),
+                (BORN_BIRTH_CLOCKS, Int(i64::from(receipt_clocks_known))),
+                (BORN_RAW_NATIVE_KNOWN, Int(i64::from(native_known))),
+                (25, Int(i64::from(native_known))),
+                (BORN_NATIVE_DEBT, Int(debt)),
+                (27, Int(debt)),
+                (28, Int(debt)),
+            ],
+        );
+    }
+    act(
+        m,
+        "RetainPaidOriginalNativeBirthCostWithoutCreatingStartupCredit",
+        all([
+            early_born.clone(),
+            eq(0, 3),
+            eq(52, 0),
+            eq(BORN_LATCH, 1),
+            eq(BORN_SOURCE, 1),
+            eq(BORN_COST_SEEN, 1),
+            eq(BORN_COST_RETAINED, 1),
+            eq(BORN_BIRTH_CLOCKS, 1),
+            eq(BORN_COST_PAID, 0),
+            eq(27, 0),
+            eq(28, 0),
+            eq(49, 0),
+            eq(BORN_CHILD_ACTIVATED, 0),
+            Var(5).eq(Var(6)),
+            Var(16).eq(Var(17)),
+        ]),
+        &[(BORN_COST_PAID, Int(1))],
+    );
+    for profile in [29, 30, 32, 34] {
+        // One actual RI attempt is retained even when available; absent numeric
+        // startup settlement still makes C+L UNKNOWN, not a recovered zero/L.
+        act(
+            m,
+            &format!("AttemptEarlyBornTerminalRiWithUnknownStartupAccountingProfile{profile}"),
+            all([
+                eq(LAW, profile),
+                born_original.clone(),
+                eq(BORN_PHYSICAL, 1),
+                eq(38, 1),
+                eq(39, 1),
+                eq(40, 0),
+                eq(41, 1),
+                eq(INITIAL_ATTEMPT, 0),
+                eq(27, 0),
+                eq(28, 0),
+            ]),
+            &[
+                (INITIAL_ATTEMPT, Int(1)),
+                (INITIAL_READ_KNOWN, Int(i64::from(profile != 30))),
+                (BORN_ATTEMPT_RETAINED, Int(1)),
+                (25, Int(0)),
+                (INITIAL_L, Int(0)),
+                (INITIAL_COST_BOUND, Int(3_000_000)),
+                (INITIAL_ATTEMPT_DEBT, Int(27)),
+                (27, Int(27)),
+                (28, Int(27)),
+            ],
+        );
+    }
+    if control == 44 {
+        act(
+            m,
+            "BrokenEarlyBornReapSkipsCurrentUnknownAttemptPayment",
+            all([
+                eq(LAW, 29),
+                born_original.clone(),
+                eq(BORN_PHYSICAL, 1),
+                eq(38, 1),
+                eq(39, 1),
+                eq(40, 0),
+                eq(41, 1),
+                eq(INITIAL_ATTEMPT, 1),
+                eq(BORN_ATTEMPT_RETAINED, 1),
+                eq(BORN_ATTEMPT_END_CLOCKS, 1),
+                eq(INITIAL_REST_PAID, 0),
+                eq(27, 27),
+                eq(28, 27),
+            ]),
+            &[
+                (40, Int(1)),
+                (0, Int(9)),
+                (WAIT4, Var(BURNED)),
+                (ACTUAL_REAPS, Int(1)),
+                (TEARDOWN_ALLOWANCE, Var(TEARDOWN_LIMIT)),
+            ],
+        );
+    }
+    safe(
+        m,
+        "UnknownNativeAdmissionNeverBecomesKnownFromPhysicalReceipt",
+        early_born
+            .clone()
+            .negate()
+            .or(eq(BORN_COST_SEEN, 0))
+            .or(eq(BORN_RAW_NATIVE_KNOWN, 1))
+            .or(all([eq(25, 0), eq(BORN_NATIVE_COST, 3_000_000), eq(34, 0)])),
+    );
+    safe(
+        m,
+        "RetainedBornNativeCostFundsItsWholeInclusiveUnknownOrKnownLane",
+        early_born
+            .clone()
+            .negate()
+            .or(eq(BORN_COST_RETAINED, 0))
+            .or(all([
+                eq(BORN_RAW_NATIVE_KNOWN, 1),
+                eq(BORN_NATIVE_COST, 2_000_000),
+                eq(BORN_NATIVE_DEBT, 18),
+            ]))
+            .or(all([
+                eq(BORN_RAW_NATIVE_KNOWN, 0),
+                eq(BORN_NATIVE_COST, 3_000_000),
+                eq(BORN_NATIVE_DEBT, 27),
+            ])),
+    );
+    safe(
+        m,
+        "BornStoppedCreationFaultReapNeedsPaidOriginalPhysicalLatch",
+        early_born
+            .clone()
+            .negate()
+            .or(eq(40, 0))
+            .or(born_reap_ready.clone()),
+    );
+    safe(
+        m,
+        "BornStoppedPhysicalOnlyNeverCreatesNumericStartupOrTrust",
+        early_born.clone().negate().or(all([
+            eq(52, 0),
+            eq(INITIAL_READY, 0),
+            eq(STARTUP_KNOWN, 0),
+            eq(STARTUP_CHARGED, 0),
+            eq(CHARGED, 0),
+            eq(INITIAL_L, 0),
+            eq(TERMINAL, 0),
+            eq(26, 0),
+            eq(34, 0),
+            eq(49, 0),
+            eq(BORN_CHILD_ACTIVATED, 0),
+            eq(COMMITTED, 0),
+        ])),
+    );
+    safe(
+        m,
+        "EarlyBornReapCountsOnlyActualOriginalNotUnactivatedReservation",
+        early_born.clone().negate().or(eq(40, 0)).or(all([
+            eq(ACTUAL_REAPS, 1),
+            eq(QUALIFIED_CHILD_REAP, 0),
+            eq(TEARDOWN_ALLOWANCE, 150_000),
+        ])),
+    );
+    safe(
+        m,
+        "UnfundedOrUnprovenBornSourceRetainsOriginalCustody",
+        early_born
+            .clone()
+            .negate()
+            .or(eq(BORN_COST_SEEN, 0))
+            .or(all([
+                eq(BORN_LATCH, 1),
+                eq(BORN_COST_RETAINED, 1),
+                eq(BORN_BIRTH_CLOCKS, 1),
+            ]))
+            .or(all([eq(41, 1), eq(40, 0), eq(34, 0)])),
+    );
+    for profile in 23..=26 {
+        act(
+            m,
+            &format!("RefuseUnprovenInitialStartupRetainsOwnedQuarantineProfile{profile}"),
+            all([
+                eq(LAW, profile),
+                eq(0, 3),
+                eq(52, 1),
+                eq(37, 0),
+                eq(27, 0),
+                eq(28, 0),
+            ]),
+            &[(37, Int(6)), (51, Int(1)), (26, Int(0)), (34, Int(0))],
+        );
+    }
+    for profile in [20, 21, 22, 27, 28] {
+        let known = profile != 21;
+        let late = if profile == 27 { 0 } else { 75_000 };
+        let attempt_debt = if known { 9 } else { 27 };
+        let attempt_bound = if known { 250_000 + late } else { 3_000_000 };
+        let mut attempt_updates = vec![
+            (INITIAL_ATTEMPT, Int(1)),
+            (INITIAL_READ_KNOWN, Int(i64::from(known))),
+            (INITIAL_L, Int(if known { late } else { 0 })),
+            (
+                CHARGED,
+                Var(CHARGED).plus(Int(if known { late } else { 0 })),
+            ),
+            (INITIAL_COST_BOUND, Int(attempt_bound)),
+            (INITIAL_ATTEMPT_DEBT, Int(attempt_debt)),
+            (27, Int(attempt_debt)),
+            (28, Int(attempt_debt)),
+        ];
+        if !known {
+            attempt_updates.push((37, Int(6)));
+        }
+        act(
+            m,
+            &format!("AttemptIndependentInitialTerminalRiBeforeOwnWait4Profile{profile}"),
+            all([
+                eq(LAW, profile),
+                initial_eligible.clone(),
+                eq(38, 1),
+                eq(39, 1),
+                eq(40, 0),
+                eq(41, 1),
+                eq(INITIAL_ATTEMPT, 0),
+                eq(27, 0),
+                eq(28, 0),
+            ]),
+            &attempt_updates,
+        );
+    }
+    act(
+        m,
+        "RetainInitialTerminalObservationPaidReceiptBeforeOwnWait4",
+        all([
+            initial_eligible.clone().or(all([
+                born_original.clone(),
+                eq(BORN_PHYSICAL, 1),
+                eq(BORN_ATTEMPT_RETAINED, 1),
+                eq(BORN_ATTEMPT_END_CLOCKS, 1),
+            ])),
+            eq(38, 1),
+            eq(39, 1),
+            eq(40, 0),
+            eq(INITIAL_ATTEMPT, 1),
+            eq(INITIAL_REST_PAID, 0),
+            eq(27, 0),
+            eq(28, 0),
+        ]),
+        &[(INITIAL_REST_PAID, Int(1))],
+    );
+    if control == 39 {
+        act(
+            m,
+            "BrokenInitialUnavailableAttemptReapsBeforeFreshUnknownDebtPaid",
+            all([
+                eq(LAW, 21),
+                initial_eligible.clone(),
+                eq(38, 1),
+                eq(39, 1),
+                eq(40, 0),
+                eq(41, 1),
+                eq(INITIAL_ATTEMPT, 1),
+                eq(INITIAL_READ_KNOWN, 0),
+                eq(INITIAL_REST_PAID, 0),
+                eq(INITIAL_COST_BOUND, 3_000_000),
+                eq(INITIAL_ATTEMPT_DEBT, 27),
+                eq(27, 27),
+                eq(28, 27),
+            ]),
+            &[
+                (40, Int(1)),
+                (0, Int(9)),
+                (WAIT4, Var(BURNED)),
+                (ACTUAL_REAPS, Int(1)),
+                (TEARDOWN_ALLOWANCE, Var(TEARDOWN_LIMIT)),
+            ],
+        );
+    }
+    safe(
+        m,
+        "InitialUnavailableRiRetainsConservativeUnknownCost",
+        eq(LAW, 21).negate().or(eq(INITIAL_ATTEMPT, 0)).or(all([
+            eq(INITIAL_READ_KNOWN, 0),
+            eq(INITIAL_L, 0),
+            eq(INITIAL_COST_BOUND, 3_000_000),
+            eq(INITIAL_ATTEMPT_DEBT, 27),
+            eq(34, 0),
+            eq(26, 0),
+            eq(37, 6),
+        ])),
+    );
+    safe(
+        m,
+        "InitialCorroborationStageRequiresFreshPaidRest",
+        eq(LAW, 0).or(eq(INITIAL_PRIOR_DEBT, 0)),
+    );
+    safe(
+        m,
+        "InitialStoppedCorroborationUnitsRemainOrdinary",
+        eq(LAW, 0).or(Var(INITIAL_LAST_CPU).lt(Int(1_000_001))),
+    );
+    safe(
+        m,
+        "InitialStoppedSlicesFinishBeforeFirstCont",
+        eq(LAW, 0).or(eq(49, 0)).or(all([
+            eq(INITIAL_STAGE, 5),
+            eq(INITIAL_READY, 1),
+            eq(INITIAL_CPU, 1_164_833),
+        ])),
+    );
+    safe(
+        m,
+        "InitialEligibleTerminalRiAttemptPrecedesOwnWait4",
+        initial_eligible
+            .clone()
+            .negate()
+            .or(eq(40, 0))
+            .or(all([eq(INITIAL_ATTEMPT, 1), eq(INITIAL_REST_PAID, 1)])),
+    );
+    safe(
+        m,
+        "InitialKernelCreditRequiresIndependentPaidOriginalBaseline",
+        eq(INITIAL_L, 0).or(all([
+            initial_eligible.clone(),
+            eq(INITIAL_ATTEMPT, 1),
+            eq(INITIAL_READ_KNOWN, 1),
+            Var(INITIAL_L).eq(Var(INITIAL_RAW_SYSTEM)),
+            eq(49, 0),
+        ])),
+    );
+    safe(
+        m,
+        "UngrantStartupObservationNeverGrantsHelperOrOutputAuthority",
+        initial_only.negate().or(all([
+            eq(49, 0),
+            eq(COMMITTED, 0),
+            eq(QNS, 0),
+            eq(BASIS, 0),
+            eq(26, 0),
+            eq(34, 0),
+            eq(33, 0),
+        ])),
+    );
     // Legacy formula statements concern its unchanged normalized geometry.
     // New raw-ns arithmetic is checked below; all identity, ownership, debt,
     // failure, progress and actual-settlement properties remain shared.
@@ -4766,9 +5642,10 @@ fn extend_member_window_measured_law(m: &mut Model, control: u8, forged_terminal
             all([eq(2, 0), eq(0, 0)]),
             &[
                 (LAW, Int(profile)),
+                (TEARDOWN_LIMIT, Int(150_000)),
                 (1, Int(case)),
                 (2, Int(1)),
-                (42, Int(i64::from(profile == 3))),
+                (42, Int(0)),
                 (A0, Int(a0)),
                 (A1, Int(a1)),
                 (W0, Int(w0)),
@@ -5213,8 +6090,174 @@ fn extend_member_window_measured_law(m: &mut Model, control: u8, forged_terminal
             &[(BASIS, Int(1)), (BASIS_EPOCH, Var(5)), (READ0, Int(2))],
         );
     }
-    let conserved = Var(CHARGED).lt(Var(WAIT4)).negate();
-    let check = m.actions.len();
+    let rhs = Var(CHARGED).plus(Var(TEARDOWN_ALLOWANCE));
+    let conserved = rhs.clone().lt(Var(WAIT4)).negate();
+    let residual_ready = all([
+        new_law.clone(),
+        eq(40, 1),
+        eq(PENDING, 0),
+        eq(RESIDUAL_OBSERVED, 0),
+        eq(27, 0),
+        eq(28, 0),
+        eq(LAW, 21).negate(),
+        early_born.clone().negate(),
+    ]);
+    let bill_start = m.actions.len();
+    // Once actual reap is already retained, the remaining response is ONLY
+    // local bill/payment/classification bookkeeping. The new terminal bill
+    // creates fresh debt after the response request. Keep its exact existing
+    // rest transitions weakly fair in this post-reap phase as well, rather
+    // than silently allowing stutter with a continuously enabled payment.
+    // These are copies of the original paid-work-end transition, with the
+    // SAME debt decrement and additional phase guards. No new state/update,
+    // saved-idle credit, clock success, stop/reap or OS fairness is assumed.
+    // LAW0 never enables them, preserving its entire old labelled graph and
+    // fairness semantics; existing global rest actions remain unchanged.
+    let terminal_payments = m
+        .actions
+        .iter()
+        .filter(|action| {
+            action
+                .name
+                .starts_with("ObserveRestAfterWorkEndWithoutIdleCredit")
+        })
+        .map(|action| {
+            let mut payment = action.clone();
+            payment.name = action.name.replacen(
+                "ObserveRestAfterWorkEndWithoutIdleCredit",
+                "PayAlreadyReapedTerminalResidualDebtWithoutIdleCredit",
+                1,
+            );
+            payment.guard = payment.guard.and(all([
+                new_law.clone(),
+                eq(40, 1),
+                eq(CHECKED, 0),
+                eq(RESIDUAL_OBSERVED, 1),
+            ]));
+            payment
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        terminal_payments.len(),
+        27,
+        "all existing bounded debt payments must remain represented"
+    );
+    m.actions.extend(terminal_payments);
+    act(
+        m,
+        "RetainAndChargeKnownZeroResidualOrdinaryWait4Cost",
+        all([residual_ready.clone(), Var(CHARGED).lt(Var(WAIT4)).negate()]),
+        &[
+            (RESIDUAL, Int(0)),
+            (RESIDUAL_CHARGED, Int(0)),
+            (RESIDUAL_TOTAL, Int(250_000)),
+            (RESIDUAL_OBSERVED, Int(1)),
+            (RESIDUAL_KNOWN, Int(1)),
+            (INDEPENDENT_AT_BILL, Var(CHARGED)),
+            (TERMINAL_DEBT, Int(9)),
+            (27, Int(9)),
+            (28, Int(9)),
+        ],
+    );
+    for debt in [9, 21] {
+        let residual = Var(WAIT4).minus(Var(CHARGED));
+        let mut charged = vec![
+            (RESIDUAL, residual.clone()),
+            (RESIDUAL_CHARGED, residual.clone()),
+            (RESIDUAL_TOTAL, residual.clone().plus(Int(250_000))),
+            (RESIDUAL_OBSERVED, Int(1)),
+            (RESIDUAL_KNOWN, Int(1)),
+            (INDEPENDENT_AT_BILL, Var(CHARGED)),
+            (TERMINAL_DEBT, Int(debt)),
+            (27, Int(debt)),
+            (28, Int(debt)),
+        ];
+        if debt == 21 {
+            charged.extend([(37, Int(6)), (26, Int(0)), (34, Int(0))]);
+        }
+        act(
+            m,
+            &format!("RetainAndChargeFullRawWait4ResidualWithFreshDebt{debt}"),
+            all([
+                residual_ready.clone(),
+                Var(CHARGED).lt(Var(WAIT4)),
+                if debt == 9 {
+                    residual.clone().lt(Int(750_001))
+                } else {
+                    residual.clone().lt(Int(750_001)).negate()
+                },
+                if control == 41 {
+                    eq(LAW, 14).negate()
+                } else {
+                    Bool(true)
+                },
+            ]),
+            &charged,
+        );
+    }
+    if control == 41 {
+        act(
+            m,
+            "BrokenTeardownAllowanceSkipsRealResidualCost",
+            all([
+                residual_ready.clone(),
+                eq(LAW, 14),
+                Var(CHARGED).lt(Var(WAIT4)),
+            ]),
+            &[
+                (RESIDUAL, Var(WAIT4).minus(Var(CHARGED))),
+                (RESIDUAL_CHARGED, Int(0)),
+                (RESIDUAL_TOTAL, Int(250_000)),
+                (RESIDUAL_OBSERVED, Int(1)),
+                (RESIDUAL_KNOWN, Int(1)),
+                (INDEPENDENT_AT_BILL, Var(CHARGED)),
+                (TERMINAL_DEBT, Int(9)),
+                (27, Int(9)),
+                (28, Int(9)),
+            ],
+        );
+    }
+    act(
+        m,
+        "RetainUnknownTerminalWait4CostInConservativeThreeMsLane",
+        all([
+            unknown_conservation_route.clone(),
+            eq(40, 1),
+            eq(PENDING, 0),
+            eq(INITIAL_ATTEMPT, 1),
+            eq(INITIAL_READ_KNOWN, 0).or(early_born.clone()),
+            eq(INITIAL_REST_PAID, 1),
+            eq(RESIDUAL_OBSERVED, 0),
+            eq(27, 0),
+            eq(28, 0),
+        ]),
+        &[
+            (RESIDUAL, Int(0)),
+            (RESIDUAL_CHARGED, Int(0)),
+            (RESIDUAL_KNOWN, Int(0)),
+            (RESIDUAL_TOTAL, Int(3_000_000)),
+            (RESIDUAL_OBSERVED, Int(1)),
+            (INDEPENDENT_AT_BILL, Var(CHARGED)),
+            (INITIAL_UNKNOWN_DEBT, Int(27)),
+            (27, Int(27)),
+            (28, Int(27)),
+        ],
+    );
+    act(
+        m,
+        "RetainFullTerminalResidualPaymentBeforeConservation",
+        all([
+            new_law.clone(),
+            eq(40, 1),
+            eq(PENDING, 0),
+            eq(RESIDUAL_OBSERVED, 1),
+            eq(RESIDUAL_PAID, 0),
+            eq(27, 0),
+            eq(28, 0),
+        ]),
+        &[(RESIDUAL_PAID, Int(1))],
+    );
+    let bill_paid = all([eq(RESIDUAL_OBSERVED, 1), eq(RESIDUAL_PAID, 1)]);
     act(
         m,
         "CertifyConservationOnlyAfterActualRetainedWait4",
@@ -5226,6 +6269,12 @@ fn extend_member_window_measured_law(m: &mut Model, control: u8, forged_terminal
             eq(27, 0),
             eq(28, 0),
             conserved.clone(),
+            early_born.clone().negate(),
+            bill_paid.clone(),
+            initial_eligible
+                .clone()
+                .negate()
+                .or(all([eq(INITIAL_READ_KNOWN, 1), eq(INITIAL_REST_PAID, 1)])),
         ]),
         &[
             (CHECKED, Int(1)),
@@ -5234,19 +6283,14 @@ fn extend_member_window_measured_law(m: &mut Model, control: u8, forged_terminal
             (ROLL_PENDING, Int(0)),
         ],
     );
-    let refuse = m.actions.len();
-    for profile in 1..=19 {
-        let debt = if profile == 5 { 21 } else { 9 };
+    for profile in 1..=28 {
         let mut refused = vec![
             (CHECKED, Int(1)),
             (TERMINAL, Int(2)),
-            (EXCESS, Var(WAIT4).minus(Var(CHARGED))),
+            (EXCESS, Var(WAIT4).minus(rhs.clone())),
             (37, Int(6)),
             (26, Int(0)),
             (34, Int(0)),
-            (TERMINAL_DEBT, Int(debt)),
-            (27, Int(debt)),
-            (28, Int(debt)),
             (ROLL_PENDING, Int(0)),
             (ROLL_VALIDATED, Int(0)),
         ];
@@ -5260,6 +6304,8 @@ fn extend_member_window_measured_law(m: &mut Model, control: u8, forged_terminal
                 (ROLL_REVOKED, Int(1)),
                 (FALLBACK_Q, Int(1_000_000)),
                 (FALLBACK_DEBT, Int(9)),
+                (27, Int(9)),
+                (28, Int(9)),
             ]);
         }
         act(
@@ -5273,10 +6319,40 @@ fn extend_member_window_measured_law(m: &mut Model, control: u8, forged_terminal
                 eq(27, 0),
                 eq(28, 0),
                 conserved.clone().negate(),
+                bill_paid.clone(),
+                Bool(profile != 21),
             ]),
             &refused,
         );
     }
+    act(
+        m,
+        "RefuseUnknownInitialConservationAfterPaidAttemptAndOwnWait4",
+        all([
+            unknown_conservation_route.clone(),
+            eq(INITIAL_ATTEMPT, 1),
+            eq(INITIAL_READ_KNOWN, 0).or(early_born.clone()),
+            eq(INITIAL_REST_PAID, 1),
+            eq(INITIAL_COST_BOUND, 3_000_000),
+            eq(INITIAL_ATTEMPT_DEBT, 27),
+            eq(40, 1),
+            eq(CHECKED, 0),
+            eq(27, 0),
+            eq(28, 0),
+            bill_paid.clone(),
+        ]),
+        &[
+            (CHECKED, Int(1)),
+            (TERMINAL, Int(0)),
+            (INITIAL_UNKNOWN, Int(1)),
+            (INITIAL_UNKNOWN_DEBT, Int(27)),
+            (EXCESS, Int(0)),
+            (37, Int(6)),
+            (26, Int(0)),
+            (34, Int(0)),
+        ],
+    );
+    let refuse_end = m.actions.len();
     if forged_terminal_control && matches!(control, 31 | 32) {
         // COMPOSED fault: omit/misconvert a contribution AND independently
         // bypass terminal certification. Pure omission retains the hard gate
@@ -5294,10 +6370,152 @@ fn extend_member_window_measured_law(m: &mut Model, control: u8, forged_terminal
                 eq(28, 0),
                 eq(REPORTED, if control == 31 { 250_000 } else { 12_000 }),
                 conserved.clone().negate(),
+                bill_paid.clone(),
             ]),
             &[(CHECKED, Int(1)), (TERMINAL, Int(1))],
         );
     }
+    if control == 40 {
+        act(
+            m,
+            "BrokenAcceptsActualPostSampleBurnAboveFixedTeardownCeiling",
+            all([
+                eq(LAW, 28),
+                eq(40, 1),
+                eq(CHECKED, 0),
+                bill_paid.clone(),
+                eq(27, 0),
+                eq(28, 0),
+                conserved.clone().negate(),
+            ]),
+            &[(CHECKED, Int(1)), (TERMINAL, Int(1))],
+        );
+    }
+    if control == 42 {
+        act(
+            m,
+            "BrokenDerivesTeardownCeilingFromTheSameWait4Residual",
+            all([
+                eq(LAW, 28),
+                eq(40, 1),
+                eq(CHECKED, 0),
+                bill_paid.clone(),
+                eq(27, 0),
+                eq(28, 0),
+                eq(TEARDOWN_LIMIT, 150_000),
+                Var(TEARDOWN_ALLOWANCE).lt(Var(RESIDUAL)),
+            ]),
+            &[
+                (TEARDOWN_LIMIT, Var(RESIDUAL)),
+                (TEARDOWN_ALLOWANCE, Var(RESIDUAL)),
+            ],
+        );
+    }
+    if control == 43 {
+        act(
+            m,
+            "BrokenUnprovenExpectedChildAddsAnotherTeardownAllowance",
+            all([
+                eq(LAW, 28),
+                eq(40, 1),
+                eq(CHECKED, 0),
+                bill_paid.clone(),
+                eq(27, 0),
+                eq(28, 0),
+                eq(ACTUAL_REAPS, 1),
+                eq(QUALIFIED_CHILD_REAP, 0),
+            ]),
+            &[
+                (ACTUAL_REAPS, Int(2)),
+                (
+                    TEARDOWN_ALLOWANCE,
+                    Var(TEARDOWN_LIMIT).plus(Var(TEARDOWN_LIMIT)),
+                ),
+            ],
+        );
+    }
+    safe(
+        m,
+        "TeardownCeilingIsIndependentFixedPerActualReap",
+        eq(LAW, 0).or(all([
+            eq(TEARDOWN_LIMIT, 150_000),
+            all([eq(ACTUAL_REAPS, 0), eq(TEARDOWN_ALLOWANCE, 0)])
+                .or(all([
+                    eq(ACTUAL_REAPS, 1),
+                    Var(TEARDOWN_ALLOWANCE).eq(Var(TEARDOWN_LIMIT)),
+                ]))
+                .or(all([
+                    eq(ACTUAL_REAPS, 2),
+                    Var(TEARDOWN_ALLOWANCE).eq(Var(TEARDOWN_LIMIT).plus(Var(TEARDOWN_LIMIT))),
+                ])),
+        ])),
+    );
+    safe(
+        m,
+        "TeardownCountRequiresOriginalActualOwnWait4",
+        eq(LAW, 0).or(all([
+            eq(ACTUAL_REAPS, 0).or(eq(40, 1)),
+            eq(40, 0).or(eq(ACTUAL_REAPS, 1).or(eq(ACTUAL_REAPS, 2))),
+        ])),
+    );
+    safe(
+        m,
+        "TeardownChildCountNeedsQualifiedRetainedReapProof",
+        eq(LAW, 0).or(all([
+            eq(ACTUAL_REAPS, 2).negate().or(all([
+                eq(40, 1),
+                eq(QUALIFIED_CHILD_REAP, 1),
+                qualified_child_reap.clone(),
+            ])),
+            eq(QUALIFIED_CHILD_REAP, 0).or(all([eq(40, 1), eq(ACTUAL_REAPS, 2)])),
+        ])),
+    );
+    let raw_residual = all([
+        Var(CHARGED).lt(Var(WAIT4)),
+        Var(RESIDUAL).eq(Var(WAIT4).minus(Var(CHARGED))),
+    ])
+    .or(all([Var(CHARGED).lt(Var(WAIT4)).negate(), eq(RESIDUAL, 0)]));
+    let known_full_bill = all([
+        eq(RESIDUAL_KNOWN, 1),
+        raw_residual,
+        Var(RESIDUAL_CHARGED).eq(Var(RESIDUAL)),
+        Var(RESIDUAL_TOTAL).eq(Var(RESIDUAL_CHARGED).plus(Int(250_000))),
+        all([eq(TERMINAL_DEBT, 9), Var(RESIDUAL_TOTAL).lt(Int(1_000_001))]).or(all([
+            eq(TERMINAL_DEBT, 21),
+            Var(RESIDUAL_TOTAL).lt(Int(2_333_334)),
+        ])),
+    ]);
+    let unknown_full_bill = all([
+        unknown_conservation_route.clone(),
+        eq(INITIAL_READ_KNOWN, 0).or(early_born.clone()),
+        eq(RESIDUAL_KNOWN, 0),
+        eq(RESIDUAL, 0),
+        eq(RESIDUAL_CHARGED, 0),
+        eq(RESIDUAL_TOTAL, 3_000_000),
+        eq(INITIAL_UNKNOWN_DEBT, 27),
+    ]);
+    safe(
+        m,
+        "TerminalResidualIsFullyChargedOutsideConservationCredit",
+        eq(RESIDUAL_OBSERVED, 0).or(known_full_bill.or(unknown_full_bill)),
+    );
+    safe(
+        m,
+        "TerminalResidualCostNeverRewritesIndependentMemberCredits",
+        eq(RESIDUAL_OBSERVED, 0).or(Var(CHARGED).eq(Var(INDEPENDENT_AT_BILL))),
+    );
+    safe(
+        m,
+        "TerminalResidualFullPaymentPrecedesConservation",
+        eq(LAW, 0).or(eq(CHECKED, 0)).or(bill_paid),
+    );
+    safe(
+        m,
+        "KnownTerminalResidualOverOrdinaryLimitCannotCertifyCoverage",
+        eq(RESIDUAL_KNOWN, 0)
+            .or(Var(RESIDUAL_TOTAL).lt(Int(1_000_001)))
+            .or(all([eq(37, 6), eq(26, 0), eq(34, 0)])),
+    );
     let unique_rollup = all([eq(ROLL_UNIQUE, 1), eq(ROLL_MIXED, 0)]);
     let causal_rollup = all([
         eq(ROLL_EXIT, 1),
@@ -5399,8 +6617,21 @@ fn extend_member_window_measured_law(m: &mut Model, control: u8, forged_terminal
             Var(QNS).eq(Var(FALLBACK_Q)),
             eq(FALLBACK_DEBT, 9),
             Int(0).lt(Var(EXCESS)),
-            Var(CHARGED).lt(Var(WAIT4)),
+            rhs.clone().lt(Var(WAIT4)),
         ])),
+    );
+    safe(
+        m,
+        "InitialTerminalConservationNeedsKnownIndependentObservation",
+        initial_eligible
+            .clone()
+            .negate()
+            .or(eq(TERMINAL, 1).negate())
+            .or(all([
+                eq(INITIAL_ATTEMPT, 1),
+                eq(INITIAL_READ_KNOWN, 1),
+                eq(INITIAL_REST_PAID, 1),
+            ])),
     );
     safe(
         m,
@@ -5409,7 +6640,7 @@ fn extend_member_window_measured_law(m: &mut Model, control: u8, forged_terminal
             eq(40, 1),
             eq(CHECKED, 1),
             conserved.clone(),
-            Var(CHARGED).lt(Var(BURNED)).negate(),
+            rhs.clone().lt(Var(BURNED)).negate(),
         ])),
     );
     safe(
@@ -5428,7 +6659,11 @@ fn extend_member_window_measured_law(m: &mut Model, control: u8, forged_terminal
             eq(26, 0),
             eq(QNS, 0),
             eq(CHECKED, 0),
-            eq(COMMITTED, 0),
+            // Only the new two-grant exited-only profile has a prior real
+            // commitment. Preserve it; the CURRENT grant stays uncommitted.
+            eq(LAW, 44)
+                .and(Var(COMMITTED).plus(Int(1)).eq(Var(49)))
+                .or(eq(LAW, 44).negate().and(eq(COMMITTED, 0))),
             eq(33, 0),
             eq(34, 0),
         ])),
@@ -5490,17 +6725,43 @@ fn extend_member_window_measured_law(m: &mut Model, control: u8, forged_terminal
         "CreatedDebtCoversUnclampedBasisQuantum",
         eq(LAW, 0).or(eq(QNS, 0)).or(full_debt),
     );
+    let refused_initial_unknown = all([
+        unknown_conservation_route,
+        eq(INITIAL_UNKNOWN, 1),
+        eq(INITIAL_ATTEMPT, 1),
+        eq(INITIAL_READ_KNOWN, 0).or(early_born.clone()),
+        eq(INITIAL_REST_PAID, 1),
+        eq(INITIAL_L, 0),
+        eq(INITIAL_COST_BOUND, 3_000_000),
+        eq(INITIAL_ATTEMPT_DEBT, 27),
+        eq(INITIAL_UNKNOWN_DEBT, 27),
+        eq(40, 1),
+        eq(CHECKED, 1),
+        eq(TERMINAL, 0),
+        eq(EXCESS, 0),
+        eq(37, 6),
+        eq(26, 0),
+        eq(34, 0),
+    ]);
+    safe(
+        m,
+        "UnknownInitialConservationNeverFabricatesKnownExcessOrPass",
+        eq(INITIAL_UNKNOWN, 0).or(refused_initial_unknown.clone()),
+    );
     safe(
         m,
         "ConservationFailureRetainsRawAndRefusesTrust",
         all([
-            eq(CHECKED, 0).or(conserved).or(all([
-                eq(TERMINAL, 2),
-                eq(26, 0),
-                eq(34, 0),
-                eq(37, 6),
-                Var(EXCESS).eq(Var(WAIT4).minus(Var(CHARGED))),
-            ])),
+            eq(CHECKED, 0)
+                .or(conserved)
+                .or(refused_initial_unknown)
+                .or(all([
+                    eq(TERMINAL, 2),
+                    eq(26, 0),
+                    eq(34, 0),
+                    eq(37, 6),
+                    Var(EXCESS).eq(Var(WAIT4).minus(rhs.clone())),
+                ])),
             eq(TERMINAL, 2).negate().or(all([
                 eq(40, 1),
                 eq(CHECKED, 1),
@@ -5531,7 +6792,7 @@ fn extend_member_window_measured_law(m: &mut Model, control: u8, forged_terminal
             eq(28, 0),
         ]),
         eq(CHECKED, 1),
-        (check..=refuse + 18).collect(),
+        (bill_start..refuse_end).collect(),
     );
     progress(
         m,
@@ -5539,6 +6800,1116 @@ fn extend_member_window_measured_law(m: &mut Model, control: u8, forged_terminal
         all([eq(LAW, 12), eq(PENDING, 1), eq(40, 1), eq(27, 0), eq(28, 0)]),
         eq(PENDING, 0),
         vec![bind_direct, commit_direct, refuse_direct],
+    );
+}
+
+/// The13:00 scheduler amendment changes allocation, NEVER the accounting law.
+/// Four correlated trajectories refine the SAME original owner, two-grant,
+/// ACK/roster/seal, full-C charge/debt and actual-reap actions. C/STOP reserves
+/// are maxima of retained matching observations; an unavailable clock grants
+/// no CONT. No scheduler estimate is a physical CPU/ACK-latency guarantee.
+/// Prefix ATT retains the old two-slot capacity reservation. Profile38 proves
+/// the second capacity slot absent under the immutable expected-one source;
+/// profiles39/40 divide by BOTH expected slots, before either is observed live.
+fn extend_member_window_adaptive_grants(m: &mut Model, control: u8) {
+    const LAW: usize = 54;
+    const BASIS: usize = 55;
+    const READ0: usize = 56;
+    const READ1: usize = 57;
+    const BURNED: usize = 58;
+    const CHARGED: usize = 59;
+    const WALL: usize = 60;
+    const A0: usize = 61;
+    const A1: usize = 62;
+    const W0: usize = 63;
+    const W1: usize = 64;
+    const MONOTONIC: usize = 65;
+    const CONVERTED: usize = 66;
+    const QNS: usize = 69;
+    const REPORTED: usize = 70;
+    const SEEN: usize = 71;
+    const BASIS_EPOCH: usize = 73;
+    const CREATED_DEBT: usize = 74;
+    const ORIGIN0: usize = 76;
+    const ORIGIN1: usize = 77;
+    const COMMITTED: usize = 80;
+    const RAW_Q: usize = 90;
+    const RAW_BASIS: usize = 91;
+    const INITIAL_READY: usize = 102;
+    const TEARDOWN_LIMIT: usize = 119;
+    const RUN: usize = 145;
+    const CAP: usize = 146;
+    const TARGET: usize = 147;
+    const C_RESERVE: usize = 148;
+    const LATENCY_RESERVE: usize = 149;
+    const SLOTS: usize = 150;
+    const USED_RUN: usize = 151;
+    const USED_CAP: usize = 152;
+    const USED_TARGET: usize = 153;
+    const CURRENT_C: usize = 154;
+    const CURRENT_LATENCY: usize = 155;
+    const CURRENT_A: usize = 156;
+    const FEEDBACKS: usize = 157;
+    const CLOCK_KNOWN: usize = 158;
+    const ELAPSED_STAGE: usize = 159;
+    const ELAPSED: usize = 160;
+    const OPTIONAL_COUNT: usize = 161;
+    const OPTIONAL_AT: usize = 162;
+    const OPTIONAL_FRESH: usize = 163;
+    const NEXT_AFTER_FEEDBACK: usize = 164;
+    const FEEDBACK_KIND: usize = 165;
+    assert_eq!(m.variables.len(), RUN);
+    for (name, max) in [
+        ("adaptiveRunBudgetNs", 1_000_000),
+        ("adaptiveRunCapNs", 450_000),
+        ("adaptiveAggregateTargetANs", 550_000),
+        ("adaptiveMaxKnownControllerReserveNs", 500_000),
+        ("adaptiveMaxMatchingStopAckLatencyNs", 500_000),
+        ("adaptiveExpectedReservedSlots", 2),
+        ("issuedAdaptiveRunBudgetNs", 1_000_000),
+        ("issuedAdaptiveRunCapNs", 450_000),
+        ("issuedAdaptiveAggregateTargetANs", 550_000),
+        ("adaptiveCurrentCompleteControllerNs", 500_000),
+        ("adaptiveCurrentMatchingStopAckLatencyNs", 500_000),
+        ("adaptiveCurrentAggregateActiveNs", 2_500_000),
+        ("adaptiveAppliedClosedGrantReceipts", 2),
+        ("adaptiveElapsedClockKnown", 1),
+        ("adaptiveFreshElapsedNonePreBudgetStopDue", 2),
+        ("adaptiveFreshElapsedNs", 1_000_001),
+        ("adaptiveOptionalWorkCountInGrant", 1),
+        ("adaptiveOptionalWorkPriorElapsedNs", 1_000_000),
+        ("adaptiveOptionalWorkHadFreshClock", 1),
+        ("adaptiveRetainedNextRunAfterFeedbackNs", 450_000),
+        ("adaptiveFeedbackNoneHalveGrowHold", 3),
+    ] {
+        m.variables.push(Variable::new(name, 0, max, 0));
+    }
+    assert_eq!(
+        m.variables
+            .iter()
+            .map(|v| &v.name)
+            .collect::<std::collections::BTreeSet<_>>()
+            .len(),
+        m.variables.len(),
+        "adaptive fields keep all exported variable names unique"
+    );
+    let adaptive = Int(37).lt(Var(LAW));
+    let limits = |controller: i64, latency: i64, slots: i64| {
+        let target = (1_000_000 - controller - 200_000).clamp(50_000, 550_000);
+        let cap = ((target / slots).min(450_000) - latency).clamp(25_000, 450_000);
+        (target, cap)
+    };
+    let next_budget = |run: i64, aggregate: i64, target: i64, cap: i64| {
+        if aggregate > target {
+            ((run / 2).max(25_000).min(cap), 1)
+        } else if aggregate <= target * 3 / 4 {
+            ((run + 10_000).min(cap), 2)
+        } else {
+            (run.min(cap), 3)
+        }
+    };
+    for profile in 38..=41 {
+        let slots = if profile == 38 { 1 } else { 2 };
+        let (target, cap) = limits(250_000, 100_000, slots);
+        let run = if control == 45 && profile == 39 {
+            1_000_000
+        } else {
+            (350_000 / slots).min(cap)
+        };
+        act(
+            m,
+            &format!("ConfigureRetainedAdaptiveSchedulerProfile{profile}"),
+            all([eq(2, 0), eq(0, 0)]),
+            &[
+                (LAW, Int(profile)),
+                (1, Int(if slots == 1 { 2 } else { 1 })),
+                (2, Int(1)),
+                (TEARDOWN_LIMIT, Int(150_000)),
+                (MONOTONIC, Int(3)),
+                (CONVERTED, Int(3)),
+                (RUN, Int(run)),
+                (CAP, Int(cap)),
+                (TARGET, Int(target)),
+                (C_RESERVE, Int(250_000)),
+                (LATENCY_RESERVE, Int(100_000)),
+                (SLOTS, Int(slots)),
+                (CLOCK_KNOWN, Int(i64::from(profile != 41))),
+            ],
+        );
+    }
+    let mut scheduled_cont = vec![];
+    for action in &mut m.actions {
+        if action.name == "CheckedT0OpensEveryReservedSlotBeforeCont"
+            || action.name == "ContinueOnlyAfterClosureCorroborationAndAllDebt"
+        {
+            for slots in 1..=2 {
+                let mut scheduled = action.clone();
+                scheduled
+                    .name
+                    .push_str(&format!("WithAdaptiveExpectedSlots{slots}"));
+                scheduled.guard = scheduled.guard.and(all([
+                    adaptive.clone(),
+                    eq(SLOTS, slots),
+                    eq(CLOCK_KNOWN, 1),
+                    // The preceding closed grant's local feedback cannot be
+                    // skipped by a new CONT; all existing paid debt guards stay.
+                    Var(FEEDBACKS).eq(Var(49)),
+                ]));
+                scheduled.updates.extend([
+                    (USED_RUN, Var(RUN)),
+                    (USED_CAP, Var(CAP)),
+                    (USED_TARGET, Var(TARGET)),
+                    (ELAPSED_STAGE, Int(0)),
+                    (ELAPSED, Int(0)),
+                    (OPTIONAL_COUNT, Int(0)),
+                    (OPTIONAL_AT, Int(0)),
+                    (OPTIONAL_FRESH, Int(0)),
+                ]);
+                if slots == 1 {
+                    // Expected-one is an immutable source fact, not census
+                    // evidence that a possible second birth never happened.
+                    for (slot, value) in &mut scheduled.updates {
+                        if *slot == 8 {
+                            *value = Int(0);
+                        }
+                    }
+                }
+                scheduled_cont.push(scheduled);
+            }
+            action.guard = action.guard.clone().and(adaptive.clone().negate());
+        }
+    }
+    m.actions.extend(scheduled_cont);
+    act(
+        m,
+        "ExpectedOneSourceKeepsUnusedCapacitySlotClosedAbsent",
+        all([
+            eq(LAW, 38).or(eq(LAW, 44)).or(eq(LAW, 45)).or(eq(LAW, 46)),
+            eq(0, 4),
+            eq(10, 1),
+            eq(11, 1),
+            eq(12, 2),
+            eq(8, 0),
+            eq(15, 0),
+            eq(37, 0),
+            eq(SEEN, 1),
+        ]),
+        &[(0, Int(5))],
+    );
+    act(
+        m,
+        "UnknownFreshElapsedClockRefusesBeforeAdaptiveCont",
+        all([
+            eq(LAW, 41),
+            eq(0, 3),
+            eq(INITIAL_READY, 1),
+            eq(CLOCK_KNOWN, 0),
+            eq(49, 0),
+            eq(37, 0),
+            eq(27, 0),
+            eq(28, 0),
+        ]),
+        &[(25, Int(0)), (37, Int(1)), (26, Int(0)), (34, Int(0))],
+    );
+    // One bounded optional controller operation is selected in profiles38/39.
+    // It must use a fresh current clock; its work invalidates that timestamp.
+    // The next read observes STOP due. Profile40 starts already due and does
+    // NO optional work: scheduler allocation cannot promise kernel latency.
+    act(
+        m,
+        "ReadFreshElapsedBeforeOptionalGrantWork",
+        all([
+            adaptive.clone(),
+            eq(0, 4),
+            eq(SEEN, 0),
+            eq(CLOCK_KNOWN, 1),
+            eq(ELAPSED_STAGE, 0),
+            eq(OPTIONAL_COUNT, 0),
+            eq(LAW, 40).negate(),
+        ]),
+        &[(ELAPSED_STAGE, Int(1)), (ELAPSED, Int(0))],
+    );
+    act(
+        m,
+        "OptionalGrantWorkRequiresFreshCurrentPreBudgetElapsed",
+        all([
+            adaptive.clone(),
+            eq(0, 4),
+            eq(SEEN, 0),
+            eq(CLOCK_KNOWN, 1),
+            eq(ELAPSED_STAGE, 1),
+            eq(OPTIONAL_COUNT, 0),
+            Var(ELAPSED).lt(Var(USED_RUN)),
+        ]),
+        &[
+            (OPTIONAL_COUNT, Int(1)),
+            (OPTIONAL_AT, Var(ELAPSED)),
+            (OPTIONAL_FRESH, Int(1)),
+            (ELAPSED_STAGE, Int(0)),
+        ],
+    );
+    act(
+        m,
+        "RereadCurrentElapsedAfterOptionalWorkBeforeStop",
+        all([
+            adaptive.clone(),
+            eq(0, 4),
+            eq(SEEN, 0),
+            eq(CLOCK_KNOWN, 1),
+            eq(ELAPSED_STAGE, 0),
+            eq(OPTIONAL_COUNT, 1),
+        ]),
+        &[(ELAPSED_STAGE, Int(2)), (ELAPSED, Var(USED_RUN))],
+    );
+    act(
+        m,
+        "FreshElapsedAlreadyDueSkipsOptionalWorkAndStops",
+        all([
+            eq(LAW, 40),
+            eq(0, 4),
+            eq(SEEN, 0),
+            eq(CLOCK_KNOWN, 1),
+            eq(ELAPSED_STAGE, 0),
+            eq(OPTIONAL_COUNT, 0),
+        ]),
+        &[
+            (ELAPSED_STAGE, Int(2)),
+            (ELAPSED, Var(USED_RUN).plus(Int(1))),
+        ],
+    );
+    let feedback_start = m.actions.len();
+    for profile in 38..=40 {
+        let slots: i64 = if profile == 38 { 1 } else { 2 };
+        let (_, cap) = limits(250_000, 100_000, slots);
+        let mut controller_reserve = 250_000;
+        let mut latency_reserve = 100_000;
+        let mut run = if control == 45 && profile == 39 {
+            1_000_000
+        } else {
+            (350_000 / slots).min(cap)
+        };
+        let grants = if profile == 40 || (control == 45 && profile == 39) {
+            1
+        } else {
+            2
+        };
+        for grant in 1..=grants {
+            let (a0, a1, w0, w1, controller, latency) = match (profile, grant) {
+                (38, 1) => (600_000, 0, 600_000, 0, 250_000, 250_000),
+                (38, 2) => (250_000, 0, 275_000, 0, 350_000, 100_000),
+                (39, 1) if control == 45 => {
+                    (1_100_000, 1_100_000, 1_100_000, 1_100_000, 250_000, 100_000)
+                }
+                (39, 1) => (300_000, 300_000, 300_000, 300_000, 250_000, 125_000),
+                (39, 2) => (125_000, 125_000, 212_500, 212_500, 200_000, 125_000),
+                // Retained builder refusal: Q=932917+245583=1178500.
+                // These raw observations are NOT changed into acceptance.
+                (40, 1) => (466_458, 466_459, 557_000, 557_000, 245_583, 382_000),
+                _ => unreachable!(),
+            };
+            let aggregate = a0 + a1;
+            let wall = w0 + w1;
+            assert!(aggregate <= wall);
+            assert!(w0 <= run + latency && w1 <= run + latency);
+            let q = aggregate + controller;
+            let debt = (9 * q.max(1_000_000) + 999_999) / 1_000_000;
+            assert!(debt <= 27 && q <= 3_000_000);
+            act(
+                m,
+                &format!(
+                    "ObserveActualAdaptiveGrantCpuAndMatchingStopAckProfile{profile}Grant{grant}"
+                ),
+                all([
+                    eq(LAW, profile),
+                    eq(49, grant),
+                    eq(0, 4),
+                    eq(SEEN, 0),
+                    eq(14, 0),
+                    eq(ELAPSED_STAGE, 2),
+                    eq(USED_RUN, run),
+                ]),
+                &[
+                    (BURNED, Var(BURNED).plus(Int(aggregate))),
+                    (SEEN, Int(1)),
+                    (A0, Int(a0)),
+                    (A1, Int(a1)),
+                    (W0, Int(w0)),
+                    (W1, Int(w1)),
+                    (WALL, Int(wall)),
+                    (CURRENT_C, Int(controller)),
+                    (CURRENT_LATENCY, Int(latency)),
+                    (CURRENT_A, Int(aggregate)),
+                ],
+            );
+            act(
+                m,
+                &format!(
+                    "ReadAdaptiveCountersAfterOriginalPositiveAckProfile{profile}Grant{grant}"
+                ),
+                all([
+                    eq(LAW, profile),
+                    eq(49, grant),
+                    eq(0, 6),
+                    eq(14, 1),
+                    eq(15, 1),
+                    eq(18, 1),
+                    eq(19, 1),
+                    eq(20, 1),
+                    eq(7, 3),
+                    eq(8, if slots == 1 { 0 } else { 3 }),
+                    eq(READ0, 0),
+                ]),
+                &[
+                    (READ0, Int(2)),
+                    (ORIGIN0, Int(1)),
+                    (READ1, Int(if slots == 1 { 0 } else { 2 })),
+                    (ORIGIN1, Int(if slots == 1 { 3 } else { 1 })),
+                    (REPORTED, Int(aggregate)),
+                ],
+            );
+            act(
+                m,
+                &format!(
+                    "ChargeFullAdaptiveRawQuantumWithoutChangingHardGateProfile{profile}Grant{grant}"
+                ),
+                all([
+                    eq(LAW, profile),
+                    eq(49, grant),
+                    eq(0, 6),
+                    eq(37, 0),
+                    eq(SEEN, 1),
+                    eq(READ0, 2),
+                    eq(REPORTED, aggregate),
+                    eq(18, 1),
+                    eq(19, 1),
+                    eq(20, 1),
+                    eq(27, 0),
+                    eq(28, 0),
+                    Var(5).eq(Var(6)),
+                    Var(48).lt(Int(28 - debt)),
+                ]),
+                &[
+                    (0, Int(7)),
+                    (33, Int(0)),
+                    (BASIS, Int(1)),
+                    (BASIS_EPOCH, Var(5)),
+                    (QNS, Int(q)),
+                    (RAW_Q, Int(q)),
+                    (RAW_BASIS, Int(1)),
+                    (CHARGED, Var(CHARGED).plus(Int(aggregate))),
+                    (COMMITTED, Var(COMMITTED).plus(Int(1))),
+                    (CREATED_DEBT, Int(debt)),
+                    (26, Int(i64::from(q <= 1_000_000 && wall <= 25_000_000))),
+                    (
+                        37,
+                        Int(if q <= 1_000_000 && wall <= 25_000_000 {
+                            0
+                        } else {
+                            6
+                        }),
+                    ),
+                    (27, Int(debt)),
+                    (28, Int(debt)),
+                    (48, Var(48).plus(Int(debt))),
+                    (21, Int(2)),
+                    (22, Int(1)),
+                    (23, Int(1)),
+                    (24, Int(3)),
+                    (43, Int(1)),
+                    (44, Int(1)),
+                    (46, Int(1)),
+                ],
+            );
+            controller_reserve = controller_reserve.max(controller);
+            latency_reserve = latency_reserve.max(latency);
+            let (next_target, next_cap) = limits(controller_reserve, latency_reserve, slots);
+            let (next_run, kind) = next_budget(run, aggregate, next_target, next_cap);
+            act(
+                m,
+                &format!(
+                    "ApplyRetainedAggregateFeedbackWithoutRepeatingNativeEffectProfile{profile}Grant{grant}"
+                ),
+                all([
+                    eq(LAW, profile),
+                    eq(49, grant),
+                    eq(COMMITTED, grant),
+                    eq(FEEDBACKS, grant - 1),
+                    eq(CLOCK_KNOWN, 1),
+                    eq(CURRENT_A, aggregate),
+                    eq(CURRENT_C, controller),
+                    eq(CURRENT_LATENCY, latency),
+                    eq(USED_RUN, run),
+                ]),
+                &[
+                    (C_RESERVE, Int(controller_reserve)),
+                    (LATENCY_RESERVE, Int(latency_reserve)),
+                    (TARGET, Int(next_target)),
+                    (CAP, Int(next_cap)),
+                    (RUN, Int(next_run)),
+                    (NEXT_AFTER_FEEDBACK, Int(next_run)),
+                    (FEEDBACK_KIND, Int(kind)),
+                    (FEEDBACKS, Int(grant)),
+                ],
+            );
+            run = next_run;
+            assert!(run >= 25_000 && run <= next_cap && next_target >= 50_000);
+        }
+    }
+    let feedback_end = m.actions.len();
+    // Old profiles retain their literal250us C projection. New scheduler
+    // trajectories retain their OWN measured full C without omitting any tail.
+    for invariant in &mut m.invariants {
+        if invariant.name == "BasisQuantumIncludesAllActiveControllerCpu" {
+            invariant.condition = adaptive
+                .clone()
+                .negate()
+                .and(invariant.condition.clone())
+                .or(all([
+                    adaptive.clone(),
+                    eq(QNS, 0).or(all([
+                        eq(BASIS, 1),
+                        Var(QNS).eq(Var(REPORTED).plus(Var(CURRENT_C))),
+                    ])),
+                ]));
+        }
+    }
+    safe(
+        m,
+        "IssuedAdaptiveGrantUsesMeasuredCostAndStopLatencyCap",
+        adaptive.clone().negate().or(eq(COMMITTED, 0)).or(all([
+            Int(24_999).lt(Var(USED_RUN)),
+            Var(USED_CAP).lt(Var(USED_RUN)).negate(),
+            Var(USED_CAP).lt(Int(450_001)),
+        ])),
+    );
+    safe(
+        m,
+        "AdaptiveFeedbackKeepsCurrentPlanWithinBoundedCap",
+        adaptive.clone().negate().or(eq(FEEDBACKS, 0)).or(all([
+            Var(RUN).eq(Var(NEXT_AFTER_FEEDBACK)),
+            Int(24_999).lt(Var(RUN)),
+            Var(CAP).lt(Var(RUN)).negate(),
+            Var(CAP).lt(Int(450_001)),
+            Int(49_999).lt(Var(TARGET)),
+            Var(TARGET).lt(Int(550_001)),
+            Int(249_999).lt(Var(C_RESERVE)),
+            Int(99_999).lt(Var(LATENCY_RESERVE)),
+        ])),
+    );
+    safe(
+        m,
+        "AdaptiveOptionalWorkRequiresFreshPreBudgetClockReceipt",
+        adaptive.clone().negate().or(eq(OPTIONAL_COUNT, 0)).or(all([
+            eq(OPTIONAL_FRESH, 1),
+            eq(CLOCK_KNOWN, 1),
+            Var(OPTIONAL_AT).lt(Var(USED_RUN)),
+        ])),
+    );
+    safe(
+        m,
+        "UnknownElapsedClockCannotContinueOrTrustAdaptiveOwner",
+        adaptive.clone().negate().or(eq(CLOCK_KNOWN, 1)).or(all([
+            eq(49, 0),
+            eq(COMMITTED, 0),
+            eq(FEEDBACKS, 0),
+            eq(34, 0),
+            eq(26, 0),
+        ])),
+    );
+    safe(
+        m,
+        "ExpectedOneSourceNeverActivatesUnusedCapacitySlot",
+        eq(LAW, 38).negate().or(eq(49, 0)).or(all([
+            eq(SLOTS, 1),
+            eq(8, 0).or(eq(8, 4)),
+            eq(A1, 0),
+            eq(W1, 0),
+        ])),
+    );
+    safe(
+        m,
+        "AdaptiveOverQuantumRefusalRetainsRawDebtAndNoTrust",
+        adaptive
+            .clone()
+            .negate()
+            .or(Var(QNS).lt(Int(1_000_001)))
+            .or(all([
+                eq(37, 6),
+                eq(26, 0),
+                eq(34, 0),
+                Int(0).lt(Var(CREATED_DEBT)),
+            ])),
+    );
+    let feedback_actions = (feedback_start..feedback_end)
+        .filter(|index| {
+            m.actions[*index]
+                .name
+                .starts_with("ApplyRetainedAggregateFeedback")
+        })
+        .collect();
+    progress(
+        m,
+        "ClosedAdaptiveReceiptGetsLocalBoundedFeedback",
+        all([
+            adaptive,
+            Var(FEEDBACKS).lt(Var(COMMITTED)),
+            eq(CLOCK_KNOWN, 1),
+        ]),
+        Var(FEEDBACKS).eq(Var(COMMITTED)),
+        feedback_actions,
+    );
+}
+
+/// Predictive coherence: per-slot retained ACK provenance refines the existing
+/// adaptive state. MAX uses only live same-grant successful-STOP ACKs; exit
+/// counters remain valid accounting sources without becoming latency proofs.
+/// Five correlated profiles preserve the original <=2 grants and100000 cap.
+fn extend_adaptive_latency_provenance(m: &mut Model, control: u8) {
+    const LAW: usize = 54;
+    const BASIS: usize = 55;
+    const READ0: usize = 56;
+    const READ1: usize = 57;
+    const BURNED: usize = 58;
+    const CHARGED: usize = 59;
+    const WALL: usize = 60;
+    const A0: usize = 61;
+    const A1: usize = 62;
+    const W0: usize = 63;
+    const W1: usize = 64;
+    const MONOTONIC: usize = 65;
+    const CONVERTED: usize = 66;
+    const QNS: usize = 69;
+    const REPORTED: usize = 70;
+    const SEEN: usize = 71;
+    const BASIS_EPOCH: usize = 73;
+    const CREATED_DEBT: usize = 74;
+    const ORIGIN0: usize = 76;
+    const ORIGIN1: usize = 77;
+    const PENDING: usize = 78;
+    const WAIT4: usize = 79;
+    const COMMITTED: usize = 80;
+    const RAW_Q: usize = 90;
+    const RAW_BASIS: usize = 91;
+    const TEARDOWN_LIMIT: usize = 119;
+    const RUN: usize = 145;
+    const CAP: usize = 146;
+    const TARGET: usize = 147;
+    const C_RESERVE: usize = 148;
+    const LATENCY_RESERVE: usize = 149;
+    const SLOTS: usize = 150;
+    const USED_RUN: usize = 151;
+    const CURRENT_C: usize = 154;
+    const CURRENT_LATENCY: usize = 155;
+    const CURRENT_A: usize = 156;
+    const FEEDBACKS: usize = 157;
+    const CLOCK_KNOWN: usize = 158;
+    const ELAPSED_STAGE: usize = 159;
+    const NEXT_AFTER_FEEDBACK: usize = 164;
+    const FEEDBACK_KIND: usize = 165;
+    const LIVE_MASK: usize = 166;
+    const DELAY0: usize = 167;
+    const DELAY1: usize = 168;
+    const STOP_MATCH: usize = 169;
+    const LATENCY_KNOWN: usize = 170;
+    assert_eq!(m.variables.len(), LIVE_MASK);
+    for (name, max) in [
+        ("adaptiveRetainedValidLiveStopAckMask", 3),
+        ("adaptiveRetainedSlot0StopAckDelayNs", 500_000),
+        ("adaptiveRetainedSlot1StopAckOrExitDelayNs", 500_000),
+        ("adaptiveRetainedSuccessfulSameGrantStop", 1),
+        ("adaptiveCurrentLiveLatencyKnown", 1),
+    ] {
+        m.variables.push(Variable::new(name, 0, max, 0));
+    }
+    assert_eq!(
+        m.variables
+            .iter()
+            .map(|v| &v.name)
+            .collect::<std::collections::BTreeSet<_>>()
+            .len(),
+        m.variables.len()
+    );
+    let limits = |c: i64, latency: i64, slots: i64| {
+        let target = (1_000_000 - c - 200_000).clamp(50_000, 550_000);
+        (
+            target,
+            ((target / slots).min(450_000) - latency).clamp(25_000, 450_000),
+        )
+    };
+    for profile in 42..=46 {
+        let slots = if matches!(profile, 44..=46) { 1 } else { 2 };
+        let (target, cap) = limits(250_000, 100_000, slots);
+        act(
+            m,
+            &format!("ConfigureAdaptiveLiveLatencyProfile{profile}"),
+            all([eq(2, 0), eq(0, 0)]),
+            &[
+                (LAW, Int(profile)),
+                (1, Int(if slots == 1 { 2 } else { 1 })),
+                (2, Int(1)),
+                (TEARDOWN_LIMIT, Int(150_000)),
+                (MONOTONIC, Int(3)),
+                (CONVERTED, Int(3)),
+                (RUN, Int((350_000 / slots).min(cap))),
+                (CAP, Int(cap)),
+                (TARGET, Int(target)),
+                (C_RESERVE, Int(250_000)),
+                (LATENCY_RESERVE, Int(100_000)),
+                (SLOTS, Int(slots)),
+                (CLOCK_KNOWN, Int(1)),
+            ],
+        );
+    }
+    let mut feedback_actions = vec![];
+    let mut pending_actions = vec![];
+    for profile in 42..=46 {
+        let slots = if matches!(profile, 44..=46) { 1 } else { 2 };
+        let mut c_reserve = 250_000;
+        let mut latency_reserve = 100_000;
+        let (_, cap) = limits(c_reserve, latency_reserve, slots);
+        let mut run = (350_000 / slots).min(cap);
+        let grants = if matches!(profile, 43 | 44) { 2 } else { 1 };
+        for grant in 1..=grants {
+            // A/C/W are independent retained accounting observations. Delay1
+            // may be an EXIT receipt and is then excluded despite being larger.
+            let (a0, a1, w0, w1, c, delay0, delay1, mask, matched, measured) =
+                match (profile, grant) {
+                    (42, 1) => (
+                        250_000, 275_000, 275_000, 475_000, 300_000, 100_000, 300_000, 3, 1, true,
+                    ),
+                    (43, 1) => (
+                        300_000, 300_000, 300_000, 300_000, 250_000, 125_000, 125_000, 3, 1, true,
+                    ),
+                    (43, 2) => (
+                        250_000, 50_000, 300_000, 400_000, 250_000, 100_000, 300_000, 1, 1, true,
+                    ),
+                    (44, 1) => (600_000, 0, 600_000, 0, 250_000, 250_000, 0, 1, 1, true),
+                    (44, 2) => (100_000, 0, 275_000, 0, 250_000, 100_000, 0, 0, 1, true),
+                    (45, 1) => (525_000, 0, 625_000, 0, 300_000, 100_000, 0, 1, 1, false),
+                    // Positive stopped accounting can follow an independently
+                    // observed quiescent source even if STOP itself was not a
+                    // matching successful call. It earns no scheduler latency.
+                    (46, 1) => (250_000, 0, 450_000, 0, 250_000, 100_000, 0, 0, 0, false),
+                    _ => unreachable!(),
+                };
+            let aggregate = a0 + a1;
+            let wall = w0 + w1;
+            let member = if measured {
+                aggregate
+            } else {
+                wall.max(aggregate)
+            };
+            let q = member + c;
+            let debt = (9 * q.max(1_000_000) + 999_999) / 1_000_000;
+            assert!(q <= 1_000_000 && a0 <= w0 && a1 <= w1 && debt == 9);
+            let live_latency = match mask {
+                1 => delay0,
+                2 => delay1,
+                3 => delay0.max(delay1),
+                _ => 0,
+            };
+            let mut latency_known = mask != 0 && matched == 1;
+            let mut selected_latency = live_latency;
+            if control == 46 && profile == 42 {
+                selected_latency = delay0.min(delay1); // one faulty aggregation
+            }
+            if control == 47 && matches!(profile, 44 | 46) && grant == grants {
+                // One faulty classification accepts the real retained exit or
+                // failed-call endpoint as live latency. Eligible exit growth follows;
+                // no raw ACK, actual own wait4, CPU or bill is forged.
+                latency_known = true;
+                selected_latency = delay0;
+            }
+            act(
+                m,
+                &format!("ObserveRetainedAdaptiveAckProvenanceProfile{profile}Grant{grant}"),
+                all([
+                    eq(LAW, profile),
+                    eq(49, grant),
+                    eq(0, 4),
+                    eq(SEEN, 0),
+                    eq(14, 0),
+                    eq(ELAPSED_STAGE, 2),
+                    eq(USED_RUN, run),
+                ]),
+                &[
+                    (BURNED, Var(BURNED).plus(Int(aggregate))),
+                    (SEEN, Int(1)),
+                    (A0, Int(a0)),
+                    (A1, Int(a1)),
+                    (W0, Int(w0)),
+                    (W1, Int(w1)),
+                    (WALL, Int(wall)),
+                    (CURRENT_C, Int(c)),
+                    (CURRENT_A, Int(aggregate)),
+                    (CURRENT_LATENCY, Int(selected_latency)),
+                    (LIVE_MASK, Int(mask)),
+                    (DELAY0, Int(delay0)),
+                    (DELAY1, Int(delay1)),
+                    (STOP_MATCH, Int(matched)),
+                    (LATENCY_KNOWN, Int(i64::from(latency_known))),
+                ],
+            );
+            let direct = profile == 44 && grant == 2;
+            let rollup = profile == 43 && grant == 2;
+            if direct {
+                act(
+                    m,
+                    "DeferExitedOnlyAdaptiveAccountingWithoutLiveStopAck",
+                    all([
+                        eq(LAW, 44),
+                        eq(49, 2),
+                        eq(0, 6),
+                        eq(7, 4),
+                        eq(8, 0),
+                        eq(14, 1),
+                        eq(15, 1),
+                        eq(18, 1),
+                        eq(19, 1),
+                        eq(20, 1),
+                        eq(READ0, 0),
+                        eq(REPORTED, 0),
+                        eq(PENDING, 0),
+                    ]),
+                    &[(PENDING, Int(1)), (ORIGIN0, Int(2)), (ORIGIN1, Int(3))],
+                );
+                let bind = m.actions.len();
+                act(
+                    m,
+                    "BindExitedOnlyAdaptiveActualOwnWait4WithoutLiveLatency",
+                    all([
+                        eq(LAW, 44),
+                        eq(49, 2),
+                        eq(PENDING, 1),
+                        eq(40, 1),
+                        eq(READ0, 0),
+                        eq(ORIGIN0, 2),
+                        eq(ORIGIN1, 3),
+                    ]),
+                    &[(READ0, Int(3)), (REPORTED, Var(WAIT4).minus(Var(CHARGED)))],
+                );
+                pending_actions.push(bind);
+            } else {
+                let mut updates = vec![
+                    (READ0, Int(if measured { 2 } else { 0 })),
+                    (ORIGIN0, Int(1)),
+                    (
+                        READ1,
+                        Int(if slots == 1 {
+                            0
+                        } else if rollup {
+                            4
+                        } else {
+                            2
+                        }),
+                    ),
+                    (
+                        ORIGIN1,
+                        Int(if slots == 1 {
+                            3
+                        } else if rollup {
+                            2
+                        } else {
+                            1
+                        }),
+                    ),
+                    (REPORTED, Int(aggregate)),
+                ];
+                if rollup {
+                    updates.extend([
+                        (81, Int(1)),
+                        (82, Int(0)),
+                        (83, Int(1)),
+                        (84, Int(1)),
+                        (85, Int(1)),
+                        (86, Int(350_000)),
+                        (87, Var(88)),
+                        (89, Int(0)),
+                        (96, Int(350_000).minus(Var(88))),
+                        (98, Int(1)),
+                    ]);
+                }
+                act(
+                    m,
+                    &format!("ReadAdaptiveLiveOrQualifiedExitSourceProfile{profile}Grant{grant}"),
+                    all([
+                        eq(LAW, profile),
+                        eq(49, grant),
+                        eq(0, 6),
+                        eq(7, 3),
+                        eq(
+                            8,
+                            if slots == 1 {
+                                0
+                            } else if rollup {
+                                4
+                            } else {
+                                3
+                            },
+                        ),
+                        eq(14, 1),
+                        eq(15, 1),
+                        eq(18, 1),
+                        eq(19, 1),
+                        eq(20, 1),
+                        eq(READ0, 0),
+                        eq(REPORTED, 0),
+                    ]),
+                    &updates,
+                );
+            }
+            let mut charged = vec![
+                (0, Int(if direct { 9 } else { 7 })),
+                (33, Int(0)),
+                (BASIS, Int(i64::from(measured))),
+                (BASIS_EPOCH, Var(5)),
+                (QNS, Int(q)),
+                (RAW_Q, Int(q)),
+                (RAW_BASIS, Int(i64::from(measured))),
+                (CHARGED, Var(CHARGED).plus(Int(member))),
+                (COMMITTED, Var(COMMITTED).plus(Int(1))),
+                (CREATED_DEBT, Int(debt)),
+                (26, Int(i64::from(profile != 46))),
+                (27, Int(debt)),
+                (28, Int(debt)),
+                (48, Var(48).plus(Int(debt))),
+                (21, Int(2)),
+                (22, Int(1)),
+                (23, Int(1)),
+                (24, Int(3)),
+                (43, Int(1)),
+                (44, Int(1)),
+                (46, Int(1)),
+            ];
+            if profile == 43 && grant == 1 {
+                // Retain the actual first grant's live child credit BEFORE
+                // the later source can bind its cumulative rollup baseline.
+                charged.push((88, Int(a1)));
+            }
+            if profile == 46 {
+                charged.push((37, Int(6)));
+            }
+            if direct {
+                charged.push((PENDING, Int(0)));
+            }
+            if rollup {
+                charged.push((92, Int(1)));
+            }
+            let charge_index = m.actions.len();
+            act(
+                m,
+                &format!("ChargeAdaptiveSourceRefinementProfile{profile}Grant{grant}"),
+                all([
+                    eq(LAW, profile),
+                    eq(49, grant),
+                    eq(COMMITTED, grant - 1),
+                    eq(0, if direct { 9 } else { 6 }),
+                    eq(
+                        READ0,
+                        if direct {
+                            3
+                        } else if measured {
+                            2
+                        } else {
+                            0
+                        },
+                    ),
+                    eq(REPORTED, aggregate),
+                    eq(37, 0),
+                    eq(SEEN, 1),
+                    eq(14, 1),
+                    eq(15, 1),
+                    eq(18, 1),
+                    eq(19, 1),
+                    eq(20, 1),
+                    eq(27, 0),
+                    eq(28, 0),
+                    if direct {
+                        all([eq(PENDING, 1), eq(40, 1)])
+                    } else {
+                        Bool(true)
+                    },
+                    Var(5).eq(Var(6)),
+                ]),
+                &charged,
+            );
+            if direct {
+                pending_actions.push(charge_index);
+            }
+            c_reserve = c_reserve.max(c);
+            if latency_known {
+                latency_reserve = latency_reserve.max(selected_latency);
+            }
+            let (target, cap) = limits(c_reserve, latency_reserve, slots);
+            let (next, kind) = if aggregate > target && !(control == 48 && profile == 45) {
+                ((run / 2).max(25_000).min(cap), 1)
+            } else if measured && latency_known && aggregate <= target * 3 / 4 {
+                ((run + 10_000).min(cap), 2)
+            } else {
+                (run.min(cap), 3)
+            };
+            let feedback = m.actions.len();
+            act(
+                m,
+                &format!("ApplyLiveProvenanceAdaptiveFeedbackProfile{profile}Grant{grant}"),
+                all([
+                    eq(LAW, profile),
+                    eq(49, grant),
+                    eq(COMMITTED, grant),
+                    eq(FEEDBACKS, grant - 1),
+                    eq(CLOCK_KNOWN, 1),
+                    eq(CURRENT_A, aggregate),
+                    eq(CURRENT_C, c),
+                    eq(CURRENT_LATENCY, selected_latency),
+                    eq(USED_RUN, run),
+                ]),
+                &[
+                    (C_RESERVE, Int(c_reserve)),
+                    (LATENCY_RESERVE, Int(latency_reserve)),
+                    (TARGET, Int(target)),
+                    (CAP, Int(cap)),
+                    (RUN, Int(next)),
+                    (NEXT_AFTER_FEEDBACK, Int(next)),
+                    (FEEDBACK_KIND, Int(kind)),
+                    (FEEDBACKS, Int(grant)),
+                ],
+            );
+            feedback_actions.push(feedback);
+            run = next;
+        }
+    }
+    if control == 49 {
+        // One omitted CURRENT-grant commit barrier. Prior first-grant credit
+        // is retained; no wait4, CPU charge, proof or trust is fabricated.
+        act(
+            m,
+            "BrokenCommitsPendingSecondGrantBeforeOwnWait4",
+            all([
+                eq(LAW, 44),
+                eq(49, 2),
+                eq(PENDING, 1),
+                eq(COMMITTED, 1),
+                eq(40, 0),
+                eq(READ0, 0),
+                eq(ORIGIN0, 2),
+                eq(BASIS, 0),
+                eq(QNS, 0),
+                eq(CHARGED, 725_000),
+                eq(33, 0),
+                eq(34, 0),
+            ]),
+            &[(COMMITTED, Int(2))],
+        );
+    }
+    safe(
+        m,
+        "SecondDirectGrantCommitNeedsOwnWait4AndPriorCredit",
+        eq(LAW, 44).negate().or(eq(COMMITTED, 2).negate()).or(all([
+            eq(49, 2),
+            eq(PENDING, 0),
+            eq(40, 1),
+            eq(READ0, 3),
+            eq(ORIGIN0, 2),
+            eq(CHARGED, 825_000),
+            eq(BURNED, 825_000),
+        ])),
+    );
+    // WINDOW is still the SAME exact max(W,A)+C law; the existing measured
+    // scheduler profiles use A+C. No bound is weakened by this refinement.
+    for invariant in &mut m.invariants {
+        if invariant.name == "BasisQuantumIncludesAllActiveControllerCpu" {
+            let window = all([
+                eq(LAW, 45).or(eq(LAW, 46)),
+                eq(BASIS, 0),
+                Var(WALL).lt(Var(REPORTED)).negate(),
+                Var(QNS).eq(Var(WALL).plus(Var(CURRENT_C))),
+            ]);
+            invariant.condition = invariant.condition.clone().or(window);
+        }
+    }
+    let new_profile = Int(41).lt(Var(LAW));
+    let applied = all([
+        new_profile.clone(),
+        Int(0).lt(Var(FEEDBACKS)),
+        Var(FEEDBACKS).eq(Var(49)),
+    ]);
+    let one = all([
+        eq(LIVE_MASK, 1),
+        eq(STOP_MATCH, 1),
+        eq(LATENCY_KNOWN, 1),
+        eq(ORIGIN0, 1),
+        eq(14, 1),
+        Var(CURRENT_LATENCY).eq(Var(DELAY0)),
+    ]);
+    let two = all([
+        eq(LIVE_MASK, 3),
+        eq(STOP_MATCH, 1),
+        eq(LATENCY_KNOWN, 1),
+        eq(ORIGIN0, 1),
+        eq(ORIGIN1, 1),
+        eq(READ0, 2),
+        eq(READ1, 2),
+        Var(CURRENT_LATENCY).lt(Var(DELAY0)).negate(),
+        Var(CURRENT_LATENCY).lt(Var(DELAY1)).negate(),
+        Var(CURRENT_LATENCY)
+            .eq(Var(DELAY0))
+            .or(Var(CURRENT_LATENCY).eq(Var(DELAY1))),
+    ]);
+    safe(
+        m,
+        "AdaptiveLatencyRetainsMaximumValidLiveAck",
+        applied
+            .clone()
+            .negate()
+            .or(all([eq(LIVE_MASK, 0), eq(LATENCY_KNOWN, 0)])
+                .or(one)
+                .or(two)),
+    );
+    safe(
+        m,
+        "AdaptiveGrowthNeedsMeasuredLiveSuccessfulStopAck",
+        applied
+            .clone()
+            .negate()
+            .or(eq(FEEDBACK_KIND, 2).negate())
+            .or(all([
+                eq(BASIS, 1),
+                eq(LATENCY_KNOWN, 1),
+                eq(STOP_MATCH, 1),
+                Int(0).lt(Var(LIVE_MASK)),
+                eq(CLOCK_KNOWN, 1),
+            ])),
+    );
+    safe(
+        m,
+        "WindowBasisAboveNewTargetHalvesPriorRun",
+        eq(LAW, 45).negate().or(applied.negate()).or(all([
+            eq(BASIS, 0),
+            eq(CURRENT_A, 525_000),
+            eq(CURRENT_C, 300_000),
+            eq(TARGET, 500_000),
+            eq(USED_RUN, 350_000),
+            eq(RUN, 175_000),
+            eq(FEEDBACK_KIND, 1),
+        ])),
+    );
+    progress(
+        m,
+        "ClosedSourceRefinedGrantGetsLocalAdaptiveFeedback",
+        all([
+            new_profile,
+            Var(FEEDBACKS).lt(Var(COMMITTED)),
+            eq(CLOCK_KNOWN, 1),
+        ]),
+        Var(FEEDBACKS).eq(Var(COMMITTED)),
+        feedback_actions,
+    );
+    progress(
+        m,
+        "ExitedOnlyAccountingWaitsForOwnWait4WithoutInventingLiveAck",
+        all([eq(LAW, 44), eq(PENDING, 1), eq(40, 1), eq(27, 0), eq(28, 0)]),
+        eq(PENDING, 0),
+        pending_actions,
     );
 }
 
@@ -7992,7 +10363,7 @@ mod tests {
 
     #[test]
     fn member_window_observer_guard_keeps_every_original_state_edge_and_named_verdict() {
-        for control in 1..=37 {
+        for control in 1..=49 {
             let original = member_window_observer(control, true)
                 .check(100_000)
                 .unwrap();
@@ -8072,6 +10443,126 @@ mod tests {
                 old_edges, new_edges,
                 "control{control} legacy labelled edges"
             );
+            // The pinned checker returns ONE witness per response property.
+            // Filtering its whole-model sample by LAW0 is not a legacy verdict
+            // check: another immutable profile may supply the first fair SCC
+            // and shadow a genuine legacy violation (control14 exposed this).
+            // Keep the full canonical state/labelled-edge comparisons above,
+            // then check the induced LAW0 branch with ALL properties/fairness.
+            // Only edges leaving this immutable branch are disabled; no action
+            // indices, bounds, original guards/updates or properties are removed.
+            let mut legacy_branch_model = extended.clone();
+            for action in &mut legacy_branch_model.actions {
+                let next_law = action
+                    .updates
+                    .iter()
+                    .find_map(|(slot, expression)| (*slot == width).then(|| expression.clone()))
+                    .unwrap_or(Var(width));
+                action.guard = action
+                    .guard
+                    .clone()
+                    .and(eq(width, 0))
+                    .and(next_law.eq(Int(0)));
+            }
+            let legacy_branch = legacy_branch_model.check(100_000).unwrap();
+            assert!(legacy_branch.states.iter().all(|state| state[width] == 0));
+            let full_legacy_states = after
+                .states
+                .iter()
+                .filter(|s| s[width] == 0)
+                .cloned()
+                .collect::<BTreeSet<_>>();
+            assert_eq!(
+                full_legacy_states,
+                legacy_branch
+                    .states
+                    .iter()
+                    .cloned()
+                    .collect::<BTreeSet<_>>(),
+                "control{control} induced branch keeps every full canonical legacy state"
+            );
+            assert_eq!(
+                legacy_branch.states.len(),
+                old_states.len(),
+                "control{control} original-state projection must be one-to-one"
+            );
+            let fairness_names = |model: &Model, count: usize| {
+                model
+                    .weak_fair
+                    .iter()
+                    .take(count)
+                    .map(|group| {
+                        group
+                            .iter()
+                            .map(|index| model.actions[*index].name.clone())
+                            .collect::<Vec<_>>()
+                    })
+                    .collect::<Vec<_>>()
+            };
+            assert_eq!(
+                fairness_names(&legacy, legacy.weak_fair.len()),
+                fairness_names(&legacy_branch_model, legacy.weak_fair.len()),
+                "control{control} every original fair action group stays identical"
+            );
+            for group in legacy_branch_model
+                .weak_fair
+                .iter()
+                .skip(legacy.weak_fair.len())
+            {
+                assert!(
+                    legacy_branch
+                        .edges
+                        .iter()
+                        .enumerate()
+                        .all(|(from, edges)| edges
+                            .iter()
+                            .all(|edge| edge.to == from || !group.contains(&edge.action))),
+                    "control{control} new-law fairness cannot enable a legacy nonstuttering step"
+                );
+            }
+            assert!(
+                legacy_branch_model.responses.len() >= legacy.responses.len(),
+                "every original response property remains present"
+            );
+            for (original, retained) in legacy.responses.iter().zip(&legacy_branch_model.responses) {
+                assert_eq!(
+                    (
+                        &original.name,
+                        format!("{:?}", original.request),
+                        format!("{:?}", original.response)
+                    ),
+                    (
+                        &retained.name,
+                        format!("{:?}", retained.request),
+                        format!("{:?}", retained.response)
+                    ),
+                    "control{control} original response predicate stays identical"
+                );
+            }
+            if control == 14 {
+                assert!(
+                    after
+                        .violations
+                        .iter()
+                        .any(|v| v.property == "FaultHasRetirementOrOwnedUnavailableDisposition"),
+                    "whole canonical graph must retain its genuine legacy response violation"
+                );
+                for violation in after
+                    .violations
+                    .iter()
+                    .filter(|v| v.property == "FaultHasRetirementOrOwnedUnavailableDisposition")
+                {
+                    let profiles = violation
+                        .prefix
+                        .iter()
+                        .chain(&violation.cycle)
+                        .map(|i| after.states[*i][width])
+                        .collect::<BTreeSet<_>>();
+                    println!(
+                        "control14 canonical sampled response witness profiles={profiles:?}; legacy branch checked independently"
+                    );
+                }
+            }
             let old_traces = before
                 .violations
                 .iter()
@@ -8089,25 +10580,19 @@ mod tests {
                     )
                 })
                 .collect::<BTreeSet<_>>();
-            let new_traces = after
+            let new_traces = legacy_branch
                 .violations
                 .iter()
-                .filter(|v| {
-                    v.prefix
-                        .iter()
-                        .chain(&v.cycle)
-                        .all(|i| after.states[*i][width] == 0)
-                })
                 .map(|v| {
                     (
                         v.property.clone(),
                         v.prefix
                             .iter()
-                            .map(|i| after.states[*i][..width].to_vec())
+                            .map(|i| legacy_branch.states[*i][..width].to_vec())
                             .collect::<Vec<_>>(),
                         v.cycle
                             .iter()
-                            .map(|i| after.states[*i][..width].to_vec())
+                            .map(|i| legacy_branch.states[*i][..width].to_vec())
                             .collect::<Vec<_>>(),
                     )
                 })
@@ -8158,6 +10643,65 @@ mod tests {
         let revoked = variable("rollupBasisRevoked");
         let fallback_q = variable("retainedFallbackQuantumNs");
         let fallback_debt = variable("retainedFallbackDebtMs");
+        let stage = variable("initialStoppedCorroborationStage");
+        let staged_cpu = variable("initialStoppedCorroborationInclusiveCpuNs");
+        let prior_debt = variable("initialStoppedCorroborationPriorDebtMs");
+        let initial_ready = variable("initialStoppedCorroborationPaidSeal");
+        let initial_attempt = variable("initialTerminalRiAttemptedBeforeWait4");
+        let initial_known = variable("initialTerminalRiKnown");
+        let initial_l = variable("initialTerminalCreditedKernelNs");
+        let initial_paid = variable("initialTerminalObservationCostPaidBeforeWait4");
+        let initial_bound = variable("initialTerminalRetainedCostBoundNs");
+        let initial_attempt_debt = variable("initialTerminalRetainedAttemptDebtMs");
+        let initial_unknown = variable("initialTerminalConservationUnknown");
+        let initial_unknown_debt = variable("initialTerminalUnknownVerdictDebtMs");
+        let n_reaped = variable("actualProvenReapedProcessCount");
+        let teardown_limit = variable("fixedExitTeardownLimitPerProcessNs");
+        let teardown_allowance = variable("separateExitTeardownConservationAllowanceNs");
+        let residual = variable("actualTerminalResidualCpuNs");
+        let residual_charged = variable("terminalResidualChargedAsCostNs");
+        let residual_total = variable("terminalResidualInclusiveCostBoundNs");
+        let residual_observed = variable("terminalResidualCostObserved");
+        let residual_paid = variable("terminalResidualFullCostPaid");
+        let residual_known = variable("terminalResidualCostKnown");
+        let terminal_debt = variable("terminalReconciliationDebtMs");
+        let child_reap = variable("qualifiedUniqueGitReapedChildCountedOnce");
+        let born_latch = variable("bornStoppedOriginalPhysicalLatch");
+        let born_cost_seen = variable("bornStoppedNativeCostObserved");
+        let born_cost_retained = variable("bornStoppedNativeCostRetainedFunded");
+        let born_native_paid = variable("bornStoppedNativeCostPaidReceipt");
+        let born_native_cost = variable("bornStoppedNativeInclusiveCostBoundNs");
+        let born_native_debt = variable("bornStoppedNativeCreatedDebtMs");
+        let born_raw_known = variable("bornStoppedOriginalNativeAdmissionCostKnown");
+        let born_receipt_clocks = variable("bornStoppedReceiptClosingClocksKnown");
+        let born_expected = variable("bornStoppedRetainedExpectedMembers");
+        let born_activated = variable("bornStoppedImplicitReservedSlotActivated");
+        let born_physical = variable("bornStoppedFreshPhysicalClosureValidated");
+        let born_attempt_retained = variable("bornStoppedTerminalAttemptRetained");
+        let born_attempt_clocks = variable("bornStoppedTerminalAttemptClosingClocksKnown");
+        let adaptive_run = variable("adaptiveRunBudgetNs");
+        let adaptive_cap = variable("adaptiveRunCapNs");
+        let adaptive_target = variable("adaptiveAggregateTargetANs");
+        let adaptive_c_reserve = variable("adaptiveMaxKnownControllerReserveNs");
+        let adaptive_latency = variable("adaptiveMaxMatchingStopAckLatencyNs");
+        let adaptive_slots = variable("adaptiveExpectedReservedSlots");
+        let issued_run = variable("issuedAdaptiveRunBudgetNs");
+        let issued_cap = variable("issuedAdaptiveRunCapNs");
+        let current_c = variable("adaptiveCurrentCompleteControllerNs");
+        let current_a = variable("adaptiveCurrentAggregateActiveNs");
+        let feedbacks = variable("adaptiveAppliedClosedGrantReceipts");
+        let scheduler_clock = variable("adaptiveElapsedClockKnown");
+        let elapsed_stage = variable("adaptiveFreshElapsedNonePreBudgetStopDue");
+        let elapsed = variable("adaptiveFreshElapsedNs");
+        let optional_count = variable("adaptiveOptionalWorkCountInGrant");
+        let optional_at = variable("adaptiveOptionalWorkPriorElapsedNs");
+        let optional_fresh = variable("adaptiveOptionalWorkHadFreshClock");
+        let feedback_kind = variable("adaptiveFeedbackNoneHalveGrowHold");
+        let live_mask = variable("adaptiveRetainedValidLiveStopAckMask");
+        let delay0 = variable("adaptiveRetainedSlot0StopAckDelayNs");
+        let delay1 = variable("adaptiveRetainedSlot1StopAckOrExitDelayNs");
+        let matching_stop = variable("adaptiveRetainedSuccessfulSameGrantStop");
+        let latency_known = variable("adaptiveCurrentLiveLatencyKnown");
         let good = model.check(100_000).unwrap();
         for violation in good.violations.iter().take(3) {
             member_window_failure_rows(
@@ -8202,6 +10746,29 @@ mod tests {
                 && s[burned] == 625_000
                 && s[charged] == 625_000),
             "two separately paid grants accumulate CPU without resetting startup accounting"
+        );
+        assert!(
+            good.states.iter().any(|s| s[law] == 3
+                && s[0] == 3
+                && s[initial_ready] == 1
+                && s[stage] == 5
+                && s[49] == 0
+                && s[42] == 0),
+            "future within-grant uncertainty cannot pre-refuse the originally proved stopped startup"
+        );
+        assert!(
+            good.states.iter().any(|s| s[law] == 3
+                && s[0] == 4
+                && s[49] == 1
+                && s[8] == 5
+                && s[42] == 1
+                && s[10] == 1
+                && s[11] == 1
+                && s[15] == 0
+                && s[18] == 0
+                && s[20] == 0
+                && s[26] == 0),
+            "unknown child arises within its already-open original window without backdated birth, ACK or seal"
         );
         for profile in [3, 4, 9, 10] {
             assert!(
@@ -8283,16 +10850,50 @@ mod tests {
             "trusted measured accounting requires actual reap and passed terminal conservation"
         );
         assert!(
+            good.states.iter().any(|s| s[law] == 11
+                && s[40] == 1
+                && s[wait4] == 625_000
+                && s[charged] == 625_000
+                && s[residual_observed] == 1
+                && s[residual_total] == 250_000
+                && s[residual] == 0
+                && s[residual_paid] == 0
+                && s[checked] == 0
+                && s[terminal_debt] == 9
+                && s[27] == 9
+                && s[28] == 9),
+            "even zero helper residual retains a fresh ordinary terminal C unit and its full unpaid debt"
+        );
+        assert!(
+            good.states.iter().any(|s| s[law] == 11
+                && s[40] == 1
+                && s[residual_observed] == 1
+                && s[residual_total] == 250_000
+                && s[residual_paid] == 1
+                && s[27] == 0
+                && s[28] == 0
+                && s[checked] == 1
+                && s[terminal] == 1),
+            "actual reap has a local full-payment/conservation response without another OS event or helper grant"
+        );
+        assert!(
             good.states.iter().any(|s| s[law] == 14
                 && s[40] == 1
-                && s[checked] == 1
-                && s[terminal] == 2
-                && s[excess] > 0
-                && s[burned] > s[charged]
-                && s[26] == 0
-                && s[34] == 0
-                && s[41] == 1),
-            "independent wait4 excess after a closed charge is an honest refused reap retaining original custody"
+                && s[checked] == 0
+                && s[wait4] == 500_000
+                && s[charged] == 375_000
+                && s[n_reaped] == 1
+                && s[teardown_limit] == 150_000
+                && s[teardown_allowance] == 150_000
+                && s[residual] == 125_000
+                && s[residual_charged] == 125_000
+                && s[residual_total] == 375_000
+                && s[residual_observed] == 1
+                && s[residual_paid] == 0
+                && s[terminal_debt] == 9
+                && s[27] == 9
+                && s[28] == 9),
+            "the newly authorized fixed ceiling never waives any of the original125us residual COST or its fresh debt"
         );
         assert!(
             good.states.iter().any(|s| s[law] == 12
@@ -8364,25 +10965,36 @@ mod tests {
             good.states.iter().any(|s| s[law] == 14
                 && s[40] == 1
                 && s[checked] == 1
-                && s[terminal] == 2
+                && s[terminal] == 1
                 && s[wait4] == 500_000
                 && s[charged] == 375_000
-                && s[excess] == 125_000
-                && s[37] == 6
-                && s[26] == 0
-                && s[34] == 0
-                && s[27] == 9),
-            "independent actual wait4 can expose a good-profile shortfall after an apparently complete measured charge"
+                && s[burned] == 500_000
+                && s[teardown_allowance] == 150_000
+                && s[residual_charged] == 125_000
+                && s[residual_paid] == 1
+                && s[27] == 0
+                && s[28] == 0),
+            "independent prefix remains375us while a separately fixed150us ceiling admits the paid125us terminal residual"
         );
         assert!(
-            good.states.iter().any(|s| s[law] == 14
+            good.states.iter().any(|s| s[law] == 28
+                && s[40] == 1
+                && s[checked] == 1
                 && s[terminal] == 2
-                && s[wait4] == 500_000
-                && s[excess] == 125_000
+                && s[wait4] == 450_000
+                && s[charged] == 200_000
+                && s[teardown_allowance] == 150_000
+                && s[residual] == 250_000
+                && s[residual_charged] == 250_000
+                && s[residual_total] == 500_000
+                && s[residual_paid] == 1
+                && s[terminal_debt] == 9
+                && s[excess] == 100_000
                 && s[27] == 0
                 && s[28] == 0
+                && s[37] == 6
                 && s[34] == 0),
-            "the unexpected raw shortfall remains refused after its fresh reconciliation debt is actually paid"
+            "actual post-sample250us burn exceeds fixed150us and stays refused after its FULL residual cost/debt is paid"
         );
         assert!(
             good.states.iter().any(|s| s[law] == 15
@@ -8417,6 +11029,9 @@ mod tests {
                 && s[40] == 1
                 && s[wait4] == 750_000
                 && s[charged] == 750_000
+                && s[n_reaped] == 2
+                && s[child_reap] == 1
+                && s[teardown_allowance] == 300_000
                 && s[provisional] == 0
                 && s[validated] == 1
                 && s[revoked] == 0
@@ -8424,6 +11039,25 @@ mod tests {
                 && s[34] == 1),
             "qualified child rollup is distinct from own wait4 and trusts only after final leader conservation"
         );
+        assert!(
+            good.states.iter().any(|s| s[law] == 15
+                && s[49] == 2
+                && s[read1] == 4
+                && s[40] == 0
+                && s[n_reaped] == 0
+                && s[child_reap] == 0),
+            "two grants and qualified source reads cannot count an exit ceiling before actual leader reap"
+        );
+        for profile in [13, 16, 17, 18] {
+            assert!(
+                good.states.iter().any(|s| s[law] == profile
+                    && s[40] == 1
+                    && s[n_reaped] == 1
+                    && s[child_reap] == 0
+                    && s[teardown_allowance] == 150_000),
+                "unproven/exited/mixed/pre-exit/duplicate child profile{profile} adds no second teardown allowance"
+            );
+        }
         assert!(
             good.states.iter().all(|s| s[read1] != 3),
             "leader child rollup is never fabricated as controller-owned child wait4"
@@ -8466,9 +11100,14 @@ mod tests {
                 && s[q] == 1_000_000
                 && s[fallback_q] == 1_000_000
                 && s[fallback_debt] == 9
-                && s[wait4] == 625_000
+                && s[wait4] == 900_000
                 && s[charged] == 500_000
-                && s[excess] == 125_000
+                && s[n_reaped] == 2
+                && s[child_reap] == 1
+                && s[teardown_allowance] == 300_000
+                && s[residual_charged] == 400_000
+                && s[residual_paid] == 1
+                && s[excess] == 100_000
                 && s[27] == 9
                 && s[34] == 0),
             "terminal rollup mismatch revokes effective basis and retains raw shortfall plus fresh fallback billing"
@@ -8479,10 +11118,550 @@ mod tests {
                 && s[27] == 0
                 && s[28] == 0
                 && s[raw_q] == 625_000
-                && s[excess] == 125_000
+                && s[wait4] == 900_000
+                && s[residual] == 400_000
+                && s[excess] == 100_000
                 && s[terminal] == 2
                 && s[34] == 0),
             "paid fallback debt never erases the original measured receipt or reclassifies conservation failure"
+        );
+        assert!(
+            good.states.iter().any(|s| s[law] == 1
+                && s[49] == 1
+                && s[stage] == 5
+                && s[initial_ready] == 1
+                && s[staged_cpu] == 1_164_833),
+            "the >1ms total is separately paced stopped work before actual first CONT"
+        );
+        assert!(
+            good.states.iter().any(|s| s[law] == 20
+                && s[40] == 0
+                && s[initial_attempt] == 1
+                && s[initial_known] == 1
+                && s[initial_l] == 75_000
+                && s[burned] == 200_000
+                && s[charged] == 200_000
+                && s[27] == 9
+                && s[28] == 9),
+            "eligible initial RI is independent before own wait4 and pays fresh debt without a grant"
+        );
+        assert!(
+            good.states.iter().any(|s| s[law] == 20
+                && s[40] == 1
+                && s[terminal] == 1
+                && s[wait4] == 200_000
+                && s[initial_l] == 75_000
+                && s[initial_paid] == 1
+                && s[49] == 0
+                && s[34] == 0),
+            "a covered startup-only actual reap can conserve without manufacturing helper/output authority"
+        );
+        assert!(
+            good.states.iter().any(|s| s[law] == 27
+                && s[40] == 1
+                && s[terminal] == 1
+                && s[initial_attempt] == 1
+                && s[initial_l] == 0
+                && s[wait4] == 125_000),
+            "mandatory attempt remains distinct from numerical need for any additional kernel credit"
+        );
+        assert!(
+            good.states.iter().any(|s| s[law] == 22
+                && s[40] == 1
+                && s[checked] == 1
+                && s[terminal] == 1
+                && s[wait4] == 325_000
+                && s[charged] == 200_000
+                && s[residual_charged] == 125_000
+                && s[residual_paid] == 1
+                && s[teardown_allowance] == 150_000
+                && s[initial_known] == 1
+                && s[49] == 0
+                && s[34] == 0),
+            "available initial RI plus fixed teardown bound has a genuinely paid residual path without runtime/output authority"
+        );
+        assert!(
+            good.states.iter().any(|s| s[law] == 21
+                && s[40] == 0
+                && s[initial_attempt] == 1
+                && s[initial_known] == 0
+                && s[initial_l] == 0
+                && s[initial_paid] == 0
+                && s[initial_bound] == 3_000_000
+                && s[initial_attempt_debt] == 27
+                && s[27] == 27
+                && s[28] == 27
+                && s[51] == 1
+                && s[41] == 1),
+            "unavailable initial RI retains UNKNOWN3ms/fresh27ms in the same held original owner before reap"
+        );
+        assert!(
+            good.states.iter().any(|s| s[law] == 21
+                && s[40] == 1
+                && s[initial_attempt] == 1
+                && s[initial_known] == 0
+                && s[initial_l] == 0
+                && s[initial_paid] == 1
+                && s[initial_attempt_debt] == 27
+                && s[initial_unknown] == 1
+                && s[initial_unknown_debt] == 27
+                && s[checked] == 1
+                && s[terminal] == 0
+                && s[excess] == 0
+                && s[wait4] == 200_000
+                && s[charged] == 125_000
+                && s[37] == 6
+                && s[34] == 0
+                && s[27] == 0
+                && s[28] == 0
+                && s[residual_known] == 0
+                && s[residual_total] == 3_000_000
+                && s[residual_paid] == 1
+                && s[charged] + s[teardown_allowance] >= s[wait4]),
+            "even a numerically fitting fixed ceiling never repairs unavailable RI: full unknown cost is paid, accounting remains unknown/refused"
+        );
+        assert!(
+            good.states.iter().any(|s| s[law] == 21
+                && s[40] == 1
+                && s[initial_paid] == 1
+                && s[checked] == 0
+                && s[residual_observed] == 1
+                && s[residual_known] == 0
+                && s[residual_total] == 3_000_000
+                && s[initial_unknown_debt] == 27
+                && s[27] == 27
+                && s[28] == 27),
+            "actual terminal observation retains its own full conservative unknown27ms unit before classification"
+        );
+        assert!(
+            good.states.iter().any(|s| s[law] == 21
+                && s[initial_unknown] == 1
+                && s[27] == 0
+                && s[28] == 0
+                && s[terminal] == 0
+                && s[excess] == 0
+                && s[34] == 0),
+            "unknown conservation remains refused after all conservative fresh debt is paid"
+        );
+        for profile in 23..=26 {
+            assert!(
+                good.states.iter().any(|s| s[law] == profile
+                    && s[37] == 6
+                    && s[51] == 1
+                    && s[41] == 1
+                    && s[40] == 0
+                    && s[34] == 0),
+                "unknown initial source/roster/timebase/payment keeps original pins in owned quarantine"
+            );
+            assert!(
+                good.states.iter().all(|s| s[law] != profile
+                    || (s[initial_attempt] == 0 && s[initial_l] == 0 && s[40] == 0)),
+                "missing initial baseline/roster/paid evidence/timebase cannot acquire independent L"
+            );
+        }
+        assert!(
+            good.states.iter().any(|s| s[law] == 29
+                && s[0] == 3
+                && s[born_latch] == 1
+                && s[born_cost_seen] == 0
+                && s[born_expected] == 2
+                && s[born_activated] == 0
+                && s[49] == 0
+                && s[52] == 0
+                && s[37] == 5
+                && s[41] == 1
+                && s[40] == 0
+                && s[charged] == 0),
+            "Attach callback panic retains the original born-stopped source BEFORE native callback/creation settlement or first CONT"
+        );
+        assert!(
+            good.states.iter().any(|s| s[law] == 29
+                && s[born_cost_retained] == 1
+                && s[born_native_cost] == 2_000_000
+                && s[born_native_debt] == 18
+                && s[born_native_paid] == 0
+                && s[27] == 18
+                && s[28] == 18
+                && s[40] == 0),
+            "actual native birth cost remains separately retained with its full fresh18ms before physical-only settlement"
+        );
+        for profile in [29, 30, 32] {
+            assert!(
+                good.states.iter().any(|s| s[law] == profile
+                    && s[40] == 0
+                    && s[born_native_paid] == 1
+                    && s[born_physical] == 1
+                    && s[initial_attempt] == 1
+                    && s[born_attempt_retained] == 1
+                    && s[initial_bound] == 3_000_000
+                    && s[initial_attempt_debt] == 27
+                    && s[initial_paid] == 0
+                    && s[27] == 27
+                    && s[28] == 27
+                    && s[initial_l] == 0
+                    && s[charged] == 0),
+                "early profile{profile} retains one actual terminal RI attempt and full UNKNOWN3ms/27ms; no startup/L credit"
+            );
+            assert!(
+                good.states.iter().any(|s| s[law] == profile
+                    && s[40] == 1
+                    && s[born_latch] == 1
+                    && s[born_native_paid] == 1
+                    && s[initial_paid] == 1
+                    && s[initial_known] == i64::from(profile != 30)
+                    && s[initial_unknown] == 1
+                    && s[checked] == 1
+                    && s[terminal] == 0
+                    && s[wait4] == 125_000
+                    && s[charged] == 0
+                    && s[initial_l] == 0
+                    && s[teardown_allowance] == 150_000
+                    && s[n_reaped] == 1
+                    && s[child_reap] == 0
+                    && s[residual_known] == 0
+                    && s[residual_total] == 3_000_000
+                    && s[residual_paid] == 1
+                    && s[27] == 0
+                    && s[28] == 0
+                    && s[52] == 0
+                    && s[49] == 0
+                    && s[born_activated] == 0
+                    && s[34] == 0),
+                "early profile{profile} owns actual reap after full payment, but available RI/fixedT never establishes missing startup accounting or runtime trust"
+            );
+        }
+        assert!(
+            good.states.iter().any(|s| s[law] == 32
+                && s[born_cost_seen] == 1
+                && s[born_raw_known] == 0
+                && s[25] == 0
+                && s[born_native_cost] == 3_000_000
+                && s[born_native_debt] == 27
+                && s[born_cost_retained] == 1
+                && s[born_receipt_clocks] == 1
+                && s[born_native_paid] == 1
+                && s[40] == 1
+                && s[checked] == 1
+                && s[terminal] == 0
+                && s[initial_unknown] == 1
+                && s[charged] == 0
+                && s[34] == 0),
+            "raw native clock failure stays UNKNOWN while a later actual known closing receipt/full27ms permits physical-only original reap"
+        );
+        for profile in [31, 33, 34, 35, 36, 37] {
+            assert!(
+                good.states.iter().any(|s| s[law] == profile
+                    && s[born_cost_seen] == 1
+                    && s[37] == 5
+                    && s[51] == 1
+                    && s[41] == 1
+                    && s[40] == 0
+                    && s[34] == 0),
+                "early missing source/native-clock/physical-proof/attempt-clock/funding profile{profile} keeps original custody"
+            );
+            assert!(
+                good.states.iter().all(|s| s[law] != profile || s[40] == 0),
+                "an early panic or empty census never grants own-reap permission for profile{profile}"
+            );
+        }
+        assert!(
+            good.states.iter().any(|s| s[law] == 34
+                && s[initial_attempt] == 1
+                && s[born_attempt_retained] == 1
+                && s[born_attempt_clocks] == 0
+                && s[27] == 0
+                && s[28] == 0
+                && s[initial_paid] == 0
+                && s[40] == 0
+                && s[41] == 1),
+            "debt-field equality cannot replace the unknown current attempt closing-clock receipt"
+        );
+        assert!(
+            good.states.iter().any(|s| s[law] == 35
+                && s[born_cost_seen] == 1
+                && s[born_native_cost] == 2_000_000
+                && s[born_cost_retained] == 0
+                && s[born_native_paid] == 0
+                && s[27] == 0
+                && s[28] == 0
+                && s[40] == 0
+                && s[41] == 1),
+            "unfunded raw native cost is retained in custody instead of normalized into a paid zero"
+        );
+        assert!(
+            good.states.iter().any(|s| s[law] == 37
+                && s[born_cost_seen] == 1
+                && s[born_raw_known] == 0
+                && s[born_native_cost] == 3_000_000
+                && s[born_native_debt] == 9
+                && s[born_cost_retained] == 0
+                && s[born_native_paid] == 0
+                && s[27] == 0
+                && s[28] == 0
+                && s[40] == 0
+                && s[41] == 1
+                && s[34] == 0),
+            "only9ms funding cannot stand in for the whole UNKNOWN3ms/27ms native unit even after its partial debt is paid"
+        );
+        for (profile, slots, run) in [(38, 1, 350_000), (39, 2, 175_000)] {
+            assert!(
+                good.states.iter().any(|s| s[law] == profile
+                    && s[49] == 1
+                    && s[issued_run] == run
+                    && s[issued_cap] == run
+                    && s[adaptive_slots] == slots
+                    && s[current_a] == 600_000
+                    && s[current_c] == 250_000
+                    && s[q] == 850_000
+                    && s[27] == 9
+                    && s[26] == 1
+                    && s[feedbacks] == 0),
+                "one aggregate target reserves ALL expected slots plus known controller/STOP latency before CONT"
+            );
+            assert!(
+                good.states.iter().any(|s| s[law] == profile
+                    && s[49] == 2
+                    && s[feedbacks] == 2
+                    && s[feedback_kind] == 2
+                    && s[burned] == 975_000
+                    && s[charged] == 975_000
+                    && s[adaptive_run] <= s[adaptive_cap]
+                    && s[adaptive_run] <= 450_000),
+                "two real original grants apply bounded decrease then slow growth without inventing a third grant"
+            );
+            assert!(
+                good.states.iter().any(|s| s[law] == profile
+                    && s[0] == 4
+                    && s[optional_count] == 1
+                    && s[optional_fresh] == 1
+                    && s[optional_at] < s[issued_run]
+                    && s[elapsed_stage] == 0),
+                "optional work invalidates its consumed elapsed timestamp"
+            );
+            assert!(
+                good.states.iter().any(|s| s[law] == profile
+                    && s[0] == 4
+                    && s[optional_count] == 1
+                    && s[elapsed_stage] == 2
+                    && s[elapsed] == s[issued_run]
+                    && s[14] == 0),
+                "a new current elapsed read observes STOP due before the positive ACK"
+            );
+        }
+        assert!(
+            good.states.iter().any(|s| s[law] == 38
+                && s[feedbacks] == 1
+                && s[feedback_kind] == 1
+                && s[issued_run] == 350_000
+                && s[adaptive_run] == 175_000
+                && s[adaptive_cap] == 200_000
+                && s[adaptive_latency] == 250_000
+                && s[adaptive_target] == 550_000),
+            "above-target aggregate A halves the ACTUAL prior run once, then clamps the newly observed latency cap"
+        );
+        assert!(
+            good.states.iter().any(|s| s[law] == 38
+                && s[feedbacks] == 2
+                && s[issued_run] == 175_000
+                && s[adaptive_run] == 185_000
+                && s[adaptive_c_reserve] == 350_000
+                && s[adaptive_target] == 450_000
+                && s[adaptive_cap] == 200_000
+                && s[current_c] == 350_000
+                && s[q] == 600_000),
+            "slow growth is10us and complete newly measured C shrinks aggregate target while the capped run ceiling remains200us; all C stays in Q"
+        );
+        assert!(
+            good.states.iter().any(|s| s[law] == 39
+                && s[feedbacks] == 2
+                && s[adaptive_slots] == 2
+                && s[issued_run] == 87_500
+                && s[adaptive_run] == 97_500
+                && s[adaptive_cap] == 150_000
+                && s[adaptive_c_reserve] == 250_000
+                && s[current_c] == 200_000
+                && s[adaptive_latency] == 125_000
+                && s[adaptive_target] == 550_000),
+            "smaller later C/latency never decay the retained reserves or replace reserved2 with a visible-count divisor"
+        );
+        assert!(
+            good.states.iter().any(|s| s[law] == 40
+                && s[elapsed_stage] == 2
+                && s[elapsed] > s[issued_run]
+                && s[optional_count] == 0
+                && s[14] == 0),
+            "fresh elapsed already beyond budget stops before any optional grant work"
+        );
+        assert!(
+            good.states.iter().any(|s| s[law] == 40
+                && s[q] == 1_178_500
+                && s[current_a] == 932_917
+                && s[current_c] == 245_583
+                && s[wall] == 1_114_000
+                && s[27] == 11
+                && s[28] == 11
+                && s[37] == 6
+                && s[26] == 0
+                && s[34] == 0
+                && s[optional_count] == 0),
+            "adaptive allocation does not erase the actual builder over-Q refusal or its full fresh11ms debt"
+        );
+        assert!(
+            good.states.iter().any(|s| s[law] == 40
+                && s[feedbacks] == 1
+                && s[adaptive_latency] == 382_000
+                && s[adaptive_run] == 25_000
+                && s[adaptive_cap] == 25_000
+                && s[26] == 0
+                && s[34] == 0),
+            "a larger observed STOP latency bounds future run to the25us floor but cannot reopen a refused grant"
+        );
+        assert!(
+            good.states.iter().any(|s| s[law] == 41
+                && s[scheduler_clock] == 0
+                && s[37] == 1
+                && s[51] == 1
+                && s[41] == 1
+                && s[40] == 0
+                && s[49] == 0
+                && s[feedbacks] == 0
+                && s[34] == 0),
+            "unknown fresh elapsed clock holds the original effect without CONT/growth or optimistic qualification"
+        );
+        assert!(
+            good.states.iter().any(|s| s[law] == 42
+                && s[feedbacks] == 1
+                && s[live_mask] == 3
+                && s[delay0] == 100_000
+                && s[delay1] == 300_000
+                && s[matching_stop] == 1
+                && s[latency_known] == 1
+                && s[adaptive_latency] == 300_000
+                && s[adaptive_cap] == 25_000
+                && s[adaptive_run] == 25_000
+                && s[adaptive_target] == 500_000
+                && s[current_a] == 525_000
+                && s[current_c] == 300_000
+                && s[q] == 825_000),
+            "MAX across both live ACK receipts, not earliest ACK, updates reserves BEFORE new-target halving/cap"
+        );
+        assert!(
+            good.states.iter().any(|s| s[law] == 43
+                && s[49] == 2
+                && s[feedbacks] == 2
+                && s[live_mask] == 1
+                && s[delay0] == 100_000
+                && s[delay1] == 300_000
+                && s[latency_known] == 1
+                && s[read0] == 2
+                && s[origin0] == 1
+                && s[read1] == 4
+                && s[origin1] == 2
+                && s[rollup_count] == 1
+                && s[delta] == 50_000
+                && s[prior_live] == 300_000
+                && s[current_a] == 300_000
+                && s[q] == 550_000
+                && s[adaptive_latency] == 125_000
+                && s[adaptive_run] == 97_500
+                && s[feedback_kind] == 2),
+            "qualified exited-child rollup retains CPU once while its later exit endpoint cannot inflate LIVE STOP latency"
+        );
+        assert!(
+            good.states.iter().any(|s| s[law] == 44
+                && s[49] == 2
+                && s[pending] == 1
+                && s[40] == 0
+                && s[committed] == 1
+                && s[live_mask] == 0
+                && s[latency_known] == 0
+                && s[origin0] == 2
+                && s[read0] == 0
+                && s[34] == 0),
+            "exited-only second grant remains settlement-only pending until original actual own wait4; no live ACK is invented"
+        );
+        assert!(
+            good.states.iter().any(|s| s[law] == 44
+                && s[49] == 2
+                && s[feedbacks] == 2
+                && s[pending] == 0
+                && s[40] == 1
+                && s[committed] == 2
+                && s[read0] == 3
+                && s[origin0] == 2
+                && s[live_mask] == 0
+                && s[latency_known] == 0
+                && s[matching_stop] == 1
+                && s[feedback_kind] == 3
+                && s[issued_run] == 175_000
+                && s[adaptive_run] == 175_000
+                && s[adaptive_latency] == 250_000
+                && s[adaptive_cap] == 200_000
+                && s[q] == 350_000
+                && s[wait4] == 825_000
+                && s[charged] == 825_000),
+            "retained own wait4 is legal measured accounting but exited-only endpoints never regrow the predictive run"
+        );
+        assert!(
+            good.states.iter().any(|s| s[law] == 45
+                && s[feedbacks] == 1
+                && s[basis] == 0
+                && s[read0] == 0
+                && s[current_a] == 525_000
+                && s[current_c] == 300_000
+                && s[wall] == 625_000
+                && s[q] == 925_000
+                && s[adaptive_c_reserve] == 300_000
+                && s[adaptive_target] == 500_000
+                && s[issued_run] == 350_000
+                && s[adaptive_run] == 175_000
+                && s[feedback_kind] == 1
+                && s[27] == 9
+                && s[28] == 9),
+            "finite observed A above NEW500us target shrinks WINDOW-basis run without granting measured authority or dropping max(W,A)+C"
+        );
+        assert!(
+            good.states.iter().any(|s| s[law] == 46
+                && s[feedbacks] == 1
+                && s[matching_stop] == 0
+                && s[live_mask] == 0
+                && s[latency_known] == 0
+                && s[basis] == 0
+                && s[feedback_kind] == 3
+                && s[adaptive_run] == 350_000
+                && s[37] == 6
+                && s[26] == 0
+                && s[34] == 0
+                && s[q] == 700_000),
+            "nonmatching/non-successful STOP supplies no predictive latency or growth even with retained finite stopped raw cost"
+        );
+        assert!(
+            good.states.iter().any(|s| s[law] == 44
+                && s[49] == 2
+                && s[pending] == 1
+                && s[40] == 0
+                && s[committed] == 1
+                && s[charged] == 725_000
+                && s[burned] == 825_000
+                && s[q] == 0
+                && s[basis] == 0
+                && s[checked] == 0
+                && s[33] == 0
+                && s[34] == 0),
+            "second pending grant preserves prior real725us credit/count1 while CURRENT own-wait4 accounting is uncommitted"
+        );
+        assert!(
+            good.states.iter().all(|s| s[law] != 44
+                || s[pending] == 0
+                || (s[49] == 2
+                    && s[committed] == 1
+                    && s[charged] == 725_000
+                    && s[q] == 0
+                    && s[basis] == 0
+                    && s[checked] == 0
+                    && s[33] == 0
+                    && s[34] == 0)),
+            "neither pending retirement nor retained actual reap erases prior credit or admits main proof/trust before current commit"
         );
         for (control, property) in [
             (29, "MeasuredNeedsClosure"),
@@ -8494,6 +11673,24 @@ mod tests {
             (35, "RollupRequiresUniqueAdmittedChild"),
             (36, "RollupNeedsCausalExitAndLeaderAck"),
             (37, "RollupCountedOnce"),
+            (38, "InitialCorroborationStageRequiresFreshPaidRest"),
+            (39, "InitialEligibleTerminalRiAttemptPrecedesOwnWait4"),
+            (40, "ChargedCoversBurned"),
+            (
+                41,
+                "TerminalResidualIsFullyChargedOutsideConservationCredit",
+            ),
+            (42, "TeardownCeilingIsIndependentFixedPerActualReap"),
+            (43, "TeardownChildCountNeedsQualifiedRetainedReapProof"),
+            (
+                44,
+                "BornStoppedCreationFaultReapNeedsPaidOriginalPhysicalLatch",
+            ),
+            (45, "IssuedAdaptiveGrantUsesMeasuredCostAndStopLatencyCap"),
+            (46, "AdaptiveLatencyRetainsMaximumValidLiveAck"),
+            (47, "AdaptiveGrowthNeedsMeasuredLiveSuccessfulStopAck"),
+            (48, "WindowBasisAboveNewTargetHalvesPriorRun"),
+            (49, "PendingDirectExitCannotAdmitExpensiveWorkOrTrust"),
         ] {
             let broken = member_window(control);
             let result = broken.check(100_000).unwrap();
@@ -8507,6 +11704,200 @@ mod tests {
                 "{} must retain every declared finite bound",
                 broken.name
             );
+            if control == 38 {
+                assert!(
+                    result.states.iter().any(|s| s[law] != 0
+                        && s[stage] == 2
+                        && s[prior_debt] == 9
+                        && s[27] == 18
+                        && s[28] == 18
+                        && s[49] == 0
+                        && s[initial_ready] == 0),
+                    "skipping a stopped checkpoint rest admits fresh work over the retained prior obligation"
+                );
+            }
+            if control == 39 {
+                assert!(
+                    result.states.iter().any(|s| s[law] == 27
+                        && s[40] == 1
+                        && s[initial_attempt] == 0
+                        && s[wait4] == s[charged]
+                        && s[terminal] == 0
+                        && s[49] == 0
+                        && s[34] == 0),
+                    "skipped initial RI violates protocol order even when raw terminal CPU would be covered"
+                );
+                assert!(
+                    result.states.iter().any(|s| s[law] == 21
+                        && s[40] == 1
+                        && s[initial_attempt] == 1
+                        && s[initial_known] == 0
+                        && s[initial_paid] == 0
+                        && s[27] == 27
+                        && s[28] == 27
+                        && s[initial_attempt_debt] == 27
+                        && s[terminal] == 0),
+                    "the same omitted readiness guard also exposes actual own reap with retained UNKNOWN debt still unpaid"
+                );
+            }
+            if control == 49 {
+                assert!(
+                    result.states.iter().any(|s| s[law] == 44
+                        && s[49] == 2
+                        && s[pending] == 1
+                        && s[40] == 0
+                        && s[committed] == 2
+                        && s[charged] == 725_000
+                        && s[burned] == 825_000
+                        && s[read0] == 0
+                        && s[origin0] == 2
+                        && s[q] == 0
+                        && s[basis] == 0
+                        && s[33] == 0
+                        && s[34] == 0),
+                    "one premature CURRENT commit violates pending ownership while retaining all prior credit and no forged wait4/CPU/proof/trust"
+                );
+            }
+            if control == 46 {
+                assert!(
+                    result.states.iter().any(|s| s[law] == 42
+                        && s[feedbacks] == 1
+                        && s[live_mask] == 3
+                        && s[delay0] == 100_000
+                        && s[delay1] == 300_000
+                        && s[adaptive_latency] == 100_000
+                        && s[adaptive_cap] == 150_000
+                        && s[adaptive_run] == 87_500
+                        && s[q] == 825_000
+                        && s[charged] == s[burned]),
+                    "one MIN-for-MAX fault selects wrong next87500 instead of25000 while all actual raw accounting stays intact"
+                );
+            }
+            if control == 47 {
+                assert!(
+                    result.states.iter().any(|s| s[law] == 44
+                        && s[49] == 2
+                        && s[feedbacks] == 2
+                        && s[40] == 1
+                        && s[read0] == 3
+                        && s[origin0] == 2
+                        && s[live_mask] == 0
+                        && s[latency_known] == 1
+                        && s[feedback_kind] == 2
+                        && s[issued_run] == 175_000
+                        && s[adaptive_run] == 185_000
+                        && s[q] == 350_000
+                        && s[wait4] == 825_000
+                        && s[charged] == 825_000),
+                    "one exit-as-live source classification fault falsely regrows175->185us after legal own-wait4 accounting, not a forged wait4/CPU certificate"
+                );
+            }
+            if control == 48 {
+                assert!(
+                    result.states.iter().any(|s| s[law] == 45
+                        && s[feedbacks] == 1
+                        && s[basis] == 0
+                        && s[current_a] == 525_000
+                        && s[current_c] == 300_000
+                        && s[adaptive_target] == 500_000
+                        && s[issued_run] == 350_000
+                        && s[adaptive_run] == 350_000
+                        && s[feedback_kind] == 3
+                        && s[q] == 925_000),
+                    "the old measured-only decrease guard misses finite WINDOW A above the NEW target without changing any raw Q/debt gate"
+                );
+            }
+            if control == 45 {
+                assert!(
+                    result.states.iter().any(|s| s[law] == 39
+                        && s[49] == 1
+                        && s[issued_run] == 1_000_000
+                        && s[issued_cap] == 175_000
+                        && s[adaptive_slots] == 2
+                        && s[current_a] == 2_200_000
+                        && s[current_c] == 250_000
+                        && s[q] == 2_450_000
+                        && s[wall] == 2_200_000
+                        && s[27] == 23
+                        && s[28] == 23
+                        && s[37] == 6
+                        && s[26] == 0
+                        && s[34] == 0
+                        && s[charged] == s[burned]
+                        && s[terminal] == 0),
+                    "fixed>=1ms CONT run must reach actual oversize aggregate A+C/raw debt/refusal, not a fake certificate or TypeOK"
+                );
+            }
+            if control == 44 {
+                assert!(
+                    result.states.iter().any(|s| s[law] == 29
+                        && s[40] == 1
+                        && s[born_expected] == 2
+                        && s[born_activated] == 0
+                        && s[born_latch] == 1
+                        && s[born_native_paid] == 1
+                        && s[born_physical] == 1
+                        && s[initial_attempt] == 1
+                        && s[initial_known] == 1
+                        && s[born_attempt_retained] == 1
+                        && s[initial_paid] == 0
+                        && s[27] == 27
+                        && s[28] == 27
+                        && s[52] == 0
+                        && s[49] == 0
+                        && s[terminal] == 0
+                        && s[charged] == 0
+                        && s[34] == 0),
+                    "known original physical exit plus available RI cannot bypass this CURRENT unknown attempt payment after an Attach panic"
+                );
+            }
+            if control == 40 {
+                assert!(
+                    result.states.iter().any(|s| s[law] == 28
+                        && s[terminal] == 1
+                        && s[wait4] > s[charged] + s[teardown_allowance]
+                        && s[residual_charged] == 250_000
+                        && s[residual_paid] == 1),
+                    "above-T bypass falsely certifies despite independent raw excess and fully paid residual cost"
+                );
+            }
+            if control == 41 {
+                assert!(
+                    result.states.iter().any(|s| s[law] == 14
+                        && s[residual_observed] == 1
+                        && s[residual] == 125_000
+                        && s[residual_charged] == 0
+                        && s[charged] + s[teardown_allowance] >= s[wait4]
+                        && s[charged] == 375_000
+                        && s[residual_total] == 250_000),
+                    "a legitimate fixed ceiling cannot excuse the missing raw residual COST"
+                );
+            }
+            if control == 42 {
+                assert!(
+                    result.states.iter().any(|s| s[law] == 28
+                        && s[n_reaped] == 1
+                        && s[teardown_limit] == 250_000
+                        && s[teardown_allowance] == 250_000
+                        && s[residual] == 250_000
+                        && s[residual_paid] == 1
+                        && s[charged] + s[teardown_allowance] == s[wait4]),
+                    "deriving T from the same wait4 makes the numerical comparison vacuous even when cost was properly paid"
+                );
+            }
+            if control == 43 {
+                assert!(
+                    result.states.iter().any(|s| s[law] == 28
+                        && s[40] == 1
+                        && s[n_reaped] == 2
+                        && s[child_reap] == 0
+                        && s[8] == 0
+                        && s[teardown_allowance] == 300_000
+                        && s[residual_paid] == 1
+                        && s[charged] + s[teardown_allowance] >= s[wait4]),
+                    "an expected/unproven child cannot manufacture a second ceiling to cover otherwise excessive raw CPU"
+                );
+            }
             if matches!(control, 31 | 32) {
                 assert!(
                     result
@@ -8592,13 +11983,17 @@ mod tests {
                     && s[checked] == 1
                     && s[terminal] == 2
                     && s[wait4] > s[charged]
-                    && s[excess] == s[wait4] - s[charged]
+                    && s[excess] == s[wait4] - s[charged] - s[teardown_allowance]
                     && s[37] == 6
                     && s[26] == 0
                     && s[34] == 0
-                    && s[27] == fresh_debt
+                    && s[terminal_debt] == fresh_debt
+                    && s[residual_paid] == 1
+                    && s[residual_charged] == s[wait4] - s[charged]
+                    && s[27] == 0
+                    && s[28] == 0
                     && s[41] == 1),
-                "pure omission/conversion must retain independent wait4 excess, resource refusal and fresh debt"
+                "pure omission/conversion retains independent excess after fixed T and pays the FULL raw residual fresh debt before refusal"
             );
             assert!(
                 result.states.iter().any(|s| s[law] == profile
