@@ -46,66 +46,66 @@ VERIFIER_SHA = "21cb9adcad96b7be404014ff6e9fb837160a2135455c217dec9efe196cf0661a
 # Only an explicit live Root amendment can select a FUNCTIONAL immutable input.
 # The old5493 and a386 preflight checkpoints remain historical, not fallbacks.
 # This is an offline ingestion premise, never a runtime approval flag or API.
-# Selected by the task ORACLE FREEZE adaptive on 2026-11-07: settlement
-# latch and adaptive grants, with decision 66236 and fixed teardown accounting.
-# Custody and preparation cross-bindings still pass before any private launch.
-ROOT_Q2_INPUT = {'root': {'path': '/Users/feral/mydev/bboxy450-harness-dream-read-q2/target/dream-read-c-audit/adaptive-maxlive-final-signed-preparation/dream-read-c-preparation/compile-v5v4t16m',
+# Selected by the task ORACLE FREEZE decision66280 on 2026-11-07.
+# External helpers use background QoS and total budgets; our own units retain
+# the 1ms law. Custody and preparation cross-bindings precede every launch.
+ROOT_Q2_INPUT = {'root': {'path': '/Users/feral/mydev/bboxy450-harness-dream-read-q2/target/dream-read-q2-restart-01M6RZZXSHZT3KHBK1QC7K3XB3/prepared-66280-source46/dream-read-c-preparation/compile-lnfh07dr',
           'dev': 16777234,
-          'ino': 184761714,
+          'ino': 185468566,
           'uid': 501},
- 'source': {'path': '/Users/feral/mydev/bboxy450-harness-dream-read-q2/target/dream-read-c-audit/adaptive-maxlive-final-signed-preparation/dream-read-c-preparation/compile-v5v4t16m/proof-helper-probe.c',
-            'sha256': 'e23f68d3384418160fdc41813844876ec14b28b704bf7f916fad86a48dd992cc',
-            'ctime_ns': 1794065667438560807,
+ 'source': {'path': '/Users/feral/mydev/bboxy450-harness-dream-read-q2/target/dream-read-q2-restart-01M6RZZXSHZT3KHBK1QC7K3XB3/prepared-66280-source46/dream-read-c-preparation/compile-lnfh07dr/proof-helper-probe.c',
+            'sha256': 'eca43c1bbf4a165119ead5c7da2cc1c24ff25914c00ef25c172096f8b4595b0b',
+            'ctime_ns': 1794089245015276588,
             'dev': 16777234,
-            'ino': 184761715,
-            'len': 417272,
+            'ino': 185468567,
+            'len': 309104,
             'mode': 33024,
-            'mtime_ns': 1794065667438403390,
+            'mtime_ns': 1794089245014833211,
             'nlink': 1,
-            'size': 417272,
+            'size': 309104,
             'uid': 501},
- 'executable': {'path': '/Users/feral/mydev/bboxy450-harness-dream-read-q2/target/dream-read-c-audit/adaptive-maxlive-final-signed-preparation/dream-read-c-preparation/compile-v5v4t16m/probe',
-                'sha256': '05eefb2039d573e6d9fdd5b41e17db29f73615a04b9194c74e9f9f177572ae68',
-                'ctime_ns': 1794065668605609524,
+ 'executable': {'path': '/Users/feral/mydev/bboxy450-harness-dream-read-q2/target/dream-read-q2-restart-01M6RZZXSHZT3KHBK1QC7K3XB3/prepared-66280-source46/dream-read-c-preparation/compile-lnfh07dr/probe',
+                'sha256': 'ac4df370e9e108b9d7c65cf83b1a8a5ecfde6f15650fc172a31eb6909b3c7cdc',
+                'ctime_ns': 1794089246021596234,
                 'dev': 16777234,
-                'ino': 184761738,
-                'len': 303608,
+                'ino': 185468572,
+                'len': 250424,
                 'mode': 33088,
-                'mtime_ns': 1794065668578388020,
+                'mtime_ns': 1794089245993846341,
                 'nlink': 1,
-                'size': 303608,
+                'size': 250424,
                 'uid': 501},
- 'preparation': {'path': '/Users/feral/mydev/bboxy450-harness-dream-read-q2/target/dream-read-c-audit/adaptive-maxlive-final-signed-preparation/dream-read-c-preparation/compile-v5v4t16m/preparation-3974b380a0ed86ce06087f79ac14bff150f4c31fc0717ffbfa09cba24f6ee47b.json',
-                 'sha256': '3974b380a0ed86ce06087f79ac14bff150f4c31fc0717ffbfa09cba24f6ee47b',
-                 'ctime_ns': 1794065668798692563,
+ 'preparation': {'path': '/Users/feral/mydev/bboxy450-harness-dream-read-q2/target/dream-read-q2-restart-01M6RZZXSHZT3KHBK1QC7K3XB3/prepared-66280-source46/dream-read-c-preparation/compile-lnfh07dr/preparation-ec4c2eee90bc74d0cae67991b145e4fc99c729898cc56e1cddb1964490a48326.json',
+                 'sha256': 'ec4c2eee90bc74d0cae67991b145e4fc99c729898cc56e1cddb1964490a48326',
+                 'ctime_ns': 1794089246236779093,
                  'dev': 16777234,
-                 'ino': 184762088,
-                 'len': 520542,
+                 'ino': 185468922,
+                 'len': 531458,
                  'mode': 33024,
-                 'mtime_ns': 1794065668798428687,
+                 'mtime_ns': 1794089246236177881,
                  'nlink': 1,
-                 'size': 520542,
+                 'size': 531458,
                  'uid': 501},
- 'source_commit': '84158341180f011d09dc0e7d561f91b244d381ae',
+ 'source_commit': '557c8b47a474373acd42e759a7f7ac3efc72fc39',
  'signer_fingerprint': '9B07E849480C68328CA20684844ECC0587DE7AB0',
- 'preparation_commit': '84158341180f011d09dc0e7d561f91b244d381ae',
+ 'preparation_commit': '557c8b47a474373acd42e759a7f7ac3efc72fc39',
  'preparation_signer_fingerprint': '9B07E849480C68328CA20684844ECC0587DE7AB0',
- 'bindings': {'build': '04b4d91be3556e8f4aa3bbf65b8f87cd87ebb9cb79f943837d95a5cf8302f380',
+ 'bindings': {'build': '1df6c1c18898208c35afd120d87d8b39d693123a46b7f42fea60010e8d98507e',
               'compiler': 'a3d577375b2a73419600eee3110f6bb210bbec0c10d5abd48022c9809ff23838',
-              'dependency_discovery': 'e7676ca9ca01a9dab3ba0bd11b41ce5e56ab30f3010e595d52d3d60c58c07bc6',
-              'executable': '8d55a413d67e9f9d61fedb7f569c5e9e47003159d4c418ffd9d4c020fd6744ce',
-              'header_inputs': 'fa34d4d5ed71201134ee303b79e8b29ee2377b08bd407fe1cc88a47265b1362d',
-              'inputs': 'c06674c385fd40ab7e2dcfdb37812eb6797cdff8932dbf47d5af266cb817bba3',
+              'dependency_discovery': '1cf948c04b87762242c0f544c2e9de43f92614b2c405be0ced6376cb2c4a4817',
+              'executable': '89934e4afe86f86e3df29fd93ce68dfa0f23d47fc0a6fea09cbcf7f04b268dcf',
+              'header_inputs': 'fcc7d3b6ba9e68e5bbd336d5d7983c1cae8f4b5b6d711f475c3065aa049a0d9f',
+              'inputs': '465689b1589cff28ac23e2931c028525e531ddcd85e9b44f80f7bba3cfb420a5',
               'linker': '7cea27482a67bfa92b546ec35ad5ba71bcedd3910bd3b12df9e618fbcfbdf01c',
               'platform': '994c24fbd511ae90c273cfcd5c5f3e78b99b70a35692800dcb48d289bdaab6e3',
-              'provisioning_source': 'f0842a713e29cfceb5c80ad1d316e60974cfab8a43feb4e9aa44acbc44b2f55a',
+              'provisioning_source': '1662faa9cc1900261fc5b0cb78cc3d8377d908ab93631475237f8b547ab53ab9',
               'sdk': '18544f8f94b14d8ac2da05b462679964250d8885f603422c994201d5e4e483ff',
-              'input_commits': '238c26660504818e63b90814b6144415e53a5c76386f3e4b111369345241c042',
-              'preparation_commit': 'd9899eba5053061e5b31b4c0a489796340e8595c62ea36fd50604ab2bd993d28',
+              'input_commits': 'bf2013c9c1b74567ce01bca812c43f7a4b8d72fd588deef21036ecbb7cbc328b',
+              'preparation_commit': '03eb34f741bb7e07c7b1b52eefd55f534dc9586d47dbada4c590f596ad4582e7',
               'preparation_signer_fingerprint': '4e588b4e7396747b3b7b317d37a22c5981401da546e6eadebc4008472c4367e9',
-              'preparation_snapshot': '0a64dd54957f2780dc74b83426d41fc8273d41d63c425031efb3751cca57a7bc',
-              'retained_outputs': 'fcb01da395c2fc5ff4f7ff34bd563fb3e1081280d65ccbcafb1b2f54b0e99a43',
-              'retained_root': '9ba836d4b2d132a8a6455a9b5d1812f072c4a7acde2c9c99138d47c24435c3d7',
+              'preparation_snapshot': 'bca3f8e2a5afc88d0fb53a6f43ed6bd2e90bc1fa9fd01510a59a052a4c81b1ab',
+              'retained_outputs': '7a4efa96d72c8060da20025760e607c14f4dba86f5f33b3cb9b0fb141c06d652',
+              'retained_root': 'e20836b131823909ce8b393adf797bbedf552e31baf3add1333336a8ae3455bc',
               'retained_directory_mode': '4962ec3a0b2818a90f5ef116da5f517a840b1071e51fba8ee2bef6af2f531067'},
  'build_closure': [{'path': '/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/lib/darwin/libclang_rt.osx.a',
                     'sha256': '5f20304aa257ed57bcba9f64287497d0be09b8cc7a5a91479b6a274294a22dfe',
@@ -131,7 +131,7 @@ ROOT_Q2_INPUT = {'root': {'path': '/Users/feral/mydev/bboxy450-harness-dream-rea
                     'uid': 0}],
  'macho': {'cpu_type': 16777228,
            'cpu_subtype': 0,
-           'uuid': '8cef12314c3f34ddaf23e9618050db86',
+           'uuid': 'eb8c3dbd51f73e9a9473c18ed0a664d4',
            'fat': False,
            'rpaths': [],
            'loads': [{'mode': 'load', 'name': '/usr/lib/libSystem.B.dylib'}]}}
@@ -2888,7 +2888,7 @@ def component(d):
 def private_descriptor(run, prefix, basis, case, output, selection):
     """Produce the existing ICD input; only Q2 decodes/runs its commands."""
     require(case in ("positive", "corrupt_proof", "pause_resume", "cancel", "stale_incarnation",
-                     "clock_failure", "debt_overlap", "late_stop", "reap_delay"), "unknown canonical component case")
+                     "clock_failure", "debt_overlap", "reap_delay"), "unknown canonical component case")
     shared = file_pin(prefix, "provenance/pretest-basis.json")
     fixture = basis["fixture"]
     value = {"kind": "private_candidate_test", "run_id": ulid(), "nonce": ulid(),
@@ -2980,13 +2980,18 @@ def component_result(raw, descriptor, actual_exit):
         metrics = result["metrics"]
         for key, bound in (("ordinary_max_ns", 1000000), ("controller_max_ns", 1000000), ("cleanup_max_ns", 1000000),
                            ("native_cpu_max_ns", 2000000), ("native_wall_max_ns", 25000000), ("inclusive_max_ns", 3000000),
-                           ("Q_max_ns", 1000000), ("helper_group_rss_peak_bytes", 16 * 1024 * 1024), ("probe_rss_peak_bytes", 96 * 1024 * 1024)):
+                           ("A_ns", 3000000000), ("helper_group_rss_peak_bytes", 16 * 1024 * 1024), ("probe_rss_peak_bytes", 96 * 1024 * 1024)):
             checked_int(metrics[key], 0, bound)
+        # Decision66280: A is authoritative rounded leader-wait4 CPU including
+        # qualified child roll-up. The exact bound producer checks each command
+        # <=250ms, job <=3s, live QoS/CPU/RSS and post-reap helper debt. Retired
+        # per-grant Q/W fields can be null and provide no qualification evidence.
+        checked_int(metrics["C_ns"], 0, 2**64 - 2)
         require(metrics["attempts"] == 16 and metrics["members_max"] == 2
                 and type(metrics["debt_charged_ns"]) is int and metrics["debt_charged_ns"] == metrics["debt_paid_ns"], "component debt/attempt/member conjunction")
     else:
         expected = {"cancel": "cancelled", "stale_incarnation": "coverage_unknown", "clock_failure": "clock_unknown",
-                    "debt_overlap": "coverage_unknown", "late_stop": "resource_limit", "reap_delay": "settlement_unknown"}
+                    "debt_overlap": "coverage_unknown", "reap_delay": "settlement_unknown"}
         require(actual_exit == 81 and result["error"] is not None and result["error"]["code"] == expected[case]
                 and result["settlement"]["created"] > 0 and result["metrics"]["attempts"] > 0,
                 "canonical causal control did not reach its named engine failure")
@@ -3044,7 +3049,7 @@ def component_terminal(stderr, case, result=None, actual_exit=None):
     require(0 < created == reaped <= 256, "canonical terminal helpers lack actual settlement")
     success_case = case in ("positive", "corrupt_proof", "pause_resume")
     expected = {"cancel": "cancelled", "stale_incarnation": "coverage_unknown", "clock_failure": "clock_unknown",
-                "debt_overlap": "coverage_unknown", "late_stop": "resource_limit", "reap_delay": "settlement_unknown"}
+                "debt_overlap": "coverage_unknown", "reap_delay": "settlement_unknown"}
     require(success_case or case in expected, "unknown canonical terminal case")
     require(row["control_verdict"] == ("passed" if success_case else "failed"), "canonical independent control verdict")
     codes = ("cancelled", "clock_unknown", "coverage_unknown", "deadline", "input_invalid", "resource_limit",
@@ -3110,7 +3115,7 @@ def run_private_components(run, prefix, basis):
     selected = selected_q2_input()
     cases = private_dir(run / "components")
     records = []
-    for name in ("positive", "corrupt_proof", "pause_resume", "cancel", "stale_incarnation", "clock_failure", "debt_overlap", "late_stop", "reap_delay"):
+    for name in ("positive", "corrupt_proof", "pause_resume", "cancel", "stale_incarnation", "clock_failure", "debt_overlap", "reap_delay"):
         case = private_dir(cases / name)
         output = private_dir(case / "output")
         descriptor, raw = private_descriptor(run, prefix, basis, name, output, selected)
@@ -3153,6 +3158,13 @@ def run_private_components(run, prefix, basis):
 
 def qualify_candidate(run, prefix, basis):
     records = run_private_components(run, prefix, basis)
+    # The frozen task orders components, final canonical gates, qualification,
+    # then receipt. A gate failure retains this same original build effect.
+    command(run, ["/usr/bin/make", "test-formal-parity", "test-licenses",
+                  "TARGET_DIR=" + str(run.parents[2])], cwd=ROOT,
+            extra_env={"PATH": "/Users/feral/.cargo/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+                       "CARGO_HOME": "/Users/feral/.cargo", "RUSTUP_HOME": "/Users/feral/.rustup",
+                       "CARGO_BUILD_JOBS": "2"})
     first = records[0]
     selected = selected_q2_input()
     build = basis["build"]
@@ -4234,9 +4246,18 @@ class ComponentHandoffTests(unittest.TestCase):
                   "observed_proof": "invalid" if case == "corrupt_proof" else "valid", "error": None,
                   "settlement": {"created": 16, "reaped": 16, "group_gone": True, "retired_coverage": True},
                   "metrics": {key: 1 for key in ("ordinary_max_ns", "controller_max_ns", "cleanup_max_ns", "native_cpu_max_ns",
-                               "native_wall_max_ns", "inclusive_max_ns", "Q_max_ns", "helper_group_rss_peak_bytes", "probe_rss_peak_bytes")}}
-        result["metrics"].update({"attempts": 16, "members_max": 2, "debt_charged_ns": 9, "debt_paid_ns": 9})
+                               "native_wall_max_ns", "inclusive_max_ns", "A_ns", "C_ns", "helper_group_rss_peak_bytes", "probe_rss_peak_bytes")}}
+        result["metrics"].update({"Q_max_ns": None, "W_ns": None, "attempts": 16, "members_max": 2, "debt_charged_ns": 9, "debt_paid_ns": 9})
         return descriptor, result
+
+    def test_component_total_wait4_cpu_replaces_retired_grant_quantum(self):
+        descriptor, result = self.fixture()
+        result["metrics"]["A_ns"] = 3000000000
+        self.assertEqual(component_result(canonical(result) + b"\n", descriptor, 0), result)
+        for value in (None, True, -1, 3000000001):
+            with self.subTest(cpu=value), self.assertRaises(Refused):
+                result["metrics"]["A_ns"] = value
+                component_result(canonical(result) + b"\n", descriptor, 0)
 
     def test_component_raw_verdict_keeps_lf_and_private_boundary(self):
         for case in ("positive", "corrupt_proof"):
@@ -4323,7 +4344,7 @@ class ComponentHandoffTests(unittest.TestCase):
         codes = ("cancelled", "clock_unknown", "coverage_unknown", "deadline", "input_invalid", "resource_limit",
                  "review_unbound", "settlement_unknown", "signature_unexpected", "source_changed", "other")
         causal = {"cancel": "cancelled", "stale_incarnation": "coverage_unknown", "clock_failure": "clock_unknown",
-                  "debt_overlap": "coverage_unknown", "late_stop": "resource_limit", "reap_delay": "settlement_unknown"}
+                  "debt_overlap": "coverage_unknown", "reap_delay": "settlement_unknown"}
         good = case in ("positive", "corrupt_proof", "pause_resume")
         errors = {}
         if not good:
@@ -4355,7 +4376,7 @@ class ComponentHandoffTests(unittest.TestCase):
         return row, end, errors, raw
 
     def test_component_independent_terminal_verdicts_accept_only_complete_evidence(self):
-        for case in ("positive", "corrupt_proof", "pause_resume", "cancel", "stale_incarnation", "clock_failure", "debt_overlap", "late_stop", "reap_delay"):
+        for case in ("positive", "corrupt_proof", "pause_resume", "cancel", "stale_incarnation", "clock_failure", "debt_overlap", "reap_delay"):
             with self.subTest(case=case):
                 row, _, errors, raw = self.terminal_fixture(case)
                 actual_exit = 0 if case in ("positive", "corrupt_proof") else 81

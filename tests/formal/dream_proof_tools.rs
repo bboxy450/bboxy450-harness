@@ -12,6 +12,8 @@
 //! failure/restart; refuse_unknown_build_effects fences unresolved commands;
 //! publish_candidate seals qualification before the no-replace receipt;
 //! bind_current_candidate rechecks the entire source/platform/tool tuple.
+//! CanonicalWitness abstracts run_private_components plus the final canonical
+//! formal/license gates in qualify_candidate; either refusal prevents witnessing.
 //! Whole-source snapshot checks bind the reviewed guard bytes, while real hidden
 //! native mutants and compiler/platform fidelity remain separate obligations.
 use super::*;
