@@ -2359,8 +2359,30 @@ pub fn zoom_text(e: &mut c::Element, scale: f32) {
         | c::Element::Filter { content, .. }
         | c::Element::Baseline { content, .. } => zoom_text(content, scale),
         c::Element::Layers { base, overlays } => {
+            // Overlays laid on text (an intraline diff mark) sit at offsets measured
+            // at 100%; they scale with the glyphs or drift right along the line.
+            let on_text = matches!(base.as_ref(), c::Element::Text(_));
             zoom_text(base, scale);
             for p in overlays {
+                if on_text {
+                    p.left *= scale;
+                    p.bottom *= scale;
+                    if let c::Element::Rects(r) = &mut p.content {
+                        r.size = r.size.map(|v| v * scale);
+                        r.rects = r
+                            .rects
+                            .iter()
+                            .map(|(rect, paint)| {
+                                let mut rect = *rect;
+                                rect.x *= scale;
+                                rect.y *= scale;
+                                rect.w *= scale;
+                                rect.h *= scale;
+                                (rect, paint.clone())
+                            })
+                            .collect();
+                    }
+                }
                 zoom_text(&mut p.content, scale);
             }
         }
