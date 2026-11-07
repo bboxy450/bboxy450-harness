@@ -421,7 +421,9 @@ struct private_metrics {
     // A missing scheduling clock cannot erase their exact normalized/raw cost.
     uint64_t retained_cost_ns,retained_raw_ns,retained_units,retained_unknown_units,closed_units,booked_units;
     uint64_t retained_adjustment_cost_ns,retained_adjustments,booked_adjustments;
-    int rss_known;unsigned custody_hold,retained_overflow;pid_t original_parent;
+    int rss_known;unsigned custody_hold,retained_overflow,reporting_only,deadline_expired;pid_t original_parent;
+    uint64_t closed_unit_count,path_walk_units,path_walk_components,deadline_observed_ns,reporting_started_ns;
+    uint64_t deadline_first_ns,deadline_first_unit_ns;unsigned deadline_first_line,deadline_last_line;
 };
 static const char *private_error="input_invalid",*private_detail="strict private input decoding failed";
 static struct private_metrics private_cost;
@@ -447,7 +449,7 @@ static uint64_t private_error_count;
 static unsigned private_errors_overflow;
 struct private_terminal_observation {
     unsigned control_known,control_ok,started,cost_ok,cost_unknown,tail_complete,diagnostics_ok;
-    unsigned persistence_attempted,persist_open,persist_write,persist_fsync,persist_close,persist_dir_fsync,persist_ok,persist_unknown,stdout_complete;
+    unsigned persistence_attempted,persist_open,persist_write,persist_fsync,persist_close,persist_dir_fsync,persist_ok,persist_unknown,stdout_attempted,stdout_complete;
     unsigned format_paid,persistence_paid,write_paid;
     int persistence_errno,stdout_errno;
     uint64_t format_start,format_end,format_inclusive,write_start,write_end,write_inclusive;
@@ -594,11 +596,12 @@ static int private_pay_pending(void) {
     // remains an explicit measurement-cutoff limitation, never tool approval.
     return 1;
 }
-static int private_end_unit(uint64_t at) {
+static int private_end_unit_at(uint64_t at,unsigned source_line) {
     if(private_cost.open_cpu)at=private_cost.open_cpu;
     uint64_t end,used=UINT64_MAX;
     if(known_clock_ns(CLOCK_THREAD_CPUTIME_ID,&end)&&at!=UINT64_MAX&&end>=at)used=end-at;
     else private_fail("clock_unknown","unavailable or reversed ordinary clock");
+    if(private_cost.closed_unit_count!=UINT64_MAX)private_cost.closed_unit_count++;
     private_cost.last_unit=used;
     if(used>private_cost.ordinary_max)private_cost.ordinary_max=used;
     int scheduled=private_schedule_cost(used);
@@ -606,9 +609,20 @@ static int private_end_unit(uint64_t at) {
     if(!scheduled||!private_pay_pending())return private_unit_outcome(0);
     if(used==UINT64_MAX)return private_unit_outcome(0);
     if(used>1000000)return private_unit_outcome(private_fail("resource_limit","ordinary validation exceeds one millisecond"));
-    if(!private_cost.custody_hold&&clock_ns(CLOCK_MONOTONIC)>=private_cost.deadline)return private_unit_outcome(private_fail("deadline","original private test deadline expired"));
+    uint64_t now;
+    if(!known_clock_ns(CLOCK_MONOTONIC,&now))return private_unit_outcome(private_fail("clock_unknown","ordinary deadline ending clock unavailable"));
+    if(!private_cost.custody_hold&&now>=private_cost.deadline) {
+        private_cost.deadline_expired=1;private_cost.deadline_observed_ns=now;private_cost.deadline_last_line=source_line;
+        if(!private_cost.deadline_first_ns){private_cost.deadline_first_ns=now;private_cost.deadline_first_line=source_line;private_cost.deadline_first_unit_ns=used;}
+        // A paid, finite ordinary unit and permission for more work are
+        // independent facts. Terminal reporting cannot admit another command.
+        private_fail("deadline","original private test deadline expired");
+        if(private_cost.reporting_only){private_terminal.control_known=1;private_terminal.control_ok=0;}
+        if(!private_cost.reporting_only)return 0;
+    }
     return 1;
 }
+#define private_end_unit(at) private_end_unit_at((at),__LINE__)
 static int private_utf8(const unsigned char *p,size_t n) {
     size_t i=0;
     while(i<n) {
@@ -728,25 +742,45 @@ static int private_path(const char *path,int absolute) {
     return 1;
 }
 static int private_close(int fd);
+struct private_open_observation {unsigned budget_refused,native_failed,components,units;int native_errno;};
+static struct private_open_observation private_open_last;
+static int private_open_failure(const char *code,const char *detail) {
+    // A paid deadline/cost refusal is not evidence of a pathname mutation.
+    if(private_open_last.budget_refused&&!private_open_last.native_failed)return 0;
+    return private_fail(code,detail);
+}
 static int private_open_walk(int root,const char *path,int absolute,int final_flags) {
+    memset(&private_open_last,0,sizeof(private_open_last));
     uint64_t begin=clock_ns(CLOCK_THREAD_CPUTIME_ID);
     int path_valid=private_path(path,absolute);
+    errno=0;
     int dir=path_valid?(absolute?open("/",O_RDONLY|O_DIRECTORY|O_CLOEXEC):dup(root)):-1;
-    if(!private_end_unit(begin)){private_close(dir);return -1;}
-    if(dir<0)return -1;
+    if(dir<0){private_open_last.native_failed=1;private_open_last.native_errno=errno;}
     const char *p=path+(absolute?1:0);
-    while(*p) {
-        uint64_t at=clock_ns(CLOCK_THREAD_CPUTIME_ID);
+    unsigned steps=0;int final=0;
+    while(dir>=0&&*p) {
         const char *end=strchr(p,'/');size_t n=end?(size_t)(end-p):strlen(p);char name[256];memcpy(name,p,n);name[n]=0;
+        errno=0;
         int next=openat(dir,name,(end?O_RDONLY|O_DIRECTORY:final_flags)|O_NOFOLLOW|O_CLOEXEC|O_NONBLOCK);
-        close(dir);dir=next;
-        if(!private_end_unit(at)){private_close(dir);return -1;}
-        if(dir<0)return -1;if(!end)return dir;p=end+1;
+        int open_error=next<0?errno:0;int closed=close(dir);dir=next;
+        private_open_last.components++;private_cost.path_walk_components++;
+        if(next<0||closed!=0){private_open_last.native_failed=1;private_open_last.native_errno=next<0?open_error:errno;}
+        final=!end;if(end)p=end+1;
+        uint64_t now=clock_ns(CLOCK_THREAD_CPUTIME_ID);
+        // One finite pathname operation: bounded 64 components/400us nominal
+        // checkpoints, full ending cost and fresh rest before the next batch.
+        if(++steps==64||now<begin||now-begin>=400000||final||private_open_last.native_failed) {
+            private_open_last.units++;private_cost.path_walk_units++;
+            if(!private_end_unit(begin)){private_open_last.budget_refused=1;private_close(dir);return -1;}
+            if(private_open_last.native_failed){private_close(dir);return -1;}
+            if(final)return dir;begin=clock_ns(CLOCK_THREAD_CPUTIME_ID);steps=0;
+        }
     }
+    if(!steps&&!final){private_open_last.units++;private_cost.path_walk_units++;if(!private_end_unit(begin))private_open_last.budget_refused=1;}
     private_close(dir);return -1;
 }
 static int private_dir_open(struct private_dir *d) {
-    int fd=private_open_walk(-1,d->path,1,O_RDONLY|O_DIRECTORY);if(fd<0)return private_fail("source_changed","owned root custody unavailable");
+    int fd=private_open_walk(-1,d->path,1,O_RDONLY|O_DIRECTORY);if(fd<0)return private_open_failure("source_changed","owned root custody unavailable");
     uint64_t at=clock_ns(CLOCK_THREAD_CPUTIME_ID);
     struct stat st;int result=fstat(fd,&st);
     int valid=result==0&&S_ISDIR(st.st_mode)&&(st.st_mode&0777)==0700&&st.st_uid==geteuid()
@@ -754,7 +788,8 @@ static int private_dir_open(struct private_dir *d) {
     // private_open_walk already closed its own bounded units. This final
     // metadata observation gets a separate fresh ordinary unit.
     int paid=private_end_unit(at);
-    if(!valid||!paid){private_close(fd);return private_fail("source_changed","owned root identity or mode changed");}
+    if(!paid){private_close(fd);return 0;}
+    if(!valid){private_close(fd);return private_fail("source_changed","owned root identity or mode changed");}
     d->fd=fd;return 1;
 }
 #pragma clang diagnostic push
@@ -804,7 +839,7 @@ static int private_close_observed(int fd,int *actual_closed) {
 }
 static int private_close(int fd) {int actual_closed;int paid=private_close_observed(fd,&actual_closed);return paid&&actual_closed;}
 static int private_root_current(const struct private_dir *root) {
-    int current=private_open_walk(-1,root->path,1,O_RDONLY|O_DIRECTORY);if(current<0)return private_fail("source_changed","exact root path changed");
+    int current=private_open_walk(-1,root->path,1,O_RDONLY|O_DIRECTORY);if(current<0)return private_open_failure("source_changed","exact root path changed");
     uint64_t at=clock_ns(CLOCK_THREAD_CPUTIME_ID);struct stat held,now;
     int same=fstat(root->fd,&held)==0&&fstat(current,&now)==0&&S_ISDIR(now.st_mode)&&now.st_uid==root->uid&&(now.st_mode&0777)==0700
         &&(uint64_t)now.st_dev==root->dev&&(uint64_t)now.st_ino==root->ino&&held.st_dev==now.st_dev&&held.st_ino==now.st_ino;
@@ -819,23 +854,44 @@ static int private_same_file(const struct stat *a,const struct stat *b) {
 }
 static int private_named_current(int fd,int root,const char *path,int absolute,const struct stat *original) {
     int current=private_open_walk(root,path,absolute,O_RDONLY);
-    if(current<0)return private_fail("source_changed","original descriptor pathname changed");
+    if(current<0)return private_open_failure("source_changed","original descriptor pathname changed");
     uint64_t at=clock_ns(CLOCK_THREAD_CPUTIME_ID);struct stat held,named;
     int same=fstat(fd,&held)==0&&fstat(current,&named)==0&&private_same_file(original,&held)&&private_same_file(&held,&named);
     int paid=private_end_unit(at),closed=private_close(current);
     if(!paid||!closed)return 0;
     if(!same)return private_fail("source_changed","original hashed stamp descriptor and pathname differ");return 1;
 }
+static int private_admitted_descriptor_current(int fd,const struct stat *original,const char *expected_hash) {
+    uint64_t at=clock_ns(CLOCK_THREAD_CPUTIME_ID);struct stat before,after;
+    // The pathname located the input at admission. Retain the original inode,
+    // permissions and exact bytes, including if that name is renamed/unlinked.
+    // A fresh full bounded hash detects in-place edits rather than depending on
+    // locator metadata or granting a new inode with the same name authority.
+    int same=fstat(fd,&before)==0&&before.st_dev==original->st_dev&&before.st_ino==original->st_ino
+        &&before.st_uid==original->st_uid&&before.st_gid==original->st_gid&&before.st_mode==original->st_mode
+        &&before.st_size==original->st_size&&before.st_nlink<=1&&before.st_size>0&&before.st_size<=PRIVATE_INPUT_MAX;
+    int positioned=same&&lseek(fd,0,SEEK_SET)==0;
+    int paid=private_end_unit(at);if(!paid)return 0;
+    if(!same||!positioned)return private_fail("source_changed","original admitted descriptor identity or contents changed");
+    char hash[65];int hashed=private_hash_fd(fd,(uint64_t)before.st_size,hash);
+    if(!hashed)return 0;
+    at=clock_ns(CLOCK_THREAD_CPUTIME_ID);
+    int stable=fstat(fd,&after)==0&&private_same_file(&before,&after)&&!strcmp(hash,expected_hash);
+    paid=private_end_unit(at);if(!paid)return 0;
+    if(!stable)return private_fail("source_changed","original admitted descriptor bytes changed");
+    return 1;
+}
 static __attribute__((unused)) int private_file_check(const struct private_input *v,const struct private_file *f,int executable,uint64_t limit) {
     if(f->len>limit||(executable&&!f->len))return private_fail("input_invalid","bound file allocation limit");
     int root=f->root?v->repo.fd:v->prefix.fd;
-    int fd=private_open_walk(root,f->path,0,O_RDONLY);if(fd<0)return private_fail("source_changed","bound relative file custody unavailable");
+    int fd=private_open_walk(root,f->path,0,O_RDONLY);if(fd<0)return private_open_failure("source_changed","bound relative file custody unavailable");
     uint64_t at=clock_ns(CLOCK_THREAD_CPUTIME_ID);struct stat before,after;int ok=fstat(fd,&before)==0;
     ok=ok&&S_ISREG(before.st_mode)&&before.st_uid==geteuid()&&before.st_nlink==1&&(before.st_mode&0022)==0&&(before.st_mode&06000)==0
         &&(executable||(before.st_mode&077)==0)
         &&(!executable||(before.st_mode&0100)!=0)&&(uint64_t)before.st_dev==f->dev&&(uint64_t)before.st_ino==f->ino
         &&before.st_size>=0&&(uint64_t)before.st_size==f->len&&before.st_mtimespec.tv_sec==f->mtime_sec&&(uint32_t)before.st_mtimespec.tv_nsec==f->mtime_nsec;
-    if(!private_end_unit(at)||!ok){private_close(fd);return private_fail("source_changed","bound file identity or mode changed");}
+    if(!private_end_unit(at)){private_close(fd);return 0;}
+    if(!ok){private_close(fd);return private_fail("source_changed","bound file identity or mode changed");}
     char hash[65];ok=private_hash_fd(fd,f->len,hash);
     at=clock_ns(CLOCK_THREAD_CPUTIME_ID);ok=ok&&fstat(fd,&after)==0&&before.st_dev==after.st_dev&&before.st_ino==after.st_ino
         &&before.st_size==after.st_size&&before.st_mtimespec.tv_sec==after.st_mtimespec.tv_sec&&before.st_mtimespec.tv_nsec==after.st_mtimespec.tv_nsec
@@ -845,7 +901,7 @@ static __attribute__((unused)) int private_file_check(const struct private_input
     const struct private_dir *bound=f->root?&v->repo:&v->prefix;
     if(!private_root_current(bound)){private_close(fd);return 0;}
     int current=private_open_walk(bound->fd,f->path,0,O_RDONLY);
-    if(current<0){private_close(fd);return private_fail("source_changed","bound pathname changed after hashing");}
+    if(current<0){int failed=private_open_failure("source_changed","bound pathname changed after hashing");private_close(fd);return failed;}
     at=clock_ns(CLOCK_THREAD_CPUTIME_ID);struct stat named,held;
     ok=fstat(fd,&held)==0&&fstat(current,&named)==0&&private_same_file(&before,&after)&&private_same_file(&after,&held)
         &&private_same_file(&held,&named)&&held.st_nlink==1&&named.st_nlink==1;
@@ -1665,13 +1721,14 @@ static struct private_guard *private_guard_open(const struct private_engine_cont
     if(private_guards.count>=PRIVATE_GUARD_MAX){private_fail("resource_limit","retained private reference count");return NULL;}
     char path[4097];if(!private_token_text(ref->path,path,sizeof(path))||!private_path(path,0)){private_fail("input_invalid","bound reference path invalid");return NULL;}
     int root=fixture?ctx->outer->repo.fd:ctx->outer->prefix.fd;
-    int fd=private_open_walk(root,path,0,O_RDONLY);if(fd<0){private_fail("source_changed","bound reference file unavailable");return NULL;}
+    int fd=private_open_walk(root,path,0,O_RDONLY);if(fd<0){private_open_failure("source_changed","bound reference file unavailable");return NULL;}
     // Retain the returned descriptor before any clock/hash/custody verdict.
     struct private_guard *g=&private_guards.files[private_guards.count++];memset(g,0,sizeof(*g));g->fd=fd;g->root=fixture;g->path=ref->path;g->len=ref->len;memcpy(g->sha,ref->sha,65);
     uint64_t at=clock_ns(CLOCK_THREAD_CPUTIME_ID);int ok=fstat(fd,&g->original)==0&&S_ISREG(g->original.st_mode)
         &&g->original.st_uid==geteuid()&&g->original.st_nlink==1&&(g->original.st_mode&0022)==0&&(g->original.st_mode&06000)==0
         &&g->original.st_size>=0&&(uint64_t)g->original.st_size==ref->len;
-    if(!private_end_unit(at)||!ok){private_fail("source_changed","bound reference identity or allocation differs");return NULL;}
+    if(!private_end_unit(at))return NULL;
+    if(!ok){private_fail("source_changed","bound reference identity or allocation differs");return NULL;}
     return g;
 }
 static __attribute__((unused)) struct private_guard *private_guard_ref(const struct private_engine_context *ctx,const struct private_ref *ref,unsigned fixture) {
@@ -1694,7 +1751,7 @@ static __attribute__((unused)) struct private_guard *private_guard_absolute(cons
             {private_fail("source_changed","absolute build identity changed");return NULL;}
     } else {
         if(private_guards.count>=PRIVATE_GUARD_MAX){private_fail("resource_limit","absolute build identity count");return NULL;}
-        int fd=private_open_walk(-1,path,1,O_RDONLY);if(fd<0){private_fail("source_changed","absolute build identity unavailable");return NULL;}
+        int fd=private_open_walk(-1,path,1,O_RDONLY);if(fd<0){private_open_failure("source_changed","absolute build identity unavailable");return NULL;}
         g=&private_guards.files[private_guards.count++];memset(g,0,sizeof(*g));g->fd=fd;g->root=2;g->path=ref->path;g->len=ref->len;memcpy(g->sha,ref->sha,65);
         uint64_t at=clock_ns(CLOCK_THREAD_CPUTIME_ID);int valid=fstat(fd,&g->original)==0&&S_ISREG(g->original.st_mode)
             &&(g->original.st_uid==0||g->original.st_uid==geteuid())&&g->original.st_nlink==1
@@ -1702,14 +1759,17 @@ static __attribute__((unused)) struct private_guard *private_guard_absolute(cons
             &&(uint64_t)g->original.st_size==ref->len&&(!executable||(g->original.st_mode&0100));
         if(identity)valid=valid&&(uint64_t)g->original.st_dev==identity->dev&&(uint64_t)g->original.st_ino==identity->ino
             &&g->original.st_mtimespec.tv_sec==identity->mtime_sec&&(uint32_t)g->original.st_mtimespec.tv_nsec==identity->mtime_nsec;
-        if(!private_end_unit(at)||!valid){private_fail("source_changed","absolute build identity stamp differs");return NULL;}
+        if(!private_end_unit(at))return NULL;
+    if(!valid){private_fail("source_changed","absolute build identity stamp differs");return NULL;}
     }
-    if(!g->verified){char hash[65];if(!private_hash_fd(g->fd,ref->len,hash)||strcmp(hash,ref->sha)||!private_guard_fresh(g))
-        {private_fail("source_changed","absolute build identity bytes differ");return NULL;}g->verified=1;}
+    if(!g->verified){char hash[65];if(!private_hash_fd(g->fd,ref->len,hash))return NULL;
+        if(strcmp(hash,ref->sha)){private_fail("source_changed","absolute build identity bytes differ");return NULL;}
+        if(!private_guard_fresh(g))return NULL;g->verified=1;}
     uint64_t at=clock_ns(CLOCK_THREAD_CPUTIME_ID);int valid=!executable||(g->original.st_mode&0100);
     if(identity)valid=valid&&(uint64_t)g->original.st_dev==identity->dev&&(uint64_t)g->original.st_ino==identity->ino
         &&g->original.st_mtimespec.tv_sec==identity->mtime_sec&&(uint32_t)g->original.st_mtimespec.tv_nsec==identity->mtime_nsec;
-    if(!private_end_unit(at)||!valid){private_fail("source_changed","repeated absolute build identity stamp differs");return NULL;}
+    if(!private_end_unit(at))return NULL;
+    if(!valid){private_fail("source_changed","repeated absolute build identity stamp differs");return NULL;}
     return g;
 }
 #pragma clang diagnostic push
@@ -1735,7 +1795,8 @@ static int private_read_bound_ref(const struct private_engine_context *ctx,const
     }
     at=clock_ns(CLOCK_THREAD_CPUTIME_ID);unsigned char value[32];char hex[65];int final=CC_SHA256_Final(value,&hash);
     if(final)for(unsigned i=0;i<32;i++)snprintf(hex+2*i,3,"%02x",value[i]);
-    int paid=private_end_unit(at);if(!paid||!final||strcmp(hex,ref->sha))return private_fail("source_changed","copied reference bytes differ");
+    int paid=private_end_unit(at);if(!paid)return 0;
+    if(!final||strcmp(hex,ref->sha))return private_fail("source_changed","copied reference bytes differ");
     if(!private_guard_fresh(g))return 0;g->verified=1;*len=copied;return 1;
 }
 #pragma clang diagnostic pop
@@ -3470,7 +3531,7 @@ int private_command_engine(const struct private_engine_context *context,struct p
     memset(result,0,sizeof(*result));result->phase="validate";result->outcome="refused";result->observed_proof="not_reached";
     result->engine_entered=1;
     result->group_gone=result->retired_coverage=1;
-    if(!context||!context->outer||!context->basis||!context->input_sha256||!hex_value(context->input_sha256,64)
+    if(private_cost.reporting_only||!context||!context->outer||!context->basis||!context->input_sha256||!hex_value(context->input_sha256,64)
         ||context->basis->source_coverage!=127||context->basis->command_coverage!=65535||private_failed) {
         private_fail("review_unbound","command engine requires the internal completely bound conditional context");goto refused;
     }
@@ -3652,7 +3713,7 @@ static int private_pretest(struct private_input *v,const char *self) {
     int image_known=image_len>0&&(size_t)image_len<sizeof(actual_image)&&memchr(actual_image,0,sizeof(actual_image))!=NULL;
     if(!private_end_unit(at))return 0;
     if(!image_known||strcmp(actual_image,self))return private_fail("review_unbound","actual current probe image differs from canonical invocation");
-    int exe=private_open_walk(-1,actual_image,1,O_RDONLY);if(exe<0)return private_fail("review_unbound","canonical current probe image unavailable");
+    int exe=private_open_walk(-1,actual_image,1,O_RDONLY);if(exe<0)return private_open_failure("review_unbound","canonical current probe image unavailable");
     struct stat exe_before,exe_after;at=clock_ns(CLOCK_THREAD_CPUTIME_ID);
     int valid=fstat(exe,&exe_before)==0&&S_ISREG(exe_before.st_mode)&&exe_before.st_uid==geteuid()&&exe_before.st_nlink==1
         &&exe_before.st_size>0&&(uint64_t)exe_before.st_size<=64*1024*1024&&(exe_before.st_mode&0022)==0&&(exe_before.st_mode&06000)==0;
@@ -3749,11 +3810,30 @@ static int private_sample_rss(void) {
     if(got!=(int)sizeof(info))return private_fail("coverage_unknown","probe resident-memory observation unavailable");
     if(info.pti_resident_size>96*1024*1024)return private_fail("resource_limit","probe resident-memory ceiling exceeded");return 1;
 }
+static void private_reporting_begin(void) {
+    // One-way terminal disposition, never a renewed work deadline. The only
+    // callers are result publication and the final refusal/cost diagnostics.
+    if(!private_cost.reporting_only) {
+        private_cost.reporting_only=1;
+        uint64_t now;
+        if(!known_clock_ns(CLOCK_MONOTONIC,&now)) {
+            private_unit_outcome(private_fail("clock_unknown","terminal reporting beginning clock unavailable"));
+            private_terminal.cost_unknown=1;return;
+        }
+        private_cost.reporting_started_ns=now;
+        if(now>=private_cost.deadline) {
+            private_cost.deadline_expired=1;private_cost.deadline_observed_ns=now;
+            private_fail("deadline","original private test deadline expired");
+            private_terminal.control_known=1;private_terminal.control_ok=0;
+        }
+    }
+}
 static int private_emit(const struct private_input *v,const char *input_hash,struct private_engine_result *result) {
     struct engine_owner *held=engine_current&&engine_current->result==result&&engine_current->settlement_quarantined?engine_current:NULL;
     int can_emit=!engine_current||held;
     if(held&&held->refusal_attempted)return held->refusal_complete;
     if(held)held->refusal_attempted=1;
+    private_reporting_begin();
     if(!private_terminal.control_known) {
         private_terminal.control_known=1;private_terminal.control_ok=!private_failed&&!result->error_code;
     }
@@ -3762,9 +3842,20 @@ static int private_emit(const struct private_input *v,const char *input_hash,str
     // Keep the one stdout schema and its original pre-publication cutoff.
     // Actual persistence and all later costs are independent raw observations.
     uint64_t format_start=clock_ns(CLOCK_THREAD_CPUTIME_ID);
+    int failed_before_format=private_failed;
     char bytes[8192];int len=private_format(v,input_hash,result,bytes,sizeof(bytes));
     private_terminal.format_start=format_start;private_terminal.format_end=clock_ns(CLOCK_THREAD_CPUTIME_ID);
     private_terminal.format_paid=(unsigned)private_end_unit(format_start);private_terminal.format_inclusive=private_cost.last_unit;
+    if(!failed_before_format&&private_failed&&private_terminal.format_paid) {
+        // At most one unpublished re-format if the original work deadline was
+        // crossed while paying the formatter. Never publish stale completion.
+        private_result_cost(result);uint64_t retry=clock_ns(CLOCK_THREAD_CPUTIME_ID);
+        len=private_format(v,input_hash,result,bytes,sizeof(bytes));
+        private_terminal.format_end=clock_ns(CLOCK_THREAD_CPUTIME_ID);
+        int paid=private_end_unit(retry);uint64_t cost=private_cost.last_unit;
+        if(UINT64_MAX-private_terminal.format_inclusive<cost){private_terminal.cost_unknown=1;private_terminal.format_paid=0;}
+        else {private_terminal.format_inclusive+=cost;private_terminal.format_paid=(unsigned)paid;}
+    }
     if(len<=0||(size_t)len>=sizeof(bytes))private_fail("settlement_unknown","private result formatter did not produce one bounded result");
     uint64_t write_start=clock_ns(CLOCK_THREAD_CPUTIME_ID);int close_paid=1;
     if(can_emit&&(private_terminal.format_paid||held)&&len>0&&(size_t)len<sizeof(bytes)&&v->output.fd>=0) {
@@ -3788,12 +3879,13 @@ static int private_emit(const struct private_input *v,const char *input_hash,str
     private_terminal.persist_unknown=private_terminal.persist_open&&!private_terminal.persist_ok;
     private_terminal.persistence_paid=(unsigned)private_end_unit(write_start)&&close_paid;
     write_start=clock_ns(CLOCK_THREAD_CPUTIME_ID);private_terminal.write_start=write_start;
-    int flags=fcntl(STDOUT_FILENO,F_GETFL);
+    errno=0;int flags=fcntl(STDOUT_FILENO,F_GETFL);int flags_error=flags<0?errno:0;
     if(can_emit&&(private_terminal.format_paid||held)&&len>0&&(size_t)len<sizeof(bytes)&&flags>=0&&fcntl(STDOUT_FILENO,F_SETFL,flags|O_NONBLOCK)==0) {
+        private_terminal.stdout_attempted=1;errno=0;
         ssize_t n=write(STDOUT_FILENO,bytes,(size_t)len);private_terminal.stdout_complete=n==len;
-        if(n!=len)private_terminal.stdout_errno=errno;
+        if(n!=len)private_terminal.stdout_errno=n<0?errno:EIO;
         if(fcntl(STDOUT_FILENO,F_SETFL,flags)!=0){private_terminal.stdout_errno=errno;private_terminal.stdout_complete=0;}
-    } else private_terminal.stdout_errno=errno;
+    } else private_terminal.stdout_errno=flags_error?flags_error:can_emit&&(private_terminal.format_paid||held)&&len>0&&(size_t)len<sizeof(bytes)?errno:0;
     if(!private_terminal.stdout_complete)private_fail("settlement_unknown","private result stdout emission incomplete; no retry");
     private_terminal.write_end=clock_ns(CLOCK_THREAD_CPUTIME_ID);
     private_terminal.write_paid=(unsigned)private_end_unit(write_start);private_terminal.write_inclusive=private_cost.last_unit;
@@ -3808,6 +3900,7 @@ static unsigned source_known_tail_over_cpu;
 #endif
 static void private_finish_diagnostics(const char *phase,unsigned created,unsigned reaped,int output_closed) {
     private_terminal.started=1;
+    private_reporting_begin();
 #ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
     if(source_known_tail_over_cpu) {
         uint64_t until=clock_ns(CLOCK_THREAD_CPUTIME_ID)+1100000;
@@ -3838,10 +3931,13 @@ static void private_finish_diagnostics(const char *phase,unsigned created,unsign
         int n=snprintf(counts+used,sizeof(counts)-used,"%s%llu",i?",":"",(unsigned long long)private_errors[i].count);
         if(n<=0||(size_t)n>=sizeof(counts)-used){private_terminal.diagnostics_ok=0;counts[0]=0;break;}used+=(size_t)n;
     }
-    char final[4096];int final_len=snprintf(final,sizeof(final),"private_candidate_terminal profile=read-helper-native/1 stage=%s metrics_cutoff=pre_result_emission metadata_kind=declared_peak_capacity terminal_cutoff=after_paid_tail_and_error_diagnostics_before_final_receipt runtime_approved=false helper_created=%u helper_reaped=%u result_complete=%s control_verdict=%s persistence_verdict=%s terminal_cost_verdict=%s tail_complete=%s persistence_attempted=%s persistence_open=%s persistence_write=%s persistence_fsync=%s persistence_close=%s persistence_directory_fsync=%s persistence_errno=%d stdout_errno=%d persistence_paid=%s formatter_cpu_start_ns=%llu formatter_cpu_end_ns=%llu formatter_inclusive_ns=%llu write_cpu_start_ns=%llu write_cpu_end_ns=%llu write_inclusive_ns=%llu close_max_cpu_ns=%llu probe_rss_peak_bytes=%llu rss_known=%s ordinary_max_ns=%llu debt_charged_ns=%llu debt_paid_ns=%llu retained_units=%llu retained_overflow=%u format_paid=%s write_paid=%s error_count=%llu error_codes=cancelled,clock_unknown,coverage_unknown,deadline,input_invalid,resource_limit,review_unbound,settlement_unknown,signature_unexpected,source_changed,other error_counts=%s errors_complete=%s diagnostics_complete=%s parent_actual_reap_required=true\n",
+    char final[4096];int final_len=snprintf(final,sizeof(final),"private_candidate_terminal profile=read-helper-native/1 stage=%s metrics_cutoff=pre_result_emission metadata_kind=declared_peak_capacity terminal_cutoff=after_paid_tail_and_error_diagnostics_before_final_receipt runtime_approved=false helper_created=%u helper_reaped=%u result_complete=%s control_verdict=%s persistence_verdict=%s terminal_cost_verdict=%s tail_complete=%s persistence_attempted=%s persistence_open=%s persistence_write=%s persistence_fsync=%s persistence_close=%s persistence_directory_fsync=%s persistence_errno=%d stdout_errno=%d stdout_attempted=%s reporting_only=%u original_entry_ns=%llu original_deadline_ns=%llu deadline_observed_ns=%llu deadline_first_ns=%llu deadline_first_unit_ns=%llu deadline_first_line=%u deadline_last_line=%u reporting_started_ns=%llu closed_unit_count=%llu path_walk_components=%llu path_walk_units=%llu persistence_paid=%s formatter_cpu_start_ns=%llu formatter_cpu_end_ns=%llu formatter_inclusive_ns=%llu write_cpu_start_ns=%llu write_cpu_end_ns=%llu write_inclusive_ns=%llu close_max_cpu_ns=%llu probe_rss_peak_bytes=%llu rss_known=%s ordinary_max_ns=%llu debt_charged_ns=%llu debt_paid_ns=%llu retained_units=%llu retained_overflow=%u format_paid=%s write_paid=%s error_count=%llu error_codes=cancelled,clock_unknown,coverage_unknown,deadline,input_invalid,resource_limit,review_unbound,settlement_unknown,signature_unexpected,source_changed,other error_counts=%s errors_complete=%s diagnostics_complete=%s parent_actual_reap_required=true\n",
         phase,created,reaped,private_terminal.stdout_complete?"true":"false",private_terminal.control_known?(private_terminal.control_ok?"passed":"failed"):"unknown",
         private_terminal.persistence_attempted?(private_terminal.persist_unknown?"unknown":private_terminal.persist_ok?"persisted":"not_persisted"):"unknown",private_terminal.cost_unknown?"unknown":private_terminal.cost_ok?"passed":"failed",private_terminal.tail_complete?"true":"false",private_terminal.persistence_attempted?"true":"false",
-        private_terminal.persist_open?"true":"false",private_terminal.persist_write?"true":"false",private_terminal.persist_fsync?"true":"false",private_terminal.persist_close?"true":"false",private_terminal.persist_dir_fsync?"true":"false",private_terminal.persistence_errno,private_terminal.stdout_errno,
+        private_terminal.persist_open?"true":"false",private_terminal.persist_write?"true":"false",private_terminal.persist_fsync?"true":"false",private_terminal.persist_close?"true":"false",private_terminal.persist_dir_fsync?"true":"false",private_terminal.persistence_errno,private_terminal.stdout_errno,private_terminal.stdout_attempted?"true":"false",private_cost.reporting_only,
+        (unsigned long long)private_cost.entry,(unsigned long long)private_cost.deadline,(unsigned long long)private_cost.deadline_observed_ns,
+        (unsigned long long)private_cost.deadline_first_ns,(unsigned long long)private_cost.deadline_first_unit_ns,private_cost.deadline_first_line,private_cost.deadline_last_line,(unsigned long long)private_cost.reporting_started_ns,
+        (unsigned long long)private_cost.closed_unit_count,(unsigned long long)private_cost.path_walk_components,(unsigned long long)private_cost.path_walk_units,
         private_terminal.persistence_paid?"true":"false",(unsigned long long)private_terminal.format_start,(unsigned long long)private_terminal.format_end,(unsigned long long)private_terminal.format_inclusive,
         (unsigned long long)private_terminal.write_start,(unsigned long long)private_terminal.write_end,(unsigned long long)private_terminal.write_inclusive,(unsigned long long)private_cost.close_max,
         (unsigned long long)private_cost.rss_peak,private_cost.rss_known?"true":"false",(unsigned long long)private_cost.ordinary_max,(unsigned long long)private_cost.debt,(unsigned long long)private_cost.debt_paid,
@@ -3860,7 +3956,7 @@ static int private_early_refusal(int fd,const char *code,const char *detail) {
 }
 static int private_dispatch(int outer_ready,int inner_ready,int original_ready,
     const struct private_engine_context *context,struct private_engine_result *result) {
-    if(!outer_ready||!inner_ready||!original_ready)return 0;
+    if(private_cost.reporting_only||!outer_ready||!inner_ready||!original_ready)return 0;
     return private_command_engine(context,result);
 }
 static int private_candidate(const char *self,const char *path,const char *expected) {
@@ -3876,7 +3972,7 @@ static int private_candidate(const char *self,const char *path,const char *expec
     if(!private_end_unit(at)||!valid)return private_early_refusal(fd,"input_invalid","descriptor identity");
     unsigned char bytes[PRIVATE_INPUT_MAX+1];size_t count=0;
     while(count<(size_t)before.st_size){at=clock_ns(CLOCK_THREAD_CPUTIME_ID);ssize_t n=read(fd,bytes+count,(size_t)before.st_size-count>4096?4096:(size_t)before.st_size-count);
-        int paid=private_end_unit(at);if(n<=0||!paid)return private_early_refusal(fd,"source_changed","descriptor read");count+=(size_t)n;}
+        int paid=private_end_unit(at);if(!paid)return private_early_refusal(fd,private_error,private_detail);if(n<=0)return private_early_refusal(fd,"source_changed","descriptor read");count+=(size_t)n;}
     at=clock_ns(CLOCK_THREAD_CPUTIME_ID);valid=fstat(fd,&after)==0&&before.st_dev==after.st_dev&&before.st_ino==after.st_ino&&before.st_size==after.st_size
         &&before.st_mtimespec.tv_sec==after.st_mtimespec.tv_sec&&before.st_mtimespec.tv_nsec==after.st_mtimespec.tv_nsec
         &&before.st_ctimespec.tv_sec==after.st_ctimespec.tv_sec&&before.st_ctimespec.tv_nsec==after.st_ctimespec.tv_nsec;
@@ -3891,7 +3987,7 @@ static int private_candidate(const char *self,const char *path,const char *expec
     result.group_gone=result.retired_coverage=1;
     int outer=private_pretest(&input,self);
     int inner=outer?private_prepare_inner(&input,hash,count):0;
-    int original=private_named_current(fd,-1,path,1,&before);
+    int original=outer&&inner?private_admitted_descriptor_current(fd,&before,hash):0;
     int completed=private_dispatch(outer,inner,original,&private_prepared.context,&result);
     private_terminal.control_known=1;private_terminal.control_ok=completed&&!private_failed;private_terminal.started=1;
     // Borrowed guards and the original outer roots outlive their engine use.

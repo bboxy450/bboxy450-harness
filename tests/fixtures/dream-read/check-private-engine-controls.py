@@ -30,10 +30,15 @@ VALIDATED = (b'if(!engine_owner_priority()||!engine_pretest_current(context)'
 # persistence and original-controller custody controls. No retired graph/control
 # is re-labelled as a current pass.
 LEDGERS = ('hold-ledger.ndjson', 'hold-control-success', 'claim.json', 'charge-diagnostic.ndjson',
+           'admitted-descriptor', 'retained-descriptor', 'deadline-result/stdout', 'deadline-result/result.json',
            *(f'total-{i}.ndjson' for i in range(12)), 'rollup-2', 'rollup-2-terminal', 'rollup-2-release', 'release-6',
            *(f'pause-{i}-{phase}' for i in (9,10) for phase in ('start','done','release')),
            *('diagnostic-' + str(i) + '/' + name for i in range(4) for name in ('stderr', 'stdout', 'result.json')))
 ASSERTIONS = {
+ 'terminal-descriptor-hash': b'admitted FD fresh hash refuses actual in-place mutation despite identical length',
+ 'terminal-work-deadline': b'expired original work deadline forbids next work after full cost payment',
+ 'terminal-deadline-output': b'expired deadline still attempts one bounded fully paid refusal result and persistence',
+ 'path-component-floor': b'one bounded path walk pays actual work without a floor per tiny component',
  'total-qos': b'background atomic spawn and unchanged native/application gates before first pipe',
  'total-live-only': b'actual terminal wait4 refuses CPU burned beyond last live sample',
  'total-drop-rollup': b'authoritative leader wait4 retains actual reaped-child CPU rollup',
@@ -263,6 +268,14 @@ def variants(source):
     result = {}
     def add(name, anchor, replacement, args):
         result[name] = (changed(source, anchor, replacement), args)
+    add('terminal-descriptor-hash', b'&&private_same_file(&before,&after)&&!strcmp(hash,expected_hash);',
+        b'&&private_same_file(&before,&after)&&(expected_hash!=NULL);', ['terminal-deadline-controls'])
+    add('terminal-work-deadline', b'if(!private_cost.reporting_only)return 0;',
+        b'if(!private_cost.reporting_only)return 1;', ['terminal-deadline-controls'])
+    add('terminal-deadline-output', b'private_cost.reporting_only=1;',
+        b'private_cost.reporting_only=0;', ['terminal-deadline-controls'])
+    add('path-component-floor', b'if(++steps==64||now<begin||now-begin>=400000||final||private_open_last.native_failed)',
+        b'if(++steps>=1||now<begin||now-begin>=400000||final||private_open_last.native_failed)', ['terminal-deadline-controls'])
     add('total-qos', b'||posix_spawnattr_set_qos_class_np(&p->attr,QOS_CLASS_BACKGROUND)!=0', b'||0', ['total-control', '0'])
     add('total-live-only', b'if(o->terminal_cpu_ns>ENGINE_COMMAND_CPU_NS||o->result->helper_job_cpu_ns>ENGINE_JOB_CPU_NS||(rss_known&&o->wait_rss>ENGINE_HELPER_RSS))',
         b'if(o->live_cpu_ns>ENGINE_COMMAND_CPU_NS||o->result->helper_job_cpu_ns>ENGINE_JOB_CPU_NS||(rss_known&&o->wait_rss>ENGINE_HELPER_RSS))', ['total-control', '1'])
@@ -316,9 +329,9 @@ def variants(source):
 
 
 def retain_current(stdout, report):
-    found=re.findall(rb'private_engine_controls=pass cases=63 total_budget_controls=8 synthetic_source_known=true real_candidate_created=0 runtime_approved=false retained=(/private/tmp/dream-private-engine-controls\.[A-Za-z0-9]+)\n',stdout)
+    found=re.findall(rb'private_engine_controls=pass cases=66 total_budget_controls=8 synthetic_source_known=true real_candidate_created=0 runtime_approved=false retained=(/private/tmp/dream-private-engine-controls\.[A-Za-z0-9]+)\n',stdout)
     if len(found)!=1:
-        raise ValueError('current fixture lacks exact63 remaining controls and eight total-budget witnesses')
+        raise ValueError('current fixture lacks exact66 remaining controls and eight total-budget witnesses')
     if os.fsdecode(found[0]) != report['commands'][-1]['fixture_capture']['source_dir']:
         raise ValueError('completed fixture root differs from original command binding')
     modes=re.findall(rb'private_total_budget_control_source_known mode=([0-9]+) original_pid=([0-9]+) actual_own_wait4=1 group_gone=1 terminal_cpu_ns=([0-9]+)',stdout)
@@ -326,7 +339,7 @@ def retain_current(stdout, report):
         raise ValueError('twelve original ownwait4/groupgone witnesses missing or duplicated')
     report['total_budget_owned_process_witnesses']=[{'mode':int(m),'original_pid':int(pid),'authoritative_rounded_wait4_ns':int(cpu),
         'scope':'mandated_decision66280' if int(m)<8 else 'additional_terminal_RSS_or_paused_user_boundary'} for m,pid,cpu in modes]
-    report['baseline_cases']=63
+    report['baseline_cases']=66
     marker=b'private_total_retained_guard_source_known api=true supplied_clock_and_identity_values=true native_process=false runtime_approved=false\n'
     if stdout.count(marker)!=1:
         raise ValueError('current retained-clock/child production API witness missing or duplicated')

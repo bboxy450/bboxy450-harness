@@ -412,6 +412,78 @@ diagnostic_setup_failed:
     reset();
 }
 
+// Actual file/FD and stdout APIs; no helper or real candidate is created.
+static void terminal_deadline_controls(int root) {
+    reset();int original=-1,replacement=-1;struct stat admitted;char expected[65];
+    uint64_t at=clock_ns(CLOCK_THREAD_CPUTIME_ID);
+    original=openat(root,"admitted-descriptor",O_RDWR|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,0600);
+    require(original>=0&&write(original,"original\n",9)==9&&fstat(original,&admitted)==0,"owned immutable descriptor admission");
+    private_hash("original\n",9,expected);require(private_end_unit(at),"descriptor admission cost paid");
+    at=clock_ns(CLOCK_THREAD_CPUTIME_ID);
+    require(renameat(root,"admitted-descriptor",root,"retained-descriptor")==0,"actual original locator rename");
+    replacement=openat(root,"admitted-descriptor",O_RDWR|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,0600);
+    require(replacement>=0&&write(replacement,"different",9)==9,"actual different inode at original locator");
+    require(private_end_unit(at),"actual locator replacement cost paid");
+    int current=private_admitted_descriptor_current(original,&admitted,expected);
+    require(current,"admitted original FD remains current when only its pathname locator is replaced");
+    at=clock_ns(CLOCK_THREAD_CPUTIME_ID);require(pwrite(original,"changed!\n",9,0)==9,"actual same-inode descriptor mutation");
+    require(private_end_unit(at),"actual same-inode mutation cost paid");
+    current=private_admitted_descriptor_current(original,&admitted,expected);
+    require(!current&&private_errors[9].count,"admitted FD fresh hash refuses actual in-place mutation despite identical length");
+    require(private_close(original)&&private_close(replacement),"exact descriptor fixture FD disposal paid");
+    controls++;
+
+    reset();at=clock_ns(CLOCK_THREAD_CPUTIME_ID);
+    require(mkdirat(root,"bounded-walk",0700)==0,"owned bounded path root");
+    int nested=openat(root,"bounded-walk",O_RDONLY|O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC);
+    require(nested>=0&&mkdirat(nested,"a",0700)==0,"owned bounded path middle");
+    int middle=openat(nested,"a",O_RDONLY|O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC);
+    require(middle>=0&&mkdirat(middle,"b",0700)==0,"owned bounded path leaf");
+    require(close(nested)==0&&close(middle)==0&&private_end_unit(at),"bounded walk fixture preparation paid");
+    int walked=private_open_walk(root,"bounded-walk/a/b",0,O_RDONLY|O_DIRECTORY);
+    require(walked>=0&&private_open_last.components==3&&private_open_last.units<private_open_last.components
+        &&private_cost.debt==private_cost.debt_paid,"one bounded path walk pays actual work without a floor per tiny component");
+    require(private_close(walked),"original walked FD disposal paid");
+    private_cost.deadline=clock_ns(CLOCK_MONOTONIC);
+    int admitted_more=private_end_unit(private_cost.open_cpu);
+    require(!admitted_more&&private_cost.deadline_expired&&private_errors[3].count
+        &&private_cost.debt==private_cost.debt_paid&&!private_cost.reporting_only,"expired original work deadline forbids next work after full cost payment");
+    int missing=private_open_walk(root,"bounded-walk/a/b",0,O_RDONLY|O_DIRECTORY);
+    int classified=private_open_failure("source_changed","source-known path classification");
+    require(missing<0&&!classified&&private_open_last.budget_refused&&!private_open_last.native_failed&&!private_errors[9].count,
+        "paid deadline refusal is not fabricated pathname-change evidence");
+    controls++;
+
+    reset();at=clock_ns(CLOCK_THREAD_CPUTIME_ID);
+    require(mkdirat(root,"deadline-result",0700)==0,"owned deadline refusal result directory");
+    int dir=openat(root,"deadline-result",O_RDONLY|O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC);
+    require(dir>=0&&private_end_unit(at),"deadline result directory custody paid");
+    at=clock_ns(CLOCK_THREAD_CPUTIME_ID);
+    int out=openat(dir,"stdout",O_RDWR|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,0600);
+    require(out>=0&&fflush(stdout)==0,"owned deadline stdout capture");int saved=dup(STDOUT_FILENO);
+    require(saved>=0&&dup2(out,STDOUT_FILENO)==STDOUT_FILENO&&private_end_unit(at),"deadline stdout redirection paid");
+    int old_output=outer.output.fd;outer.output.fd=dir;
+    struct private_engine_result result;memset(&result,0,sizeof(result));result.phase="validate";result.outcome="refused";
+    result.observed_proof="not_reached";result.group_gone=result.retired_coverage=1;
+    private_cost.deadline=clock_ns(CLOCK_MONOTONIC);
+    require(!private_end_unit(private_cost.open_cpu),"actual original deadline refuses ordinary work before result publication");
+    int emitted=private_emit(&outer,input_hash,&result);
+    int actual_closed=0;(void)private_close_observed(dir,&actual_closed);outer.output.fd=old_output;
+    private_finish_diagnostics("settled",0,0,actual_closed);
+    require(dup2(saved,STDOUT_FILENO)==STDOUT_FILENO&&close(saved)==0,"restore original stdout after deadline refusal");
+    require(!emitted&&private_failed&&!private_terminal.control_ok&&private_errors[3].count
+        &&private_cost.reporting_only&&private_terminal.stdout_attempted&&private_terminal.stdout_complete
+        &&private_terminal.persist_ok&&private_terminal.format_paid&&private_terminal.persistence_paid&&private_terminal.write_paid
+        &&private_terminal.cost_ok&&!private_terminal.cost_unknown&&!private_errors[7].count
+        &&private_cost.debt==private_cost.debt_paid,"expired deadline still attempts one bounded fully paid refusal result and persistence");
+    char bytes[8192];ssize_t n=pread(out,bytes,sizeof(bytes)-1,0);require(n>0&&n<(ssize_t)sizeof(bytes)-1,"actual deadline refusal stdout is bounded");bytes[n]=0;
+    require(strstr(bytes,"\"code\":\"deadline\"")&&strstr(bytes,"\"runtime_approved\":false"),"actual deadline result preserves refusal and runtime false");
+    require(!private_dispatch(1,1,1,&context,&result),"terminal reporting cannot admit a new engine command");
+    require(private_close(out),"deadline stdout capture disposal paid");controls++;
+    printf("private_terminal_deadline_source_known cases=3 actual_files=true actual_stdout=true helpers=0 deadline_preserved=true runtime_approved=false\n");
+    require(fflush(stdout)==0&&private_end_unit(private_cost.open_cpu),"deadline control bounded evidence paid");reset();
+}
+
 static void hold_observer_checkpoint(void) {
     if(clock_ns(CLOCK_THREAD_CPUTIME_ID)-private_cost.open_cpu>=200000)
         require(private_end_unit(private_cost.open_cpu),"source-known holder observer ordinary unit and rest");
@@ -952,7 +1024,8 @@ int main(int argc,char **argv) {
     unsigned result_only=argc==2&&!strcmp(argv[1],"result-controls");
     unsigned diagnostics=argc==2&&!strcmp(argv[1],"terminal-diagnostic-controls");
     unsigned setup=argc==2&&!strcmp(argv[1],"diagnostic-setup-budget-control");
-    require(argc==1||selected<12||diagnostics||setup||hold||flow||result_only||charge||boundary||retained,"private source-known controls argc");
+    unsigned deadline=argc==2&&!strcmp(argv[1],"terminal-deadline-controls");
+    require(argc==1||selected<12||diagnostics||setup||deadline||hold||flow||result_only||charge||boundary||retained,"private source-known controls argc");
     require(atexit(dispose_owned)==0,"owned cleanup registration");
     char root[]="/private/tmp/dream-private-engine-controls.XXXXXX";require(mkdtemp(root)!=NULL,"owned fixture directory");
     int dir=open(root,O_RDONLY|O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC);require(dir>=0,"owned fixture root");
@@ -983,8 +1056,9 @@ int main(int argc,char **argv) {
     if(retained){total_retained_guard_api();require(close(dir)==0,"owned retained guard API root close");return 0;}
     if(selected<12){total_control(self,root,dir,selected);require(close(dir)==0,"owned narrow fixture root close");return 0;}
     if(diagnostics){terminal_diagnostic_controls(dir);require(close(dir)==0,"owned diagnostic root close");return 0;}
+    if(deadline){terminal_deadline_controls(dir);require(close(dir)==0,"owned terminal-deadline root close");return 0;}
     if(setup){diagnostic_setup_budget_control();require(close(dir)==0,"owned setup root close");return 0;}
-    semantic_controls();result_controls();flow_controls(root,dir);terminal_diagnostic_controls(dir);charge_diagnostic_control(dir);
+    semantic_controls();result_controls();flow_controls(root,dir);terminal_diagnostic_controls(dir);terminal_deadline_controls(dir);charge_diagnostic_control(dir);
     for(unsigned mode=0;mode<12;mode++)total_control(self,root,dir,mode);
     total_boundary_api();
     total_retained_guard_api();

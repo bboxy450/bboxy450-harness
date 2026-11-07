@@ -2031,6 +2031,21 @@ name = "BrokenHarnessDreamReadPrivateVerdictsEarlyTerminal"
 expected = "safety"
 frontend = "project"
 
+[[model]]
+name = "BrokenHarnessDreamReadPrivateVerdictsHeldFdLocator"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadPrivateVerdictsTerminalWorkAdmission"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadPrivateVerdictsDeadlineSuppressReport"
+expected = "liveness"
+frontend = "project"
+
 # Decision66236: paired named measured-basis, conservation and wall controls.
 
 [[model]]

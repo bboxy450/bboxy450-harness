@@ -521,7 +521,15 @@ mod quarantine_owner_tests {
 /// observed independently. Final receipt IO/durability and process exit remain
 /// implementation witnesses; this projection never releases custody or qualifies.
 pub fn private_verdicts(control: u8) -> Model {
-    let suffix = ["", "FirstErrorOnly", "Persistence", "EarlyTerminal"][usize::from(control)];
+    let suffix = [
+        "",
+        "FirstErrorOnly",
+        "Persistence",
+        "EarlyTerminal",
+        "HeldFdLocator",
+        "TerminalWorkAdmission",
+        "DeadlineSuppressReport",
+    ][usize::from(control)];
     const PH: usize = 0;
     const EXPECT_CONTROL: usize = 1;
     const EXPECT_PERSIST: usize = 2;
@@ -538,83 +546,348 @@ pub fn private_verdicts(control: u8) -> Model {
     const DEBT: usize = 13;
     const PAID: usize = 14;
     const AUDIT: usize = 15;
-    let mut m = base(&format!("DreamReadPrivateVerdicts{suffix}"), control != 0, &[
-        ("phase", 5, 0), ("actualControlFailureCount", 2, 0),
-        ("actualPersistenceOutcome", 3, 0), ("actualTerminalOutcome", 3, 0),
-        ("controlVerdict", 2, 0), ("persistenceVerdict", 3, 0),
-        ("terminalCostVerdict", 3, 0), ("retainedControlFailureCount", 2, 0),
-        ("retainedPersistenceFailure", 1, 0), ("retainedTerminalFailure", 1, 0),
-        ("preFinalReceiptTailClosed", 1, 0), ("retainedTailCostBound", 3, 0),
-        ("retainedRawUnknown", 1, 0), ("freshTailDebt", 27, 0),
-        ("tailDebtActuallyPaid", 1, 0), ("finalAuditAttempted", 1, 0),
-    ]);
+    const INPUT_CASE: usize = 16;
+    const HELD_FD: usize = 17;
+    const LOCATOR: usize = 18;
+    const FENCE: usize = 19;
+    const WORK_DEADLINE: usize = 20;
+    const REPORTING: usize = 21;
+    const NEXT_ENGINE: usize = 22;
+    const FORMAT_ADMISSION: usize = 23;
+    const RESULT_ATTEMPT: usize = 24;
+    const STDOUT_OUTCOME: usize = 25;
+    let mut m = base(
+        &format!("DreamReadPrivateVerdicts{suffix}"),
+        control != 0,
+        &[
+            ("phase", 5, 0),
+            ("actualControlFailureCount", 2, 0),
+            ("actualPersistenceOutcome", 3, 0),
+            ("actualTerminalOutcome", 3, 0),
+            ("controlVerdict", 2, 0),
+            ("persistenceVerdict", 3, 0),
+            ("terminalCostVerdict", 3, 0),
+            ("retainedControlFailureCount", 2, 0),
+            ("retainedPersistenceFailure", 1, 0),
+            ("retainedTerminalFailure", 1, 0),
+            ("preFinalReceiptTailClosed", 1, 0),
+            ("retainedTailCostBound", 3, 0),
+            ("retainedRawUnknown", 1, 0),
+            ("freshTailDebt", 27, 0),
+            ("tailDebtActuallyPaid", 1, 0),
+            ("finalAuditAttempted", 1, 0),
+            ("immutableInputCaseCurrentLocatorChangedHeldMutated", 3, 0),
+            ("retainedFdAndOriginalStampMatch", 1, 0),
+            ("pathnameLocatorStillMatches", 1, 0),
+            ("descriptorFenceUnsetPassRefuse", 2, 0),
+            ("originalWorkDeadlineExpired", 1, 0),
+            ("terminalReportingOnlyDisposition", 1, 0),
+            ("nextEngineCommandAdmittedAfterTerminalDisposition", 1, 0),
+            (
+                "formatterAdmissionUnsetKnownBoundedPaidOverrunUnknown",
+                3,
+                0,
+            ),
+            ("terminalResultAttempted", 1, 0),
+            ("stdoutOutcomeUnobservedCompleteFailedUnknown", 3, 0),
+        ],
+    );
+    // Strict decode+expected hash have already succeeded. These immutable
+    // cases separate retained descriptor authority from a later path lookup:
+    // matching FD/path; same held FD with replaced locator after deadline;
+    // in-place held-file mutation despite a matching locator after deadline.
+    for input in 1..=3 {
+        act(
+            &mut m,
+            &format!("RetainDecodedOriginalDescriptorCase{input}"),
+            all([eq(PH, 0), eq(INPUT_CASE, 0)]),
+            &[
+                (INPUT_CASE, Int(input)),
+                (HELD_FD, Int(i64::from(input != 3))),
+                (LOCATOR, Int(i64::from(input != 2))),
+                (WORK_DEADLINE, Int(i64::from(input != 1))),
+            ],
+        );
+    }
+    for current in 0..=1 {
+        act(
+            &mut m,
+            &format!("FenceSameRetainedDescriptorStamp{current}"),
+            all([
+                eq(PH, 1),
+                eq(FENCE, 0),
+                eq(if control == 4 { LOCATOR } else { HELD_FD }, current),
+            ]),
+            &[(FENCE, Int(if current == 1 { 1 } else { 2 }))],
+        );
+    }
+    let terminal_mode = m.actions.len();
+    act(
+        &mut m,
+        "EnterTerminalOnlyReportingAfterDispatchDisposition",
+        all([eq(PH, 2), eq(REPORTING, 0)]),
+        &[(REPORTING, Int(1))],
+    );
+    for admission in 1..=3 {
+        // Admission1 abstracts an actually measured <=1ms formatter whose
+        // full current cost/rest is already paid;2/3 retain overrun/UNKNOWN.
+        // No cost/clock success is fair and unknown never supplies this fact.
+        act(
+            &mut m,
+            &format!("ObserveActualFormatterAdmission{admission}"),
+            all([
+                eq(PH, 2),
+                eq(REPORTING, 1),
+                eq(FORMAT_ADMISSION, 0),
+                if admission == 1 {
+                    Bool(true)
+                } else {
+                    Int(0).lt(Var(EXPECT_CONTROL))
+                },
+            ]),
+            &[(FORMAT_ADMISSION, Int(admission))],
+        );
+    }
+    let attempt = m.actions.len();
+    act(
+        &mut m,
+        "AttemptBoundedPaidTerminalResultDespiteExpiredWorkDeadline",
+        all([
+            eq(PH, 2),
+            eq(REPORTING, 1),
+            eq(FORMAT_ADMISSION, 1),
+            eq(RESULT_ATTEMPT, 0),
+            if control == 6 {
+                eq(WORK_DEADLINE, 0)
+            } else {
+                Bool(true)
+            },
+        ]),
+        &[(RESULT_ATTEMPT, Int(1))],
+    );
+    for outcome in 1..=3 {
+        act(
+            &mut m,
+            &format!("ObserveIndependentStdoutOutcome{outcome}"),
+            all([
+                eq(PH, 2),
+                eq(RESULT_ATTEMPT, 1),
+                eq(STDOUT_OUTCOME, 0),
+                if outcome == 1 {
+                    Bool(true)
+                } else {
+                    Int(0).lt(Var(EXPECT_CONTROL))
+                },
+            ]),
+            &[(STDOUT_OUTCOME, Int(outcome))],
+        );
+    }
+    if control == 5 {
+        act(
+            &mut m,
+            "BrokenTerminalDispositionAdmitsNextEngineCommand",
+            all([eq(REPORTING, 1), eq(NEXT_ENGINE, 0)]),
+            &[(NEXT_ENGINE, Int(1))],
+        );
+    }
     for c in 0..=2 {
         for p in 1..=3 {
             for t in 1..=3 {
-                act(&mut m, &format!("SelectIndependentOutcomes{c}_{p}_{t}"), eq(PH, 0),
-                    &[(PH, Int(1)), (EXPECT_CONTROL, Int(c)),
-                        (EXPECT_PERSIST, Int(p)), (EXPECT_TAIL, Int(t))]);
+                act(
+                    &mut m,
+                    &format!("SelectIndependentOutcomes{c}_{p}_{t}"),
+                    all([
+                        eq(PH, 0),
+                        Int(0).lt(Var(INPUT_CASE)),
+                        if c == 0 {
+                            eq(INPUT_CASE, 1)
+                        } else {
+                            Bool(true)
+                        },
+                    ]),
+                    &[
+                        (PH, Int(1)),
+                        (EXPECT_CONTROL, Int(c)),
+                        (EXPECT_PERSIST, Int(p)),
+                        (EXPECT_TAIL, Int(t)),
+                    ],
+                );
             }
         }
-        act(&mut m, &format!("RetainRepeatedControlFailures{c}"),
-            all([eq(PH, 1), eq(EXPECT_CONTROL, c)]),
-            &[(PH, Int(2)), (CONTROL, Int(if c == 0 { 1 } else { 2 })),
-                (CONTROL_COUNT, Int(if control == 1 { c.min(1) } else { c }))]);
+        act(
+            &mut m,
+            &format!("RetainRepeatedControlFailures{c}"),
+            all([eq(PH, 1), eq(EXPECT_CONTROL, c), Int(0).lt(Var(FENCE))]),
+            &[
+                (PH, Int(2)),
+                (CONTROL, Int(if c == 0 { 1 } else { 2 })),
+                (CONTROL_COUNT, Int(if control == 1 { c.min(1) } else { c })),
+            ],
+        );
         for p in 1..=3 {
             let persistence_error = i64::from(p != 1);
-            act(&mut m, &format!("ObserveActualPublicationOutcome{c}_{p}"),
-                all([eq(PH, 2), eq(EXPECT_CONTROL, c), eq(EXPECT_PERSIST, p)]),
-                &[(PH, Int(3)), (PERSIST, Int(if control == 2 { 1 } else { p })),
-                    (PERSIST_ERROR, Int(if control == 1 && c != 0 { 0 } else { persistence_error }))]);
+            act(
+                &mut m,
+                &format!("ObserveActualPublicationOutcome{c}_{p}"),
+                all([
+                    eq(PH, 2),
+                    eq(EXPECT_CONTROL, c),
+                    eq(EXPECT_PERSIST, p),
+                    eq(REPORTING, 1),
+                    all([
+                        eq(FORMAT_ADMISSION, 1),
+                        eq(RESULT_ATTEMPT, 1),
+                        Int(0).lt(Var(STDOUT_OUTCOME)),
+                    ])
+                    .or(all([Int(1).lt(Var(FORMAT_ADMISSION)), Bool(p != 1)])),
+                ]),
+                &[
+                    (PH, Int(3)),
+                    (PERSIST, Int(if control == 2 { 1 } else { p })),
+                    (
+                        PERSIST_ERROR,
+                        Int(if control == 1 && c != 0 {
+                            0
+                        } else {
+                            persistence_error
+                        }),
+                    ),
+                ],
+            );
             for t in 1..=3 {
                 // Outcome1 is a within-unit bound,2 a genuine overrun,3 raw
                 // unknown with the conservative3/27 obligation and no paid claim.
                 let cost = t;
                 let unknown = i64::from(t == 3);
                 let terminal_error = i64::from(t != 1);
-                act(&mut m, &format!("CloseAllExitTailWork{c}_{p}_{t}"),
-                    all([eq(PH, 3), eq(EXPECT_CONTROL, c),
-                        eq(EXPECT_PERSIST, p), eq(EXPECT_TAIL, t)]),
-                    &[(PH, Int(4)), (TAIL, Int(t)), (TAIL_CLOSED, Int(1)),
-                        (COST, Int(cost)), (RAW_UNKNOWN, Int(unknown)),
-                        (DEBT, Int(9 * cost)), (PAID, Int(0)),
-                        (TAIL_ERROR, Int(if control == 1 && (c != 0 || p != 1) {
-                            0
-                        } else { terminal_error }))]);
+                act(
+                    &mut m,
+                    &format!("CloseAllExitTailWork{c}_{p}_{t}"),
+                    all([
+                        eq(PH, 3),
+                        eq(EXPECT_CONTROL, c),
+                        eq(EXPECT_PERSIST, p),
+                        eq(EXPECT_TAIL, t),
+                    ]),
+                    &[
+                        (PH, Int(4)),
+                        (TAIL, Int(t)),
+                        (TAIL_CLOSED, Int(1)),
+                        (COST, Int(cost)),
+                        (RAW_UNKNOWN, Int(unknown)),
+                        (DEBT, Int(9 * cost)),
+                        (PAID, Int(0)),
+                        (
+                            TAIL_ERROR,
+                            Int(if control == 1 && (c != 0 || p != 1) {
+                                0
+                            } else {
+                                terminal_error
+                            }),
+                        ),
+                    ],
+                );
             }
         }
     }
     let pay = m.actions.len();
-    act(&mut m, "ActuallyPayFullKnownClosedTailDebt",
+    act(
+        &mut m,
+        "ActuallyPayFullKnownClosedTailDebt",
         all([eq(PH, 4), eq(RAW_UNKNOWN, 0), eq(PAID, 0)]),
-        &[(DEBT, Int(0)), (PAID, Int(1))]);
+        &[(DEBT, Int(0)), (PAID, Int(1))],
+    );
     let audit = m.actions.len();
-    act(&mut m, "AttemptFinalRawAuditAfterClosedTailCutoff",
+    act(
+        &mut m,
+        "AttemptFinalRawAuditAfterClosedTailCutoff",
         all([eq(PH, 4), eq(PAID, 1).or(eq(RAW_UNKNOWN, 1))]),
-        &[(PH, Int(5)), (AUDIT, Int(1))]);
+        &[(PH, Int(5)), (AUDIT, Int(1))],
+    );
     if control == 3 {
-        act(&mut m, "BrokenFinalRawAuditBeforeExitTail", eq(PH, 3),
-            &[(PH, Int(5)), (AUDIT, Int(1))]);
+        act(
+            &mut m,
+            "BrokenFinalRawAuditBeforeExitTail",
+            eq(PH, 3),
+            &[(PH, Int(5)), (AUDIT, Int(1))],
+        );
     }
-    safe(&mut m, "EveryIndependentFailureRemainsRecorded", all([
-        eq(CONTROL, 0).or(Var(CONTROL_COUNT).eq(Var(EXPECT_CONTROL))),
-        eq(PERSIST, 0).or(eq(EXPECT_PERSIST, 1).and(eq(PERSIST_ERROR, 0))
-            .or(eq(EXPECT_PERSIST, 1).negate().and(eq(PERSIST_ERROR, 1)))),
-        eq(TAIL_CLOSED, 0).or(eq(EXPECT_TAIL, 1).and(eq(TAIL_ERROR, 0))
-            .or(eq(EXPECT_TAIL, 1).negate().and(eq(TAIL_ERROR, 1)))),
-    ]));
-    safe(&mut m, "PersistenceVerdictMatchesActualAttempt",
-        eq(PERSIST, 0).or(Var(PERSIST).eq(Var(EXPECT_PERSIST))));
-    safe(&mut m, "TerminalReceiptFollowsAllTailCost",
-        eq(AUDIT, 0).or(all([eq(TAIL_CLOSED, 1), Int(0).lt(Var(TAIL))])));
+    safe(
+        &mut m,
+        "EveryIndependentFailureRemainsRecorded",
+        all([
+            eq(CONTROL, 0).or(Var(CONTROL_COUNT).eq(Var(EXPECT_CONTROL))),
+            eq(PERSIST, 0).or(eq(EXPECT_PERSIST, 1).and(eq(PERSIST_ERROR, 0)).or(eq(
+                EXPECT_PERSIST,
+                1,
+            )
+            .negate()
+            .and(eq(PERSIST_ERROR, 1)))),
+            eq(TAIL_CLOSED, 0).or(eq(EXPECT_TAIL, 1)
+                .and(eq(TAIL_ERROR, 0))
+                .or(eq(EXPECT_TAIL, 1).negate().and(eq(TAIL_ERROR, 1)))),
+        ]),
+    );
+    safe(
+        &mut m,
+        "PersistenceVerdictMatchesActualAttempt",
+        eq(PERSIST, 0).or(Var(PERSIST).eq(Var(EXPECT_PERSIST))),
+    );
+    safe(
+        &mut m,
+        "TerminalReceiptFollowsAllTailCost",
+        eq(AUDIT, 0).or(all([eq(TAIL_CLOSED, 1), Int(0).lt(Var(TAIL))])),
+    );
     for t in 1..=3 {
-        safe(&mut m, &format!("ClosedTailRetainsFullCostAndFreshDebt{t}"),
-            all([eq(TAIL_CLOSED, 1), eq(EXPECT_TAIL, t)]).negate().or(all([
-                eq(COST, t), eq(RAW_UNKNOWN, i64::from(t == 3)),
-                eq(PAID, 0).and(eq(DEBT, 9 * t)).or(
-                    Bool(t != 3).and(eq(PAID, 1)).and(eq(DEBT, 0))),
-            ])));
+        safe(
+            &mut m,
+            &format!("ClosedTailRetainsFullCostAndFreshDebt{t}"),
+            all([eq(TAIL_CLOSED, 1), eq(EXPECT_TAIL, t)])
+                .negate()
+                .or(all([
+                    eq(COST, t),
+                    eq(RAW_UNKNOWN, i64::from(t == 3)),
+                    eq(PAID, 0)
+                        .and(eq(DEBT, 9 * t))
+                        .or(Bool(t != 3).and(eq(PAID, 1)).and(eq(DEBT, 0))),
+                ])),
+        );
     }
+    safe(
+        &mut m,
+        "DescriptorFenceMatchesSameRetainedFd",
+        eq(FENCE, 0)
+            .or(eq(FENCE, 1).and(eq(HELD_FD, 1)))
+            .or(eq(FENCE, 2).and(eq(HELD_FD, 0))),
+    );
+    safe(
+        &mut m,
+        "TerminalReportingCannotAdmitNextEngineWork",
+        eq(NEXT_ENGINE, 0),
+    );
+    safe(
+        &mut m,
+        "ResultAttemptRequiresKnownBoundedPaidFormatter",
+        eq(RESULT_ATTEMPT, 0).or(all([eq(REPORTING, 1), eq(FORMAT_ADMISSION, 1)])),
+    );
+    safe(
+        &mut m,
+        "StdoutCompletionRequiresActualResultAttempt",
+        eq(STDOUT_OUTCOME, 1).negate().or(eq(RESULT_ATTEMPT, 1)),
+    );
+    progress(
+        &mut m,
+        "PaidTerminalRefusalAttemptsResultDespiteWorkDeadline",
+        all([
+            eq(PH, 2),
+            eq(REPORTING, 1),
+            eq(WORK_DEADLINE, 1),
+            eq(FORMAT_ADMISSION, 1),
+        ]),
+        eq(RESULT_ATTEMPT, 1),
+        vec![attempt],
+    );
+    m.weak_fair.push(vec![terminal_mode]);
     m.weak_fair.push(vec![pay]);
     m.weak_fair.push(vec![audit]);
     m
@@ -625,46 +898,138 @@ mod private_verdict_tests {
     use super::*;
     #[test]
     fn independent_failure_axes_and_final_tail_cutoff_export_all_controls() {
-        let output = std::env::var_os("DREAM_PRIVATE_VERDICT_FORMAL_OUT")
-            .map(std::path::PathBuf::from);
+        let output =
+            std::env::var_os("DREAM_PRIVATE_VERDICT_FORMAL_OUT").map(std::path::PathBuf::from);
         let mut manifest = String::new();
-        for control in 0..=3 {
+        for control in 0..=6 {
             let model = private_verdicts(control);
             let graph = model.check(100_000).unwrap();
-            let properties: std::collections::BTreeSet<_> = graph.violations.iter()
-                .map(|v| v.property.as_str()).collect();
+            let properties: std::collections::BTreeSet<_> = graph
+                .violations
+                .iter()
+                .map(|v| v.property.as_str())
+                .collect();
             let expected: std::collections::BTreeSet<_> = match control {
-                1 => ["EveryIndependentFailureRemainsRecorded"].into_iter().collect(),
-                2 => ["PersistenceVerdictMatchesActualAttempt"].into_iter().collect(),
+                1 => ["EveryIndependentFailureRemainsRecorded"]
+                    .into_iter()
+                    .collect(),
+                2 => ["PersistenceVerdictMatchesActualAttempt"]
+                    .into_iter()
+                    .collect(),
                 3 => ["TerminalReceiptFollowsAllTailCost"].into_iter().collect(),
+                4 => ["DescriptorFenceMatchesSameRetainedFd"]
+                    .into_iter()
+                    .collect(),
+                5 => ["TerminalReportingCannotAdmitNextEngineWork"]
+                    .into_iter()
+                    .collect(),
+                6 => ["PaidTerminalRefusalAttemptsResultDespiteWorkDeadline"]
+                    .into_iter()
+                    .collect(),
                 _ => std::collections::BTreeSet::new(),
             };
             assert_eq!(properties, expected);
-            assert!(graph.violations.iter().all(|v| v.cycle.is_empty()));
+            if control == 6 {
+                assert!(graph.violations.iter().any(|v| !v.cycle.is_empty()));
+            } else {
+                assert!(graph.violations.iter().all(|v| v.cycle.is_empty()));
+            }
             if control == 0 {
                 for c in 0..=2 {
                     for p in 1..=3 {
                         for t in 1..=3 {
-                            assert!(graph.states.iter().any(|s|
-                                s[1] == c && s[2] == p && s[3] == t && s[15] == 1),
-                                "each independent repeated-control/persistence/tail class reaches its final audit attempt");
+                            assert!(
+                                graph
+                                    .states
+                                    .iter()
+                                    .any(|s| s[1] == c && s[2] == p && s[3] == t && s[15] == 1),
+                                "each independent repeated-control/persistence/tail class reaches its final audit attempt"
+                            );
                         }
                     }
                 }
-                assert!(graph.states.iter().any(|s| s[15] == 1 && s[1] == 2
-                    && s[7] == 2 && s[5] == 2 && s[8] == 1 && s[6] == 2 && s[9] == 1),
-                    "an earlier control error cannot hide failed persistence or an over-budget exit tail");
-                assert!(graph.states.iter().any(|s| s[15] == 1 && s[12] == 1
-                    && s[13] == 27 && s[14] == 0),
-                    "unknown tail cost remains raw unknown and unpaid at the explicit audit cutoff");
+                assert!(
+                    graph.states.iter().any(|s| s[15] == 1
+                        && s[1] == 2
+                        && s[7] == 2
+                        && s[5] == 2
+                        && s[8] == 1
+                        && s[6] == 2
+                        && s[9] == 1),
+                    "an earlier control error cannot hide failed persistence or an over-budget exit tail"
+                );
+                assert!(
+                    graph
+                        .states
+                        .iter()
+                        .any(|s| s[15] == 1 && s[12] == 1 && s[13] == 27 && s[14] == 0),
+                    "unknown tail cost remains raw unknown and unpaid at the explicit audit cutoff"
+                );
             }
-            println!("private_verdicts control={control} model={} states={} labelled_edges={} named_verdicts={properties:?}",
-                model.name, graph.states.len(), graph.edges.iter().map(Vec::len).sum::<usize>());
+            if control == 0 {
+                assert!(
+                    graph.states.iter().any(|s| s[16] == 2
+                        && s[17] == 1
+                        && s[18] == 0
+                        && s[19] == 1
+                        && s[20] == 1
+                        && s[21] == 1
+                        && s[22] == 0
+                        && s[23] == 1
+                        && s[24] == 1
+                        && s[25] == 1
+                        && s[5] == 1
+                        && s[15] == 1),
+                    "expired work deadline and replaced locator preserve same held-FD fence and paid refusal result/stdout/persistence attempt"
+                );
+                assert!(
+                    graph.states.iter().any(|s| s[16] == 3
+                        && s[17] == 0
+                        && s[18] == 1
+                        && s[19] == 2
+                        && s[24] == 1
+                        && s[15] == 1),
+                    "in-place held descriptor mutation refuses source admission while terminal reporting retains the refusal"
+                );
+                for format in [2, 3] {
+                    assert!(
+                        graph
+                            .states
+                            .iter()
+                            .any(|s| s[23] == format && s[24] == 0 && s[15] == 1),
+                        "overrun/unknown formatter cannot claim a result even when final raw audit is attempted"
+                    );
+                }
+                assert!(
+                    graph
+                        .states
+                        .iter()
+                        .any(|s| s[24] == 1 && s[25] == 2 && s[5] == 1),
+                    "persisted file does not turn a failed stdout write into a completed result"
+                );
+            }
+            println!(
+                "private_verdicts control={control} model={} states={} labelled_edges={} named_verdicts={properties:?}",
+                model.name,
+                graph.states.len(),
+                graph.edges.iter().map(Vec::len).sum::<usize>()
+            );
             if let Some(root) = &output {
                 let models = root.join("models");
                 std::fs::create_dir_all(&models).unwrap();
-                super::helper_observer_lowering_export::export(model,
-                    if control == 0 { "pass" } else { "safety" }, &models, &mut manifest).unwrap();
+                super::helper_observer_lowering_export::export(
+                    model,
+                    if control == 0 {
+                        "pass"
+                    } else if control == 6 {
+                        "liveness"
+                    } else {
+                        "safety"
+                    },
+                    &models,
+                    &mut manifest,
+                )
+                .unwrap();
             }
         }
         if let Some(root) = output {
