@@ -15,7 +15,9 @@ An enclosing app is landed separately with its combined current-source gate.
 import hashlib
 import json
 import os
+import re
 import shutil
+import stat
 from pathlib import Path
 import subprocess
 import sys
@@ -46,6 +48,65 @@ def source_digest():
         if name and path.is_file():
             digest.update(name.encode() + b"\0" + path.read_bytes() + b"\0")
     return digest.hexdigest()
+
+
+def preserve_dream_observer_outputs():
+    """Retain canonical sink-test evidence without treating it as source."""
+    if (not ROWS or ROWS[-1].get("argv", [])[:2] != ["make", "test-dream-mcp"]
+            or ROWS[-1].get("exit") != 0):
+        raise RuntimeError("Dream observer preservation requires the successful canonical gate")
+    if git("diff", "--name-only", "HEAD"):
+        raise RuntimeError("tracked source changed during Dream gate")
+    names = [name for name in git("ls-files", "--others", "--exclude-standard", "-z").split("\0") if name]
+    expected = {"good", "aba", "wrong_temp", "omit_dir_sync", "hand_race"}
+    pattern = re.compile(r"\.bboxy/runs/dream-wp8-observer-(good|aba|wrong_temp|omit_dir_sync|hand_race)-[0-7][0-9A-HJKMNP-TV-Z]{25}\.json")
+    records = []
+    for name in names:
+        match = pattern.fullmatch(name)
+        if not match or match[1] not in expected:
+            raise RuntimeError(f"unexpected untracked output during Dream gate: {name}")
+        expected.remove(match[1])
+        path = ROOT / name
+        with open(path, "rb", opener=lambda p, flags: os.open(p, flags | os.O_NOFOLLOW)) as stream:
+            identity = os.fstat(stream.fileno())
+            if (not stat.S_ISREG(identity.st_mode) or identity.st_nlink != 1
+                    or identity.st_uid != os.geteuid()):
+                raise RuntimeError(f"Dream observer output is not an owned regular file: {name}")
+            raw = stream.read(65537)
+            current = os.lstat(path)
+            fields = ("st_dev", "st_ino", "st_mode", "st_uid", "st_nlink", "st_size", "st_mtime_ns", "st_ctime_ns")
+            if len(raw) > 65536 or any(getattr(current, key) != getattr(identity, key) for key in fields):
+                raise RuntimeError(f"Dream observer output changed or exceeded its bound: {name}")
+        value = json.loads(raw)
+        if (value.get("fault") != match[1]
+                or value.get("accepted_by_independent_observer") is not (match[1] in {"good", "hand_race"})):
+            raise RuntimeError(f"Dream observer output differs from its completed case: {name}")
+        records.append({"source": name, "file": path.name, "device": identity.st_dev,
+                        "inode": identity.st_ino, "bytes": len(raw), "sha256": hashlib.sha256(raw).hexdigest()})
+    if expected:
+        raise RuntimeError("canonical Dream gate did not produce every observer case")
+    destination = Path(tempfile.mkdtemp(prefix="dream-observer-evidence-", dir=TARGET))
+    manifest = destination / "preservation.json"
+    manifest.write_text(json.dumps({"method": "same-filesystem rename; retain original inodes and bytes",
+                                    "source_commit": git("rev-parse", "HEAD"), "gate": ROWS[-1],
+                                    "files": records}, indent=2) + "\n")
+    for record in records:
+        source, retained = ROOT / record["source"], destination / record["file"]
+        original = os.lstat(source)
+        if (original.st_dev, original.st_ino, original.st_size, original.st_nlink) != (
+                record["device"], record["inode"], record["bytes"], 1):
+            raise RuntimeError("Dream observer output changed before preservation")
+        source.rename(retained)
+        actual = os.lstat(retained)
+        with open(retained, "rb", opener=lambda p, flags: os.open(p, flags | os.O_NOFOLLOW)) as stream:
+            retained_raw = stream.read(65537)
+        if ((actual.st_dev, actual.st_ino, actual.st_size) != (
+                record["device"], record["inode"], record["bytes"])
+                or hashlib.sha256(retained_raw).hexdigest() != record["sha256"]):
+            raise RuntimeError("Dream observer preservation changed its identity or bytes")
+    ROWS.append({"operation": "preserve-dream-observer-evidence", "manifest": str(manifest),
+                 "manifest_sha256": hashlib.sha256(manifest.read_bytes()).hexdigest(), "exit": 0})
+    print(f"land: retained five Dream observer outputs at {manifest}", flush=True)
 
 
 def gate(base):
@@ -100,6 +161,7 @@ def gate(base):
             # Q2 requires the canonical source-bound release worker/profile and
             # its real proof/resource gates, prepared by this existing target.
             run(["make", "test-dream-mcp", f"TARGET_DIR={TARGET}"], env=env)
+            preserve_dream_observer_outputs()
             integrations.remove("dream_read")
         if any(p.startswith(("src/mcp", "src/python_execute", "src/backend/acp_agent", "src/engine")) for p in changed):
             integrations.update(["mcp_client", "acp_launch_context"])
