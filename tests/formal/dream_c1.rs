@@ -675,20 +675,29 @@ pub fn quantum_debt(control: u8) -> Model {
             let inclusive: i64 = app + native;
             for effect in 0..3 {
                 let accept = effect == 1 && clock_wall == 0 && native <= 2;
-                let lose = (control == 7 && clock_wall == 2)
-                    || control == 8 || (control == 9 && kind == 2);
-                let cause = if control == 8 { eq(22, 1) }
-                    else if control == 9 && kind == 2 { eq(21, 2) }
-                    else { Bool(true) };
+                let lose = (control == 7 && clock_wall == 2) || control == 8;
+                let cause = if control == 8 { eq(22, 1) } else { Bool(true) };
                 fair.push(m.actions.len());
                 let mut updates = vec![(0, Int(debt_phase)),
                     (12, Int(if control == 6 { 0 } else { 9 * inclusive.max(1) })),
                     (23, Int(if accept { 1 } else { 2 }))];
                 if !accept { updates.push((22, Int(1))); }
-                if lose { updates.push((4, Int(0))); }
-                act(&mut m, &format!("VerdictNative{kind}Cost{inclusive}Effect{effect}Timing{clock_wall}Cpu{native}"),
-                    all([eq(0, returned), eq(13, inclusive), eq(14, native),
-                        eq(4, effect), eq(24, clock_wall), cause]), &updates);
+                let returned_guard = all([eq(0, returned), eq(13, inclusive), eq(14, native),
+                    eq(4, effect), eq(24, clock_wall), cause]);
+                let verdict = format!("VerdictNative{kind}Cost{inclusive}Effect{effect}Timing{clock_wall}Cpu{native}");
+                if control == 9 && kind == 2 {
+                    // Mutate custody only after the actual A1/B2/A3 transition.
+                    // Verdict/cost progress before ABA must remain available:
+                    // context changes have no fairness and cannot gate refusal.
+                    act(&mut m, &format!("{verdict}BeforeAba"),
+                        returned_guard.clone().and(eq(21, 2).negate()), &updates);
+                    fair.push(m.actions.len());
+                    updates.push((4, Int(0)));
+                    act(&mut m, &verdict, returned_guard.and(eq(21, 2)), &updates);
+                } else {
+                    if lose { updates.push((4, Int(0))); }
+                    act(&mut m, &verdict, returned_guard, &updates);
+                }
             }
         }
         for inclusive in 0..=3 {
@@ -854,6 +863,54 @@ fn quantum_debt_outcomes_and_controls_are_causally_reachable() {
                     "compute creation and publication repeats must each be reachable");
             }
         }
+    }
+}
+
+#[cfg(test)]
+#[path = "export.rs"]
+mod quantum_aba_export;
+
+#[test]
+fn quantum_debt_aba_mutates_only_actual_aba_and_preserves_cancel_progress() {
+    let good = quantum_debt(0);
+    let broken = quantum_debt(9);
+    let checked = broken.check(100_000).unwrap();
+    assert!(checked.violations.iter().any(|v|
+        v.property == "CapturedEffectSurvivesAllVerdicts" && v.cycle.is_empty()));
+    assert!(checked.violations.iter().all(|v| v.cycle.is_empty()),
+        "the ABA custody mutation must not accidentally obstruct cancellation: {:?}",
+        checked.violations);
+    let mut cancelled_pre_aba = [0; 2];
+    let mut actual_aba_loss = false;
+    for (index, state) in checked.states.iter().enumerate() {
+        if state[0] != 6 { continue; }
+        let verdicts: Vec<_> = checked.edges[index].iter().filter(|edge|
+            broken.actions[edge.action].name.starts_with("VerdictNative2")).collect();
+        assert_eq!(verdicts.len(), 1, "every actual return has one local verdict");
+        let after = &checked.states[verdicts[0].to];
+        assert_eq!(after[0], 7);
+        assert_eq!(after[12], 9 * state[13].max(1), "full returned cost still creates debt");
+        for field in [5, 6, 8, 40] {
+            assert_eq!(after[field], state[field], "original captured effect/op/owner survives");
+        }
+        if state[21] < 2 {
+            assert_eq!(after[4], state[4], "no effect loss before actual ABA");
+            if state[22] == 1 { cancelled_pre_aba[state[21] as usize] += 1; }
+        } else if state[5] != 0 {
+            assert_eq!(after[4], 0, "the intended actual-ABA broken custody remains reachable");
+            actual_aba_loss = true;
+        }
+    }
+    assert!(cancelled_pre_aba.into_iter().all(|count| count > 0),
+        "both A1 and B2 cancellation returns must retain verdict progress");
+    assert!(actual_aba_loss);
+    if let Some(output) = std::env::var_os("DREAM_QUANTUM_ABA_FORMAL_OUT") {
+        let root = std::path::PathBuf::from(output).join("models");
+        std::fs::create_dir_all(&root).unwrap();
+        let mut manifest = String::new();
+        quantum_aba_export::export(good, "pass", &root, &mut manifest).unwrap();
+        quantum_aba_export::export(broken, "safety", &root, &mut manifest).unwrap();
+        std::fs::write(root.join("manifest.tsv"), manifest).unwrap();
     }
 }
 

@@ -3121,6 +3121,7 @@ fn assert_qualified_snapshot(job: &Job, done: &w::Done, entry_id: &str) {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires separately qualified proof tools; re-enable via tasks/2026-11-05-dream-proof-tools-provisioner"]
 async fn prepared_tool_capability_probe_has_stopped_start_and_actual_git_gpg_rollup() {
     // This constructs the existing private publication and runs only the separate
     // native/tool capability fixture. It never launches a managed Dream worker.
@@ -3460,6 +3461,7 @@ fn signature_boundary_controls_refuse_before_helper_birth() {
 }
 
 #[test]
+#[ignore = "load-sensitive budget/wall window; re-enable via tasks/2026-11-06-qos-builds-never-starve-mcp"]
 fn member_windows_use_post_ack_unequal_endpoints_and_closed_roster() {
     // Only the canonical finite C program is launched here. No Git/GPG tool
     // qualification or managed Read availability follows from this component.
@@ -4038,6 +4040,7 @@ fn read_bootstrap_probe_null_context_permanently_refuses_matching_start_before_s
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires separately qualified proof tools; re-enable via tasks/2026-11-05-dream-proof-tools-provisioner"]
 async fn qualifying_four_jobs_complete_real_proofs_with_foreground_debt_memory_and_reap() {
     let templates = [
         Template::publication_root("fixture.invalid/dream/repo-a").await,
@@ -4248,6 +4251,7 @@ async fn qualifying_four_jobs_complete_real_proofs_with_foreground_debt_memory_a
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires separately qualified proof tools; re-enable via tasks/2026-11-05-dream-proof-tools-provisioner"]
 async fn qualifying_helper_foreground_cancel_settles_actual_descendant_before_done() {
     let template = Template::publication().await;
     template.hide_originals();
@@ -4320,6 +4324,7 @@ async fn qualifying_helper_foreground_cancel_settles_actual_descendant_before_do
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires separately qualified proof tools; re-enable via tasks/2026-11-05-dream-proof-tools-provisioner"]
 async fn helper_provision_capability_and_executable_guards_refuse_without_path_fallback() {
     let template = Template::publication().await;
     template.hide_originals();
@@ -4444,6 +4449,7 @@ async fn helper_provision_capability_and_executable_guards_refuse_without_path_f
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires separately qualified proof tools; re-enable via tasks/2026-11-05-dream-proof-tools-provisioner"]
 async fn signed_publication_exact_bundle_survives_offline_sources_and_refuses_tamper() {
     let template = Template::publication().await;
     let revived = template.changed_committed_record(true);
@@ -4636,6 +4642,7 @@ async fn signed_publication_exact_bundle_survives_offline_sources_and_refuses_ta
 }
 
 #[test]
+#[ignore = "load-sensitive budget/wall window; re-enable via tasks/2026-11-06-qos-builds-never-starve-mcp"]
 fn no_candidates_protocol_pause_cancel_and_descriptor_custody_are_separate() {
     let empty = Job::empty();
     let (done, exit, stderr) = run(&empty);

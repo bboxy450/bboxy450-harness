@@ -2200,3 +2200,24 @@ frontend = "project"
 name = "BrokenHarnessDreamReadInitialQuiescenceSkipFresh"
 expected = "safety"
 frontend = "project"
+
+
+[[model]]
+name = "HarnessDreamReadPrivateVerdicts"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadPrivateVerdictsFirstErrorOnly"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadPrivateVerdictsPersistence"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadPrivateVerdictsEarlyTerminal"
+expected = "safety"
+frontend = "project"

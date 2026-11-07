@@ -74,6 +74,8 @@ Native text-entry dispatch witnesses and their broken controls follow this polic
 - Launch bootstrap context, generation-private MCP stdio relays, process fixtures
   and formal controls in `src/backend/acp_agent.rs`, `src/mcp/relay.rs` and
   `tests/acp_launch_context.rs` are project-owned implementations under this policy.
+  Bounded startup-order evidence and independent private-proof control,
+  persistence and terminal-cost verdicts retain the same project origin and policy.
 
 
 - The hidden native startup process witness and missing-title-bar-image control

@@ -17,10 +17,11 @@ static const char input_hash[]="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 static struct private_engine_context context={&outer,&basis,input_hash};
 static unsigned char capture[8192];
 static void reset(void) {
-    memset(&private_cost,0,sizeof(private_cost));private_failed=0;private_error="input_invalid";private_detail="fixture unset";
+    memset(&private_cost,0,sizeof(private_cost));private_reset_diagnostics();private_failed=0;private_error="input_invalid";private_detail="fixture unset";
     private_cost.entry=clock_ns(CLOCK_MONOTONIC);private_cost.deadline=private_cost.entry+30000000000ULL;
     private_cost.open_cpu=clock_ns(CLOCK_THREAD_CPUTIME_ID);engine_cancel_signal=0;
     source_known_payment_interrupts=source_known_payment_fail_nth=source_known_schedule_interrupts=source_known_schedule_fail_nth=0;
+    source_known_tail_over_cpu=source_known_closure_over_cpu=source_known_closure_late_stop=0;
 }
 static void fixture(int root) {
     memset(&outer,0,sizeof(outer));memset(&basis,0,sizeof(basis));
@@ -210,6 +211,67 @@ static void result_controls(void) {
     require(engine_complete_result(&context,&r)&&!strcmp(r.outcome,"expected_rejection"),"specific corrupt result classification");controls++;
     strcpy(outer.case_name,"positive");
 }
+static void terminal_diagnostic_controls(int root) {
+    for(unsigned variant=0;variant<4;variant++) {
+        reset();char name[48];snprintf(name,sizeof(name),"diagnostic-%u",variant);
+        require(mkdirat(root,name,0700)==0,"owned diagnostic output directory");
+        int dir=openat(root,name,O_RDONLY|O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC);require(dir>=0,"owned diagnostic output custody");
+        outer.output.fd=dir;strcpy(outer.case_name,"positive");
+        if(variant==0||variant==3) {
+            int planted=openat(dir,"result.json",O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,0600);
+            require(planted>=0&&write(planted,"owned collision\n",16)==16&&close(planted)==0,"actual exclusive publication collision");
+            private_fail("cancelled","source-known causal control failure");
+            private_fail("coverage_unknown","source-known second independent control error");
+        }
+        int out=openat(dir,"stdout",O_RDWR|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,0600);
+        int err=openat(dir,"stderr",O_RDWR|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,0600);
+        require(out>=0&&err>=0&&fflush(stdout)==0&&fflush(stderr)==0,"owned diagnostic capture");
+        int saved_out=dup(STDOUT_FILENO),saved_err=dup(STDERR_FILENO);require(saved_out>=0&&saved_err>=0,"owned diagnostic standard descriptor pins");
+        if(variant==1){require(close(out)==0,"owned readonly stdout setup");out=openat(dir,"stdout",O_RDONLY|O_NOFOLLOW|O_CLOEXEC);require(out>=0,"actual readonly stdout negative");}
+        require(dup2(out,STDOUT_FILENO)==STDOUT_FILENO&&dup2(err,STDERR_FILENO)==STDERR_FILENO,"owned diagnostic redirection");
+        struct private_engine_result result;nominal_result(&result);
+        private_terminal.control_known=1;private_terminal.control_ok=variant!=0&&variant!=3;
+        int emitted=private_emit(&outer,input_hash,&result);
+        int actual_closed=0;(void)private_close_observed(dir,&actual_closed);outer.output.fd=-1;
+        source_known_tail_over_cpu=variant>=2;
+        private_finish_diagnostics("settled",result.created,result.reaped,actual_closed);
+        source_known_tail_over_cpu=0;
+        require(dup2(saved_out,STDOUT_FILENO)==STDOUT_FILENO&&dup2(saved_err,STDERR_FILENO)==STDERR_FILENO
+            &&close(saved_out)==0&&close(saved_err)==0,"restore exact diagnostic standard descriptors");
+        char log[32769];ssize_t n=pread(err,log,sizeof(log)-1,0);require(n>0&&(size_t)n<sizeof(log)-1,"bounded actual terminal diagnostic bytes");log[n]=0;
+        const char *tail=strstr(log,"private_candidate_exit_tail "),*final=strstr(log,"private_candidate_terminal ");
+        require(private_terminal.tail_complete&&tail&&final&&tail<final&&!strstr(final+1,"private_candidate_terminal "),
+            "final raw verdict follows paid complete exit tail exactly once");
+        require(private_terminal.persist_ok==(variant!=0&&variant!=3),"actual failed persistence remains independent of causal control");
+        require(private_terminal.stdout_complete==(variant!=1),"actual stdout failure does not erase successful file persistence");
+        if(variant==0) {
+            require(!emitted&&!private_terminal.control_ok&&private_terminal.cost_ok
+                &&private_errors[0].count&&private_errors[2].count&&private_errors[7].count&&!strcmp(private_error,"cancelled"),
+                "bounded diagnostics retain later errors after first causal control failure");
+            require(strstr(final,"control_verdict=failed persistence_verdict=not_persisted terminal_cost_verdict=passed")!=NULL,
+                "causal and persistence failure axes remain complete while terminal cost passes");
+        } else if(variant==1) {
+            require(!emitted&&private_terminal.control_ok&&private_terminal.cost_ok&&private_errors[7].count
+                &&strstr(final,"control_verdict=passed persistence_verdict=persisted terminal_cost_verdict=passed"),
+                "stdout failure is explicit without falsifying control persistence or cost");
+        } else if(variant==2) {
+            require(emitted&&private_terminal.control_ok&&!private_terminal.cost_ok&&private_errors[5].count
+                &&private_cost.ordinary_max>1000000&&private_cost.debt_paid==private_cost.debt
+                &&strstr(final,"control_verdict=passed persistence_verdict=persisted terminal_cost_verdict=failed"),
+                "actual over-CPU exit tail independently refuses after successful control and persistence");
+        } else {
+            require(!emitted&&!private_terminal.control_ok&&!private_terminal.persist_ok&&!private_terminal.cost_ok
+                &&private_errors[0].count&&private_errors[2].count&&private_errors[7].count&&private_errors[5].count
+                &&strstr(final,"control_verdict=failed persistence_verdict=not_persisted terminal_cost_verdict=failed"),
+                "one refusal preserves all three failure axes and every later error class");
+        }
+        require(close(out)==0&&close(err)==0,"owned diagnostic captures close");
+        printf("private_terminal_diagnostic_source_known variant=%u control=%s persistence=%s stdout_complete=%u terminal_cost=%s all_error_count=%llu tail_before_final=true real_candidate_created=0 runtime_approved=false\n",
+            variant,private_terminal.control_ok?"passed":"failed",private_terminal.persist_ok?"passed":"failed",private_terminal.stdout_complete,
+            private_terminal.cost_ok?"passed":"failed",(unsigned long long)private_error_count);controls++;
+    }
+    reset();
+}
 static struct image fixture_stopped(pid_t pid) {
     // The fixture child must have reached its OWN initial stop before the
     // tight production observation. Pacing this setup avoids starving a newly
@@ -232,6 +294,46 @@ static struct image fixture_stopped(pid_t pid) {
         }
         usleep(100);
     }
+}
+static void closure_stage_controls(const char *self,int dir) {
+    for(unsigned variant=0;variant<2;variant++) {
+        reset();outer.deadline=private_cost.deadline;strcpy(outer.case_name,"positive");
+        require(engine_owner_priority()&&private_end_unit(private_cost.open_cpu),"closure control bounded setup and priority");
+        uint64_t cpu_start=clock_ns(CLOCK_THREAD_CPUTIME_ID),wall_start=clock_ns(CLOCK_MONOTONIC);
+        pid_t pid=fork();
+        if(pid==0){if(setpgid(0,0)!=0||raise(SIGSTOP)!=0)_exit(79);volatile unsigned work=1;for(;;)work=work*33+7;}
+        require(pid>0,"owned source-known closure fork");retained_group=pid;
+        require(clock_ns(CLOCK_THREAD_CPUTIME_ID)-cpu_start<=2000000&&clock_ns(CLOCK_MONOTONIC)-wall_start<=25000000,"closure fixture fork native2msCPU25mswall");
+        struct image first=fixture_stopped(pid);
+        struct private_engine_result result;memset(&result,0,sizeof(result));result.created=1;result.phase="git_reads";result.outcome="refused";result.observed_proof="not_reached";
+        struct engine_owner owner;memset(&owner,0,sizeof(owner));owner.context=&context;owner.result=&result;
+        owner.input=owner.output=owner.errors=-1;owner.slots=1;owner.closed=1;
+        owner.ticket=(struct engine_ticket){pid,pid,first.birth,0,1};owner.members[0].state.pid=pid;owner.members[0].state.birth=first.birth;strcpy(owner.image,self);
+        int ack=0;require(engine_sample_member(&owner,0,pid,&ack)&&ack,"closure source-known original final image admitted stopped");
+        owner.ticket.start=owner.members[0].state.start_absolute;owner.direct_custody=1;
+        owner.ledger=openat(dir,variant?"closure-over-cpu.ndjson":"closure-late-stop.ndjson",O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,0600);
+        require(owner.ledger>=0&&private_end_unit(private_cost.open_cpu),"closure controller preparation is an ordinary paid unit");
+        uint64_t before=private_cost.debt;
+        source_known_closure_late_stop=!variant;source_known_closure_over_cpu=variant;
+        require(!engine_grant(&owner),"actual overlong closure is refused by same grant machinery");
+        source_known_closure_late_stop=source_known_closure_over_cpu=0;
+        require(owner.failed&&owner.closure_limit_failed&&owner.grant.charge>1000000&&private_errors[5].count
+            &&private_cost.debt>before&&private_cost.debt==private_cost.debt_paid,
+            "unsplit overlong closure and full controller cost remain refused and paid9x");
+        const struct engine_stage_observation *stage=&owner.closure_stage[variant?ENGINE_STAGE_ROSTER:ENGINE_STAGE_STOP];
+        require(stage->calls&&stage->wall_end>=stage->wall_begin&&stage->cpu_end>=stage->cpu_begin
+            &&stage->max_wall>=1100000&&(!variant||stage->max_cpu>=1100000),
+            "fixed actual closure stage clocks expose delayed STOP and over-CPU work");
+        uint64_t W=owner.grant.windows,C=owner.grant.controller,Q=owner.grant.charge;
+        int status=-1;(void)engine_retire(&owner,&status);
+        require(owner.direct_reaped&&result.group_gone&&result.retired_coverage&&result.reaped==1,
+            "overlong closure refusal keeps original owner through actual reap and group proof");
+        require(fsync(owner.ledger)==0&&close(owner.ledger)==0,"owned closure raw ledger persisted");
+        printf("private_closure_stage_source_known variant=%u actual_signal=true W=%llu C=%llu Q=%llu stage_wall_ns=%llu stage_cpu_ns=%llu lower_bound_refused=true unsplit=true debt_charged_ns=%llu debt_paid_ns=%llu own_reap=true runtime_approved=false\n",
+            variant,(unsigned long long)W,(unsigned long long)C,(unsigned long long)Q,(unsigned long long)stage->max_wall,(unsigned long long)stage->max_cpu,
+            (unsigned long long)private_cost.debt,(unsigned long long)private_cost.debt_paid);controls++;
+    }
+    reset();
 }
 // Owned kernel pipes exercise the same current controller's 8KiB transfer:
 // one4KiB chunk precedes a consumed STOP failure; the remaining chunk cannot
@@ -623,7 +725,9 @@ static void quarantine_hold_process_control(const char *self,const char *root,in
             &&owner.owner_lost&&owner.owner_lost_recorded&&!strcmp(r.outcome,"refused")&&owner.group_kill_attempted==0,
             "same held controller settles itself after release and remains refused/owner-lost");
         require(fcntl(sentinel,F_GETFD)>=0,"original FD remains held through actual terminal proof");
-        engine_close_transferred(&owner);require(close(owner.ledger)==0,"settled holder ledger close");exit(81);
+        engine_close_transferred(&owner);require(private_close(owner.ledger),"settled holder ledger close");owner.ledger=-1;
+        int output_closed=0;(void)private_close_observed(dir,&output_closed);outer.output.fd=-1;
+        private_finish_diagnostics("settled",r.created,r.reaped,output_closed);exit(81);
     }
     retained_child=controller;
     require(private_end_unit(private_cost.open_cpu),"source-known observer fork preparation closes its ordinary epoch");
@@ -693,9 +797,11 @@ int main(int argc,char **argv) {
     // unrelated process readiness gate cannot substitute for that assertion.
     unsigned payment_only=argc==2&&!strcmp(argv[1],"hold-payment-control");
     unsigned lifetime_only=argc==2&&!strcmp(argv[1],"hold-lifetime-control");
+    unsigned diagnostics_only=argc==2&&!strcmp(argv[1],"terminal-diagnostic-controls");
+    unsigned closure_only=argc==2&&!strcmp(argv[1],"closure-stage-controls");
     if(argc==2&&!strcmp(argv[1],"hold-scheduling-control")){payment_only=1;hold_scheduling_only=1;}
     if(argc==2&&!strcmp(argv[1],"hold-final-scheduling-control")){payment_only=1;hold_scheduling_only=2;}
-    require(argc==1||payment_only||lifetime_only,"private source-known controls argc");require(atexit(dispose_owned)==0,"owned cleanup registration");
+    require(argc==1||payment_only||lifetime_only||diagnostics_only||closure_only,"private source-known controls argc");require(atexit(dispose_owned)==0,"owned cleanup registration");
     char root[]="/private/tmp/dream-private-engine-controls.XXXXXX";require(mkdtemp(root)!=NULL,"owned fixture directory");
     int dir=open(root,O_RDONLY|O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC);require(dir>=0,"owned fixture root");
     int fd=openat(dir,"payload",O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,0600);
@@ -713,6 +819,8 @@ int main(int argc,char **argv) {
     }
     reset();fixture(dir);
     char self[PROC_PIDPATHINFO_MAXSIZE];require(proc_pidpath(getpid(),self,sizeof(self))>0,"actual source-known image");
+    if(diagnostics_only){terminal_diagnostic_controls(dir);require(close(dir)==0,"owned diagnostic-only root close");return 0;}
+    if(closure_only){basis.source_coverage=127;basis.command_coverage=65535;closure_stage_controls(self,dir);require(close(dir)==0,"owned closure-only root close");return 0;}
     if(payment_only||lifetime_only) {
         require(engine_owner_priority(),"source-known narrow controller priority");
         basis.source_coverage=127;basis.command_coverage=65535;
@@ -722,9 +830,9 @@ int main(int argc,char **argv) {
         printf("private_engine_controls=narrow_pass cases=%u synthetic_source_known=true real_candidate_created=0 runtime_approved=false retained=%s\n",controls,root);
         return 0;
     }
-    semantic_controls();result_controls();flow_controls(root,dir);
+    semantic_controls();result_controls();flow_controls(root,dir);terminal_diagnostic_controls(dir);
     process_control(self,0);process_control(self,1);
-    pending_exec_control(self,dir);settlement_control(self,dir,0);settlement_control(self,dir,1);settlement_control(self,dir,2);
+    closure_stage_controls(self,dir);pending_exec_control(self,dir);settlement_control(self,dir,0);settlement_control(self,dir,1);settlement_control(self,dir,2);
     quarantine_hold_process_control(self,root,dir);
     require(close(dir)==0,"owned fixture root close");
     printf("private_engine_controls=pass cases=%u synthetic_source_known=true real_candidate_created=0 runtime_approved=false retained=%s\n",controls,root);

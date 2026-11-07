@@ -18,11 +18,91 @@ use bboxy450_harness::{
 };
 use serde_json::{Value, json};
 use std::{
+    io::{Read, Write},
+    os::unix::{
+        fs::{OpenOptionsExt, PermissionsExt},
+        process::ExitStatusExt,
+    },
     path::{Path, PathBuf},
     sync::Arc,
     time::Duration,
 };
 const CONTEXT: &str = "NAME: Private launch\nROLE: EXECUTOR\nTask: private-parity\nWorkspace: quoted directory\nWorkflow: bboxy450 scoped delegation";
+struct PrivateHome(tempfile::TempDir);
+impl PrivateHome {
+    fn path(&self) -> &Path {
+        self.0.path()
+    }
+}
+impl Drop for PrivateHome {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            self.0.disable_cleanup(true);
+            eprintln!("acp-parity preserved_home={}", self.0.path().display());
+        }
+    }
+}
+fn private_bytes(path: &Path, bytes: &[u8]) {
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(path)
+        .unwrap();
+    file.write_all(bytes).unwrap();
+}
+fn redact_capture(bytes: &[u8], secret: &str) -> String {
+    let mut text = String::from_utf8_lossy(bytes).replace(secret, "<redacted>");
+    for n in (1..secret.len()).rev() {
+        if text.ends_with(&secret[..n]) {
+            text.truncate(text.len() - n);
+            text.push_str("<redacted>");
+            break;
+        }
+    }
+    text
+}
+#[derive(serde::Serialize)]
+struct Capture {
+    #[serde(skip)]
+    bytes: Vec<u8>,
+    discarded_bytes: u64,
+    eof: bool,
+    read_failed: bool,
+    read_errno: Option<i32>,
+}
+fn capture(mut stream: impl Read + Send + 'static) -> std::thread::JoinHandle<Capture> {
+    std::thread::spawn(move || {
+        let mut result = Capture {
+            bytes: Vec::with_capacity(64 * 1024),
+            discarded_bytes: 0,
+            eof: false,
+            read_failed: false,
+            read_errno: None,
+        };
+        let mut chunk = [0; 4096];
+        loop {
+            match stream.read(&mut chunk) {
+                Ok(0) => {
+                    result.eof = true;
+                    break;
+                }
+                Ok(n) => {
+                    let keep = n.min((64usize * 1024).saturating_sub(result.bytes.len()));
+                    result.bytes.extend_from_slice(&chunk[..keep]);
+                    result.discarded_bytes += (n - keep) as u64;
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(error) => {
+                    result.read_failed = true;
+                    result.read_errno = error.raw_os_error();
+                    break;
+                }
+            }
+        }
+        result
+    })
+}
 fn script() -> String {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/acp-agent/launch_parity.py")
@@ -34,11 +114,13 @@ fn isolated(name: &str) -> bool {
     if std::env::var_os("PARITY_CHILD").is_some() {
         return false;
     }
-    let home = tempfile::Builder::new()
-        .prefix("launch-")
-        .tempdir_in("/tmp")
-        .unwrap();
-    use std::os::unix::fs::PermissionsExt;
+    let mut home = PrivateHome(
+        tempfile::Builder::new()
+            .prefix("launch-")
+            .permissions(std::fs::Permissions::from_mode(0o700))
+            .tempdir_in("/tmp")
+            .unwrap(),
+    );
     let cap = home.path().join("capability");
     std::fs::write(
         &cap,
@@ -56,7 +138,7 @@ fn isolated(name: &str) -> bool {
             command.env_remove(key);
         }
     }
-    let output = command
+    let mut child = command
         .args(["--exact", name, "--nocapture"])
         .env("PARITY_CHILD", "1")
         .env("BBOXY450_ACP_STARTUP_MS", "5000")
@@ -64,24 +146,63 @@ fn isolated(name: &str) -> bool {
         .env("BBOXY_SEAT_ID", "private-launch-seat")
         .env("BBOXY_ROLE", "executor")
         .env("BBOXY_CAPABILITY_FILE", &cap)
-        .output()
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
         .unwrap();
+    let pid = child.id();
+    let stdout = capture(child.stdout.take().unwrap());
+    let stderr = capture(child.stderr.take().unwrap());
+    // Same original child wait as Command::output, retaining the actual status.
+    let status = child.wait().unwrap();
+    let stdout = stdout.join().unwrap();
+    let stderr = stderr.join().unwrap();
+    let secret = std::fs::read_to_string(&cap).unwrap();
+    let clean_stdout = redact_capture(&stdout.bytes, secret.trim());
+    let clean_stderr = redact_capture(&stderr.bytes, secret.trim());
+    private_bytes(
+        &home.path().join("isolated.stdout"),
+        clean_stdout.as_bytes(),
+    );
+    private_bytes(
+        &home.path().join("isolated.stderr"),
+        clean_stderr.as_bytes(),
+    );
+    private_bytes(&home.path().join("isolated-reap.json"), &serde_json::to_vec(&json!({
+        "pid":pid,"actual_status_raw":status.into_raw(),"actual_code":status.code(),"actual_signal":status.signal(),
+        "stdout":stdout,"stderr":stderr,"readers_joined":true,"capture_limit_bytes":64*1024
+    })).unwrap());
+    if name == "downstream_startup_order_preserves_refusal_before_any_python_effect" {
+        home.0.disable_cleanup(true);
+        eprintln!(
+            "acp-parity control_evidence_home={} original_isolated_pid={pid} actual_status_raw={}",
+            home.path().display(),
+            status.into_raw()
+        );
+    }
     assert!(
-        output.status.success(),
-        "isolated witness failed: {}{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
+        status.success(),
+        "isolated witness failed: pid={pid} actual_status={status:?} private_home={} {}{}",
+        home.path().display(),
+        clean_stdout,
+        clean_stderr
     );
     true
 }
 struct Fixture {
-    temp: tempfile::TempDir,
+    temp: PrivateHome,
     config: Config,
     profiles: PathBuf,
 }
 impl Fixture {
     fn new() -> Self {
-        let temp = tempfile::tempdir().unwrap();
+        let temp = PrivateHome(
+            tempfile::Builder::new()
+                .prefix("fixture-")
+                .permissions(std::fs::Permissions::from_mode(0o700))
+                .tempdir_in(std::env::var_os("HOME").unwrap())
+                .unwrap(),
+        );
         let profiles = temp.path().join("profiles");
         std::fs::create_dir(&profiles).unwrap();
         let cwd = temp.path().join("quoted workspace ' $ literal");
@@ -237,6 +358,129 @@ fn assert_context(journal: &[Value], expected: &str, turns: usize) {
         "missing admitted launcher context"
     );
 }
+#[tokio::test]
+async fn bounded_isolated_capture_redacts_complete_and_cut_capabilities() {
+    let secret = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    for retained in [secret.len(), secret.len() / 2] {
+        let mut bytes = vec![b'x'; 64 * 1024 - retained];
+        bytes.extend_from_slice(secret.as_bytes());
+        bytes.extend_from_slice(&[b'y'; 100]);
+        let expected_discarded = bytes.len() - 64 * 1024;
+        let captured = capture(std::io::Cursor::new(bytes)).join().unwrap();
+        assert_eq!(captured.bytes.len(), 64 * 1024);
+        assert_eq!(captured.discarded_bytes, expected_discarded as u64);
+        assert!(captured.eof && !captured.read_failed);
+        let safe = redact_capture(&captured.bytes, secret);
+        assert!(safe.ends_with("<redacted>"));
+        assert!(!safe.contains(secret));
+        assert!(!safe.ends_with(&secret[..retained]));
+    }
+}
+
+#[tokio::test]
+async fn downstream_startup_order_preserves_refusal_before_any_python_effect() {
+    if isolated("downstream_startup_order_preserves_refusal_before_any_python_effect") {
+        return;
+    }
+    let mut f = Fixture::new();
+    f.temp.0.disable_cleanup(true);
+    bboxy450_harness::capability::register(&f.config.redactor).await;
+    let secret =
+        std::fs::read_to_string(std::env::var_os("BBOXY_CAPABILITY_FILE").unwrap()).unwrap();
+    for broken in [true, false] {
+        let name = if broken {
+            "python-before-native"
+        } else {
+            "native-before-python"
+        };
+        let release = f.temp.path().join(format!("{name}.release"));
+        f.profile(name, "", Servers::new());
+        let profile = f.profiles.join(format!("{name}.md"));
+        let mut p = bboxy450_harness::provider::profile::Profile::parse(
+            &std::fs::read_to_string(&profile).unwrap(),
+        )
+        .unwrap();
+        let command = &mut p.agent.as_mut().unwrap().command;
+        command.extend([
+            "--release-native-init".into(),
+            release.display().to_string(),
+        ]);
+        if broken {
+            command.push("--python-before-native-control".into());
+        }
+        std::fs::write(
+            &profile,
+            format!("---\n{}---\n", serde_yaml::to_string(&p).unwrap()),
+        )
+        .unwrap();
+        let mut server = f.server("launcher");
+        server.timeout_s = 5;
+        server.env.insert(
+            "PARITY_WAIT_INITIALIZE".into(),
+            release.display().to_string(),
+        );
+        server
+            .env
+            .insert("PARITY_REFLECT".into(), "private-redaction-control".into());
+        let host = f.host(CONTEXT, [("seat".into(), server)].into());
+        let g = f.create(&host, name, Servers::new()).await;
+        let result = reply(&turn(&g, "held-order context control").await);
+        assert_eq!(result["tools"]["seat"]["custody"], true);
+        assert_eq!(result["tools"]["seat"]["probe"], "<redacted>");
+        let path = f.temp.path().join(format!("{name}.mcp.jsonl"));
+        let bytes = std::fs::read(&path).unwrap();
+        assert!(bytes.len() <= 256 * 1024);
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        assert!(!String::from_utf8_lossy(&bytes).contains(secret.trim()));
+        let rows: Vec<Value> = bytes
+            .split(|b| *b == b'\n')
+            .filter(|b| !b.is_empty())
+            .map(|b| serde_json::from_slice(b).unwrap())
+            .collect();
+        let python = rows.iter().find(|r| r["server"] == "bboxy_python").unwrap();
+        for row in &rows {
+            assert!(
+                row["settlement"]["actual_status"].is_i64(),
+                "original relay was not actually reaped: {row}"
+            );
+            assert_eq!(row["stderr"]["reader_joined"], true);
+            assert_eq!(row["stderr"]["eof"], true);
+        }
+        if broken {
+            assert!(result["tools"]["bboxy_python"].is_null());
+            assert_eq!(python["stage"], "python_execute_orient");
+            assert!(
+                python["error"]
+                    .to_string()
+                    .contains("native_context_unavailable"),
+                "{python}"
+            );
+            assert_eq!(python["python_execute_requests"], 0);
+        } else {
+            assert_eq!(result["tools"]["bboxy_python"]["status"], "completed");
+            assert_eq!(result["tools"]["bboxy_python"]["emitted"][0]["answer"], 42);
+            assert!(python["error"].is_null());
+            assert_eq!(python["python_execute_requests"], 1);
+        }
+        eprintln!(
+            "acp-startup-order broken={broken} python={python} journal_bytes={} original_relays_actually_reaped=true",
+            bytes.len()
+        );
+        host.close_all().await;
+    }
+    assert_eq!(
+        std::fs::read_to_string(f.temp.path().join("effects"))
+            .unwrap()
+            .lines()
+            .count(),
+        2,
+        "fixture reordered/replayed a native effect"
+    );
+}
+
 #[tokio::test]
 async fn downstream_context_and_callable_mcp() {
     if isolated("downstream_context_and_callable_mcp") {

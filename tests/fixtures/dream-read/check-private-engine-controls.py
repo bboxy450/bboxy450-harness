@@ -37,9 +37,14 @@ ASSERTIONS = {
     'hold-unpaid-observation': (b'interrupted prior payment forbids every new hold observation',),
     'hold-forgotten-observation-cost': (b'ordinary hold scheduling failure retains exact inclusive closed cost before another observation',),
     'hold-forgotten-final-cost': (b'final ledger scheduling failure retains its exact once-written cost and keeps custody held',),
+    'terminal-first-error-only': (b'bounded diagnostics retain later errors after first causal control failure',),
+    'terminal-false-persistence': (b'actual failed persistence remains independent of causal control',),
+    'terminal-skip-tail-cost': (b'actual over-CPU exit tail independently refuses after successful control and persistence',),
+    'terminal-before-tail': (b'final raw verdict follows paid complete exit tail exactly once',),
 }
 LEDGERS = ('terminal-ledger.ndjson', 'live-ledger.ndjson', 'exec-ledger.ndjson',
-           'unknown-ledger.ndjson', 'deadline-ledger.ndjson', 'failed-receipt-ledger.ndjson', 'hold-ledger.ndjson', 'result.json', 'claim.json')
+           'unknown-ledger.ndjson', 'deadline-ledger.ndjson', 'failed-receipt-ledger.ndjson', 'hold-ledger.ndjson', 'result.json', 'claim.json', 'closure-late-stop.ndjson', 'closure-over-cpu.ndjson',
+           *('diagnostic-' + str(i) + '/' + name for i in range(4) for name in ('stderr', 'stdout', 'result.json')))
 
 
 def sha(data):
@@ -127,11 +132,11 @@ def compile_source(directory, filename, report):
 
 
 def retain_ledgers(stdout, directory, report):
-    matches = re.findall(rb'private_engine_controls=pass cases=49 synthetic_source_known=true '
+    matches = re.findall(rb'private_engine_controls=pass cases=55 synthetic_source_known=true '
                          rb'real_candidate_created=0 runtime_approved=false retained='
                          rb'(/private/tmp/dream-private-engine-controls\.[A-Za-z0-9]+)\n', stdout)
     if len(matches) != 1:
-        raise ValueError('current fixture did not report the exact 49 source-known controls')
+        raise ValueError('current fixture did not report the exact 55 source-known controls')
     source_dir = Path(os.fsdecode(matches[0]))
     identity = source_dir.lstat()
     if not stat.S_ISDIR(identity.st_mode) or identity.st_uid != os.geteuid() or identity.st_mode & 0o077:
@@ -141,6 +146,7 @@ def retain_ledgers(stdout, directory, report):
     report['fixture_evidence_dir'] = str(source_dir)
     for name in LEDGERS:
         data = read_stable(source_dir / name, 2 * 1024 * 1024)
+        (retained / name).parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         report['process_ledgers'].append(retain(retained / name, data))
 
 
@@ -157,6 +163,16 @@ def verify(directory, inputs, report):
                  b'\nstatic int private_pay_pending(void)')
     if source.count(DISPATCH) != 1 or source.count(VALIDATED) != 1 or source.count(hold_anchor) != 1 or source.count(debt_anchor) != 1 or source.count(retained_anchor) != 1:
         raise ValueError('canonical causal mutation anchors changed; no guessed mutation or retry')
+    error_anchor = b'private_record_error(code,detail);'
+    persistence_anchor = (b'private_terminal.persist_ok=private_terminal.persist_open&&private_terminal.persist_write&&private_terminal.persist_fsync\n'
+                          b'        &&private_terminal.persist_close&&private_terminal.persist_dir_fsync;')
+    cost_anchor = b'private_terminal.cost_ok=0;'
+    tail_start = source.index(b'    fprintf(stderr,"private_candidate_exit_tail ')
+    tail_end = source.index(b'private_terminal.tail_complete=1;', tail_start) + len(b'private_terminal.tail_complete=1;')
+    final_end = source.index(b'\n}\nstatic int private_early_refusal', tail_end)
+    if any(source.count(anchor) != 1 for anchor in (error_anchor, persistence_anchor, cost_anchor)):
+        raise ValueError('terminal causal mutation anchors changed')
+    early_terminal = source[:tail_start] + source[tail_end:final_end] + source[tail_start:tail_end] + source[final_end:]
     variants = {
         'current': source,
         'skipped-engine': source.replace(DISPATCH, b'(void)context;(void)result;return 0;', 1),
@@ -169,6 +185,10 @@ def verify(directory, inputs, report):
         'hold-unpaid-observation': source.replace(debt_anchor, b'(void)0;', 1),
         'hold-forgotten-observation-cost': source.replace(retained_anchor, forgotten, 1),
         'hold-forgotten-final-cost': source.replace(retained_anchor, forgotten, 1),
+        'terminal-first-error-only': source.replace(error_anchor, b'if(!private_failed)private_record_error(code,detail);', 1),
+        'terminal-false-persistence': source.replace(persistence_anchor, b'private_terminal.persist_ok=1;', 1),
+        'terminal-skip-tail-cost': source.replace(cost_anchor, b'(void)ok;', 1),
+        'terminal-before-tail': early_terminal,
     }
     for name, wire in variants.items():
         own = directory / name
@@ -177,7 +197,9 @@ def verify(directory, inputs, report):
         report['snapshots'].append(retain(own / CONTROLS.name, controls))
         program = compile_source(own, CONTROLS.name, report)
         arguments = [str(program)]
-        if name in ('quarantine-exit', 'quarantine-fd-release'):
+        if name.startswith('terminal-'):
+            arguments.append('terminal-diagnostic-controls')
+        elif name in ('quarantine-exit', 'quarantine-fd-release'):
             arguments.append('hold-lifetime-control')
         elif name == 'hold-unpaid-observation':
             arguments.append('hold-payment-control')

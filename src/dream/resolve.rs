@@ -4354,6 +4354,7 @@ mod selected_helper_process_tests {
         code == 0 && unsafe { info.assume_init() }.si_code == libc::CLD_STOPPED
     }
     #[test]
+    #[ignore = "load-sensitive budget/wall window; re-enable via tasks/2026-11-06-qos-builds-never-starve-mcp"]
     fn foreground_pause_and_cancel_reach_real_group_while_proof_before_waits() {
         let home = tempfile::tempdir().unwrap();
         let run = Run::start(

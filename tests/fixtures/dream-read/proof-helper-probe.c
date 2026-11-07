@@ -555,7 +555,46 @@ struct private_metrics {
 static const char *private_error="input_invalid",*private_detail="strict private input decoding failed";
 static struct private_metrics private_cost;
 static int private_failed=0;
-static int private_fail(const char *code,const char *detail) {if(!private_failed){private_error=code;private_detail=detail;private_failed=1;}return 0;}
+static const char *const private_error_codes[]={"cancelled","clock_unknown","coverage_unknown","deadline","input_invalid","resource_limit","review_unbound","settlement_unknown","signature_unexpected","source_changed","other"};
+struct private_error_observation {uint64_t count;char first[161],last[161];unsigned truncated;};
+static struct private_error_observation private_errors[11];
+static uint64_t private_error_count;
+static unsigned private_errors_overflow;
+struct private_terminal_observation {
+    unsigned control_known,control_ok,started,cost_ok,cost_unknown,tail_complete,diagnostics_ok;
+    unsigned persistence_attempted,persist_open,persist_write,persist_fsync,persist_close,persist_dir_fsync,persist_ok,persist_unknown,stdout_complete;
+    unsigned format_paid,persistence_paid,write_paid;
+    int persistence_errno,stdout_errno;
+    uint64_t format_start,format_end,format_inclusive,write_start,write_end,write_inclusive;
+};
+static struct private_terminal_observation private_terminal;
+static void private_reset_diagnostics(void) {
+    memset(private_errors,0,sizeof(private_errors));private_error_count=0;private_errors_overflow=0;
+    memset(&private_terminal,0,sizeof(private_terminal));private_terminal.cost_ok=private_terminal.diagnostics_ok=1;
+}
+static void private_record_error(const char *code,const char *detail) {
+    unsigned index=0;while(index<10&&strcmp(code,private_error_codes[index]))index++;
+    struct private_error_observation *row=&private_errors[index];
+    if(index==10)private_errors_overflow=1;
+    if(private_error_count==UINT64_MAX||row->count==UINT64_MAX)private_errors_overflow=1;
+    else {private_error_count++;row->count++;}
+    if(!detail)detail="";size_t n=strnlen(detail,sizeof(row->last));
+    if(n>=sizeof(row->last)){n=sizeof(row->last)-1;row->truncated=1;}
+    if(row->count==1){memcpy(row->first,detail,n);row->first[n]=0;}
+    memcpy(row->last,detail,n);row->last[n]=0;
+}
+static int private_fail(const char *code,const char *detail) {
+    private_record_error(code,detail);
+    if(!private_failed){private_error=code;private_detail=detail;private_failed=1;}return 0;
+}
+static int private_unit_outcome(int ok) {
+    if(private_terminal.started&&!ok) {
+        private_terminal.cost_ok=0;
+        if(private_cost.last_unit==UINT64_MAX||private_cost.open_cpu==UINT64_MAX||private_cost.retained_units
+            ||private_cost.retained_overflow||private_cost.debt_paid!=private_cost.debt)private_terminal.cost_unknown=1;
+    }
+    return ok;
+}
 static void (*private_rest_control)(void)=NULL;
 #ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
 // Interrupted observations only; no test hook is present in the probe build.
@@ -642,10 +681,10 @@ static int private_end_unit(uint64_t at) {
     if(used>private_cost.ordinary_max)private_cost.ordinary_max=used;
     int scheduled=private_schedule_cost(used);
     private_cost.open_cpu=used==UINT64_MAX?UINT64_MAX:end;
-    if(!scheduled||!private_pay_pending())return 0;
-    if(used==UINT64_MAX)return 0;
-    if(used>1000000)return private_fail("resource_limit","ordinary validation exceeds one millisecond");
-    if(!private_cost.custody_hold&&clock_ns(CLOCK_MONOTONIC)>=private_cost.deadline)return private_fail("deadline","original private test deadline expired");
+    if(!scheduled||!private_pay_pending())return private_unit_outcome(0);
+    if(used==UINT64_MAX)return private_unit_outcome(0);
+    if(used>1000000)return private_unit_outcome(private_fail("resource_limit","ordinary validation exceeds one millisecond"));
+    if(!private_cost.custody_hold&&clock_ns(CLOCK_MONOTONIC)>=private_cost.deadline)return private_unit_outcome(private_fail("deadline","original private test deadline expired"));
     return 1;
 }
 static int private_utf8(const unsigned char *p,size_t n) {
@@ -831,15 +870,17 @@ static void private_hash(const void *bytes,size_t len,char digest[65]) {
     for(unsigned i=0;i<sizeof(value);i++)snprintf(digest+2*i,3,"%02x",value[i]);
 }
 #pragma clang diagnostic pop
-static int private_close(int fd) {
-    if(fd<0)return 1;
+static int private_close_observed(int fd,int *actual_closed) {
+    *actual_closed=fd<0;if(fd<0)return 1;
     uint64_t at=clock_ns(CLOCK_THREAD_CPUTIME_ID);int result=close(fd);
+    *actual_closed=result==0;
+    if(result!=0)private_fail("source_changed","owned validation descriptor close failed");
     uint64_t end=clock_ns(CLOCK_THREAD_CPUTIME_ID);
-    if(end<at)return private_fail("clock_unknown","reversed descriptor-close clock");
+    if(end<at)return private_unit_outcome(private_fail("clock_unknown","reversed descriptor-close clock"));
     if(end-at>private_cost.close_max)private_cost.close_max=end-at;
-    int paid=private_end_unit(at);if(!paid)return 0;
-    if(result!=0)return private_fail("source_changed","owned validation descriptor close failed");return 1;
+    return private_end_unit(at);
 }
+static int private_close(int fd) {int actual_closed;int paid=private_close_observed(fd,&actual_closed);return paid&&actual_closed;}
 static int private_root_current(const struct private_dir *root) {
     int current=private_open_walk(-1,root->path,1,O_RDONLY|O_DIRECTORY);if(current<0)return private_fail("source_changed","exact root path changed");
     uint64_t at=clock_ns(CLOCK_THREAD_CPUTIME_ID);struct stat held,now;
@@ -2263,9 +2304,12 @@ struct engine_prepared {
     int input[2],output[2],errors[2];posix_spawnattr_t attr;posix_spawn_file_actions_t actions;
     unsigned attr_live,actions_live;
 };
+enum engine_closure_stage {ENGINE_STAGE_PIPE,ENGINE_STAGE_DIRECT,ENGINE_STAGE_STOP,ENGINE_STAGE_ROSTER,ENGINE_STAGE_ACTUAL,ENGINE_STAGE_COUNT};
+struct engine_stage_observation {uint64_t wall_begin,wall_end,cpu_begin,cpu_end,calls,max_wall,max_cpu;};
 struct engine_owner {
     const struct private_engine_context *context;struct private_engine_result *result;
     struct engine_ticket ticket;struct engine_member members[2];
+    struct engine_stage_observation closure_stage[ENGINE_STAGE_COUNT];unsigned closure_limit_failed;
     struct prepared_spawn_outcome native;
     struct engine_incarnation retired[8];unsigned retired_count,slots,verified_descendants;
     struct window_ledger grant;uint64_t accounted_cpu,accounted_user,accounted_system,grant_cpu_before;
@@ -2336,6 +2380,18 @@ static int engine_clock(struct engine_owner *owner,clockid_t id,uint64_t *value)
 }
 static uint64_t engine_now(struct engine_owner *owner,clockid_t id) {
     uint64_t value=UINT64_MAX;engine_clock(owner,id,&value);return value;
+}
+static int engine_stage_begin(struct engine_owner *owner,unsigned stage) {
+    struct engine_stage_observation *s=&owner->closure_stage[stage];
+    return engine_clock(owner,CLOCK_MONOTONIC,&s->wall_begin)&&engine_clock(owner,CLOCK_THREAD_CPUTIME_ID,&s->cpu_begin);
+}
+static int engine_stage_end(struct engine_owner *owner,unsigned stage) {
+    struct engine_stage_observation *s=&owner->closure_stage[stage];
+    if(!engine_clock(owner,CLOCK_THREAD_CPUTIME_ID,&s->cpu_end)||!engine_clock(owner,CLOCK_MONOTONIC,&s->wall_end))return 0;
+    if(s->wall_end<s->wall_begin||s->cpu_end<s->cpu_begin||s->calls==UINT64_MAX)
+        return engine_failure(owner,"clock_unknown","closure stage entry/exit clock or count is unknown");
+    s->calls++;uint64_t wall=s->wall_end-s->wall_begin,cpu=s->cpu_end-s->cpu_begin;
+    if(wall>s->max_wall)s->max_wall=wall;if(cpu>s->max_cpu)s->max_cpu=cpu;return 1;
 }
 static int engine_direct_exited(struct engine_owner *owner,int *done) {
     if(owner->ticket.pid<=0||!known_exited(owner->ticket.pid,done))
@@ -2418,6 +2474,9 @@ static int engine_actual_delta(struct engine_owner *owner,uint64_t baseline,uint
 // Decision66050: a consumed failed STOP keeps the original grant open. The
 // errno supplies no ACK or endpoint; only independent original terminal and
 // complete member/RI/roster observations can close it. No second signal follows.
+#ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
+static unsigned source_known_closure_late_stop;
+#endif
 static int engine_stop_result(struct engine_owner *owner,int result,int error,uint64_t at) {
     owner->stop_result=result;owner->stop_errno=error;owner->stop_call_ns=at;
     owner->stop_attempts++;
@@ -2437,6 +2496,11 @@ static int engine_stop_group(struct engine_owner *owner) {
     if(owner->stop_requested)return 1;
     int done;if(!known_exited(owner->ticket.pid,&done))return engine_failure(owner,"settlement_unknown","original unreaped group custody unavailable");
     owner->stop_requested=1;
+#ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
+    // Deliberate source-known violation only: the actual STOP call is late,
+    // and the unchanged original W/Q/debt machinery must reject all of it.
+    if(source_known_closure_late_stop)usleep(1100);
+#endif
     uint64_t at=engine_now(owner,CLOCK_MONOTONIC);errno=0;
     int result=kill(-owner->ticket.pgid,SIGSTOP),error=result?errno:0;
     return engine_stop_result(owner,result,error,at);
@@ -2715,9 +2779,17 @@ static int engine_memory(struct engine_owner *owner) {
 }
 static int engine_record(struct engine_owner *owner,const char *phase) {
     if(owner->ledger<0)return engine_failure(owner,"settlement_unknown","owned raw ledger is unavailable");
-    char bytes[2048];struct window_ledger *g=&owner->grant;mach_timebase_info_data_t scale={0,0};
+    char bytes[4096],stages[1408];size_t stage_used=0;struct window_ledger *g=&owner->grant;mach_timebase_info_data_t scale={0,0};
     if(mach_timebase_info(&scale)!=KERN_SUCCESS||!scale.numer||!scale.denom)
         return engine_failure(owner,"clock_unknown","raw ledger timebase unavailable");
+    for(unsigned i=0;i<ENGINE_STAGE_COUNT;i++) {
+        const struct engine_stage_observation *s=&owner->closure_stage[i];
+        int n=snprintf(stages+stage_used,sizeof(stages)-stage_used,"%s[%llu,%llu,%llu,%llu,%llu,%llu,%llu]",i?",":"",
+            (unsigned long long)s->wall_begin,(unsigned long long)s->wall_end,(unsigned long long)s->cpu_begin,(unsigned long long)s->cpu_end,
+            (unsigned long long)s->calls,(unsigned long long)s->max_wall,(unsigned long long)s->max_cpu);
+        if(n<=0||(size_t)n>=sizeof(stages)-stage_used)return engine_failure(owner,"resource_limit","fixed closure stage diagnostics exhausted");
+        stage_used+=(size_t)n;
+    }
     int n=snprintf(bytes,sizeof(bytes),
         "{\"phase\":\"%s\",\"sequence\":%u,\"form\":%u,\"grant\":%u,\"leader\":%d,\"child\":%d,"
         "\"birth\":[%llu,%llu],\"token_version\":[%u,%u],\"t0\":%llu,\"end\":[%llu,%llu],\"close\":%llu,"
@@ -2730,7 +2802,9 @@ static int engine_record(struct engine_owner *owner,const char *phase) {
         "\"child_status_known\":%u,\"child_status_raw\":%u,\"hold_rounds\":%u,\"hold_unknown_units\":%llu,"
         "\"hold_unbooked_units\":%llu,\"hold_retained_cost_ns\":%llu,\"hold_retained_raw_ns\":%llu,\"hold_retained_unknown_units\":%llu,"
         "\"hold_retained_overflow\":%u,\"hold_debt_charged_ns\":%llu,\"hold_debt_paid_ns\":%llu,"
-        "\"owner_lost\":%u,\"conditional_source_only\":true}\n",
+        "\"owner_lost\":%u,\"closure_stage_order\":[\"pipe\",\"direct_exit\",\"stop\",\"roster\",\"actual\"],"
+        "\"closure_stage_fields\":[\"wall_begin\",\"wall_end\",\"cpu_begin\",\"cpu_end\",\"calls\",\"max_wall\",\"max_cpu\"],"
+        "\"closure_stages\":[%s],\"closure_limit_failed\":%u,\"conditional_source_only\":true}\n",
         phase,owner->ticket.sequence,owner->command,owner->grants,owner->ticket.pid,owner->members[1].state.pid,
         (unsigned long long)owner->members[0].state.birth,(unsigned long long)owner->members[1].state.birth,
         owner->members[0].token.val[7],owner->members[1].token.val[7],(unsigned long long)g->t0,
@@ -2748,7 +2822,7 @@ static int engine_record(struct engine_owner *owner,const char *phase) {
         (unsigned long long)owner->hold_unknown_units,(unsigned long long)private_cost.retained_units,
         (unsigned long long)private_cost.retained_cost_ns,(unsigned long long)private_cost.retained_raw_ns,
         (unsigned long long)private_cost.retained_unknown_units,private_cost.retained_overflow,
-        (unsigned long long)private_cost.debt,(unsigned long long)private_cost.debt_paid,owner->owner_lost);
+        (unsigned long long)private_cost.debt,(unsigned long long)private_cost.debt_paid,owner->owner_lost,stages,owner->closure_limit_failed);
     if(n<=0||(size_t)n>=sizeof(bytes)||owner->record_count>=ENGINE_RECORD_MAX
         ||(size_t)n>ENGINE_CAPTURE_MAX-owner->ledger_bytes)
         return engine_failure(owner,"resource_limit","fixed raw ledger record or two-MiB file bound exhausted");
@@ -2773,12 +2847,12 @@ static int engine_charge(struct engine_owner *owner,uint64_t actual,uint64_t cos
     if(ordinary)engine_max(&owner->result->ordinary_max_ns,actual);
     int scheduled=private_schedule_cost(cost);
     private_cost.open_cpu=end;
-    if(!scheduled||!private_pay_pending())return engine_failure(owner,"clock_unknown","shared unit debt could not be paid");
+    if(!scheduled||!private_pay_pending())return private_unit_outcome(engine_failure(owner,"clock_unknown","shared unit debt could not be paid"));
     engine_max(&owner->result->debt_charged_ns,private_cost.debt);
     engine_max(&owner->result->debt_paid_ns,private_cost.debt_paid);
-    if(cost==UINT64_MAX||actual==UINT64_MAX)return engine_failure(owner,"clock_unknown","closed engine unit has unknown CPU");
-    if(ordinary&&(actual>1000000||cost>1000000))return engine_failure(owner,"resource_limit","ordinary engine unit exceeds one millisecond");
-    if(!private_cost.custody_hold&&engine_now(owner,CLOCK_MONOTONIC)>=owner->context->outer->deadline)return engine_failure(owner,"deadline","original private deadline expired");
+    if(cost==UINT64_MAX||actual==UINT64_MAX)return private_unit_outcome(engine_failure(owner,"clock_unknown","closed engine unit has unknown CPU"));
+    if(ordinary&&(actual>1000000||cost>1000000))return private_unit_outcome(engine_failure(owner,"resource_limit","ordinary engine unit exceeds one millisecond"));
+    if(!private_cost.custody_hold&&engine_now(owner,CLOCK_MONOTONIC)>=owner->context->outer->deadline)return private_unit_outcome(engine_failure(owner,"deadline","original private deadline expired"));
     return 1;
 }
 static int engine_stopped_corroboration(struct engine_owner *owner) {
@@ -2819,6 +2893,25 @@ static int engine_admit_grant(struct engine_owner *owner) {
         return engine_failure(owner,now>=owner->context->outer->deadline?"deadline":"cancelled","CONT revoked before the original effect");
     return 1;
 }
+static int engine_closure_bound(struct engine_owner *owner) {
+    uint64_t now=engine_now(owner,CLOCK_MONOTONIC),cpu=engine_now(owner,CLOCK_THREAD_CPUTIME_ID),windows=0;
+    if(now==UINT64_MAX||cpu==UINT64_MAX||cpu<owner->grant.cpu_start)return engine_failure(owner,"clock_unknown","closure lower-bound clock unavailable");
+    for(unsigned i=0;i<owner->slots;i++) {
+        uint64_t end=owner->grant.end[i]?owner->grant.end[i]:now;
+        if(end<owner->grant.t0||!engine_safe_sum(windows,end-owner->grant.t0,&windows))
+            return engine_failure(owner,"clock_unknown","closure lower-bound interval unknown");
+    }
+    uint64_t bound;
+    if(!engine_safe_sum(windows,cpu-owner->grant.cpu_start,&bound))return engine_failure(owner,"clock_unknown","closure lower-bound sum overflow");
+    if(bound>1000000) {
+        owner->closure_limit_failed=1;
+        return engine_failure(owner,"resource_limit","current member-window and controller lower bound exceeds one millisecond");
+    }
+    return 1;
+}
+#ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
+static unsigned source_known_closure_over_cpu;
+#endif
 static int engine_grant(struct engine_owner *owner) {
     if(owner->failed||owner->retiring||!owner->closed||owner->stop_pending||private_failed||engine_cancel_signal)
         return engine_failure(owner,"cancelled","grant refused after revocation or unfinished closure");
@@ -2835,6 +2928,7 @@ static int engine_grant(struct engine_owner *owner) {
     if(!engine_actual_ticks(owner,&owner->grant_tick_before,&tick_u,&tick_s))return 0;
     (void)user_before;(void)system_before;
     memset(&owner->grant,0,sizeof(owner->grant));owner->grant.operation=owner->ticket.start;
+    memset(owner->closure_stage,0,sizeof(owner->closure_stage));owner->closure_limit_failed=0;
     owner->grant.sequence=owner->ticket.sequence;owner->grant.slots=owner->slots;
     // This is the fully-bound conditional source premise, not a runtime grant
     // or a theorem that the following censuses observe every possible event.
@@ -2849,10 +2943,12 @@ static int engine_grant(struct engine_owner *owner) {
     const char *test=owner->context->outer->case_name;
     for(;;) {
         uint64_t now;if(!engine_clock(owner,CLOCK_MONOTONIC,&now))break;int stop=0;
-        if(!engine_pipe_io(owner))break;
+        if(!engine_stage_begin(owner,ENGINE_STAGE_PIPE))break;
+        int pipe_ok=engine_pipe_io(owner);if(!engine_stage_end(owner,ENGINE_STAGE_PIPE)||!pipe_ok)break;
         if(!strcmp(test,"cancel")&&!owner->case_fired){owner->case_fired=1;engine_cancel_signal=1;}
         if(!strcmp(test,"pause_resume")&&!owner->case_fired){owner->case_fired=1;owner->foreground=1;owner->hold_until=now+20000000;}
-        int done=0;if(!engine_direct_exited(owner,&done))break;
+        int done=0;if(!engine_stage_begin(owner,ENGINE_STAGE_DIRECT))break;
+        int direct_ok=engine_direct_exited(owner,&done);if(!engine_stage_end(owner,ENGINE_STAGE_DIRECT)||!direct_ok)break;
         if(engine_cancel_signal||owner->foreground||now>=owner->context->outer->deadline||done)stop=1;
         uint64_t target=owner->slots==2?25000:100000;
         if(!strcmp(test,"late_stop")&&!owner->case_fired&&!engine_cancel_signal&&!owner->foreground) {
@@ -2863,14 +2959,32 @@ static int engine_grant(struct engine_owner *owner) {
             owner->case_fired=1;
         }
         if(now-owner->grant.t0>=target)stop=1;
-        if(stop) {if(!engine_stop_group(owner))break;int closed;if(!engine_roster(owner,1,&closed))break;if(closed)break;}
-        if(now-owner->grant.t0>=1000000) {engine_failure(owner,"resource_limit","possible runnable interval exceeded ordinary gate");break;}
+        if(stop) {
+            if(!engine_stage_begin(owner,ENGINE_STAGE_STOP))break;
+            int stopped=engine_stop_group(owner);if(!engine_stage_end(owner,ENGINE_STAGE_STOP)||!stopped)break;
+            if(!engine_stage_begin(owner,ENGINE_STAGE_ROSTER))break;
+            int closed=0,roster_ok=engine_roster(owner,1,&closed);
+#ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
+            if(source_known_closure_over_cpu) {
+                uint64_t until=clock_ns(CLOCK_THREAD_CPUTIME_ID)+1100000;
+                while(clock_ns(CLOCK_THREAD_CPUTIME_ID)<until){}
+            }
+#endif
+            if(!engine_stage_end(owner,ENGINE_STAGE_ROSTER)||!roster_ok)break;
+            // Re-read clocks AFTER the native observation. The old loop's
+            // pre-observation `now` could miss an overlong pending/closed span.
+            // Never split/backdate W or pay/sleep inside a still-open grant.
+            if(!engine_closure_bound(owner)||closed)break;
+        }
+        if(!engine_closure_bound(owner))break;
     }
-    owner->grant.cpu_close=engine_now(owner,CLOCK_THREAD_CPUTIME_ID);
     uint64_t cpu=UINT64_MAX,user=UINT64_MAX,system=UINT64_MAX;
     uint64_t tick_end=UINT64_MAX;
-    if(!engine_actual(owner,&cpu,&user,&system)||cpu<cpu_before
+    int actual_stage=engine_stage_begin(owner,ENGINE_STAGE_ACTUAL);
+    if(!actual_stage||!engine_actual(owner,&cpu,&user,&system)||cpu<cpu_before
         ||!engine_actual_delta(owner,owner->grant_tick_before,&owner->grant.actual_cpu,&tick_end))owner->grant.actual_cpu=UINT64_MAX;
+    if(actual_stage&&!engine_stage_end(owner,ENGINE_STAGE_ACTUAL))owner->grant.actual_cpu=UINT64_MAX;
+    owner->grant.cpu_close=engine_now(owner,CLOCK_THREAD_CPUTIME_ID);
     // Pipe syscalls run on this same controller thread and are already inside
     // cpu_start..cpu_close. No separate owner is added or counted twice.
     owner->grant.pipe_actual=owner->grant.pipe_charged=0;
@@ -4093,45 +4207,109 @@ static int private_emit(const struct private_input *v,const char *input_hash,str
     int can_emit=!engine_current||held;
     if(held&&held->refusal_attempted)return held->refusal_complete;
     if(held)held->refusal_attempted=1;
+    if(!private_terminal.control_known) {
+        private_terminal.control_known=1;private_terminal.control_ok=!private_failed&&!result->error_code;
+    }
+    private_terminal.started=1;
     (void)private_sample_rss();private_result_cost(result);
-    // The fixed JSON is a PRE-RESULT cutoff, like the shared worker snapshot.
-    // Formatter/write/close/paid-exit-tail spans are separate raw observations;
-    // the private parent must still actually reap and retain wait4/RSS evidence.
+    // Keep the one stdout schema and its original pre-publication cutoff.
+    // Actual persistence and all later costs are independent raw observations.
     uint64_t format_start=clock_ns(CLOCK_THREAD_CPUTIME_ID);
     char bytes[8192];int len=private_format(v,input_hash,result,bytes,sizeof(bytes));
-    uint64_t format_end=clock_ns(CLOCK_THREAD_CPUTIME_ID);
-    int format_paid=private_end_unit(format_start);uint64_t format_inclusive=private_cost.last_unit;
-    int complete=0,persisted=0;uint64_t write_start=clock_ns(CLOCK_THREAD_CPUTIME_ID);
-    if(can_emit&&(format_paid||held)&&len>0&&(size_t)len<sizeof(bytes)&&v->output.fd>=0) {
+    private_terminal.format_start=format_start;private_terminal.format_end=clock_ns(CLOCK_THREAD_CPUTIME_ID);
+    private_terminal.format_paid=(unsigned)private_end_unit(format_start);private_terminal.format_inclusive=private_cost.last_unit;
+    if(len<=0||(size_t)len>=sizeof(bytes))private_fail("settlement_unknown","private result formatter did not produce one bounded result");
+    uint64_t write_start=clock_ns(CLOCK_THREAD_CPUTIME_ID);int close_paid=1;
+    if(can_emit&&(private_terminal.format_paid||held)&&len>0&&(size_t)len<sizeof(bytes)&&v->output.fd>=0) {
+        private_terminal.persistence_attempted=1;
         int fd=openat(v->output.fd,"result.json",O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,0600);
-        if(fd>=0) {
-            persisted=write(fd,bytes,(size_t)len)==len;
-            if(fsync(fd)!=0)persisted=0;
-            if(!private_close(fd))persisted=0;
-            if(fsync(v->output.fd)!=0)persisted=0;
+        private_terminal.persist_open=fd>=0;
+        if(fd<0){private_terminal.persistence_errno=errno;private_fail("settlement_unknown","exclusive private result creation failed; no retry");}
+        else {
+            ssize_t n=write(fd,bytes,(size_t)len);private_terminal.persist_write=n==len;
+            if(n!=len){private_terminal.persistence_errno=errno;private_fail("settlement_unknown","private result file write incomplete; no retry");}
+            private_terminal.persist_fsync=fsync(fd)==0;
+            if(!private_terminal.persist_fsync){private_terminal.persistence_errno=errno;private_fail("settlement_unknown","private result file fsync failed; no retry");}
+            int actual_closed=0;close_paid=private_close_observed(fd,&actual_closed);private_terminal.persist_close=(unsigned)actual_closed;
+            if(!actual_closed){private_terminal.persistence_errno=errno;private_fail("settlement_unknown","private result file close failed; no retry");}
+            private_terminal.persist_dir_fsync=fsync(v->output.fd)==0;
+            if(!private_terminal.persist_dir_fsync){private_terminal.persistence_errno=errno;private_fail("settlement_unknown","private result directory fsync failed; no retry");}
         }
     }
-    if(!private_end_unit(write_start))persisted=0;
-    write_start=clock_ns(CLOCK_THREAD_CPUTIME_ID);
+    private_terminal.persist_ok=private_terminal.persist_open&&private_terminal.persist_write&&private_terminal.persist_fsync
+        &&private_terminal.persist_close&&private_terminal.persist_dir_fsync;
+    private_terminal.persist_unknown=private_terminal.persist_open&&!private_terminal.persist_ok;
+    private_terminal.persistence_paid=(unsigned)private_end_unit(write_start)&&close_paid;
+    write_start=clock_ns(CLOCK_THREAD_CPUTIME_ID);private_terminal.write_start=write_start;
     int flags=fcntl(STDOUT_FILENO,F_GETFL);
-    if(can_emit&&(format_paid||held)&&len>0&&(size_t)len<sizeof(bytes)&&flags>=0&&fcntl(STDOUT_FILENO,F_SETFL,flags|O_NONBLOCK)==0) {
-        ssize_t n=write(STDOUT_FILENO,bytes,(size_t)len);complete=n==len;
-        if(fcntl(STDOUT_FILENO,F_SETFL,flags)!=0)complete=0;
+    if(can_emit&&(private_terminal.format_paid||held)&&len>0&&(size_t)len<sizeof(bytes)&&flags>=0&&fcntl(STDOUT_FILENO,F_SETFL,flags|O_NONBLOCK)==0) {
+        ssize_t n=write(STDOUT_FILENO,bytes,(size_t)len);private_terminal.stdout_complete=n==len;
+        if(n!=len)private_terminal.stdout_errno=errno;
+        if(fcntl(STDOUT_FILENO,F_SETFL,flags)!=0){private_terminal.stdout_errno=errno;private_terminal.stdout_complete=0;}
+    } else private_terminal.stdout_errno=errno;
+    if(!private_terminal.stdout_complete)private_fail("settlement_unknown","private result stdout emission incomplete; no retry");
+    private_terminal.write_end=clock_ns(CLOCK_THREAD_CPUTIME_ID);
+    private_terminal.write_paid=(unsigned)private_end_unit(write_start);private_terminal.write_inclusive=private_cost.last_unit;
+    if(held)held->refusal_complete=private_terminal.stdout_complete;
+    // No final receipt here: a held owner may still have a long settlement,
+    // and ordinary output-close/exit-tail work has not happened yet.
+    return private_terminal.stdout_complete&&private_terminal.persist_ok&&private_terminal.format_paid
+        &&private_terminal.persistence_paid&&private_terminal.write_paid&&!private_failed;
+}
+#ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
+static unsigned source_known_tail_over_cpu;
+#endif
+static void private_finish_diagnostics(const char *phase,unsigned created,unsigned reaped,int output_closed) {
+    private_terminal.started=1;
+#ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
+    if(source_known_tail_over_cpu) {
+        uint64_t until=clock_ns(CLOCK_THREAD_CPUTIME_ID)+1100000;
+        while(clock_ns(CLOCK_THREAD_CPUTIME_ID)<until){}
     }
-    uint64_t write_end=clock_ns(CLOCK_THREAD_CPUTIME_ID);
-    int write_paid=private_end_unit(write_start);uint64_t write_inclusive=private_cost.last_unit;
-    if(!complete||!format_paid||!write_paid||(!persisted&&v->output.fd>=0&&!engine_current))
-        private_fail("settlement_unknown","private result emission or exclusive publication is incomplete; no retry");
-    uint64_t terminal_start=clock_ns(CLOCK_THREAD_CPUTIME_ID);
-    fprintf(stderr,"private_candidate_terminal profile=read-helper-native/1 stage=%s metrics_cutoff=pre_result_emission metadata_kind=declared_peak_capacity terminal_cutoff=pre_terminal_receipt runtime_approved=false helper_created=%u helper_reaped=%u result_complete=%s formatter_cpu_start_ns=%llu formatter_cpu_end_ns=%llu formatter_inclusive_ns=%llu write_cpu_start_ns=%llu write_cpu_end_ns=%llu write_inclusive_ns=%llu close_max_cpu_ns=%llu probe_rss_peak_bytes=%llu rss_known=%s ordinary_max_ns=%llu debt_charged_ns=%llu debt_paid_ns=%llu format_paid=%s write_paid=%s parent_actual_reap_required=true\n",
-        result->phase,(unsigned)result->created,(unsigned)result->reaped,complete?"true":"false",(unsigned long long)format_start,(unsigned long long)format_end,(unsigned long long)format_inclusive,
-        (unsigned long long)write_start,(unsigned long long)write_end,(unsigned long long)write_inclusive,(unsigned long long)private_cost.close_max,
-        (unsigned long long)private_cost.rss_peak,private_cost.rss_known?"true":"false",(unsigned long long)private_cost.ordinary_max,
-        (unsigned long long)private_cost.debt,(unsigned long long)private_cost.debt_paid,format_paid?"true":"false",write_paid?"true":"false");
-    fflush(stderr);
-    if(!private_end_unit(terminal_start))fprintf(stderr,"private_candidate_terminal_gate=failed code=%s actual_exit=81\n",private_error);
-    if(held)held->refusal_complete=(unsigned)complete;
-    return complete&&persisted&&format_paid&&write_paid&&!private_failed;
+#endif
+    fprintf(stderr,"private_candidate_exit_tail output_closed=%s close_max_ns=%llu debt_charged_ns=%llu debt_paid_ns=%llu ordinary_max_ns=%llu\n",
+        output_closed?"true":"false",(unsigned long long)private_cost.close_max,(unsigned long long)private_cost.debt,
+        (unsigned long long)private_cost.debt_paid,(unsigned long long)private_cost.ordinary_max);
+    (void)private_end_unit(private_cost.open_cpu);private_terminal.tail_complete=1;
+    _Static_assert(11u*2304u+4096u+256u<=32768u,"bounded complete raw diagnostics stay within32KiB");
+    // Fixed code histogram covers every failure call, including failures after
+    // the legacy first stdout error. Detail samples are bounded and explicitly
+    // marked when truncated; counts/overflow never silently imply completeness.
+    for(unsigned i=0;i<11;i++)if(private_errors[i].count) {
+        char first[967],last[967],line[2304];
+        int quoted=private_json_quoted(private_errors[i].first,first,sizeof(first))&&private_json_quoted(private_errors[i].last,last,sizeof(last));
+        int n=quoted?snprintf(line,sizeof(line),"{\"code\":\"%s\",\"count\":%llu,\"details_truncated\":%s,\"first_detail\":%s,\"kind\":\"private_candidate_error\",\"last_detail\":%s}\n",
+            private_error_codes[i],(unsigned long long)private_errors[i].count,private_errors[i].truncated?"true":"false",first,last):-1;
+        if(n<=0||(size_t)n>=sizeof(line)||write(STDERR_FILENO,line,(size_t)n)!=n)private_terminal.diagnostics_ok=0;
+        (void)private_end_unit(private_cost.open_cpu);
+    }
+    // This final fixed raw receipt follows the PAID complete tail and error
+    // diagnostics. Its own minimal formatting/write is the explicit observation
+    // cutoff, witnessed externally by the parent wait4, not a recursive claim.
+    char counts[512];size_t used=0;
+    for(unsigned i=0;i<11;i++) {
+        int n=snprintf(counts+used,sizeof(counts)-used,"%s%llu",i?",":"",(unsigned long long)private_errors[i].count);
+        if(n<=0||(size_t)n>=sizeof(counts)-used){private_terminal.diagnostics_ok=0;counts[0]=0;break;}used+=(size_t)n;
+    }
+    char final[4096];int final_len=snprintf(final,sizeof(final),"private_candidate_terminal profile=read-helper-native/1 stage=%s metrics_cutoff=pre_result_emission metadata_kind=declared_peak_capacity terminal_cutoff=after_paid_tail_and_error_diagnostics_before_final_receipt runtime_approved=false helper_created=%u helper_reaped=%u result_complete=%s control_verdict=%s persistence_verdict=%s terminal_cost_verdict=%s tail_complete=%s persistence_attempted=%s persistence_open=%s persistence_write=%s persistence_fsync=%s persistence_close=%s persistence_directory_fsync=%s persistence_errno=%d stdout_errno=%d persistence_paid=%s formatter_cpu_start_ns=%llu formatter_cpu_end_ns=%llu formatter_inclusive_ns=%llu write_cpu_start_ns=%llu write_cpu_end_ns=%llu write_inclusive_ns=%llu close_max_cpu_ns=%llu probe_rss_peak_bytes=%llu rss_known=%s ordinary_max_ns=%llu debt_charged_ns=%llu debt_paid_ns=%llu retained_units=%llu retained_overflow=%u format_paid=%s write_paid=%s error_count=%llu error_codes=cancelled,clock_unknown,coverage_unknown,deadline,input_invalid,resource_limit,review_unbound,settlement_unknown,signature_unexpected,source_changed,other error_counts=%s errors_complete=%s diagnostics_complete=%s parent_actual_reap_required=true\n",
+        phase,created,reaped,private_terminal.stdout_complete?"true":"false",private_terminal.control_known?(private_terminal.control_ok?"passed":"failed"):"unknown",
+        private_terminal.persistence_attempted?(private_terminal.persist_unknown?"unknown":private_terminal.persist_ok?"persisted":"not_persisted"):"unknown",private_terminal.cost_unknown?"unknown":private_terminal.cost_ok?"passed":"failed",private_terminal.tail_complete?"true":"false",private_terminal.persistence_attempted?"true":"false",
+        private_terminal.persist_open?"true":"false",private_terminal.persist_write?"true":"false",private_terminal.persist_fsync?"true":"false",private_terminal.persist_close?"true":"false",private_terminal.persist_dir_fsync?"true":"false",private_terminal.persistence_errno,private_terminal.stdout_errno,
+        private_terminal.persistence_paid?"true":"false",(unsigned long long)private_terminal.format_start,(unsigned long long)private_terminal.format_end,(unsigned long long)private_terminal.format_inclusive,
+        (unsigned long long)private_terminal.write_start,(unsigned long long)private_terminal.write_end,(unsigned long long)private_terminal.write_inclusive,(unsigned long long)private_cost.close_max,
+        (unsigned long long)private_cost.rss_peak,private_cost.rss_known?"true":"false",(unsigned long long)private_cost.ordinary_max,(unsigned long long)private_cost.debt,(unsigned long long)private_cost.debt_paid,
+        (unsigned long long)private_cost.retained_units,private_cost.retained_overflow,private_terminal.format_paid?"true":"false",private_terminal.write_paid?"true":"false",(unsigned long long)private_error_count,counts,
+        private_errors_overflow?"false":"true",private_terminal.diagnostics_ok?"true":"false");
+    if(final_len<=0||(size_t)final_len>=sizeof(final)||write(STDERR_FILENO,final,(size_t)final_len)!=final_len) {
+        private_terminal.diagnostics_ok=0;
+        private_fail("settlement_unknown","final raw receipt write incomplete; no retry or completeness claim");
+    }
+}
+static int private_early_refusal(int fd,const char *code,const char *detail) {
+    private_terminal.control_known=1;private_terminal.control_ok=0;private_terminal.started=1;
+    private_fail(code,detail);if(fd>=0)(void)private_close(fd);
+    fprintf(stderr,"private candidate refused: %s %s\n",code,detail);
+    private_finish_diagnostics("prebirth",0,0,1);return 81;
 }
 static int private_dispatch(int outer_ready,int inner_ready,int original_ready,
     const struct private_engine_context *context,struct private_engine_result *result) {
@@ -4139,19 +4317,19 @@ static int private_dispatch(int outer_ready,int inner_ready,int original_ready,
     return private_command_engine(context,result);
 }
 static int private_candidate(const char *self,const char *path,const char *expected) {
-    memset(&private_cost,0,sizeof(private_cost));private_failed=0;private_error="input_invalid";private_detail="strict private input decoding failed";private_cost.entry=clock_ns(CLOCK_MONOTONIC);private_cost.open_cpu=clock_ns(CLOCK_THREAD_CPUTIME_ID);private_cost.original_parent=getppid();
-    if(private_cost.entry>UINT64_MAX-30000000000ULL){fprintf(stderr,"private candidate refused: clock_unknown entry overflow\n");return 81;}
+    memset(&private_cost,0,sizeof(private_cost));private_failed=0;private_error="input_invalid";private_detail="strict private input decoding failed";private_cost.entry=clock_ns(CLOCK_MONOTONIC);private_cost.open_cpu=clock_ns(CLOCK_THREAD_CPUTIME_ID);private_cost.original_parent=getppid();private_reset_diagnostics();
+    if(private_cost.entry>UINT64_MAX-30000000000ULL)return private_early_refusal(-1,"clock_unknown","entry overflow");
     private_cost.deadline=private_cost.entry+30000000000ULL;
     uint64_t priority_at=clock_ns(CLOCK_THREAD_CPUTIME_ID);int priority=engine_owner_priority();
-    if(!private_end_unit(priority_at)||!priority){fprintf(stderr,"private candidate refused: review_unbound private owner priority\n");return 81;}
-    if(!hex_value(expected,64)){fprintf(stderr,"private candidate refused: input_invalid expected digest\n");return 81;}
-    int fd=private_open_walk(-1,path,1,O_RDONLY);if(fd<0){fprintf(stderr,"private candidate refused: input_invalid descriptor custody\n");return 81;}
+    if(!private_end_unit(priority_at)||!priority)return private_early_refusal(-1,"review_unbound","private owner priority");
+    if(!hex_value(expected,64))return private_early_refusal(-1,"input_invalid","expected digest");
+    int fd=private_open_walk(-1,path,1,O_RDONLY);if(fd<0)return private_early_refusal(-1,"input_invalid","descriptor custody");
     uint64_t at=clock_ns(CLOCK_THREAD_CPUTIME_ID);struct stat before,after;int valid=fstat(fd,&before)==0&&S_ISREG(before.st_mode)
         &&before.st_uid==geteuid()&&before.st_nlink==1&&(before.st_mode&077)==0&&before.st_size>0&&before.st_size<=PRIVATE_INPUT_MAX;
-    if(!private_end_unit(at)||!valid){private_close(fd);fprintf(stderr,"private candidate refused: input_invalid descriptor identity\n");return 81;}
+    if(!private_end_unit(at)||!valid)return private_early_refusal(fd,"input_invalid","descriptor identity");
     unsigned char bytes[PRIVATE_INPUT_MAX+1];size_t count=0;
     while(count<(size_t)before.st_size){at=clock_ns(CLOCK_THREAD_CPUTIME_ID);ssize_t n=read(fd,bytes+count,(size_t)before.st_size-count>4096?4096:(size_t)before.st_size-count);
-        int paid=private_end_unit(at);if(n<=0||!paid){private_close(fd);fprintf(stderr,"private candidate refused: source_changed descriptor read\n");return 81;}count+=(size_t)n;}
+        int paid=private_end_unit(at);if(n<=0||!paid)return private_early_refusal(fd,"source_changed","descriptor read");count+=(size_t)n;}
     at=clock_ns(CLOCK_THREAD_CPUTIME_ID);valid=fstat(fd,&after)==0&&before.st_dev==after.st_dev&&before.st_ino==after.st_ino&&before.st_size==after.st_size
         &&before.st_mtimespec.tv_sec==after.st_mtimespec.tv_sec&&before.st_mtimespec.tv_nsec==after.st_mtimespec.tv_nsec
         &&before.st_ctimespec.tv_sec==after.st_ctimespec.tv_sec&&before.st_ctimespec.tv_nsec==after.st_ctimespec.tv_nsec;
@@ -4160,7 +4338,7 @@ static int private_candidate(const char *self,const char *path,const char *expec
     // Working-copy capacity is distinct from the logical128KiB evidence sum.
     // All concrete guard/typed capacities stay inside the existing78MiB work.
     private_cost.metadata=PRIVATE_INNER_WORKING_CAPACITY;
-    if(!private_end_unit(at)||!valid){private_close(fd);fprintf(stderr,"private candidate refused: input_invalid changed hash or noncanonical schema\n");return 81;}
+    if(!private_end_unit(at)||!valid)return private_early_refusal(fd,"input_invalid","changed hash or noncanonical schema");
     static struct private_engine_result result;
     memset(&result,0,sizeof(result));result.phase="validate";result.outcome="refused";result.observed_proof="not_reached";
     result.group_gone=result.retired_coverage=1;
@@ -4168,6 +4346,7 @@ static int private_candidate(const char *self,const char *path,const char *expec
     int inner=outer?private_prepare_inner(&input,hash,count):0;
     int original=private_named_current(fd,-1,path,1,&before);
     int completed=private_dispatch(outer,inner,original,&private_prepared.context,&result);
+    private_terminal.control_known=1;private_terminal.control_ok=completed&&!private_failed;private_terminal.started=1;
     // Borrowed guards and the original outer roots outlive their engine use.
     // Unresolved ownership retains them for the exact atexit disposal owner.
     if(!engine_current&&!engine_signature_storage.quarantined) {
@@ -4192,15 +4371,13 @@ static int private_candidate(const char *self,const char *path,const char *expec
         for(unsigned i=0;i<2;i++){struct private_dir *d=i==0?&input.prefix:&input.repo;if(d->fd>=0){private_close(d->fd);d->fd=-1;}}
         (void)private_close(fd);
     }
+    int output_closed=input.output.fd<0;
     if(!engine_current&&input.output.fd>=0) {
-        (void)private_close(input.output.fd);input.output.fd=-1;
-        uint64_t at=private_cost.open_cpu;
-        fprintf(stderr,"private_candidate_exit_tail output_closed=true close_max_ns=%llu debt_charged_ns=%llu debt_paid_ns=%llu ordinary_max_ns=%llu\n",
-            (unsigned long long)private_cost.close_max,(unsigned long long)private_cost.debt,
-            (unsigned long long)private_cost.debt_paid,(unsigned long long)private_cost.ordinary_max);
-        (void)private_end_unit(at);
+        int actual_closed=0;(void)private_close_observed(input.output.fd,&actual_closed);
+        input.output.fd=-1;output_closed=actual_closed;
     }
-    return completed&&emitted&&!private_failed&&(!strcmp(input.case_name,"positive")||!strcmp(input.case_name,"corrupt_proof"))?0:81;
+    private_finish_diagnostics(result.phase,result.created,result.reaped,output_closed);
+    return completed&&emitted&&!private_failed&&private_terminal.cost_ok&&private_terminal.diagnostics_ok&&(!strcmp(input.case_name,"positive")||!strcmp(input.case_name,"corrupt_proof"))?0:81;
 }
 
 static int git_capability(char **argv) {
