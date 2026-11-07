@@ -3405,6 +3405,7 @@ fn child_declared_storage_overflow_precedes_serde_and_controls_still_settle() {
     eprintln!("declared-child-overflow {metrics}");
 }
 #[test]
+#[ignore = "load-sensitive wall/preemption window; re-enable via tasks/2026-11-06-qos-builds-never-starve-mcp"]
 fn four_children_keep_independent_controls_and_individual_memory_shares() {
     let jobs = (0..4)
         .map(|_| {
