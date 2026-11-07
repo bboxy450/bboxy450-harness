@@ -10,6 +10,8 @@
 #define main canonical_probe_main
 #include "proof-helper-probe.c"
 #undef main
+#include <poll.h>
+#include <pthread.h>
 
 static const char payload[]="tree dee19491977e73e485607928be1e1a34625a4ffd\nparent 2ac709c836778e8203ecc9232daa5153a166cc0f\nauthor A U Thor <author@example.com> 1112912653 -0700\ncommitter C O Mitter <committer@example.com> 1112912653 -0700\n\nsecond\n";
 static unsigned controls;
@@ -104,6 +106,9 @@ static int source_known_command(struct engine_owner *owner,struct engine_prepare
     owner->result->created+=(uint16_t)slots;owner->result->reaped+=(uint16_t)slots;
     if(owner->result->members_max<slots)owner->result->members_max=(uint8_t)slots;
     owner->result->group_gone=owner->result->retired_coverage=1;*status=0;
+    // Scripted metadata for this low-level flow seam; no actual wait4 or
+    // candidate conservation observation is claimed by these counters.
+    owner->result->terminal_conservation_checked++;owner->result->terminal_conservation_passed++;
     struct private_engine_metric *metrics[]={&owner->result->ordinary_max_ns,&owner->result->controller_max_ns,&owner->result->cleanup_max_ns,
         &owner->result->native_cpu_max_ns,&owner->result->native_wall_max_ns,&owner->result->inclusive_max_ns,&owner->result->W_ns,
         &owner->result->A_ns,&owner->result->C_ns,&owner->result->Q_max_ns,&owner->result->post_cpu_ns,&owner->result->late_kernel_ns,
@@ -174,6 +179,7 @@ static void flow_controls(const char *root,int dir) {
 static void nominal_result(struct private_engine_result *r) {
     memset(r,0,sizeof(*r));r->phase="settled";r->outcome="refused";r->observed_proof="valid";
     r->engine_entered=1;r->semantic_forms=32767;r->commands_completed=15;
+    r->terminal_conservation_checked=r->terminal_conservation_passed=15;
     r->attempts=r->created=r->reaped=16;r->members_max=2;r->group_gone=r->retired_coverage=1;
     struct private_engine_metric *all[]={&r->ordinary_max_ns,&r->controller_max_ns,&r->cleanup_max_ns,&r->native_cpu_max_ns,
         &r->native_wall_max_ns,&r->inclusive_max_ns,&r->W_ns,&r->A_ns,&r->C_ns,&r->Q_max_ns,&r->post_cpu_ns,&r->late_kernel_ns,
@@ -211,6 +217,8 @@ static void result_controls(void) {
         &&strstr(bytes,"\"runtime_approved\":false")&&strstr(bytes,"\"error\":null"),"result uses retained observed counters and proof");controls++;
     reset();nominal_result(&r);strcpy(outer.case_name,"corrupt_proof");r.observed_proof="invalid";
     require(engine_complete_result(&context,&r)&&!strcmp(r.outcome,"expected_rejection"),"specific corrupt result classification");controls++;
+    reset();strcpy(outer.case_name,"positive");nominal_result(&r);r.terminal_conservation_passed=14;
+    require(!engine_complete_result(&context,&r),"every completed actual command needs its own hard terminal conservation pass");controls++;
     strcpy(outer.case_name,"positive");
 }
 // Source-known fixture setup uses the SAME inclusive epoch and additive debt
@@ -351,25 +359,92 @@ diagnostic_setup_failed:
     }
     reset();
 }
+struct fixture_birth_observation {
+    pid_t pid;const char *stage;uint64_t cpu_begin,cpu_end,wall_begin,wall_end,inclusive,application;
+};
+static struct fixture_birth_observation fixture_birth;
+static _Noreturn void fixture_setup_failure(pid_t pid,const char *stage,uint64_t epoch,uint64_t raw) {
+    int original_errno=errno;uint64_t charged=private_cost.debt,paid=private_cost.debt_paid;
+    struct proc_bsdinfo b;memset(&b,0,sizeof(b));int got=pid>0?proc_pidinfo(pid,PROC_PIDTBSDINFO,0,&b,sizeof(b)):0;
+    int identity=got==(int)sizeof(b)&&b.pbi_pid==(uint32_t)pid&&b.pbi_ppid==(uint32_t)getpid();
+    uint64_t birth=identity?(uint64_t)b.pbi_start_tvsec*1000000+b.pbi_start_tvusec:0;
+    fprintf(stderr,"{\"kind\":\"fixture_setup_failure\",\"stage\":\"%s\",\"pid\":%d,\"parent\":%d,\"birth_known\":%s,\"birth\":%llu,\"epoch_cpu_ns\":%llu,\"closed_raw_cpu_ns\":%llu,\"debt_charged_ns\":%llu,\"debt_paid_ns\":%llu,\"failure_code\":\"%s\",\"original_errno\":%d,\"native_record_matches\":%s,\"native_cpu_begin_ns\":%llu,\"native_cpu_end_ns\":%llu,\"native_wall_begin_ns\":%llu,\"native_wall_end_ns\":%llu,\"native_inclusive_cpu_ns\":%llu,\"native_application_cpu_ns\":%llu,\"runtime_approved\":false}\n",
+        stage,pid,getpid(),identity?"true":"false",(unsigned long long)birth,(unsigned long long)epoch,(unsigned long long)raw,
+        (unsigned long long)charged,(unsigned long long)paid,private_error,original_errno,pid>0&&fixture_birth.pid==pid?"true":"false",
+        (unsigned long long)fixture_birth.cpu_begin,(unsigned long long)fixture_birth.cpu_end,
+        (unsigned long long)fixture_birth.wall_begin,(unsigned long long)fixture_birth.wall_end,
+        (unsigned long long)fixture_birth.inclusive,(unsigned long long)fixture_birth.application);
+    int killed=-1,kill_error=0,status=0;pid_t joined=0;struct rusage usage;memset(&usage,0,sizeof(usage));
+    if(pid>0) {
+        // The exact positive fork return is still this parent's UNREAPED
+        // child. It cannot be a recycled numeric PID. No other PID is touched.
+        errno=0;killed=kill(pid,SIGKILL);kill_error=killed?errno:0;
+        for(;;) {
+            joined=wait4(pid,&status,WNOHANG,&usage);
+            if(joined==pid){if(retained_group==pid)retained_group=0;break;}
+            if(joined<0&&errno!=EINTR)break;
+            uint64_t now;if(!known_clock_ns(CLOCK_MONOTONIC,&now)||now>=private_cost.deadline)break;
+            uint64_t cpu;if(known_clock_ns(CLOCK_THREAD_CPUTIME_ID,&cpu)&&private_cost.open_cpu!=UINT64_MAX
+                &&cpu>=private_cost.open_cpu&&cpu-private_cost.open_cpu>=200000)(void)private_end_unit(private_cost.open_cpu);
+            usleep(1000);
+        }
+        (void)private_end_unit(private_cost.open_cpu);
+    }
+    fprintf(stderr,"{\"kind\":\"fixture_setup_cleanup\",\"pid\":%d,\"birth_known\":%s,\"birth\":%llu,\"signal_result\":%d,\"signal_errno\":%d,\"actual_wait4_pid\":%d,\"actual_reaped\":%s,\"wait_status\":%d,\"wait4_user_ns\":%llu,\"wait4_system_ns\":%llu,\"original_deadline_ns\":%llu,\"runtime_approved\":false}\n",
+        pid,identity?"true":"false",(unsigned long long)birth,killed,kill_error,joined,joined==pid&&pid>0?"true":"false",status,
+        (unsigned long long)engine_timeval(&usage.ru_utime),(unsigned long long)engine_timeval(&usage.ru_stime),(unsigned long long)private_cost.deadline);
+    fprintf(stderr,"probe refused: %s errno=%d\n",stage,original_errno);exit(81);
+}
+static pid_t fixture_fork(const char *stage) {
+    uint64_t preparation=private_cost.open_cpu;
+    if(!private_end_unit(preparation))fixture_setup_failure(0,"fixture prebirth preparation unit refused",preparation,private_cost.last_unit);
+    uint64_t native_begin=clock_ns(CLOCK_THREAD_CPUTIME_ID),wall_begin=clock_ns(CLOCK_MONOTONIC);
+    pid_t pid=fork();if(pid==0)return 0;
+    if(pid>0)retained_group=pid; // Retain the positive effect BEFORE either ending clock.
+    uint64_t wall_end=clock_ns(CLOCK_MONOTONIC),native_end=clock_ns(CLOCK_THREAD_CPUTIME_ID);
+    struct private_engine_result result;struct engine_owner owner;memset(&result,0,sizeof(result));memset(&owner,0,sizeof(owner));
+    owner.context=&context;owner.result=&result;
+    uint64_t native=engine_interval(native_begin,native_end),wall=engine_interval(wall_begin,wall_end);
+    uint64_t before=private_cost.open_cpu,total=engine_interval(before,clock_ns(CLOCK_THREAD_CPUTIME_ID));
+    int charged=engine_charge(&owner,total,total,0);total=private_cost.last_unit;
+    uint64_t application=total!=UINT64_MAX&&total>=native?total-native:UINT64_MAX;
+    fixture_birth=(struct fixture_birth_observation){pid,stage,native_begin,native_end,wall_begin,wall_end,total,application};
+    fprintf(stderr,"{\"kind\":\"fixture_native_birth\",\"stage\":\"%s\",\"pid\":%d,\"parent\":%d,\"native_cpu_begin_ns\":%llu,\"native_cpu_end_ns\":%llu,\"native_cpu_ns\":%llu,\"native_wall_begin_ns\":%llu,\"native_wall_end_ns\":%llu,\"native_wall_ns\":%llu,\"inclusive_cpu_ns\":%llu,\"application_cpu_ns\":%llu,\"cost_paid\":%s,\"debt_charged_ns\":%llu,\"debt_paid_ns\":%llu,\"runtime_approved\":false}\n",
+        stage,pid,getpid(),(unsigned long long)native_begin,(unsigned long long)native_end,(unsigned long long)native,
+        (unsigned long long)wall_begin,(unsigned long long)wall_end,(unsigned long long)wall,(unsigned long long)total,(unsigned long long)application,
+        charged?"true":"false",(unsigned long long)private_cost.debt,(unsigned long long)private_cost.debt_paid);
+    if(pid<=0)(void)private_fail("settlement_unknown","fixture fork returned no original owned child");
+    else if(native>2000000||wall>25000000||total>3000000||application>1000000)
+        (void)private_fail("resource_limit","fixture unchanged native or inclusive allocation exceeded");
+    if(pid<=0||!charged||native>2000000||wall>25000000||total>3000000||application>1000000)
+        fixture_setup_failure(pid,"fixture native birth allocation refused",before,total);
+    return pid;
+}
 static struct image fixture_stopped(pid_t pid) {
     // The fixture child must have reached its OWN initial stop before the
     // tight production observation. Pacing this setup avoids starving a newly
     // forked utility-priority child in a controller busy loop. No native/1ms
     // production gate or existing100ms readiness bound is widened.
-    uint64_t until=clock_ns(CLOCK_MONOTONIC)+100000000ULL;
+    uint64_t start=fixture_birth.pid==pid?fixture_birth.wall_end:clock_ns(CLOCK_MONOTONIC);
+    require(start<=UINT64_MAX-100000000ULL,"fixture original readiness deadline checked sum");
+    uint64_t until=start+100000000ULL;
     for(;;) {
         siginfo_t info;memset(&info,0,sizeof(info));
         require(waitid(P_PID,pid,&info,WSTOPPED|WNOHANG|WNOWAIT)==0,"fixture original nonreaping stop notification");
         if(info.si_pid==pid&&info.si_code==CLD_STOPPED) {
             struct image first;require(control_observe(pid,&first),"fixture original stopped birth");
-            (void)control_stop_ack(pid,first.birth);return first;
+            (void)control_stop_ack(pid,first.birth);
+            uint64_t before=private_cost.open_cpu;
+            if(!private_end_unit(before))fixture_setup_failure(pid,"fixture initial stopped-observation unit refused",before,private_cost.last_unit);
+            return first;
         }
         if(clock_ns(CLOCK_MONOTONIC)>=until) {
-            (void)kill(pid,SIGKILL);require(0,"fixture initial stop readiness exhausted");
+            fixture_setup_failure(pid,"fixture initial stop readiness exhausted",private_cost.open_cpu,private_cost.last_unit);
         }
         uint64_t used=clock_ns(CLOCK_THREAD_CPUTIME_ID)-private_cost.open_cpu;
-        if(used>=200000&&!private_end_unit(private_cost.open_cpu)) {
-            (void)kill(pid,SIGKILL);require(0,"fixture initial stop setup unit refused");
+        uint64_t before=private_cost.open_cpu;
+        if(used>=200000&&!private_end_unit(before)) {
+            fixture_setup_failure(pid,"fixture initial stop setup unit refused",before,private_cost.last_unit);
         }
         usleep(100);
     }
@@ -377,12 +452,10 @@ static struct image fixture_stopped(pid_t pid) {
 static void closure_stage_controls(const char *self,int dir) {
     for(unsigned variant=0;variant<2;variant++) {
         reset();outer.deadline=private_cost.deadline;strcpy(outer.case_name,"positive");
-        require(engine_owner_priority()&&private_end_unit(private_cost.open_cpu),"closure control bounded setup and priority");
-        uint64_t cpu_start=clock_ns(CLOCK_THREAD_CPUTIME_ID),wall_start=clock_ns(CLOCK_MONOTONIC);
-        pid_t pid=fork();
+        require(engine_owner_priority(),"closure control bounded setup and priority");
+        pid_t pid=fixture_fork("closure_stage_controls");
         if(pid==0){if(setpgid(0,0)!=0||raise(SIGSTOP)!=0)_exit(79);volatile unsigned work=1;for(;;)work=work*33+7;}
         require(pid>0,"owned source-known closure fork");retained_group=pid;
-        require(clock_ns(CLOCK_THREAD_CPUTIME_ID)-cpu_start<=2000000&&clock_ns(CLOCK_MONOTONIC)-wall_start<=25000000,"closure fixture fork native2msCPU25mswall");
         struct image first=fixture_stopped(pid);
         struct private_engine_result result;memset(&result,0,sizeof(result));result.created=1;result.phase="git_reads";result.outcome="refused";result.observed_proof="not_reached";
         struct engine_owner owner;memset(&owner,0,sizeof(owner));owner.context=&context;owner.result=&result;
@@ -396,21 +469,39 @@ static void closure_stage_controls(const char *self,int dir) {
         source_known_closure_late_stop=!variant;source_known_closure_over_cpu=variant;
         require(!engine_grant(&owner),"actual overlong closure is refused by same grant machinery");
         source_known_closure_late_stop=source_known_closure_over_cpu=0;
-        require(owner.failed&&owner.closure_limit_failed&&owner.grant.charge>1000000&&private_errors[5].count
+        require(owner.failed&&owner.closure_limit_failed&&(owner.grant.charge>1000000||owner.grant.windows>25000000)&&private_errors[5].count
             &&private_cost.debt>before&&private_cost.debt==private_cost.debt_paid,
-            "unsplit overlong closure and full controller cost remain refused and paid9x");
+            "unsplit over-wall or over-controller closure remains refused and paid9x");
         const struct engine_stage_observation *stage=&owner.closure_stage[variant?ENGINE_STAGE_ROSTER:ENGINE_STAGE_STOP];
         require(stage->calls&&stage->wall_end>=stage->wall_begin&&stage->cpu_end>=stage->cpu_begin
             &&stage->max_wall>=1100000&&(!variant||stage->max_cpu>=1100000),
             "fixed actual closure stage clocks expose delayed STOP and over-CPU work");
         uint64_t W=owner.grant.windows,C=owner.grant.controller,Q=owner.grant.charge;
         int status=-1;(void)engine_retire(&owner,&status);
+        unsigned held=owner.settlement_quarantined;
+        if(held) {
+            // A deliberately huge original grant also incurs its full9x
+            // debt. Actual polling CPU can correctly refuse a subsequent
+            // ordinary settlement unit. That is a custody transition, not an
+            // immediate physical-reap guarantee: drive THIS original owner's
+            // normal hold explicitly instead of relying on atexit cleanup.
+            fprintf(stderr,"private_closure_custody_source_known variant=%u pid=%d birth=%llu prior_reaped=%u quarantined=%u last_actual_cpu_ns=%llu last_cost_ns=%llu debt_charged_ns=%llu debt_paid_ns=%llu runtime_approved=false\n",
+                variant,pid,(unsigned long long)owner.ticket.birth,owner.direct_reaped,owner.settlement_quarantined,
+                (unsigned long long)owner.failed_unit_last.actual,(unsigned long long)owner.failed_unit_last.cost,
+                (unsigned long long)private_cost.debt,(unsigned long long)private_cost.debt_paid);
+            require(fflush(stdout)==0,"closure prior fixture stdout flush precedes direct refusal write");
+            engine_quarantine_hold(&owner);
+        }
         require(owner.direct_reaped&&result.group_gone&&result.retired_coverage&&result.reaped==1,
             "overlong closure refusal keeps original owner through actual reap and group proof");
+        require(owner.failed&&private_errors[5].count&&(!held||owner.quarantine_settled),
+            "physical settlement never upgrades the original closure resource refusal");
         require(fsync(owner.ledger)==0&&close(owner.ledger)==0,"owned closure raw ledger persisted");
-        printf("private_closure_stage_source_known variant=%u actual_signal=true W=%llu C=%llu Q=%llu stage_wall_ns=%llu stage_cpu_ns=%llu lower_bound_refused=true unsplit=true debt_charged_ns=%llu debt_paid_ns=%llu own_reap=true runtime_approved=false\n",
-            variant,(unsigned long long)W,(unsigned long long)C,(unsigned long long)Q,(unsigned long long)stage->max_wall,(unsigned long long)stage->max_cpu,
-            (unsigned long long)private_cost.debt,(unsigned long long)private_cost.debt_paid);controls++;
+        require(private_end_unit(private_cost.open_cpu),"closure held settlement evidence and original descriptor disposal are separately paid");
+        printf("private_closure_stage_source_known variant=%u pid=%d birth=%llu actual_signal=true W=%llu C=%llu Q=%llu stage_wall_ns=%llu stage_cpu_ns=%llu lower_bound_refused=true unsplit=true debt_charged_ns=%llu debt_paid_ns=%llu explicit_same_owner_hold=%u own_reap=true wait4_observed=%u group_gone=true refused=true runtime_approved=false\n",
+            variant,pid,(unsigned long long)owner.ticket.birth,(unsigned long long)W,(unsigned long long)C,(unsigned long long)Q,(unsigned long long)stage->max_wall,(unsigned long long)stage->max_cpu,
+            (unsigned long long)private_cost.debt,(unsigned long long)private_cost.debt_paid,held,owner.wait_observed);controls++;
+        require(fflush(stdout)==0&&private_end_unit(private_cost.open_cpu),"closure stdout formatting and actual flush are paid before the next fixture epoch");
     }
     reset();
 }
@@ -550,8 +641,7 @@ static void process_control(const char *self,int live) {
     // dyld/exec latency. It is never a candidate helper-birth qualification.
     // The native fork still obeys the existing2msCPU/25mswall bounds; all
     // original-token/RI/WNOWAIT/roster/window/actual-reap code is canonical.
-    uint64_t cpu_begin=clock_ns(CLOCK_THREAD_CPUTIME_ID),wall_begin=clock_ns(CLOCK_MONOTONIC);
-    pid_t pid=fork();
+    pid_t pid=fixture_fork(live?"process_control_live":"process_control_terminal");
     if(pid==0) {
         if(setpgid(0,0)!=0)_exit(71);
         if(raise(SIGSTOP)!=0)_exit(72);
@@ -559,8 +649,7 @@ static void process_control(const char *self,int live) {
         _exit(0);
     }
     if(pid>0)retained_group=pid;
-    uint64_t cpu=clock_ns(CLOCK_THREAD_CPUTIME_ID)-cpu_begin,wall=clock_ns(CLOCK_MONOTONIC)-wall_begin;
-    require(pid>0&&cpu<=2000000&&wall<=25000000,"source-known fork native2msCPU25mswall");
+    require(pid>0,"source-known original fork return");
     struct image first=fixture_stopped(pid);
     struct private_engine_result result;memset(&result,0,sizeof(result));result.created=1;result.phase="git_reads";result.outcome="refused";result.observed_proof="not_reached";
     (void)control_stop_ack(pid,first.birth);
@@ -570,8 +659,13 @@ static void process_control(const char *self,int live) {
     (void)control_stop_ack(pid,first.birth);
     int ack=0;require(engine_sample_member(&owner,0,pid,&ack)&&ack,"original stopped attach before user work");
     owner.ticket.start=owner.members[0].state.start_absolute;owner.direct_custody=1;
+    uint64_t attached=private_cost.open_cpu;
+    if(!private_end_unit(attached))fixture_setup_failure(pid,"fixture original attach unit refused",attached,private_cost.last_unit);
     struct pending_stdin_fixture transport;pending_stdin_prepare(&owner,&transport);
+    uint64_t transport_prepared=private_cost.open_cpu;
+    if(!private_end_unit(transport_prepared))fixture_setup_failure(pid,"fixture pending transport preparation unit refused",transport_prepared,private_cost.last_unit);
     owner.grant.operation=owner.ticket.start;owner.grant.sequence=1;owner.grant.slots=1;owner.grant.source_complete=1;owner.grant.cpu_start=clock_ns(CLOCK_THREAD_CPUTIME_ID);
+    uint64_t cpu=0,wall=0;
     require(engine_actual_ticks(&owner,&owner.grant_tick_before,&cpu,&wall),"original baseline CPU ticks");
     owner.grant.t0=clock_ns(CLOCK_MONOTONIC);require(kill(-pid,SIGCONT)==0,"one original source-known CONT");
     pending_stdin_first_chunk(&owner,&transport);
@@ -594,7 +688,8 @@ static void process_control(const char *self,int live) {
         require(engine_token_signal(&owner.members[0].token,SIGKILL)==0,"identity-safe cleanup of original live source-known child");
         do {require(known_exited(pid,&done),"cleanup original WNOWAIT");}while(!done&&clock_ns(CLOCK_MONOTONIC)<until);
         require(done&&engine_member_exit(&owner,0),"actual cleanup independent original terminal");
-    } else require(owner.stop_terminal&&owner.stop_terminal_ns>=failed_at&&owner.grant.end[0]>=failed_at,"terminal endpoint follows positive proof, never errno time");
+    } else require(owner.stop_terminal_candidate&&!owner.stop_terminal&&owner.grant.end[0]>=failed_at,
+        "independent terminal candidate never substitutes RI or errno for actual wait4");
     owner.grant.cpu_close=clock_ns(CLOCK_THREAD_CPUTIME_ID);
     uint64_t tick=0;require(engine_actual_delta(&owner,owner.grant_tick_before,&owner.grant.actual_cpu,&tick),"full terminal helper CPU interval");
     engine_window_cost(&owner,clock_ns(CLOCK_MONOTONIC),closed);
@@ -615,6 +710,7 @@ static void process_control(const char *self,int live) {
     int status=-1;(void)engine_retire(&owner,&status);
     require(owner.direct_reaped&&owner.wait_observed&&result.reaped==1&&result.group_gone
         &&result.retired_coverage,"same-controller actual source-known wait4 and complete owned group settlement");
+    if(!live)require(owner.stop_terminal&&owner.stop_terminal_ns>=failed_at,"terminal accounting follows original actual wait4, never RI alone");
     if(!live)interrupted_hold_payment_control(&owner);
     require(fsync(owner.ledger)==0&&private_close(owner.ledger),"owned terminal raw ledger persistence and close");
     owner.ledger=-1;
@@ -627,12 +723,14 @@ static void process_control(const char *self,int live) {
         (unsigned long long)result.late_kernel_ns.value,result.late_kernel_ns.known,(unsigned long long)result.post_cpu_ns.value,
         (unsigned long long)private_cost.debt,(unsigned long long)private_cost.debt_paid);
     free(transport.capture);owner.capture=NULL;
+    uint64_t disposed=private_cost.open_cpu;
+    if(!private_end_unit(disposed))fixture_setup_failure(0,"fixture terminal diagnostics and disposal unit refused",disposed,private_cost.last_unit);
     reset();controls++;
 }
 static void pending_exec_control(const char *self,int dir) {
     reset();outer.deadline=private_cost.deadline;strcpy(outer.case_name,"positive");
     int gate[2],ready[2];require(pipe(gate)==0&&pipe(ready)==0,"owned source-known exec gate and completion");
-    pid_t pid=fork();
+    pid_t pid=fixture_fork("pending_exec_control");
     if(pid==0) {
         close(gate[1]);close(ready[0]);if(setpgid(0,0)!=0||raise(SIGSTOP)!=0)_exit(73);
         char byte;if(read(gate[0],&byte,1)!=1)_exit(74);close(gate[0]);
@@ -686,7 +784,7 @@ static void pending_exec_control(const char *self,int dir) {
 static void settlement_control(const char *self,int dir,unsigned variant) {
     unsigned unknown_deadline=variant==1,persistence_failure=variant==2;
     reset();outer.output.fd=dir;outer.deadline=private_cost.deadline;strcpy(outer.case_name,"positive");
-    pid_t pid=fork();
+    pid_t pid=fixture_fork("settlement_control");
     if(pid==0){if(setpgid(0,0)!=0||raise(SIGSTOP)!=0)_exit(76);if(unknown_deadline){volatile unsigned work=1;for(;;)work=work*33+7;}_exit(0);}
     require(pid>0,"owned source-known settlement fork");retained_group=pid;
     struct image first=fixture_stopped(pid);
@@ -748,8 +846,63 @@ static void hold_observer_checkpoint(void) {
         require(private_end_unit(private_cost.open_cpu),"source-known holder observer ordinary unit and rest");
 }
 struct hold_witness_info {pid_t helper;uint64_t birth;int fd;uint64_t dev,ino,deadline;};
+struct hold_fixture_cleanup_state {
+    pid_t controller,helper;int controller_reaped,controller_status,controller_status_known,release_fd,identity_known;
+    uint64_t birth,start,deadline;audit_token_t token;
+};
+static struct hold_fixture_cleanup_state hold_fixture_cleanup={.release_fd=-1};
+static pid_t hold_fixture_wait(int *status) {
+    struct hold_fixture_cleanup_state *s=&hold_fixture_cleanup;
+    if(s->controller_reaped){*status=s->controller_status;return s->controller;}
+    pid_t joined=waitpid(s->controller,status,WNOHANG);
+    if(joined==s->controller) {
+        // A consuming wait ends the original PID ownership immediately,
+        // including on an assertion's failure path. Never signal it again.
+        if(retained_child==joined)retained_child=0;
+        s->controller_reaped=s->controller_status_known=1;s->controller_status=*status;
+    } else if(joined<0&&errno==ECHILD) {
+        if(retained_child==s->controller)retained_child=0;
+    }
+    return joined;
+}
+static void hold_fixture_failure_cleanup(void) {
+    struct hold_fixture_cleanup_state *s=&hold_fixture_cleanup;
+    dispose_private_engine=NULL;
+    int released=0;
+    if(s->release_fd>=0) {
+        int fd=s->release_fd;s->release_fd=-1;
+        // EOF releases only this fixture's existing one-byte gate. The
+        // original controller can reap normally; an orphaned negative helper
+        // also exits. No PID/group signal or invented wait4 follows.
+        released=close(fd)==0;
+    }
+    int terminal=0,gone=0,status=0,expired=0;
+    struct engine_incarnation original={.pid=s->helper,.birth=s->birth,.start=s->start,.token=s->token,.current=1};
+    for(;;) {
+        if(!s->controller_reaped) {
+            pid_t joined=hold_fixture_wait(&status);
+            if(joined<0&&errno!=EINTR)break;
+        }
+        if(s->identity_known)terminal=engine_physical_exit(&original);
+        int pids[3]={0};gone=s->helper>0&&proc_listpgrppids(s->helper,pids,sizeof(pids))==0;
+        if(s->controller_reaped&&terminal&&gone)break;
+        if(s->controller_reaped&&!s->identity_known)break; // Unknown identity cannot improve by waiting.
+        uint64_t now;if(!known_clock_ns(CLOCK_MONOTONIC,&now)||now>=s->deadline){expired=1;break;}
+        uint64_t cpu;if(known_clock_ns(CLOCK_THREAD_CPUTIME_ID,&cpu)&&private_cost.open_cpu!=UINT64_MAX
+            &&cpu>=private_cost.open_cpu&&cpu-private_cost.open_cpu>=200000)(void)private_end_unit(private_cost.open_cpu);
+        usleep(1000);
+    }
+    (void)private_end_unit(private_cost.open_cpu);
+    fprintf(stderr,"private_hold_fixture_cleanup_source_known controller=%d controller_reaped=%d controller_status_known=%d controller_status_raw=%d retained_controller_pid=%d helper=%d helper_birth=%llu helper_start=%llu helper_identity_known=%d original_helper_terminal_observed=%d original_group_gone=%d release_gate_closed=%d signals_sent=0 helper_reaped_by_observer=false deadline_exhausted=%d debt_charged_ns=%llu debt_paid_ns=%llu runtime_approved=false\n",
+        s->controller,s->controller_reaped,s->controller_status_known,s->controller_status,retained_child,s->helper,
+        (unsigned long long)s->birth,(unsigned long long)s->start,s->identity_known,terminal,gone,released,expired,
+        (unsigned long long)private_cost.debt,(unsigned long long)private_cost.debt_paid);
+    // A missing identity/status stays explicitly unknown. In particular do
+    // not fall through to generic numeric cleanup after a reaped controller.
+}
 static void quarantine_hold_process_control(const char *self,const char *root,int dir) {
     reset();
+    require(!engine_current&&!dispose_private_engine,"fixture observer starts without another private owner");
     int wire[2],release[2],status_pipe[2];require(pipe(wire)==0&&pipe(release)==0&&pipe(status_pipe)==0,"owned live-holder fixture channels");
     // The child redirects stdout to the result pipe and later exits normally;
     // flush only this fixture's inherited stdio buffers before that fork.
@@ -775,7 +928,7 @@ static void quarantine_hold_process_control(const char *self,const char *root,in
         require(engine_original_claim(&context,&r),"same-controller original claim before its effect");
         int sentinel=openat(dir,"hold-fd-sentinel",O_RDWR|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,0600);
         require(sentinel>=0,"source-known retained original FD");struct stat identity;require(fstat(sentinel,&identity)==0,"source-known sentinel identity");
-        pid_t helper=fork();require(helper>=0,"source-known held helper fork");
+        pid_t helper=fixture_fork("quarantine_hold_helper");require(helper>=0,"source-known held helper fork");
         if(helper==0) {
             close(status_pipe[1]);if(setpgid(0,0)!=0||raise(SIGSTOP)!=0)_exit(78);
             char byte;if(read(release[0],&byte,1)!=1)_exit(79);close(release[0]);_exit(0);
@@ -809,10 +962,14 @@ static void quarantine_hold_process_control(const char *self,const char *root,in
         private_finish_diagnostics("settled",r.created,r.reaped,output_closed);exit(81);
     }
     retained_child=controller;
+    memset(&hold_fixture_cleanup,0,sizeof(hold_fixture_cleanup));hold_fixture_cleanup.controller=controller;
+    hold_fixture_cleanup.release_fd=release[1];hold_fixture_cleanup.deadline=private_cost.deadline;
+    dispose_private_engine=hold_fixture_failure_cleanup;
     require(private_end_unit(private_cost.open_cpu),"source-known observer fork preparation closes its ordinary epoch");
     close(wire[1]);close(release[0]);close(status_pipe[1]);
     require(fcntl(wire[0],F_SETFL,O_NONBLOCK)==0&&fcntl(status_pipe[0],F_SETFL,O_NONBLOCK)==0,"owned holder observer channels nonblocking");
     uint64_t observer_deadline=clock_ns(CLOCK_MONOTONIC)+30000000000ULL;
+    hold_fixture_cleanup.deadline=observer_deadline;
     char refusal[8193];size_t used=0;int got_line=0;
     while(clock_ns(CLOCK_MONOTONIC)<observer_deadline&&!got_line) {
         ssize_t n=read(wire[0],refusal+used,sizeof(refusal)-1-used);
@@ -832,7 +989,12 @@ static void quarantine_hold_process_control(const char *self,const char *root,in
         else require(n<0&&(errno==EAGAIN||errno==EINTR),"holder identity observation pending");hold_observer_checkpoint();if(have<sizeof(info))usleep(1000);
     }
     require(have==sizeof(info)&&received>=info.deadline,"refusal follows this unchanged original work deadline");
-    int status=0;require(waitpid(controller,&status,WNOHANG)==0,"same controller remains alive after answering refusal");
+    hold_fixture_cleanup.helper=info.helper;hold_fixture_cleanup.birth=info.birth;
+    struct rusage_info_v1 original_usage;
+    hold_fixture_cleanup.identity_known=known_control_token(info.helper,info.birth,&hold_fixture_cleanup.token)
+        &&proc_pid_rusage(info.helper,RUSAGE_INFO_V1,(rusage_info_t *)&original_usage)==0&&original_usage.ri_proc_start_abstime!=0;
+    if(hold_fixture_cleanup.identity_known)hold_fixture_cleanup.start=original_usage.ri_proc_start_abstime;
+    int status=0;require(hold_fixture_wait(&status)==0,"same controller remains alive after answering refusal");
     struct proc_bsdinfo helper;require(proc_pidinfo(info.helper,PROC_PIDTBSDINFO,0,&helper,sizeof(helper))==sizeof(helper)
         &&helper.pbi_ppid==(uint32_t)controller&&helper.pbi_pgid==(uint32_t)info.helper&&helper.pbi_status!=SZOMB,
         "independent observer sees original live helper still owned by this controller");
@@ -845,25 +1007,325 @@ static void quarantine_hold_process_control(const char *self,const char *root,in
     while(!lost&&clock_ns(CLOCK_MONOTONIC)<observer_deadline) {
         ssize_t n=pread(ledger,log,sizeof(log)-1,0);require(n>=0,"held owner-loss ledger observation");log[n]=0;lost=strstr(log,"\"phase\":\"owner_lost\"")!=NULL;
         hold_observer_checkpoint();
-        if(!lost){require(waitpid(controller,&status,WNOHANG)==0,"owner-loss observation requires same held controller alive");usleep(1000);}
+        if(!lost){require(hold_fixture_wait(&status)==0,"owner-loss observation requires same held controller alive");usleep(1000);}
     }
-    require(lost&&waitpid(controller,&status,WNOHANG)==0,"owner loss is durable refusal while same controller remains alive");
+    require(lost&&hold_fixture_wait(&status)==0,"owner loss is durable refusal while same controller remains alive");
     // This second independent snapshot is causally AFTER the holder entered
     // its observation loop, catching FD release after the prompt wire write.
     require(proc_pidfdinfo(controller,info.fd,PROC_PIDFDVNODEPATHINFO,&held_fd,sizeof(held_fd))==sizeof(held_fd)
         &&(uint64_t)held_fd.pvip.vip_vi.vi_stat.vst_dev==info.dev&&(uint64_t)held_fd.pvip.vip_vi.vi_stat.vst_ino==info.ino,
         "independent kernel FD snapshot proves original descriptor retained after refusal");
-    require(write(release[1],"x",1)==1&&close(release[1])==0,"external fixture release follows custody observations; controller sends no new stdin");
+    int release_fd=hold_fixture_cleanup.release_fd;hold_fixture_cleanup.release_fd=-1;
+    ssize_t release_count=write(release_fd,"x",1);int release_closed=close(release_fd);
+    require(release_count==1&&release_closed==0,"external fixture release follows custody observations; controller sends no new stdin");
     pid_t joined=0;
-    while(!joined&&clock_ns(CLOCK_MONOTONIC)<observer_deadline){joined=waitpid(controller,&status,WNOHANG);require(joined>=0,"owned holder join observation");hold_observer_checkpoint();if(!joined)usleep(1000);}
+    while(!joined&&clock_ns(CLOCK_MONOTONIC)<observer_deadline){joined=hold_fixture_wait(&status);require(joined>=0,"owned holder join observation");hold_observer_checkpoint();if(!joined)usleep(1000);}
     require(joined==controller&&WIFEXITED(status)&&WEXITSTATUS(status)==81,"same controller exits only after its own settled refusal");retained_child=0;
     ssize_t n=read(wire[0],refusal,sizeof(refusal));require(n==0,"holder emits exactly one existing result, never a second success");
     n=pread(ledger,log,sizeof(log)-1,0);require(n>=0,"settled refusal ledger read");log[n]=0;
     require(strstr(log,"\"phase\":\"settled_refusal_owner_lost\"")!=NULL,"same controller records settled refusal without upgrading the result");
     int group[3];require(proc_listpgrppids(info.helper,group,sizeof(group))==0,"independent actual helper group gone after own-controller reap");
+    dispose_private_engine=NULL;
     require(close(ledger)==0&&close(wire[0])==0&&close(status_pipe[0])==0,"owned live-holder observer close");
     printf("private_quarantine_hold_source_known controller=%d helper=%d original_deadline=%llu refusal_received=%llu prompt_before_release=true controller_alive_after_refusal=true original_fd_retained=true child_parent_pin_retained=true owner_lost_recorded=true released_then_controller_own_reap=true group_gone=true exit=81 result_count=1 runtime_approved=false\n",
         controller,info.helper,(unsigned long long)info.deadline,(unsigned long long)received);controls++;
+}
+struct quantum_child_report {pid_t child;uint64_t user,system;};
+static void quantum_burn(void) {
+    uint64_t at=clock_ns(CLOCK_THREAD_CPUTIME_ID);volatile unsigned work=1;
+    while(clock_ns(CLOCK_THREAD_CPUTIME_ID)-at<2200000)work=work*33+7;
+}
+static void *quantum_thread(void *unused) {(void)unused;volatile unsigned work=1;for(;;)work=work*33+7;return NULL;}
+static struct image quantum_stopped(pid_t pid) {
+    uint64_t until=clock_ns(CLOCK_MONOTONIC)+100000000;struct image current;
+    for(;;) {
+        require(control_observe(pid,&current),"quantum fixture original task remains observable");
+        if(current.status==SSTOP&&current.runnable==0)return current;
+        require(clock_ns(CLOCK_MONOTONIC)<until,"quantum fixture original stopped readiness");
+        if(clock_ns(CLOCK_THREAD_CPUTIME_ID)-private_cost.open_cpu>=200000)
+            require(private_end_unit(private_cost.open_cpu),"quantum fixture bounded readiness observation is paid");
+        usleep(100);
+    }
+}
+static void quantum_read(int fd,void *bytes,size_t len) {
+    struct pollfd pending={fd,POLLIN,0};require(poll(&pending,1,100)==1,"quantum fixture bounded owned pipe readiness");
+    require(read(fd,bytes,len)==(ssize_t)len,"quantum fixture exact atomic owned pipe record");
+}
+static struct window_ledger quantum_projection(const struct engine_owner *owner,unsigned slots) {
+    // Deliberately small guard projection around real retained processes. It
+    // isolates eligibility/coverage from scheduler-dependent CPU quantities;
+    // it is never an admitted command or a fabricated native measurement.
+    struct window_ledger g={.operation=1,.sequence=1,.t0=100,.t_close=300,.cpu_start=1,.cpu_close=2,
+        .end={200,250},.actual_cpu=40,.slots=slots,.ack_mask=(1u<<slots)-1,.identity_mask=(1u<<slots)-1,
+        .roster_closed=1,.source_complete=1,.baseline_mask=(1u<<slots)-1,.counter_mask=(1u<<slots)-1,
+        .post_ack_mask=(1u<<slots)-1,.counter_identity_mask=(1u<<slots)-1,.conversion_mask=(1u<<slots)-1,
+        .timebase_numer=1,.timebase_denom=1};
+    g.slot_cpu[0]=slots==1?40:20;g.slot_cpu[1]=slots==2?20:0;
+    for(unsigned i=0;i<slots;i++) {
+        g.baseline_read[i]=90;g.counter_read[i]=290;g.baseline_ticks[i]=10;g.endpoint_ticks[i]=10+g.slot_cpu[i];
+        g.baseline_version[i]=g.counter_version[i]=owner->members[i].token.val[7];
+        g.counter_kind[i]=COUNTER_SOURCE_POST_ACK_RI;
+    }
+    return g;
+}
+static void quantum_controls(const char *self,int dir,unsigned selected) {
+    for(unsigned mode=0;mode<9;mode++) {
+        if(selected<9&&selected!=mode)continue;
+        reset();outer.deadline=private_cost.deadline;basis.source_coverage=127;basis.command_coverage=65535;
+        strcpy(outer.case_name,"positive");require(engine_owner_priority()&&private_end_unit(private_cost.open_cpu),"quantum fixture paced private preparation");
+        int event[2],gate[2];require(pipe(event)==0&&pipe(gate)==0,"quantum fixture owned causal pipes");
+        uint64_t at=clock_ns(CLOCK_THREAD_CPUTIME_ID),wall=clock_ns(CLOCK_MONOTONIC);pid_t pid=fork();
+        if(pid==0) {
+            close(event[0]);close(gate[1]);if(setpgid(0,0)!=0)_exit(79);
+            if(mode==5){pthread_t thread;if(pthread_create(&thread,NULL,quantum_thread,NULL)!=0)_exit(79);}
+            if(raise(SIGSTOP)!=0)_exit(79);
+            if(mode==0||mode==2||mode>=6) {
+                pid_t child=fork();if(child<0)_exit(79);
+                if(child==0){pid_t own=getpid();char byte;if(write(event[1],&own,sizeof(own))!=sizeof(own)||read(gate[0],&byte,1)!=1)_exit(79);quantum_burn();_exit(0);}
+                pid_t other=0;
+                if(mode==6) {
+                    other=fork();if(other<0)_exit(79);
+                    if(other==0){pid_t own=getpid();char byte;if(write(event[1],&own,sizeof(own))!=sizeof(own)||read(gate[0],&byte,1)!=1)_exit(79);quantum_burn();_exit(0);}
+                }
+                struct rusage usage;int status;if(wait4(child,&status,0,&usage)!=child||!WIFEXITED(status)||WEXITSTATUS(status))_exit(79);
+                struct quantum_child_report report={child,engine_timeval(&usage.ru_utime),engine_timeval(&usage.ru_stime)};
+                if(other>0) {
+                    if(wait4(other,&status,0,&usage)!=other||!WIFEXITED(status)||WEXITSTATUS(status))_exit(79);
+                    report.user+=engine_timeval(&usage.ru_utime);report.system+=engine_timeval(&usage.ru_stime);
+                }
+                if(write(event[1],&report,sizeof(report))!=sizeof(report))_exit(79);
+            } else if(mode!=4&&mode!=5) {
+                char byte='r';if(write(event[1],&byte,1)!=1||read(gate[0],&byte,1)!=1)_exit(79);quantum_burn();
+            }
+            if(mode!=5&&raise(SIGSTOP)!=0)_exit(79);
+            _exit(0);
+        }
+        require(pid>0,"quantum source-known actual owned process");retained_group=pid;
+        uint64_t native=clock_ns(CLOCK_THREAD_CPUTIME_ID)-at,native_wall=clock_ns(CLOCK_MONOTONIC)-wall;
+        require(close(event[1])==0&&close(gate[0])==0,"quantum parent closes unowned pipe ends");
+        struct private_engine_result result;memset(&result,0,sizeof(result));result.created=1;
+        struct engine_owner owner;memset(&owner,0,sizeof(owner));owner.context=&context;owner.result=&result;
+        owner.input=owner.output=owner.errors=-1;owner.slots=mode==0||mode==2||mode>=6?2:1;owner.direct_custody=1;owner.closed=1;
+        uint64_t inclusive=engine_interval(private_cost.open_cpu,clock_ns(CLOCK_THREAD_CPUTIME_ID));
+        (void)engine_charge(&owner,inclusive,inclusive,0);
+        require(native<=2000000&&native_wall<=25000000&&inclusive<=3000000&&inclusive>=native&&inclusive-native<=1000000,
+            "quantum fixture unchanged native application and inclusive gates after full cost payment");
+        struct image initial=quantum_stopped(pid);owner.ticket=(struct engine_ticket){pid,pid,initial.birth,initial.start_absolute,1};
+        owner.members[0].state.pid=pid;owner.members[0].state.birth=initial.birth;strcpy(owner.image,self);
+        unsigned thread_rejected=0;int ack=0;
+        if(mode==5)thread_rejected=!engine_sample_member(&owner,0,pid,&ack)&&private_errors[2].count;
+        else require(engine_sample_member(&owner,0,pid,&ack)&&ack,"quantum original stopped identity and RI baseline");
+        uint64_t startup=0,initial_user=0,initial_system=0;
+        if(mode!=5)require(engine_actual(&owner,&startup,&initial_user,&initial_system),"actual initial source-known CPU baseline");
+        struct quantum_child_report report={0,0,0};pid_t child=0,other=0;unsigned actual_child_count=0;uint64_t pre_exit_rollup_read=0,child_exit_observed=0;
+        uint64_t grant_start=0,grant_cpu=0,ack_time=0,read_time=0,close_time=0,close_cpu=0,pre_ack_ticks=0,pre_ack_time=0,post_ticks=0;
+        uint64_t post_ack_cpu=0;mach_timebase_info_data_t grant_scale;
+        require(mach_timebase_info(&grant_scale)==KERN_SUCCESS&&grant_scale.numer&&grant_scale.denom,"quantum fixture retained pre-CONT timebase");
+        uint64_t baseline_ticks=owner.members[0].state.raw_rusage_cpu,baseline_time=owner.members[0].counter_read_ns;
+        uint32_t version=owner.members[0].token.val[7];
+        require(private_end_unit(private_cost.open_cpu),"quantum initial task counters and pipe setup are bounded paid ordinary work");
+        if(mode!=5) {
+            int children[3];require(proc_listchildpids(pid,children,sizeof(children))==0,"quantum initial census precedes actual fork");
+            grant_cpu=clock_ns(CLOCK_THREAD_CPUTIME_ID);grant_start=clock_ns(CLOCK_MONOTONIC);
+            require(kill(-pid,SIGCONT)==0,"quantum original CONT once for source-known work");
+            if(mode==0||mode==2||mode>=6) {
+                quantum_read(event[0],&child,sizeof(child));require(child>0,"quantum actual late child identity");
+                if(mode==6)quantum_read(event[0],&other,sizeof(other));
+                actual_child_count=(unsigned)proc_listchildpids(pid,children,sizeof(children));
+                require(actual_child_count==(mode==6?2u:1u)&&(children[0]==child||(mode==6&&children[1]==child)),"actual child appears only after initial census");
+                struct image member;require(control_observe(child,&member),"actual late child retained before its release");
+                owner.members[1].state.pid=child;owner.members[1].state.birth=member.birth;
+                owner.members[1].token=control_token(child,member.birth);owner.members[1].token_known=1;
+                struct rusage_info_v1 usage;require(proc_pid_rusage(child,RUSAGE_INFO_V1,(rusage_info_t *)&usage)==0&&engine_usage(&owner,1,&usage),"late child actual raw counters");
+                if(mode>=6) {
+                    struct rusage_info_v1 early_rollup;
+                    require(proc_pid_rusage(pid,RUSAGE_INFO_V1,(rusage_info_t *)&early_rollup)==0,"actual leader rollup read while original child is still live");
+                    pre_exit_rollup_read=clock_ns(CLOCK_MONOTONIC);
+                }
+                const char release[2]={'x','x'};size_t releases=mode==6?2:1;
+                require(write(gate[1],release,releases)==(ssize_t)releases,"quantum fixture releases its existing late child");quantum_read(event[0],&report,sizeof(report));
+                require((report.child==child||(mode==6&&report.child==other))&&report.user+report.system>=2000000,"actual leader wait4 records at least two milliseconds descendant CPU");
+                if(mode>=6) {
+                    require(proc_listchildpids(pid,children,sizeof(children))==0,"actual original child exit precedes fresh count-zero rollup read");
+                    child_exit_observed=clock_ns(CLOCK_MONOTONIC);
+                }
+            } else if(mode!=4) {
+                char byte;quantum_read(event[0],&byte,1);struct image early;
+                require(control_observe(pid,&early)&&early.status!=SSTOP,"pre-ACK RI sample is physically before stopped acknowledgement");
+                struct rusage_info_v1 early_usage;require(proc_pid_rusage(pid,RUSAGE_INFO_V1,(rusage_info_t *)&early_usage)==0,"actual pre-ACK RI counter read");
+                pre_ack_ticks=early_usage.ri_user_time+early_usage.ri_system_time;pre_ack_time=clock_ns(CLOCK_MONOTONIC);
+                require(write(gate[1],"x",1)==1,"quantum fixture releases actual CPU after pre-ACK observation");
+            }
+            if(mode==4)usleep(30000); // Actual ACK observation is delayed, never backdated.
+            (void)quantum_stopped(pid);
+            require(engine_sample_member(&owner,0,pid,&ack)&&ack,"actual source-known positive current-task ACK");
+            ack_time=clock_ns(CLOCK_MONOTONIC);
+            require(engine_sample_member(&owner,0,pid,&ack)&&ack,"actual source-known RI read after positive ACK");
+            read_time=owner.members[0].counter_read_ns;post_ticks=owner.members[0].state.raw_rusage_cpu;
+            require(post_ticks>=baseline_ticks&&engine_scaled_ticks(post_ticks-baseline_ticks,grant_scale.numer,grant_scale.denom,1,&post_ack_cpu),"actual stopped helper interval is converted before closure clock");
+            close_time=clock_ns(CLOCK_MONOTONIC);close_cpu=clock_ns(CLOCK_THREAD_CPUTIME_ID);
+            if(mode==0) {
+                owner.grant.t0=grant_start;owner.grant.source_complete=1;owner.grant.unknown_mask=2;int closed=0;
+                require(!engine_roster(&owner,1,&closed)||!closed||owner.grant.unknown_mask,
+                    "actual late child cannot disappear into a measured closed roster");
+            }
+            require(private_end_unit(private_cost.open_cpu),"quantum stopped observation and counter snapshots are bounded paid work");
+            require(kill(pid,SIGKILL)==0,"quantum fixture exact owned terminal cleanup after refused work");
+        } else require(kill(pid,SIGKILL)==0,"quantum thread-negative exact owned process cleanup");
+        uint64_t until=clock_ns(CLOCK_MONOTONIC)+100000000;int done=0;
+        while(!done){require(known_exited(pid,&done),"quantum original WNOWAIT ownership");require(clock_ns(CLOCK_MONOTONIC)<until,"quantum fixture actual exit bound");if(!done)usleep(100);}
+        if(mode!=5)require(engine_member_exit(&owner,0),"quantum retained original final RI counter source");
+        require(engine_observe_wait4(&owner)&&owner.direct_reaped,"quantum controller owns actual original wait4");
+        require(close(event[0])==0&&close(gate[1])==0,"quantum fixture original pipe cleanup");
+        int pids[3];require(proc_listpgrppids(pid,pids,sizeof(pids))==0,"quantum actual owned group gone");
+        uint64_t actual_wait_cpu;
+        require(engine_safe_sum(owner.wait_user,owner.wait_system,&actual_wait_cpu)&&engine_safe_sum(actual_wait_cpu,2000,&actual_wait_cpu),"quantum actual wait4 upper cost is retained");
+        // These are deliberately invalid/over-budget fixture executions, not
+        // admitted commands. Pay ALL actually observed helper CPU once even
+        // when the deliberately incomplete certification ledger below refuses.
+        uint64_t observed_controller=engine_interval(private_cost.open_cpu,clock_ns(CLOCK_THREAD_CPUTIME_ID)),actual_cost;
+        require(engine_safe_sum(observed_controller,actual_wait_cpu,&actual_cost),"quantum observed helper and controller checked cost");
+        (void)engine_charge(&owner,observed_controller,actual_cost,1);
+        struct window_ledger g=quantum_projection(&owner,mode==0||mode==5||mode>=6?2:1);
+        enum ledger_result verdict;
+        if(mode==0) {
+            g.unknown_mask=2;g.end[1]=g.counter_read[1]=g.t_close;verdict=window_charge(&g);
+            require(!g.measured,"unknown late-child slot never obtains measured basis");
+        } else if(mode==1) {
+            mach_timebase_info_data_t scale;require(mach_timebase_info(&scale)==KERN_SUCCESS,"pre-ACK source-known timebase");
+            g.t0=grant_start;g.end[0]=ack_time;g.t_close=clock_ns(CLOCK_MONOTONIC);g.cpu_start=g.cpu_close=grant_cpu;
+            g.baseline_ticks[0]=baseline_ticks;g.endpoint_ticks[0]=pre_ack_ticks;g.baseline_read[0]=baseline_time;
+            g.counter_read[0]=pre_ack_time;g.baseline_version[0]=g.counter_version[0]=version;
+            g.timebase_numer=scale.numer;g.timebase_denom=scale.denom;
+            require(pre_ack_ticks>=baseline_ticks&&engine_scaled_ticks(pre_ack_ticks-baseline_ticks,scale.numer,scale.denom,1,&g.actual_cpu),"pre-ACK observed CPU delta conversion");
+            g.slot_cpu[0]=g.actual_cpu;g.post_ack_mask=0;verdict=window_charge(&g);
+            require(!g.measured,"counter read before positive ACK never obtains measured basis");
+            owner.startup_cpu=startup;owner.startup_known=owner.conservation_known=1;owner.charged_member_cpu=g.actual_cpu;
+            require(!engine_conservation(&owner)&&owner.conservation_excess>0&&private_errors[5].count,
+                "actual wait4 catches CPU burned after the deliberately early counter read");
+        } else if(mode==4) {
+            g.t0=grant_start;g.end[0]=ack_time;g.t_close=close_time;g.cpu_start=grant_cpu;g.cpu_close=close_cpu;
+            g.baseline_ticks[0]=baseline_ticks;g.endpoint_ticks[0]=post_ticks;g.baseline_read[0]=baseline_time;g.counter_read[0]=read_time;
+            g.baseline_version[0]=g.counter_version[0]=version;g.timebase_numer=grant_scale.numer;g.timebase_denom=grant_scale.denom;
+            g.actual_cpu=post_ack_cpu;
+            g.slot_cpu[0]=g.actual_cpu;
+            verdict=window_charge(&g);
+            require(verdict==LEDGER_LIMIT&&g.measured&&g.charge<1000000&&g.windows>25000000,
+                "low measured CPU cannot waive actual delayed ACK twenty-five millisecond wall gate");
+        } else if(mode==5) {
+            g.end[0]=110;g.actual_cpu=40;verdict=window_charge(&g);
+            require(thread_rejected&&verdict==LEDGER_COVERAGE,"actual second thread and per-slot CPU over wall both refuse coverage");
+        } else if(mode>=6) {
+            // The native processes and both read stages above are real. This
+            // finite guard projection deliberately supplies the named bad
+            // provenance, never a fabricated measured command receipt.
+            g.rollup_mask=2;g.post_ack_mask=1;g.counter_kind[1]=COUNTER_SOURCE_LEADER_ROLLUP;
+            g.rollup_unique=actual_child_count==1;g.rollup_child_retired=1;
+            g.rollup_child_exit_ns=260;g.rollup_child_zero_ns=270;g.rollup_leader_ack_ns=250;g.rollup_read_ns=g.counter_read[1]=290;
+            g.rollup_child_cpu_ns=g.slot_cpu[1];
+            require(pre_exit_rollup_read&&child_exit_observed>pre_exit_rollup_read&&read_time>=child_exit_observed,
+                "actual rollup provenance retains distinct pre-exit and post-ACK read stages");
+            if(mode==7)g.rollup_read_ns=g.counter_read[1]=255;
+            if(mode==8)g.live_child_cpu_ns=g.slot_cpu[1];
+            verdict=window_charge(&g);
+            if(mode==6)require(!g.measured,"mixed second child rollup cannot certify measured basis");
+            if(mode==7)require(!g.measured,"rollup read before original child exit cannot acquire later proof");
+            if(mode==8) {
+                require(verdict==LEDGER_COVERAGE,"live child and post-exit leader rollup cannot both be charged");
+                g.live_child_cpu_ns=0;g.t0=100;g.end[0]=1200100;g.end[1]=1000100;g.t_close=1300100;
+                g.counter_read[0]=g.counter_read[1]=g.rollup_read_ns=1300000;
+                g.rollup_child_exit_ns=1000100;g.rollup_child_zero_ns=1100100;g.rollup_leader_ack_ns=1200100;
+                // The finite timing projection is not a native receipt, but
+                // terminal conservation below uses the actual retained Mach
+                // scale. Do not make that check fail earlier on the fixture's
+                // synthetic1/1 scale and mistake it for numeric undercharge.
+                g.timebase_numer=grant_scale.numer;g.timebase_denom=grant_scale.denom;
+                require(engine_scaled_ticks(1,g.timebase_numer,g.timebase_denom,1,&g.slot_cpu[0]),"provisional projection uses the actual retained terminal scale");
+                g.slot_cpu[1]=g.rollup_child_cpu_ns=g.slot_cpu[0];g.actual_cpu=g.slot_cpu[0]+g.slot_cpu[1];
+                g.endpoint_ticks[0]=g.baseline_ticks[0]+1;g.endpoint_ticks[1]=g.baseline_ticks[1]+1;
+                require(window_charge(&g)==LEDGER_OK&&g.measured,"qualified source remains provisional before actual terminal conservation");
+                owner.grant=g;require(engine_provisional_add(&owner)&&owner.provisional_count==1&&owner.provisional_rest_difference>0,"bounded provisional full-window fallback retained without rewriting original receipt");
+                owner.startup_known=owner.conservation_known=1;owner.startup_cpu=owner.charged_member_cpu=0;
+                uint64_t debt=private_cost.debt,booked=private_cost.booked_adjustments;
+                source_known_schedule_interrupts=1;
+                int conserved=engine_conservation(&owner);
+                fprintf(stderr,"private_rollup_revocation_source_known pid=%d child=%d actual_wait4=%u conserved=%d excess_ns=%llu original_scale=%u/%u revoked=%u retained_adjustments=%llu retained_adjustment_ns=%llu expected_rest_difference_ns=%llu debt_before_ns=%llu debt_after_ns=%llu original_measured=%u runtime_approved=false\n",
+                    pid,child,owner.wait_observed,conserved,(unsigned long long)owner.conservation_excess,g.timebase_numer,g.timebase_denom,owner.provisional_revoked,
+                    (unsigned long long)private_cost.retained_adjustments,(unsigned long long)private_cost.retained_adjustment_cost_ns,
+                    (unsigned long long)owner.provisional_rest_difference,(unsigned long long)debt,(unsigned long long)private_cost.debt,owner.grant.measured);
+                require(!conserved&&owner.provisional_revoked&&owner.conservation_excess>0
+                    &&private_cost.retained_adjustments==1&&private_cost.retained_adjustment_cost_ns==owner.provisional_rest_difference
+                    &&private_cost.debt==debt,"terminal mismatch retains once-only fallback debt even when scheduling fails");
+                require(private_pay_pending()&&!private_has_retained_cost()&&private_cost.debt_paid==private_cost.debt
+                    &&private_cost.debt==debt+owner.provisional_debt_added&&private_cost.booked_adjustments==booked+1,
+                    "revoked effective window pays exact normalized rest difference with no second minimum floor");
+                debt=private_cost.debt;require(!engine_conservation(&owner)&&private_cost.debt==debt&&owner.grant.measured,
+                    "terminal revocation is idempotent and preserves original measured receipt");
+            }
+        } else {
+            uint64_t total,user,system;
+            require(engine_actual(&owner,&total,&user,&system)&&total>=startup,"actual nonduplicated terminal RI interval");
+            owner.startup_cpu=startup;owner.startup_known=owner.conservation_known=1;
+            owner.charged_member_cpu=total-startup;
+            // No wait4-derived residual may fund the SAME wait4's RHS.
+            // This actual post-exit RI observation already contains the final
+            // raw counters; only the explicit rounding allowance remains.
+            int conserved=engine_conservation(&owner);
+            require(conserved,mode==2?"actual reaped-descendant rollup is included in terminal charged conservation":"actual Mach tick conversion preserves terminal charged conservation");
+            if(mode==2) {
+                for(unsigned unit=0;unit<12;unit++) {
+                    uint64_t start=clock_ns(CLOCK_THREAD_CPUTIME_ID);
+                    while(clock_ns(CLOCK_THREAD_CPUTIME_ID)-start<250000){}
+                    uint64_t used=engine_interval(private_cost.open_cpu,clock_ns(CLOCK_THREAD_CPUTIME_ID));
+                    require(engine_charge(&owner,used,used,1),"controller-only post units retain unchanged one-millisecond gate and fresh paid debt");
+                    engine_sum(&result.post_cpu_ns,used);
+                }
+                require(result.post_cpu_ns.value>=3000000,"large actual controller post work was separately paid");
+                owner.charged_member_cpu=0;owner.conservation_checked=0;
+                require(!engine_conservation(&owner)&&owner.conservation_excess>0,
+                    "already-paid controller post CPU cannot cover omitted actual helper rollup");
+            }
+            if(mode==3) {
+                mach_timebase_info_data_t scale;uint64_t raw=owner.members[0].state.raw_rusage_cpu,converted=UINT64_MAX;
+                require(mach_timebase_info(&scale)==KERN_SUCCESS&&engine_ticks_ns(raw,&converted),"actual Mach conversion and retained platform scale");
+                __uint128_t exact=(__uint128_t)raw*scale.numer;exact=exact/scale.denom+(exact%scale.denom!=0);
+                require(converted==exact,"actual Mach tick interval uses explicit retained timebase");
+            }
+            verdict=window_charge(&g);
+        }
+        char name[32];snprintf(name,sizeof(name),"quantum-%u.ndjson",mode);
+        require(private_end_unit(private_cost.open_cpu),"quantum guard projection and conservation classification are separately paid");
+        owner.ledger=openat(dir,name,O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,0600);owner.grant=g;
+        require(owner.ledger>=0&&engine_record(&owner,"source_known_quantum")&&fsync(owner.ledger)==0&&close(owner.ledger)==0,"quantum bounded owned raw evidence persistence");
+        require(private_end_unit(private_cost.open_cpu),"quantum final owned formatter persistence and disposal are paid ordinary work");
+        printf("private_quantum_source_known mode=%u pid=%d child=%d other_child=%d observed_child_count=%u pre_exit_rollup_read_ns=%llu child_exit_observed_ns=%llu post_ACK_read_ns=%llu actual_wait4=true group_gone=true guard_projection_only=%s qualification=false basis=%s W=%llu A=%llu C=%llu Q=%llu verdict=%d conservation_checked=%u conservation_passed=%u excess_ns=%llu native_cpu_ns=%llu native_wall_ns=%llu runtime_approved=false\n",
+            mode,pid,child,other,actual_child_count,(unsigned long long)pre_exit_rollup_read,(unsigned long long)child_exit_observed,(unsigned long long)read_time,mode==4?"false":"true",g.measured?"measured":"window",(unsigned long long)g.windows,(unsigned long long)g.actual_cpu,(unsigned long long)g.controller,(unsigned long long)g.charge,verdict,
+            owner.conservation_checked,owner.conservation_ok,(unsigned long long)owner.conservation_excess,(unsigned long long)native,(unsigned long long)native_wall);controls++;
+        require(fflush(stdout)==0&&private_end_unit(private_cost.open_cpu),"quantum final stdout formatting and actual flush are paid before the next fixture epoch");
+    }
+    reset();
+}
+static void charge_diagnostic_control(int dir) {
+    reset();outer.deadline=private_cost.deadline;
+    struct private_engine_result result;struct engine_owner owner;memset(&result,0,sizeof(result));memset(&owner,0,sizeof(owner));
+    owner.context=&context;owner.result=&result;owner.ledger=openat(dir,"charge-diagnostic.ndjson",O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,0600);
+    require(owner.ledger>=0&&private_end_unit(private_cost.open_cpu),"ordinary charge diagnostic bounded preparation");
+    uint64_t at=clock_ns(CLOCK_THREAD_CPUTIME_ID);while(clock_ns(CLOCK_THREAD_CPUTIME_ID)-at<1100000){}
+    require(!engine_charge(&owner,0,0,1)&&owner.failed_units==1&&owner.failed_unit_first.actual>=1100000
+        &&owner.failed_unit_first.inclusive==owner.failed_unit_first.actual&&private_cost.debt==private_cost.debt_paid,
+        "actual ordinary CPU tail is retained charged paid and diagnosed before refusal");
+    uint64_t first=owner.failed_unit_first.actual;
+    require(!engine_charge(&owner,0,1500001,1)&&owner.failed_units==2&&owner.failed_unit_last.actual<1000000
+        &&owner.failed_unit_last.supplied_cost==1500001&&owner.failed_unit_first.actual==first
+        &&private_cost.debt==private_cost.debt_paid,
+        "cost-only ordinary refusal remains distinct from actual controller CPU overrun");
+    require(engine_record(&owner,"charge_diagnostic")&&fsync(owner.ledger)==0&&close(owner.ledger)==0,"ordinary first-last failed charge evidence persisted");
+    require(private_end_unit(private_cost.open_cpu),"ordinary charge diagnostic raw formatter persistence and disposal are paid");
+    printf("private_charge_diagnostic_source_known failures=2 first_actual_ns=%llu last_actual_ns=%llu last_supplied_cost_ns=%llu debt_charged_ns=%llu debt_paid_ns=%llu helpers=0 runtime_approved=false\n",
+        (unsigned long long)first,(unsigned long long)owner.failed_unit_last.actual,(unsigned long long)owner.failed_unit_last.supplied_cost,
+        (unsigned long long)private_cost.debt,(unsigned long long)private_cost.debt_paid);
+    require(fflush(stdout)==0&&private_end_unit(private_cost.open_cpu),"charge diagnostic stdout formatting and actual flush are paid before reset");
+    controls++;reset();
 }
 int main(int argc,char **argv) {
     if(argc==2&&!strcmp(argv[1],"exit-child"))_exit(0);
@@ -879,9 +1341,11 @@ int main(int argc,char **argv) {
     unsigned diagnostics_only=argc==2&&!strcmp(argv[1],"terminal-diagnostic-controls");
     unsigned closure_only=argc==2&&!strcmp(argv[1],"closure-stage-controls");
     unsigned setup_budget_only=argc==2&&!strcmp(argv[1],"diagnostic-setup-budget-control");
+    unsigned quantum_only=argc==3&&!strcmp(argv[1],"quantum-control");
+    unsigned charge_only=argc==2&&!strcmp(argv[1],"charge-diagnostic-control");
     if(argc==2&&!strcmp(argv[1],"hold-scheduling-control")){payment_only=1;hold_scheduling_only=1;}
     if(argc==2&&!strcmp(argv[1],"hold-final-scheduling-control")){payment_only=1;hold_scheduling_only=2;}
-    require(argc==1||payment_only||lifetime_only||diagnostics_only||closure_only||setup_budget_only,"private source-known controls argc");require(atexit(dispose_owned)==0,"owned cleanup registration");
+    require(argc==1||payment_only||lifetime_only||diagnostics_only||closure_only||setup_budget_only||quantum_only||charge_only,"private source-known controls argc");require(atexit(dispose_owned)==0,"owned cleanup registration");
     char root[]="/private/tmp/dream-private-engine-controls.XXXXXX";require(mkdtemp(root)!=NULL,"owned fixture directory");
     int dir=open(root,O_RDONLY|O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC);require(dir>=0,"owned fixture root");
     fprintf(stderr,"private_engine_fixture_source_known pid=%d retained=%s real_candidate_created=0 runtime_approved=false\n",getpid(),root);
@@ -904,6 +1368,8 @@ int main(int argc,char **argv) {
     char self[PROC_PIDPATHINFO_MAXSIZE];require(proc_pidpath(getpid(),self,sizeof(self))>0,"actual source-known image");
     if(diagnostics_only){terminal_diagnostic_controls(dir);require(close(dir)==0,"owned diagnostic-only root close");return 0;}
     if(closure_only){basis.source_coverage=127;basis.command_coverage=65535;closure_stage_controls(self,dir);require(close(dir)==0,"owned closure-only root close");return 0;}
+    if(quantum_only){unsigned mode=(unsigned)strtoul(argv[2],NULL,10);require(mode<9,"exact nine source-known quantum controls");quantum_controls(self,dir,mode);require(close(dir)==0,"owned quantum-only root close");return 0;}
+    if(charge_only){charge_diagnostic_control(dir);require(close(dir)==0,"owned charge-only root close");return 0;}
     if(payment_only||lifetime_only) {
         require(engine_owner_priority(),"source-known narrow controller priority");
         basis.source_coverage=127;basis.command_coverage=65535;
@@ -914,6 +1380,8 @@ int main(int argc,char **argv) {
         return 0;
     }
     semantic_controls();result_controls();flow_controls(root,dir);terminal_diagnostic_controls(dir);
+    quantum_controls(self,dir,9);
+    charge_diagnostic_control(dir);
     process_control(self,0);process_control(self,1);
     closure_stage_controls(self,dir);pending_exec_control(self,dir);settlement_control(self,dir,0);settlement_control(self,dir,1);settlement_control(self,dir,2);
     quarantine_hold_process_control(self,root,dir);

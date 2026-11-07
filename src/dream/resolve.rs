@@ -45,6 +45,17 @@ pub(crate) struct HelperTicket {
     pub start_identity: u64,
     pub sequence: u16,
 }
+/// Produced only after wait4 returns this retained original PID. RI and
+/// WNOWAIT observations cannot construct production terminal CPU accounting.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct HelperReapUsage {
+    pub(crate) pid: i32,
+    pub(crate) user_ns: u64,
+    pub(crate) system_ns: u64,
+    pub(crate) rss_bytes: u64,
+    pub(crate) observed_ns: u64,
+    pub(crate) readings: u64,
+}
 impl HelperIdentity {
     pub(crate) fn ticket(&self) -> HelperTicket {
         HelperTicket {
@@ -425,13 +436,9 @@ pub(crate) trait ProofPace {
     /// the last group kill while that leader still prevents pgid reuse.
     fn helper_retire(&mut self, ticket: HelperTicket) -> Result<(), Invalid>;
     fn helper_detach(&mut self, ticket: HelperTicket) -> Result<(), Invalid>;
-    fn helper_usage(
-        &mut self,
-        ticket: HelperTicket,
-        user_ns: u64,
-        system_ns: u64,
-        rss_bytes: u64,
-    ) -> Result<(), Invalid>;
+    fn helper_post_exit(&mut self, ticket: HelperTicket) -> Result<(), Invalid>;
+    fn helper_usage(&mut self, ticket: HelperTicket, usage: HelperReapUsage)
+    -> Result<(), Invalid>;
     /// Drain with the C1 cleanup lane even after cancellation or a failed clock.
     fn cleanup(&mut self, step: &mut dyn FnMut() -> bool);
 }
@@ -800,7 +807,9 @@ fn helper_hook(ticket: HelperTicket, action: u8) -> Result<(), Invalid> {
             0 => Err(Invalid("helper identity required")),
             1 => owner.pace.helper_poll(ticket),
             2 => owner.pace.helper_retire(ticket),
-            _ => owner.pace.helper_detach(ticket),
+            3 => owner.pace.helper_detach(ticket),
+            4 => owner.pace.helper_post_exit(ticket),
+            _ => Err(Invalid("unknown helper custody hook")),
         }
     })
 }
@@ -2076,12 +2085,19 @@ fn selected_command_input_owned(
     let mut status = None;
     let mut usage = unsafe { std::mem::zeroed::<libc::rusage>() };
     let mut settlement_error = None;
+    let mut reap_observed_ns = u64::MAX;
     let mut group_gone = false;
+    let needs_post_exit = std::cell::Cell::new(false);
+    let post_exit_done = std::cell::Cell::new(false);
     let mut settle = || {
         if status.is_none() {
             match helper_exited(pgid) {
                 Ok(false) => return true,
                 Ok(true) => {
+                    if !post_exit_done.get() {
+                        needs_post_exit.set(true);
+                        return false; // original leader remains UNREAPED
+                    }
                     let mut raw = 0;
                     let reaped = unsafe { libc::wait4(pgid, &mut raw, libc::WNOHANG, &mut usage) };
                     if reaped == 0 {
@@ -2091,6 +2107,7 @@ fn selected_command_input_owned(
                         settlement_error = Some(Invalid("selected helper direct join unavailable"));
                         return false;
                     }
+                    reap_observed_ns = super::bootstrap::monotonic_ns().unwrap_or(u64::MAX);
                     status = Some(if libc::WIFEXITED(raw) {
                         libc::WEXITSTATUS(raw)
                     } else {
@@ -2115,6 +2132,7 @@ fn selected_command_input_owned(
         true
     };
     let mut cleanup_panic = false;
+    let mut post_exit_error = None;
     loop {
         let mut exhausted = false;
         let mut called = false;
@@ -2132,9 +2150,6 @@ fn selected_command_input_owned(
         if pacing.is_err() {
             cleanup_panic = true;
         }
-        if exhausted {
-            break;
-        }
         // A panicking or prematurely returning cleanup hook cannot fabricate
         // settlement. Continue one small physical step per existing9ms wait;
         // this recovery always refuses certification.
@@ -2142,8 +2157,22 @@ fn selected_command_input_owned(
             cleanup_panic = true;
             std::thread::sleep(std::time::Duration::from_millis(9));
             if !settle() {
-                break;
+                exhausted = true;
             }
+        }
+        if needs_post_exit.get() && !post_exit_done.get() {
+            // Leave cleanup's SELECTED borrow before this disjoint paid owner
+            // observation. A refused observation still proceeds to actual reap;
+            // it never retries a signal/native effect or fabricates settlement.
+            post_exit_done.set(true);
+            needs_post_exit.set(false);
+            if let Err(error) = helper_catch(|| helper_hook(retained_ticket, 4)) {
+                post_exit_error = Some(error);
+            }
+            continue;
+        }
+        if exhausted {
+            break;
         }
     }
     drop(settle);
@@ -2160,7 +2189,17 @@ fn selected_command_input_owned(
                     .as_mut()
                     .ok_or(Invalid("selected helper owner unavailable"))?
                     .pace
-                    .helper_usage(retained_ticket, user, system, rss)
+                    .helper_usage(
+                        retained_ticket,
+                        HelperReapUsage {
+                            pid: pgid,
+                            user_ns: user,
+                            system_ns: system,
+                            rss_bytes: rss,
+                            observed_ns: reap_observed_ns,
+                            readings: 1,
+                        },
+                    )
             })
         })
     } else {
@@ -2178,6 +2217,9 @@ fn selected_command_input_owned(
     observed?;
     retired?;
     if let Some(error) = settlement_error {
+        return Err(error);
+    }
+    if let Some(error) = post_exit_error {
         return Err(error);
     }
     if !group_gone || cleanup_panic {
@@ -4055,14 +4097,15 @@ mod selected_helper_process_tests {
         fn helper_detach(&mut self, ticket: HelperTicket) -> Result<(), Invalid> {
             self.inner.helper_detach(ticket)
         }
+        fn helper_post_exit(&mut self, ticket: HelperTicket) -> Result<(), Invalid> {
+            self.inner.helper_post_exit(ticket)
+        }
         fn helper_usage(
             &mut self,
             ticket: HelperTicket,
-            user: u64,
-            system: u64,
-            rss: u64,
+            usage: HelperReapUsage,
         ) -> Result<(), Invalid> {
-            self.inner.helper_usage(ticket, user, system, rss)
+            self.inner.helper_usage(ticket, usage)
         }
         fn cleanup(&mut self, step: &mut dyn FnMut() -> bool) {
             let active = self

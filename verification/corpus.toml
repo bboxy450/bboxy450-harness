@@ -2221,3 +2221,52 @@ frontend = "project"
 name = "BrokenHarnessDreamReadPrivateVerdictsEarlyTerminal"
 expected = "safety"
 frontend = "project"
+
+# Decision66236: paired named measured-basis, conservation and wall controls.
+
+[[model]]
+name = "BrokenHarnessDreamReadMemberWindowMeasuredOpenSlot"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadMemberWindowPreAckCounters"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadMemberWindowMeasuredOmitRollup"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadMemberWindowMeasuredRawTicks"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadMemberWindowMeasuredNoWallGate"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadMemberWindowMeasuredMultiThread"
+expected = "safety"
+frontend = "project"
+
+# Clarified66236: qualified unique leader-child rollup counter provenance.
+
+[[model]]
+name = "BrokenHarnessDreamReadMemberWindowMixedChildRollup"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadMemberWindowPreExitRollup"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadMemberWindowDoubleCountRollup"
+expected = "safety"
+frontend = "project"

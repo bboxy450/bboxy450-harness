@@ -41,10 +41,25 @@ ASSERTIONS = {
     'terminal-false-persistence': (b'actual failed persistence remains independent of causal control',),
     'terminal-skip-tail-cost': (b'actual over-CPU exit tail independently refuses after successful control and persistence',),
     'terminal-before-tail': (b'final raw verdict follows paid complete exit tail exactly once',),
+    'quantum-open-slot': (b'unknown late-child slot never obtains measured basis',),
+    'quantum-pre-ack': (b'counter read before positive ACK never obtains measured basis',),
+    'quantum-omit-rollup': (b'actual reaped-descendant rollup is included in terminal charged conservation',),
+    'quantum-raw-ticks': (b'actual Mach tick conversion preserves terminal charged conservation',
+                          b'actual Mach tick interval uses explicit retained timebase'),
+    'quantum-no-wall': (b'low measured CPU cannot waive actual delayed ACK twenty-five millisecond wall gate',),
+    'quantum-slot-over-wall': (b'actual second thread and per-slot CPU over wall both refuse coverage',),
+    'quantum-no-conservation': (b'actual wait4 catches CPU burned after the deliberately early counter read',),
+    'engine-drop-inclusive-tail': (b'actual ordinary CPU tail is retained charged paid and diagnosed before refusal',),
+    'quantum-credit-controller-post': (b'already-paid controller post CPU cannot cover omitted actual helper rollup',),
+    'quantum-rollup-mixed': (b'mixed second child rollup cannot certify measured basis',),
+    'quantum-rollup-pre-exit': (b'rollup read before original child exit cannot acquire later proof',),
+    'quantum-rollup-double': (b'live child and post-exit leader rollup cannot both be charged',),
+    'quantum-rollup-forgotten-debt': (b'terminal mismatch retains once-only fallback debt even when scheduling fails',),
 }
 LEDGERS = ('terminal-ledger.ndjson', 'live-ledger.ndjson', 'exec-ledger.ndjson',
            'unknown-ledger.ndjson', 'deadline-ledger.ndjson', 'failed-receipt-ledger.ndjson', 'hold-ledger.ndjson', 'result.json', 'claim.json', 'closure-late-stop.ndjson', 'closure-over-cpu.ndjson',
-           *('diagnostic-' + str(i) + '/' + name for i in range(4) for name in ('stderr', 'stdout', 'result.json')))
+           *('diagnostic-' + str(i) + '/' + name for i in range(4) for name in ('stderr', 'stdout', 'result.json')),
+           *(f'quantum-{i}.ndjson' for i in range(9)), 'charge-diagnostic.ndjson')
 
 
 def sha(data):
@@ -157,6 +172,32 @@ def expect(code, wanted, label):
         raise ValueError(f'{label}: actual exit {code}, expected {wanted}')
 
 
+def verify_lifetime_mutant_cleanup(stderr, record):
+    # The deliberately broken controller cannot prove product custody. This
+    # existing fixture observer must nevertheless discharge its OWN child PID
+    # and release only its original helper gate, with independently observed
+    # original-incarnation terminal/group facts. It never adopts a child wait4.
+    rows = re.findall(
+        rb'^private_hold_fixture_cleanup_source_known controller=([0-9]+) '
+        rb'controller_reaped=1 controller_status_known=1 controller_status_raw=([0-9]+) '
+        rb'retained_controller_pid=0 helper=([0-9]+) helper_birth=([0-9]+) helper_start=([0-9]+) '
+        rb'helper_identity_known=1 original_helper_terminal_observed=1 original_group_gone=1 '
+        rb'release_gate_closed=1 signals_sent=0 helper_reaped_by_observer=false deadline_exhausted=0 '
+        rb'debt_charged_ns=([0-9]+) debt_paid_ns=([0-9]+) runtime_approved=false\n', stderr, re.MULTILINE)
+    if len(rows) != 1:
+        raise ValueError('lifetime mutant lacks bounded original-identity cleanup evidence')
+    controller, status, helper, birth, start, charged, paid = map(int, rows[0])
+    if (status != 81 << 8 or min(controller, helper, birth, start) <= 0
+            or len({record['pid'], controller, helper}) != 3 or charged != paid):
+        raise ValueError('lifetime mutant cleanup status, identity or paid debt differs')
+    record['fixture_failure_cleanup_observed'] = {
+        'controller': controller, 'controller_actual_reaped': True, 'controller_status_raw': status,
+        'retained_controller_pid': 0, 'helper': helper, 'helper_birth': birth, 'helper_start': start,
+        'helper_terminal_observed': True, 'original_group_gone': True, 'signals_sent': 0,
+        'helper_reaped_by_observer': False, 'debt_charged_ns': charged, 'debt_paid_ns': paid,
+        'boundary': 'fixture gate EOF and original identity observations; broken controller custody remains failed'}
+
+
 def compile_source(directory, filename, report):
     executable = directory / 'program'
     code, _, _ = run(['/usr/bin/clang', *FLAGS, str(directory / filename), '-o', str(executable)],
@@ -169,11 +210,11 @@ def compile_source(directory, filename, report):
 
 
 def retain_ledgers(stdout, directory, report):
-    matches = re.findall(rb'private_engine_controls=pass cases=55 synthetic_source_known=true '
+    matches = re.findall(rb'private_engine_controls=pass cases=66 synthetic_source_known=true '
                          rb'real_candidate_created=0 runtime_approved=false retained='
                          rb'(/private/tmp/dream-private-engine-controls\.[A-Za-z0-9]+)\n', stdout)
     if len(matches) != 1:
-        raise ValueError('current fixture did not report the exact 55 source-known controls')
+        raise ValueError('current fixture did not report the exact 66 source-known controls')
     source_dir = Path(os.fsdecode(matches[0]))
     if str(source_dir) != report['commands'][-1]['fixture_capture']['source_dir']:
         raise ValueError('completed fixture root differs from its original command binding')
@@ -249,6 +290,46 @@ def verify(directory, inputs, report):
         'terminal-skip-tail-cost': source.replace(cost_anchor, b'(void)ok;', 1),
         'terminal-before-tail': early_terminal,
     }
+    quantum_anchors = {
+        'unknown': b'g->unknown_mask==0&&g->baseline_mask==all',
+        'post_ack': b'&&((g->post_ack_mask|g->wait4_mask|g->rollup_mask)&all)==all&&g->timebase_numer&&g->timebase_denom;',
+        'read_time': b'g->counter_read[i]<g->end[i]',
+        'rollup': b'b->state.raw_rusage_cpu>a->state.raw_waited?b->state.raw_rusage_cpu:a->state.raw_waited',
+        'conversion': b'return engine_scaled_ticks(raw,scale.numer,scale.denom,1,ns);',
+        'wall': b'g->charge<=1000000&&g->windows<=25000000',
+        'slot': b'if((g->counter_mask&(1u<<i))&&g->slot_cpu[i]>wall)return LEDGER_COVERAGE;',
+        'conservation': b'if(owner->conservation_excess)return engine_conservation_failure(owner,"resource_limit","actual terminal CPU exceeds independently charged helper conservation bound");',
+        'tail': b'else if(inclusive>actual) {',
+        'controller_credit': b'||!engine_safe_sum(credit,owner->justified_post_cpu,&credit)',
+        'rollup_unique': b'||!g->rollup_unique||!g->rollup_child_retired',
+        'rollup_before_exit': b'||g->rollup_read_ns<g->rollup_child_exit_ns||g->rollup_read_ns<g->rollup_child_zero_ns',
+        'rollup_double': b'if(g->live_child_cpu_ns||g->rollup_child_cpu_ns!=g->slot_cpu[1])return LEDGER_COVERAGE;',
+        'rollup_debt': b'if(difference>UINT64_MAX/9||!private_retain_debt_adjustment(difference))return 0;',
+    }
+    if any(source.count(anchor) != 1 for anchor in quantum_anchors.values()):
+        raise ValueError('66236 causal mutation anchor differs; no guessed mutation')
+    variants.update({
+        'quantum-open-slot': source.replace(quantum_anchors['unknown'], b'1&&g->baseline_mask==all', 1),
+        'quantum-pre-ack': source.replace(quantum_anchors['post_ack'], b'&&g->timebase_numer&&g->timebase_denom;', 1).replace(
+            quantum_anchors['read_time'], b'0', 1),
+        'quantum-omit-rollup': source.replace(quantum_anchors['rollup'], b'b->state.raw_rusage_cpu', 1),
+        'quantum-raw-ticks': source.replace(quantum_anchors['conversion'], b'*ns=raw;return 1;', 1),
+        'quantum-no-wall': source.replace(quantum_anchors['wall'], b'g->charge<=1000000', 1),
+        'quantum-slot-over-wall': source.replace(quantum_anchors['slot'], b'(void)wall;', 1),
+        'quantum-no-conservation': source.replace(quantum_anchors['conservation'], b'(void)owner->conservation_excess;', 1),
+        'engine-drop-inclusive-tail': source.replace(quantum_anchors['tail'], b'else if(0&&inclusive>actual) {', 1),
+        'quantum-credit-controller-post': source.replace(quantum_anchors['controller_credit'],
+            quantum_anchors['controller_credit'] + b'\n        ||!engine_safe_sum(credit,owner->result->post_cpu_ns.observed?owner->result->post_cpu_ns.value:0,&credit)', 1),
+        'quantum-rollup-mixed': source.replace(quantum_anchors['rollup_unique'], b'||!g->rollup_child_retired', 1),
+        'quantum-rollup-pre-exit': source.replace(quantum_anchors['rollup_before_exit'], b'||0', 1),
+        'quantum-rollup-double': source.replace(quantum_anchors['rollup_double'], b'(void)g->live_child_cpu_ns;', 1),
+        'quantum-rollup-forgotten-debt': source.replace(quantum_anchors['rollup_debt'], b'(void)private_retain_debt_adjustment;if(difference>UINT64_MAX/9)return 0;', 1),
+    })
+    quantum_modes = {'quantum-open-slot': 0, 'quantum-pre-ack': 1, 'quantum-omit-rollup': 2,
+                     'quantum-raw-ticks': 3, 'quantum-no-wall': 4, 'quantum-slot-over-wall': 5,
+                     'quantum-no-conservation': 1, 'quantum-credit-controller-post': 2,
+                     'quantum-rollup-mixed': 6, 'quantum-rollup-pre-exit': 7,
+                     'quantum-rollup-double': 8, 'quantum-rollup-forgotten-debt': 8}
     for name, wire in variants.items():
         own = directory / name
         own.mkdir(mode=0o700)
@@ -266,6 +347,10 @@ def verify(directory, inputs, report):
             arguments.append('hold-scheduling-control')
         elif name == 'hold-forgotten-final-cost':
             arguments.append('hold-final-scheduling-control')
+        elif name in quantum_modes:
+            arguments.extend(['quantum-control', str(quantum_modes[name])])
+        elif name == 'engine-drop-inclusive-tail':
+            arguments.append('charge-diagnostic-control')
         code, stdout, stderr = run(arguments, own, 'controls', report, fixture=True)
         expect(code, 0 if name == 'current' else 81, name + ' controls')
         if name == 'current':
@@ -273,6 +358,8 @@ def verify(directory, inputs, report):
             verify_setup_budget(program, own, report)
         elif not any(assertion in stderr for assertion in ASSERTIONS[name]):
             raise ValueError(name + ': exit81 lacks the required causal assertion')
+        if name in ('quarantine-exit', 'quarantine-fd-release'):
+            verify_lifetime_mutant_cleanup(stderr, report['commands'][-1])
     anchor = b'int ok=private_end_unit(step->start);'
     if controls.count(anchor) != 1:
         raise ValueError('diagnostic setup cost mutation anchor differs')

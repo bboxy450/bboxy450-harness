@@ -682,6 +682,13 @@ impl Control {
         observed_interval(&self.accounting, start, end)
     }
     #[cfg(test)]
+    pub(crate) fn fixture_debt_totals(&self) -> (u64, u64) {
+        (
+            self.accounting.debt_total.load(Ordering::Acquire),
+            self.accounting.rest_total.load(Ordering::Acquire),
+        )
+    }
+    #[cfg(test)]
     pub(crate) fn fixture(deadline: Instant) -> Self {
         Self {
             cancel: AtomicU8::new(0),
@@ -758,7 +765,11 @@ pub(crate) struct HelperGroup {
     post_commit_pending: bool,
     post_cpu: u64,
     post_late_cpu: u64,
-    accounted_helper_cpu: u64,
+    post_unexplained_cpu: u64,
+    post_startup_cpu: u64,
+    startup_accounted: bool,
+    #[cfg(test)]
+    rollup_double_count_fault: bool,
     rolled_user_ticks: u64,
     rolled_system_ticks: u64,
     grant_commit_pending: bool,
@@ -771,6 +782,11 @@ pub(crate) struct HelperGroup {
     post_late_known: bool,
     settled_cpu: Option<u64>,
     usage_reconciled: bool,
+    // A physically closed exited grant may use measured accounting only after
+    // its original wait4. This state permits settlement/raw drain, never work.
+    terminal_accounting_pending: bool,
+    timebase: HelperTimebase,
+    startup_late_cpu_ns: u64,
     accounting_settled: bool,
     last_clock_ns: Option<u64>,
     pub(crate) metrics: HelperMetrics,
@@ -791,6 +807,7 @@ struct HelperAuditToken {
     value: [u32; 8],
 }
 #[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
 struct HelperTimebase {
     numer: u32,
     denom: u32,
@@ -832,12 +849,22 @@ fn helper_token_exited(token: &HelperAuditToken) -> Result<bool, i32> {
     }
 }
 #[cfg(target_os = "macos")]
-fn helper_ticks_ns(ticks: u64) -> Result<u64, ()> {
+fn helper_timebase() -> Result<HelperTimebase, ()> {
     let mut timebase = HelperTimebase { numer: 0, denom: 0 };
     if unsafe { helper_timebase_info(&mut timebase) } != 0
         || timebase.numer == 0
         || timebase.denom == 0
     {
+        return Err(());
+    }
+    Ok(timebase)
+}
+#[cfg(not(target_os = "macos"))]
+fn helper_timebase() -> Result<HelperTimebase, ()> {
+    Err(())
+}
+fn helper_convert_ticks(ticks: u64, timebase: HelperTimebase) -> Result<u64, ()> {
+    if timebase.numer == 0 || timebase.denom == 0 {
         return Err(());
     }
     let ns = (u128::from(ticks) * u128::from(timebase.numer) + u128::from(timebase.denom) - 1)
@@ -1042,10 +1069,12 @@ struct HelperSlotWindow {
 #[derive(Clone, Copy, Default)]
 struct HelperGrantLedger {
     opened: bool,
+    index: u64,
     t0_ns: u64,
     close_ns: Option<u64>,
     reserved: u8,
     slots: [HelperSlotWindow; 2],
+    baseline_slots: [HelperSlotWindow; 2],
     actual_baseline: u64,
     baseline_usage: [HelperUsageObservation; 2],
     ack_usage: [HelperUsageObservation; 2],
@@ -1059,11 +1088,69 @@ struct HelperGrantLedger {
     reported_a: u64,
     reported_c: u64,
     closed: bool,
+    post_ack_mask: u8,
+    basis: HelperChargeBasis,
+    controller_end: Option<u64>,
+    pipe_end: Option<u64>,
+    rollup: HelperChildRollupProof,
+    rollup_registered: bool,
+    rollup_fallback_recovered: bool,
+    rollup_fallback_q: u64,
+    rollup_q_delta: u64,
+    rollup_debt_delta: u64,
+}
+/// Conditional finite-source proof, never a fabricated child wait4/RI exit.
+/// The child-count/retired-identity observation precedes the leader RI read.
+#[derive(Clone, Copy, Default)]
+struct HelperChildRollupProof {
+    checked: bool,
+    grant_t0_ns: u64,
+    leader: HelperSlotWindow,
+    child: HelperSlotWindow,
+    leader_ack_ns: u64,
+    child_exit_observed_ns: u64,
+    read_ns: u64,
+    child_count: u8,
+    user_ticks: u64,
+    system_ticks: u64,
+}
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum HelperChargeBasis {
+    #[default]
+    Window,
+    Measured,
+}
+impl HelperChargeBasis {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Window => "window",
+            Self::Measured => "measured",
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum HelperCounterSource {
+    #[default]
+    None,
+    PostAck,
+    RetainedWait4,
+    LeaderChildRollup,
+}
+impl HelperCounterSource {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::PostAck => "post_ack",
+            Self::RetainedWait4 => "retained_wait4",
+            Self::LeaderChildRollup => "leader_child_rollup",
+        }
+    }
 }
 /// One bounded receipt: every raw field belongs to the same worst-Q grant.
 #[derive(Clone, Copy, Default)]
 pub(crate) struct HelperGrantReceipt {
     pub(crate) sequence: u16,
+    pub(crate) grant_index: u64,
     pub(crate) pid: i32,
     pub(crate) pgid: i32,
     pub(crate) birth: u64,
@@ -1080,6 +1167,22 @@ pub(crate) struct HelperGrantReceipt {
     pub(crate) c_ns: u64,
     pub(crate) q_ns: u64,
     pub(crate) closed: bool,
+    pub(crate) basis: HelperChargeBasis,
+    pub(crate) unknown_mask: u8,
+    pub(crate) post_ack_mask: u8,
+    pub(crate) monotonic_mask: u8,
+    pub(crate) slot_a_ns: [u64; 2],
+    pub(crate) timebase_numer: u32,
+    pub(crate) timebase_denom: u32,
+    pub(crate) counters_read: u64,
+    pub(crate) counter_source: [HelperCounterSource; 2],
+    pub(crate) live_child_cpu_ns: u64,
+    pub(crate) rollup_child_cpu_ns: u64,
+    pub(crate) rollup_provisional: bool,
+    pub(crate) rollup_revoked: bool,
+    pub(crate) rollup_reconciled: bool,
+    pub(crate) rollup_exit_observed_ns: u64,
+    pub(crate) rollup_read_ns: u64,
     pub(crate) controller_baseline_ns: u64,
     pub(crate) controller_end_ns: u64,
     pub(crate) pipe_baseline_ns: u64,
@@ -1142,6 +1245,9 @@ struct HelperMember {
     user_ticks: u64,
     system_ticks: u64,
     exit_abstime: u64,
+    // Actual host observation of the qualified unique child's retirement;
+    // distinct from a kernel RI exit timestamp, which may be unavailable.
+    rollup_exit_observed_ns: u64,
 }
 /// A first-proof observation passed by value only inside one locked control
 /// tick. It is never stored in HelperGroup or reused across ticks/grants.
@@ -1245,8 +1351,41 @@ pub(crate) struct HelperMetrics {
     pub(crate) reap_ri_system_ticks: u64,
     pub(crate) reap_timebase_numer: u32,
     pub(crate) reap_timebase_denom: u32,
+    pub(crate) measured_grants: u64,
+    pub(crate) window_grants: u64,
+    pub(crate) startup_cpu_ns: u64,
+    pub(crate) startup_charged_cpu_ns: u64,
+    pub(crate) charged_helper_cpu_ns: u64,
+    pub(crate) post_helper_cpu_ns: u64,
+    pub(crate) counter_reads: u64,
+    pub(crate) wait4_reads: u64,
+    pub(crate) conservation_budget_ns: u64,
+    pub(crate) conservation_late_ns: u64,
+    pub(crate) startup_late_excluded_ns: u64,
+    pub(crate) conservation_allowance_ns: u64,
+    pub(crate) conservation_excess_ns: u64,
+    pub(crate) conservation_checked: bool,
+    pub(crate) conservation_pass: bool,
+    pub(crate) post_exit_observations: u64,
+    pub(crate) post_exit_observation_known: bool,
+    pub(crate) post_exit_user_before_ticks: u64,
+    pub(crate) post_exit_system_before_ticks: u64,
+    pub(crate) post_exit_user_after_ticks: u64,
+    pub(crate) post_exit_system_after_ticks: u64,
+    pub(crate) provisional_rollup_grants: u64,
+    pub(crate) recovered_rollup_grants: u64,
+    pub(crate) provisional_rollup_fallback_delta_ns: u64,
+    pub(crate) provisional_rollup_debt_delta_ns: u64,
+    pub(crate) rollup_reconciled: bool,
+    pub(crate) rollup_revoked: bool,
+    pub(crate) rollup_fallback_charge_ns: u64,
+    pub(crate) rollup_fallback_debt_ns: u64,
+    pub(crate) rollup_fallback_worst: HelperGrantReceipt,
 }
 impl HelperGroup {
+    fn ticks_ns(&self, ticks: u64) -> Result<u64, ()> {
+        helper_convert_ticks(ticks, self.timebase)
+    }
     fn charge_helper_debt(&mut self, control: &Control, cost: u64) {
         // Preserve unknown raw cost as MAX, but use the canonical finite
         // mandatory-settlement debt. MAX nanoseconds is not a known duration.
@@ -1282,10 +1421,12 @@ impl HelperGroup {
     /// Once a failed STOP is consumed, neither pending observation nor proved
     /// terminal permits another stdin payload effect. Raw drain is separate.
     pub(crate) fn payload_input_blocked(&self) -> bool {
-        matches!(
-            self.stop_outcome,
-            HelperStopOutcome::PendingTerminal | HelperStopOutcome::TerminalProven
-        )
+        self.terminal_accounting_pending
+            || self.members[0].image_phase == HelperImagePhase::Exited
+            || matches!(
+                self.stop_outcome,
+                HelperStopOutcome::PendingTerminal | HelperStopOutcome::TerminalProven
+            )
     }
     #[cfg(test)]
     pub(crate) fn fixture_consume_pending_stop(&mut self) -> Result<(), ()> {
@@ -1595,13 +1736,15 @@ impl HelperGroup {
     }
     #[cfg(target_os = "macos")]
     fn observe_usage(&mut self, index: usize, pid: i32, usage: &libc::rusage_info_v1) {
+        self.metrics.counter_reads = self.metrics.counter_reads.saturating_add(1);
+        let observed_ns = self.ledger_clock().unwrap_or(u64::MAX);
         self.usage_observations[index] = HelperUsageObservation {
             pid,
             user_ticks: usage.ri_user_time,
             system_ticks: usage.ri_system_time,
             child_user_ticks: usage.ri_child_user_time,
             child_system_ticks: usage.ri_child_system_time,
-            observed_ns: bootstrap::monotonic_ns().unwrap_or(u64::MAX),
+            observed_ns,
         };
     }
     fn record_quiescence_failure(&mut self, index: usize, current: HelperTaskObservation) {
@@ -1654,6 +1797,7 @@ impl HelperGroup {
     }
     pub(crate) fn pending_closure(&self) -> bool {
         !self.accounting_settled
+            && !self.terminal_accounting_pending
             && (self.running
                 || self.grant_commit_pending
                 || (self.grant.opened && !self.grant.closed))
@@ -1802,19 +1946,27 @@ impl HelperGroup {
         }
     }
     fn open_grant(&mut self) -> Result<(), ()> {
-        if matches!(
-            self.stop_outcome,
-            HelperStopOutcome::PendingTerminal | HelperStopOutcome::TerminalProven
-        ) {
+        if self.terminal_accounting_pending
+            || self.members[0].image_phase == HelperImagePhase::Exited
+            || matches!(
+                self.stop_outcome,
+                HelperStopOutcome::PendingTerminal | HelperStopOutcome::TerminalProven
+            )
+        {
             return Err(());
         }
         let baseline = self.actual_cpu()?;
+        if self.metrics.grants == 0 {
+            self.metrics.startup_cpu_ns = baseline;
+            self.startup_late_cpu_ns = self.metrics.late_kernel_cpu_ns;
+        }
         let rolled = self
             .rolled_user_ticks
             .checked_add(self.rolled_system_ticks)
             .ok_or(())?;
         let mut ledger = HelperGrantLedger {
             opened: true,
+            index: self.metrics.grants.checked_add(1).ok_or(())?,
             reserved: self.identity.expected_members,
             actual_baseline: baseline,
             baseline_usage: self.usage_observations,
@@ -1841,6 +1993,7 @@ impl HelperGroup {
         }
         // This final checked clock precedes the actual CONT, including its
         // complete delivery latency in every reserved slot's open interval.
+        ledger.baseline_slots = ledger.slots;
         ledger.t0_ns = self.ledger_clock()?;
         self.grant = ledger;
         self.lane_cpu = 0;
@@ -1848,6 +2001,90 @@ impl HelperGroup {
             self.pipe_active = true;
         }
         Ok(())
+    }
+    #[cfg(target_os = "macos")]
+    fn refresh_pre_cont_baseline(&mut self, control: &Control) -> Result<bool, ()> {
+        if !self.confirmed_stopped
+            || self.pending_closure()
+            || self.pending_corroboration()
+            || self.terminal_accounting_pending
+            || self.retiring
+        {
+            return Err(());
+        }
+        let user_before = self.actual_user_ticks()?;
+        let system_before = self.actual_system_ticks()?;
+        let mut rss = 0u64;
+        for index in 0..usize::from(self.identity.expected_members) {
+            let prior = self.members[index];
+            if prior.pid == 0 || prior.image_phase == HelperImagePhase::Exited {
+                continue;
+            }
+            let mut raw = std::mem::MaybeUninit::<libc::rusage_info_v1>::uninit();
+            if unsafe { libc::proc_pid_rusage(prior.pid, 1, raw.as_mut_ptr().cast()) } != 0 {
+                return Err(());
+            }
+            let raw = unsafe { raw.assume_init() };
+            self.observe_usage(index, prior.pid, &raw);
+            if raw.ri_proc_start_abstime != prior.start_abstime
+                || raw.ri_proc_exit_abstime != 0
+                || raw.ri_user_time != prior.user_ticks
+                || raw.ri_system_time < prior.system_ticks
+            {
+                return Err(());
+            }
+            let cpu = self.ticks_ns(raw.ri_user_time.checked_add(raw.ri_system_time).ok_or(())?)?;
+            self.members[index].cpu = cpu;
+            self.members[index].user_ticks = raw.ri_user_time;
+            self.members[index].system_ticks = raw.ri_system_time;
+            self.members[index].rss_peak = prior.rss_peak.max(raw.ri_resident_size);
+            rss = rss.checked_add(raw.ri_resident_size).ok_or(())?;
+            if index == 0 {
+                if raw.ri_child_user_time < self.rolled_user_ticks
+                    || raw.ri_child_system_time < self.rolled_system_ticks
+                {
+                    return Err(());
+                }
+                self.rolled_user_ticks = raw.ri_child_user_time;
+                self.rolled_system_ticks = raw.ri_child_system_time;
+                self.metrics.observed_direct_cpu_ns = cpu;
+                self.metrics.rolled_descendant_cpu_ns = self.ticks_ns(
+                    raw.ri_child_user_time
+                        .checked_add(raw.ri_child_system_time)
+                        .ok_or(())?,
+                )?;
+            } else {
+                self.metrics.observed_descendant_cpu_ns = cpu;
+            }
+        }
+        if self.actual_user_ticks()? != user_before || !self.closed_usage_covered() {
+            return Err(());
+        }
+        self.metrics.group_rss_peak = self.metrics.group_rss_peak.max(rss);
+        if rss > storage::HELPERS {
+            self.reject(control, 4);
+            return Err(());
+        }
+        let late = self.ticks_ns(
+            self.actual_system_ticks()?
+                .checked_sub(system_before)
+                .ok_or(())?,
+        )?;
+        if late != 0 {
+            // Observe previously uncharged, stable-user stopped kernel growth
+            // BEFORE establishing the next baseline. Its controller C and L
+            // finish one existing stopped unit, then pay fresh debt; no CONT.
+            self.post_late_cpu = late;
+            self.post_late_known = true;
+            self.post_cpu = 0;
+            self.post_commit_pending = true;
+            return Ok(false);
+        }
+        Ok(true)
+    }
+    #[cfg(not(target_os = "macos"))]
+    fn refresh_pre_cont_baseline(&mut self, _: &Control) -> Result<bool, ()> {
+        Err(())
     }
     fn note_incarnation(&mut self, index: usize, member: HelperMember) {
         if !self.grant.opened {
@@ -1864,6 +2101,9 @@ impl HelperGroup {
             slot.through_closure = true;
             self.grant.closed = false;
             self.grant.close_ns = None;
+            self.grant.controller_end = None;
+            self.grant.pipe_end = None;
+            self.grant.post_ack_mask &= !(1 << index);
             self.metrics.reopened_slots = self.metrics.reopened_slots.saturating_add(1);
         }
         slot.pid = member.pid;
@@ -1880,6 +2120,9 @@ impl HelperGroup {
             self.grant.slots[index].through_closure = true;
             self.grant.closed = false;
             self.grant.close_ns = None;
+            self.grant.controller_end = None;
+            self.grant.pipe_end = None;
+            self.grant.post_ack_mask &= !(1 << index);
             self.metrics.reopened_slots = self
                 .metrics
                 .reopened_slots
@@ -1908,6 +2151,418 @@ impl HelperGroup {
         self.grant.ack_usage[index] = self.usage_observations[index];
         self.grant.ack_task[index] = self.task_observations[index];
         Ok(())
+    }
+    fn seal_post_ack_counter(&mut self, index: usize, positive_ns: u64) -> Result<(), ()> {
+        if !self.grant.opened {
+            return Ok(());
+        }
+        let member = self.members[index];
+        if member.image_phase != HelperImagePhase::Descendant {
+            // A source-bound pre-exec clone can retain conservative coverage;
+            // it does not gain measured final-image counter authority.
+            self.grant.post_ack_mask &= !(1 << index);
+            return Ok(());
+        }
+        let slot = self.grant.slots[index];
+        let usage = self.usage_observations[index];
+        if positive_ns == u64::MAX
+            || usage.observed_ns == u64::MAX
+            || positive_ns < self.grant.t0_ns
+            || usage.observed_ns < positive_ns
+            || usage.pid != member.pid
+            || slot.pid != member.pid
+            || slot.birth != member.birth
+            || slot.start != member.start_abstime
+            || slot.version != member.audit_version
+            || slot.ack_ns.is_none()
+        {
+            return Err(());
+        }
+        self.grant.post_ack_mask |= 1 << index;
+        Ok(())
+    }
+    /// This is only a prospective lower bound while a grant remains open.
+    /// It never selects measured basis or certifies a pending grant. A birth,
+    /// exec, absent slot or unknown baseline retains the old window bound.
+    fn measured_candidate(&self) -> bool {
+        self.metrics.coverage_known
+            && self.metrics.clock_failures == 0
+            && self.timebase.numer != 0
+            && self.timebase.denom != 0
+            && (0..usize::from(self.grant.reserved)).all(|index| {
+                let slot = self.grant.slots[index];
+                let baseline = self.grant.baseline_usage[index];
+                let before = self.grant.baseline_slots[index];
+                let member = self.members[index];
+                slot.pid > 0
+                    && slot.birth != 0
+                    && slot.start != 0
+                    && slot.version != 0
+                    && baseline.pid == slot.pid
+                    && before.pid == slot.pid
+                    && before.birth == slot.birth
+                    && before.start == slot.start
+                    && before.version == slot.version
+                    && member.final_image_version == slot.version
+                    && matches!(
+                        member.image_phase,
+                        HelperImagePhase::Descendant | HelperImagePhase::Exited
+                    )
+                    && baseline.observed_ns != u64::MAX
+                    && baseline.observed_ns <= self.grant.t0_ns
+            })
+    }
+    fn unique_admitted_child(&self) -> bool {
+        // Necessary runtime projection of the existing qualified finite-source
+        // single-child premise. A census cannot prove an unseen fork history;
+        // neither this predicate nor a roll-up admits an unqualified tool.
+        let child = self.members[1];
+        self.identity.expected_members == 2
+            && child.pid > 0
+            && child.birth != 0
+            && child.start_abstime != 0
+            && child.audit_version != 0
+            && child.final_image_version == child.audit_version
+            && self.metrics.descendants == 1
+            && self.metrics.verified_descendants == 1
+            && self.retired_members.iter().any(|r| {
+                r.current
+                    && r.pid == child.pid
+                    && r.birth == child.birth
+                    && r.token.value == child.audit_token.value
+            })
+            && self
+                .retired_members
+                .iter()
+                .filter(|r| r.pid > 0 && r.pid != self.identity.pid)
+                .all(|r| r.pid == child.pid && r.birth == child.birth)
+    }
+    fn rollup_proof_valid(&self) -> bool {
+        let proof = self.grant.rollup;
+        let matches = |slot: HelperSlotWindow, member: HelperMember| {
+            slot.pid == member.pid
+                && slot.birth == member.birth
+                && slot.start == member.start_abstime
+                && slot.version == member.audit_version
+        };
+        proof.checked
+            && self.unique_admitted_child()
+            && proof.grant_t0_ns == self.grant.t0_ns
+            && proof.child_count == 0
+            && matches(proof.leader, self.members[0])
+            && matches(proof.child, self.members[1])
+            && self.members[1].image_phase == HelperImagePhase::Exited
+            && self.members[1].rollup_exit_observed_ns == proof.child_exit_observed_ns
+            && self.grant.slots[0].ack_ns == Some(proof.leader_ack_ns)
+            && proof.leader_ack_ns >= self.grant.t0_ns
+            && proof.child_exit_observed_ns >= proof.leader_ack_ns
+            && proof.read_ns >= proof.child_exit_observed_ns
+            && proof.read_ns != u64::MAX
+            && self
+                .grant
+                .close_ns
+                .is_some_and(|close| proof.read_ns <= close)
+            && self.usage_observations[0].child_user_ticks == proof.user_ticks
+            && self.usage_observations[0].child_system_ticks == proof.system_ticks
+    }
+    #[cfg(target_os = "macos")]
+    fn observe_retired_child_rollup(&mut self, exit: Option<&HelperExitHint>) -> Result<bool, ()> {
+        if !self.grant.opened || !self.unique_admitted_child() {
+            return Ok(false);
+        }
+        let leader = self.members[0];
+        let child = self.members[1];
+        let ack = if let Some(exit) = exit {
+            self.validate_exit_hint(exit)?;
+            exit.observed_ns
+        } else {
+            let Some(ack) = self.grant.slots[0].ack_ns else {
+                return Ok(false);
+            };
+            if !self.task_observations[0].stopped()
+                && leader.image_phase != HelperImagePhase::Exited
+            {
+                return Ok(false);
+            }
+            ack
+        };
+        if ack < self.grant.t0_ns || helper_token_exited(&child.audit_token) != Ok(true) {
+            return Ok(false);
+        }
+        let mut children = [0i32; 3];
+        let count = unsafe {
+            libc::proc_listchildpids(
+                leader.pid,
+                children.as_mut_ptr().cast(),
+                std::mem::size_of_val(&children) as i32,
+            )
+        };
+        if count != 0 {
+            return Ok(false);
+        }
+        let retired_ns = self.ledger_clock()?;
+        let mut raw = std::mem::MaybeUninit::<libc::rusage_info_v1>::uninit();
+        if unsafe { libc::proc_pid_rusage(leader.pid, 1, raw.as_mut_ptr().cast()) } != 0 {
+            return Err(());
+        }
+        let raw = unsafe { raw.assume_init() };
+        self.observe_usage(0, leader.pid, &raw);
+        let read_ns = self.usage_observations[0].observed_ns;
+        if raw.ri_proc_start_abstime != leader.start_abstime
+            || raw.ri_user_time != leader.user_ticks
+            || raw.ri_system_time < leader.system_ticks
+            || raw.ri_child_user_time < self.rolled_user_ticks
+            || raw.ri_child_system_time < self.rolled_system_ticks
+            || raw.ri_child_user_time < child.user_ticks
+            || raw.ri_child_system_time < child.system_ticks
+            || read_ns < retired_ns
+            || retired_ns < ack
+        {
+            return Err(());
+        }
+        // This conditional identity relation additionally uses the already
+        // admitted finite source's final-image/no-further-exec/unique-child
+        // premise. Token ESRCH alone never proves logical exit or qualification.
+        self.members[0].cpu =
+            self.ticks_ns(raw.ri_user_time.checked_add(raw.ri_system_time).ok_or(())?)?;
+        self.members[0].system_ticks = raw.ri_system_time;
+        if raw.ri_proc_exit_abstime != 0 {
+            if super::resolve::helper_exited(leader.pid) != Ok(true)
+                || helper_token_exited(&leader.audit_token) != Ok(true)
+            {
+                return Err(());
+            }
+            self.members[0].image_phase = HelperImagePhase::Exited;
+            self.members[0].exit_abstime = raw.ri_proc_exit_abstime;
+        }
+        self.metrics.observed_direct_cpu_ns = self.members[0].cpu;
+        self.rolled_user_ticks = raw.ri_child_user_time;
+        self.rolled_system_ticks = raw.ri_child_system_time;
+        let rolled = self.ticks_ns(
+            raw.ri_child_user_time
+                .checked_add(raw.ri_child_system_time)
+                .ok_or(())?,
+        )?;
+        self.metrics.rolled_descendant_cpu_ns = rolled;
+        self.members[1].cpu = rolled;
+        self.members[1].user_ticks = raw.ri_child_user_time;
+        self.members[1].system_ticks = raw.ri_child_system_time;
+        self.members[1].image_phase = HelperImagePhase::Exited;
+        self.members[1].rollup_exit_observed_ns = retired_ns;
+        self.grant.rollup = HelperChildRollupProof {
+            checked: true,
+            grant_t0_ns: self.grant.t0_ns,
+            leader: HelperSlotWindow {
+                pid: leader.pid,
+                birth: leader.birth,
+                start: leader.start_abstime,
+                version: leader.audit_version,
+                ..HelperSlotWindow::default()
+            },
+            child: HelperSlotWindow {
+                pid: child.pid,
+                birth: child.birth,
+                start: child.start_abstime,
+                version: child.audit_version,
+                ..HelperSlotWindow::default()
+            },
+            leader_ack_ns: ack,
+            child_exit_observed_ns: retired_ns,
+            read_ns,
+            child_count: 0,
+            user_ticks: raw.ri_child_user_time,
+            system_ticks: raw.ri_child_system_time,
+        };
+        Ok(true)
+    }
+    fn measured_components(&self, receipt: &mut HelperGrantReceipt) -> Result<u64, ()> {
+        let mask = (1u8 << self.grant.reserved) - 1;
+        receipt.unknown_mask = mask;
+        receipt.post_ack_mask = self.grant.post_ack_mask;
+        receipt.timebase_numer = self.timebase.numer;
+        receipt.timebase_denom = self.timebase.denom;
+        receipt.counters_read = self.metrics.counter_reads;
+        let mut self_delta = [0u64; 2];
+        let mut child_delta = 0;
+        for (index, delta) in self_delta
+            .iter_mut()
+            .enumerate()
+            .take(usize::from(self.grant.reserved))
+        {
+            let slot = self.grant.slots[index];
+            let member = self.members[index];
+            let baseline = self.grant.baseline_usage[index];
+            let before = self.grant.baseline_slots[index];
+            let end = self.usage_observations[index];
+            let rollup_source = index == 1 && self.rollup_proof_valid();
+            let end_current = if rollup_source {
+                self.grant.rollup.read_ns >= self.grant.t0_ns
+            } else {
+                end.pid == member.pid
+                    && end.observed_ns != u64::MAX
+                    && end.observed_ns >= self.grant.t0_ns
+                    && slot.ack_ns.is_some_and(|ack| end.observed_ns >= ack)
+            };
+            let exact = slot.pid > 0
+                && slot.pid == member.pid
+                && slot.birth == member.birth
+                && slot.start == member.start_abstime
+                && slot.version == member.audit_version
+                && member.final_image_version == member.audit_version
+                && baseline.pid == member.pid
+                && before.pid == slot.pid
+                && before.birth == slot.birth
+                && before.start == slot.start
+                && before.version == slot.version
+                && baseline.observed_ns != u64::MAX
+                && baseline.observed_ns <= self.grant.t0_ns
+                && end_current
+                && slot.ack_ns.is_some();
+            if exact {
+                receipt.unknown_mask &= !(1 << index);
+            }
+            let user = end.user_ticks.checked_sub(baseline.user_ticks).ok_or(())?;
+            let system = end
+                .system_ticks
+                .checked_sub(baseline.system_ticks)
+                .ok_or(())?;
+            *delta = self.ticks_ns(user.checked_add(system).ok_or(())?)?;
+            receipt.slot_a_ns[index] = *delta;
+            receipt.monotonic_mask |= 1 << index;
+            if index == 0 && self.grant.reserved == 2 {
+                if end.child_user_ticks < baseline.child_user_ticks
+                    || end.child_system_ticks < baseline.child_system_ticks
+                {
+                    return Err(());
+                }
+                // One exact logical descendant: retain its live self counters
+                // and its parent's reaped roll-up, taking their enclosing max
+                // BEFORE differencing. Never add live and rolled CPU twice.
+                let child_before = self.grant.baseline_usage[1];
+                let child_end = self.usage_observations[1];
+                let child_user = child_end
+                    .user_ticks
+                    .max(end.child_user_ticks)
+                    .checked_sub(child_before.user_ticks.max(baseline.child_user_ticks))
+                    .ok_or(())?;
+                let child_system = child_end
+                    .system_ticks
+                    .max(end.child_system_ticks)
+                    .checked_sub(child_before.system_ticks.max(baseline.child_system_ticks))
+                    .ok_or(())?;
+                child_delta = self.ticks_ns(child_user.checked_add(child_system).ok_or(())?)?;
+                receipt.slot_a_ns[1] = child_delta;
+            } else if index == 0 && (end.child_user_ticks != 0 || end.child_system_ticks != 0) {
+                return Err(());
+            }
+            if member.image_phase == HelperImagePhase::Exited {
+                // RI exit/WNOWAIT alone supply physical identity closure. The
+                // direct member still needs its own retained wait4; the unique
+                // admitted child has only the explicitly conditional roll-up
+                // source clarified by66236, pending final leader conservation.
+                if rollup_source {
+                    receipt.counter_source[index] = HelperCounterSource::LeaderChildRollup;
+                    receipt.rollup_provisional = true;
+                    receipt.rollup_exit_observed_ns = self.grant.rollup.child_exit_observed_ns;
+                    receipt.rollup_read_ns = self.grant.rollup.read_ns;
+                } else {
+                    if index != 0 || !self.usage_reconciled || self.metrics.wait4_reads == 0 {
+                        return Err(());
+                    }
+                    receipt.counter_source[index] = HelperCounterSource::RetainedWait4;
+                }
+                receipt.post_ack_mask |= 1 << index;
+            } else if !self.task_observations[index].stopped()
+                || self.grant.post_ack_mask & (1 << index) == 0
+            {
+                return Err(());
+            } else {
+                receipt.counter_source[index] = HelperCounterSource::PostAck;
+            }
+        }
+        if self.usage_reconciled {
+            // wait4 includes the already-reaped subtree. Its two timeval
+            // components are separately rounded upward; subtract the logical
+            // descendant once to recover the direct member's enclosing delta.
+            let total = self
+                .metrics
+                .reap_user_upper_ns
+                .checked_add(self.metrics.reap_system_upper_ns)
+                .ok_or(())?;
+            let child_end = if self.grant.reserved == 2 {
+                self.members[1]
+                    .cpu
+                    .max(self.metrics.rolled_descendant_cpu_ns)
+            } else {
+                0
+            };
+            let direct_before = self.ticks_ns(
+                self.grant.baseline_usage[0]
+                    .user_ticks
+                    .checked_add(self.grant.baseline_usage[0].system_ticks)
+                    .ok_or(())?,
+            )?;
+            self_delta[0] = total
+                .checked_sub(child_end)
+                .and_then(|direct| direct.checked_sub(direct_before))
+                .ok_or(())?;
+        }
+        if receipt.counter_source[1] == HelperCounterSource::LeaderChildRollup {
+            receipt.monotonic_mask &= !2;
+            let before_leader = self.grant.baseline_usage[0];
+            let before_child = self.grant.baseline_usage[1];
+            let user = self
+                .grant
+                .rollup
+                .user_ticks
+                .checked_sub(before_leader.child_user_ticks.max(before_child.user_ticks))
+                .ok_or(())?;
+            let system = self
+                .grant
+                .rollup
+                .system_ticks
+                .checked_sub(
+                    before_leader
+                        .child_system_ticks
+                        .max(before_child.system_ticks),
+                )
+                .ok_or(())?;
+            child_delta = self.ticks_ns(user.checked_add(system).ok_or(())?)?;
+            receipt.monotonic_mask |= 2;
+            receipt.rollup_child_cpu_ns = child_delta;
+            #[cfg(test)]
+            if self.rollup_double_count_fault {
+                receipt.live_child_cpu_ns = child_delta;
+                child_delta = child_delta
+                    .checked_add(receipt.live_child_cpu_ns)
+                    .ok_or(())?;
+            }
+        } else {
+            receipt.live_child_cpu_ns = child_delta;
+        }
+        receipt.slot_a_ns = [self_delta[0], child_delta];
+        if receipt.live_child_cpu_ns != 0 && receipt.rollup_child_cpu_ns != 0 {
+            return Err(());
+        }
+        if !self.grant.closed
+            || !self.metrics.coverage_known
+            || self.metrics.clock_failures != 0
+            || receipt.unknown_mask != 0
+            || receipt.post_ack_mask != mask
+            || receipt.monotonic_mask != mask
+            || !self.closed_usage_covered()
+        {
+            return Err(());
+        }
+        let mut total = 0u64;
+        for index in 0..usize::from(self.grant.reserved) {
+            let window = receipt.end_ns[index].checked_sub(receipt.t0_ns).ok_or(())?;
+            if receipt.slot_a_ns[index] > window {
+                return Err(());
+            }
+            total = total.checked_add(receipt.slot_a_ns[index]).ok_or(())?;
+        }
+        Ok(total)
     }
     fn close_roster(&mut self) -> Result<(), ()> {
         if !self.grant.opened {
@@ -1960,13 +2615,17 @@ impl HelperGroup {
             .actual_cpu()?
             .checked_sub(self.grant.actual_baseline)
             .ok_or(())?;
-        let charge = window
-            .max(actual)
-            .checked_add(self.grant_control_cpu()?)
-            .ok_or(())?;
+        let charge = (if self.measured_candidate() {
+            actual
+        } else {
+            window.max(actual)
+        })
+        .checked_add(self.grant_control_cpu()?)
+        .ok_or(())?;
         if charge > UNIT_NS && self.metrics.first_failed_pending.sequence == 0 {
             let mut receipt = HelperGrantReceipt {
                 sequence: self.identity.sequence,
+                grant_index: self.grant.index,
                 pid: self.identity.pid,
                 pgid: self.pgid,
                 birth: self.identity.start_identity,
@@ -2004,6 +2663,9 @@ impl HelperGroup {
             }
             self.metrics.first_failed_pending = receipt;
         }
+        if window > 25_000_000 {
+            return Ok(UNIT_NS + 1);
+        }
         Ok(charge)
     }
     fn grant_control_cpu(&self) -> Result<u64, ()> {
@@ -2012,10 +2674,12 @@ impl HelperGroup {
         }
         self.metrics
             .controller_cpu_ns
+            .min(self.grant.controller_end.unwrap_or(u64::MAX))
             .checked_sub(self.grant.controller_baseline)
             .and_then(|cpu| {
                 self.metrics
                     .pipe_cpu_ns
+                    .min(self.grant.pipe_end.unwrap_or(u64::MAX))
                     .checked_sub(self.grant.pipe_baseline)
                     .and_then(|pipe| cpu.checked_add(pipe))
             })
@@ -2033,6 +2697,95 @@ impl HelperGroup {
             .checked_add(self.members[1].system_ticks.max(self.rolled_system_ticks))
             .ok_or(())
     }
+    pub(crate) fn usage_handoff_pending(&self) -> bool {
+        self.post_commit_pending && !self.post_proof_pending
+    }
+    pub(crate) fn usage_observation_pending(&self) -> bool {
+        self.post_proof_pending
+    }
+    pub(crate) fn record_post_owner_cpu(&mut self, control: &Control, cpu: u64) {
+        self.metrics.post_units = self.metrics.post_units.saturating_add(1);
+        self.metrics.post_cpu_ns = self.metrics.post_cpu_ns.saturating_add(cpu);
+        self.metrics.post_max_cpu_ns = self.metrics.post_max_cpu_ns.max(cpu);
+        if cpu > UNIT_NS {
+            self.reject(control, 4);
+        }
+    }
+    #[cfg(target_os = "macos")]
+    pub(crate) fn observe_post_exit(&mut self, control: &Control) -> Result<bool, ()> {
+        // A pending/unbilled final grant consumes its actual wait4 as final A.
+        // Unknown or never-charged rosters gain no independent L credit here.
+        if self.terminal_accounting_pending
+            || self.pending_closure()
+            || !self.grant.closed
+            || !self.grant.charged_once
+            || !self.metrics.coverage_known
+        {
+            return Ok(false);
+        }
+        if !self.retiring
+            || self.metrics.post_exit_observations != 0
+            || self.usage_handoff_pending()
+        {
+            return Err(());
+        }
+        self.metrics.post_exit_observations = 1;
+        self.post_proof_pending = true;
+        self.post_commit_pending = true;
+        self.post_cpu = 0;
+        self.post_late_cpu = 0;
+        self.post_late_known = true;
+        let observed = (|| {
+            if super::resolve::helper_exited(self.identity.pid) != Ok(true) {
+                return Err(());
+            }
+            let user = self.actual_user_ticks()?;
+            let system = self.actual_system_ticks()?;
+            self.metrics.post_exit_user_before_ticks = user;
+            self.metrics.post_exit_system_before_ticks = system;
+            for index in 0..usize::from(self.identity.expected_members) {
+                let member = self.members[index];
+                if member.pid <= 0
+                    || member.start_abstime == 0
+                    || member.final_image_version == 0
+                    || member.final_image_version != member.audit_version
+                {
+                    return Err(());
+                }
+                self.exited_member_usage(member.pid)?;
+                if (self.members[index].exit_abstime == 0
+                    && self.members[index].rollup_exit_observed_ns == 0)
+                    || helper_token_exited(&member.audit_token) != Ok(true)
+                {
+                    return Err(());
+                }
+                self.members[index].image_phase = HelperImagePhase::Exited;
+            }
+            let after_user = self.actual_user_ticks()?;
+            let after_system = self.actual_system_ticks()?;
+            self.metrics.post_exit_user_after_ticks = after_user;
+            self.metrics.post_exit_system_after_ticks = after_system;
+            if after_user != user || !self.closed_usage_covered() {
+                return Err(());
+            }
+            // RAW observed counters, never the charged ledger, define L. An
+            // omitted old grant/roll-up therefore cannot reappear as late CPU.
+            self.post_late_cpu = self.ticks_ns(after_system.checked_sub(system).ok_or(())?)?;
+            Ok(())
+        })();
+        if observed.is_err() {
+            self.metrics.reconciliation_unproven =
+                self.metrics.reconciliation_unproven.saturating_add(1);
+            self.post_late_known = false;
+            self.reject(control, 5);
+        }
+        self.metrics.post_exit_observation_known = observed.is_ok();
+        observed.map(|()| true)
+    }
+    #[cfg(not(target_os = "macos"))]
+    pub(crate) fn observe_post_exit(&mut self, _: &Control) -> Result<bool, ()> {
+        Err(())
+    }
     /// Raw timeval components remain distinct. The explicit interval covers
     /// only separately truncated microsecond representation (own+one child),
     /// not the later exit/calcru cutoff. Every new system upper residual is
@@ -2041,20 +2794,38 @@ impl HelperGroup {
     pub(crate) fn reconcile_usage(
         &mut self,
         control: &Control,
-        user_ns: u64,
-        system_ns: u64,
-        rss: u64,
+        reap: super::resolve::HelperReapUsage,
     ) -> Result<(), ()> {
         if self.usage_reconciled {
             return Err(());
         }
         self.usage_reconciled = true;
+        let super::resolve::HelperReapUsage {
+            pid,
+            user_ns,
+            system_ns,
+            rss_bytes: rss,
+            observed_ns,
+            readings,
+        } = reap;
+        if pid != self.identity.pid
+            || readings != 1
+            || observed_ns == u64::MAX
+            || self.grant.close_ns.is_some_and(|close| observed_ns < close)
+            || user_ns == u64::MAX
+            || system_ns == u64::MAX
+        {
+            self.metrics.coverage_known = false;
+            self.reject(control, 5);
+            self.settled_cpu = Some(u64::MAX);
+            self.finish_grant(control, 0);
+            return Err(());
+        }
+        self.metrics.wait4_reads = readings;
         self.metrics.reap_user_ns = user_ns;
         self.metrics.reap_system_ns = system_ns;
-        self.metrics.reap_quantization_ns = u64::from(self.identity.expected_members)
-            .checked_mul(1000)
-            .ok_or(())?;
-        let width = self.metrics.reap_quantization_ns.checked_sub(1).ok_or(())?;
+        self.metrics.reap_quantization_ns = readings.checked_mul(2000).ok_or(())?;
+        let width = 1000;
         let user_upper = user_ns.checked_add(width).ok_or(())?;
         let system_upper = system_ns.checked_add(width).ok_or(())?;
         self.metrics.reap_user_upper_ns = user_upper;
@@ -2063,17 +2834,11 @@ impl HelperGroup {
         let system_ticks = self.actual_system_ticks()?;
         self.metrics.reap_ri_user_ticks = user_ticks;
         self.metrics.reap_ri_system_ticks = system_ticks;
-        let mut timebase = HelperTimebase { numer: 0, denom: 0 };
-        if unsafe { helper_timebase_info(&mut timebase) } != 0
-            || timebase.numer == 0
-            || timebase.denom == 0
-        {
-            return Err(());
-        }
+        let timebase = self.timebase;
         self.metrics.reap_timebase_numer = timebase.numer;
         self.metrics.reap_timebase_denom = timebase.denom;
-        let user_before = helper_ticks_ns(user_ticks)?;
-        let system_before = helper_ticks_ns(system_ticks)?;
+        let user_before = self.ticks_ns(user_ticks)?;
+        let system_before = self.ticks_ns(system_ticks)?;
         // A one-nanosecond enclosing RI representation interval is explicit;
         // raw RI ticks/timebase and timeval values are never epsilon-clamped.
         let user_lower = user_before.saturating_sub(1);
@@ -2083,8 +2848,16 @@ impl HelperGroup {
         self.post_proof_pending = true;
         self.post_commit_pending = true;
         self.post_cpu = 0;
+        if !self.startup_accounted {
+            self.post_startup_cpu = if self.grant.opened {
+                self.grant.actual_baseline
+            } else {
+                user_before.checked_add(system_before).ok_or(())?
+            };
+            self.startup_accounted = true;
+        }
         self.post_late_known = user_stable && system_forward;
-        self.post_late_cpu = if system_forward {
+        self.post_unexplained_cpu = if system_forward {
             let kernel = system_upper.checked_sub(system_lower).ok_or(())?;
             if user_stable {
                 kernel
@@ -2097,14 +2870,25 @@ impl HelperGroup {
         } else {
             u64::MAX
         };
+        // This is wait4's residual cost, never an independent L observation.
+        self.post_late_cpu = 0;
         self.settled_cpu = Some(user_upper.checked_add(system_upper).ok_or(())?);
-        if self.pending_closure() {
+        if self.terminal_accounting_pending || self.pending_closure() {
             self.finish_grant(control, 0);
             // Without a causal closed roster this is terminal accounting only;
             // the full uncertainty window remains in its failed receipt.
-            self.post_late_cpu = 0;
+            // Either final basis just charged the retained wait4 total in A.
+            // Its residual cannot also become a second helper/post CPU cost.
+            self.post_unexplained_cpu = 0;
             self.post_late_known = true;
         }
+        if self.metrics.grants == 0 {
+            self.metrics.startup_cpu_ns = user_before.checked_add(system_before).ok_or(())?;
+            self.startup_late_cpu_ns = self.metrics.late_kernel_cpu_ns;
+        }
+        // The wait4 residual is observation/failure cost, not independent
+        // evidence that can fund this same conservation comparison.
+        let _ = self.check_conservation(control, user_ns.checked_add(system_ns).ok_or(())?);
         self.accounting_settled = self.retired_members_exited();
         self.corroboration_pending = false;
         if rss > storage::HELPERS {
@@ -2119,6 +2903,107 @@ impl HelperGroup {
             return Err(());
         }
         self.control_verdict(control)
+    }
+    fn check_conservation(&mut self, control: &Control, wait4_ns: u64) -> Result<(), ()> {
+        let result = (|| {
+            if self.metrics.wait4_reads != 1 || wait4_ns == u64::MAX {
+                return None;
+            }
+            let late = self
+                .metrics
+                .late_kernel_cpu_ns
+                .checked_sub(self.startup_late_cpu_ns)?;
+            // wait4 measures helpers. Controller/pipe post_cpu_ns belongs to
+            // another owner and can never fund a missing member CPU interval.
+            let budget = self
+                .metrics
+                .startup_cpu_ns
+                .checked_add(self.metrics.charged_helper_cpu_ns)?
+                .checked_add(late)?
+                .checked_add(self.metrics.post_helper_cpu_ns)?;
+            let allowance = self
+                .metrics
+                .wait4_reads
+                .checked_mul(2000)?
+                .checked_add(self.ticks_ns(self.metrics.counter_reads).ok()?)?;
+            Some((
+                budget,
+                allowance,
+                wait4_ns.saturating_sub(budget.checked_add(allowance)?),
+                late,
+            ))
+        })();
+        self.metrics.conservation_checked = true;
+        match result {
+            Some((budget, allowance, excess, late)) => {
+                self.metrics.conservation_budget_ns = budget;
+                self.metrics.conservation_late_ns = late;
+                self.metrics.startup_late_excluded_ns = self.startup_late_cpu_ns;
+                self.metrics.conservation_allowance_ns = allowance;
+                self.metrics.conservation_excess_ns = excess;
+                self.metrics.conservation_pass = excess == 0;
+                if excess == 0 {
+                    self.finalize_rollup_basis(control);
+                    return Ok(());
+                }
+                // Missing grant CPU is a distinct, known failure cost. Keep it
+                // outside legitimate kernel L and include it in this existing
+                // observation's C+helper unit before fresh debt is paid.
+                self.post_unexplained_cpu = self.post_unexplained_cpu.max(excess);
+            }
+            None => {
+                self.metrics.conservation_budget_ns = u64::MAX;
+                self.metrics.conservation_allowance_ns = u64::MAX;
+                self.metrics.conservation_excess_ns = u64::MAX;
+                self.metrics.conservation_pass = false;
+            }
+        }
+        self.finalize_rollup_basis(control);
+        control
+            .accounting
+            .resource_failed
+            .store(true, Ordering::Release);
+        self.reject(control, 4);
+        Err(())
+    }
+    pub(crate) fn finalize_rollup_basis(&mut self, control: &Control) {
+        if self.metrics.provisional_rollup_grants == 0 || self.metrics.rollup_revoked {
+            return;
+        }
+        if self.usage_reconciled
+            && self.metrics.wait4_reads == 1
+            && self.metrics.conservation_checked
+            && self.metrics.conservation_pass
+            && self.metrics.coverage_known
+        {
+            self.metrics.rollup_reconciled = true;
+            self.metrics.worst_grant.rollup_reconciled =
+                self.metrics.worst_grant.rollup_provisional;
+            return;
+        }
+        // Append a revocation bill; do not rewrite an earlier measured receipt
+        // or pretend its already-paid prefix rest covered a newly known cost.
+        self.metrics.rollup_revoked = true;
+        self.metrics.rollup_reconciled = false;
+        self.metrics.worst_grant.rollup_revoked = self.metrics.worst_grant.rollup_provisional;
+        self.metrics.rollup_fallback_worst.rollup_revoked = true;
+        self.metrics.rollup_fallback_charge_ns = self.metrics.provisional_rollup_fallback_delta_ns;
+        self.metrics.charged_ns = self
+            .metrics
+            .charged_ns
+            .saturating_add(self.metrics.rollup_fallback_charge_ns);
+        let before = self.metrics.debt_ns;
+        self.charge_helper_debt(control, self.metrics.provisional_rollup_debt_delta_ns);
+        self.metrics.rollup_fallback_debt_ns = self.metrics.debt_ns.saturating_sub(before);
+        if self.metrics.rollup_fallback_worst.q_ns > UNIT_NS {
+            control
+                .accounting
+                .resource_failed
+                .store(true, Ordering::Release);
+            self.reject(control, 4);
+        } else {
+            self.reject(control, 5);
+        }
     }
     pub(crate) fn commit_post_observation(
         &mut self,
@@ -2152,6 +3037,11 @@ impl HelperGroup {
             return Err(());
         }
         let user = self.actual_user_ticks()?;
+        let system = self.actual_system_ticks()?;
+        if !self.startup_accounted {
+            self.post_startup_cpu = self.ticks_ns(user.checked_add(system).ok_or(())?)?;
+            self.startup_accounted = true;
+        }
         self.observed_post_revision = self.corroboration_revision;
         self.post_cpu = 0;
         self.post_late_cpu = 0;
@@ -2178,9 +3068,8 @@ impl HelperGroup {
             self.reject(control, 4);
             return Err(());
         }
-        let actual = self.actual_cpu()?;
-        self.post_late_cpu = actual.checked_sub(self.accounted_helper_cpu).ok_or(())?;
-        self.accounted_helper_cpu = actual;
+        self.post_late_cpu =
+            self.ticks_ns(self.actual_system_ticks()?.checked_sub(system).ok_or(())?)?;
         Ok(())
     }
     #[cfg(target_os = "macos")]
@@ -2244,7 +3133,9 @@ impl HelperGroup {
         }
         for member in self.members.into_iter().filter(|member| member.pid > 0) {
             if !pids[..count].contains(&member.pid) {
-                if member.image_phase != HelperImagePhase::Exited || member.exit_abstime == 0 {
+                if member.image_phase != HelperImagePhase::Exited
+                    || (member.exit_abstime == 0 && member.rollup_exit_observed_ns == 0)
+                {
                     return Err(());
                 }
                 continue;
@@ -2290,14 +3181,24 @@ impl HelperGroup {
     pub(crate) fn reconcile_usage(
         &mut self,
         _: &Control,
-        _: u64,
-        _: u64,
-        _: u64,
+        _: super::resolve::HelperReapUsage,
     ) -> Result<(), ()> {
         Err(())
     }
     fn commit_stopped_unit(&mut self, control: &Control, charged_cpu: Option<u64>) {
-        let cost = self.post_cpu.saturating_add(self.post_late_cpu);
+        let cost = self
+            .post_cpu
+            .saturating_add(self.post_late_cpu)
+            .saturating_add(self.post_unexplained_cpu)
+            .saturating_add(self.post_startup_cpu);
+        self.metrics.startup_charged_cpu_ns = self
+            .metrics
+            .startup_charged_cpu_ns
+            .saturating_add(self.post_startup_cpu);
+        self.metrics.unexplained_cpu_ns = self
+            .metrics
+            .unexplained_cpu_ns
+            .saturating_add(self.post_unexplained_cpu);
         self.metrics.post_units = self.metrics.post_units.saturating_add(1);
         self.metrics.post_cpu_ns = self.metrics.post_cpu_ns.saturating_add(self.post_cpu);
         self.metrics.post_max_cpu_ns = self.metrics.post_max_cpu_ns.max(cost);
@@ -2333,6 +3234,8 @@ impl HelperGroup {
             !self.retiring && self.corroboration_revision != self.observed_post_revision;
         self.post_cpu = 0;
         self.post_late_cpu = 0;
+        self.post_unexplained_cpu = 0;
+        self.post_startup_cpu = 0;
         if cost > UNIT_NS {
             self.reject(control, 4);
         }
@@ -2355,9 +3258,12 @@ impl HelperGroup {
             return Ok(true);
         }
         if prior.image_phase == HelperImagePhase::Exited
-            && prior.exit_abstime != 0
+            && (prior.exit_abstime != 0 || prior.rollup_exit_observed_ns != 0)
             && helper_token_exited(&prior.audit_token) == Ok(true)
         {
+            if index == 1 {
+                let _ = self.observe_retired_child_rollup(None)?;
+            }
             self.acknowledge_slot(index)?;
             return Ok(true);
         }
@@ -2389,6 +3295,10 @@ impl HelperGroup {
             let native_code = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
             if index == 0 || native_code != libc::ESRCH {
                 return Err(HelperObservationFailure::native(81, native_code));
+            }
+            if self.observe_retired_child_rollup(None)? {
+                self.acknowledge_slot_at(index, Some(self.members[index].rollup_exit_observed_ns))?;
+                return Ok(true);
             }
             self.exited_member_usage(prior.pid)?;
             self.members[index].image_phase = HelperImagePhase::Exited;
@@ -2545,7 +3455,7 @@ impl HelperGroup {
         }
         self.metrics.sample_stage = 96;
         let user_changed = usage.ri_user_time != prior.user_ticks;
-        let cpu = helper_ticks_ns(
+        let cpu = self.ticks_ns(
             usage
                 .ri_user_time
                 .checked_add(usage.ri_system_time)
@@ -2567,7 +3477,7 @@ impl HelperGroup {
             self.rolled_user_ticks = usage.ri_child_user_time;
             self.rolled_system_ticks = usage.ri_child_system_time;
             self.metrics.observed_direct_cpu_ns = cpu;
-            self.metrics.rolled_descendant_cpu_ns = helper_ticks_ns(
+            self.metrics.rolled_descendant_cpu_ns = self.ticks_ns(
                 usage
                     .ri_child_user_time
                     .checked_add(usage.ri_child_system_time)
@@ -2597,6 +3507,8 @@ impl HelperGroup {
             self.members[index].final_image_version = prior.audit_version;
         }
         self.acknowledge_slot(index)?;
+        self.task_observations[index] = current;
+        self.seal_post_ack_counter(index, current.observed_ns)?;
         Ok(true)
     }
     /// A failed STOP is not an exec barrier. While the original leader lives,
@@ -2733,7 +3645,9 @@ impl HelperGroup {
             }
             if prior.image_phase == HelperImagePhase::Exited {
                 self.exited_member_usage(prior.pid)?;
-                if prior.exit_abstime == 0 || helper_token_exited(&prior.audit_token) != Ok(true) {
+                if (prior.exit_abstime == 0 && prior.rollup_exit_observed_ns == 0)
+                    || helper_token_exited(&prior.audit_token) != Ok(true)
+                {
                     return Err(HelperObservationFailure::mismatch(0));
                 }
                 continue;
@@ -2870,7 +3784,7 @@ impl HelperGroup {
             if after.birth != prior.birth || after.token.value != prior.audit_token.value {
                 return Err(HelperObservationFailure::mismatch(0));
             }
-            let cpu = helper_ticks_ns(
+            let cpu = self.ticks_ns(
                 usage
                     .ri_user_time
                     .checked_add(usage.ri_system_time)
@@ -2893,7 +3807,7 @@ impl HelperGroup {
                 self.rolled_user_ticks = usage.ri_child_user_time;
                 self.rolled_system_ticks = usage.ri_child_system_time;
                 self.metrics.observed_direct_cpu_ns = cpu;
-                self.metrics.rolled_descendant_cpu_ns = helper_ticks_ns(
+                self.metrics.rolled_descendant_cpu_ns = self.ticks_ns(
                     usage
                         .ri_child_user_time
                         .checked_add(usage.ri_child_system_time)
@@ -2941,11 +3855,9 @@ impl HelperGroup {
             return Err(HelperObservationFailure::mismatch(76));
         }
         self.metrics.sample_stage = 76;
-        for member in self
-            .members
-            .iter()
-            .filter(|member| member.pid > 0 && member.exit_abstime == 0)
-        {
+        for member in self.members.iter().filter(|member| {
+            member.pid > 0 && member.exit_abstime == 0 && member.rollup_exit_observed_ns == 0
+        }) {
             let mut children = [0i32; 3];
             let found = unsafe {
                 libc::proc_listchildpids(
@@ -2978,13 +3890,20 @@ impl HelperGroup {
             .iter()
             .position(|m| m.pid == pid && m.start_abstime != 0)
             .ok_or(())?;
+        if index == 1
+            && self.members[1].rollup_exit_observed_ns != 0
+            && self.unique_admitted_child()
+            && helper_token_exited(&self.members[1].audit_token) == Ok(true)
+        {
+            return Ok(()); // retained conditional retirement, never a new RI exit
+        }
         self.metrics.sample_stage = 111;
         let mut usage = std::mem::MaybeUninit::<libc::rusage_info_v1>::uninit();
         if unsafe { libc::proc_pid_rusage(pid, 1, usage.as_mut_ptr().cast()) } != 0 {
             self.metrics.sample_stage = 112;
             let known = self.members[index];
             if std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
-                && known.exit_abstime != 0
+                && (known.exit_abstime != 0 || known.rollup_exit_observed_ns != 0)
                 && helper_token_exited(&known.audit_token) == Ok(true)
                 && self.retired_members.iter().any(|member| {
                     member.current
@@ -3011,7 +3930,7 @@ impl HelperGroup {
             return Err(());
         }
         self.metrics.sample_stage = 114;
-        let cpu = helper_ticks_ns(
+        let cpu = self.ticks_ns(
             usage
                 .ri_user_time
                 .checked_add(usage.ri_system_time)
@@ -3027,7 +3946,7 @@ impl HelperGroup {
         self.members[index].exit_abstime = usage.ri_proc_exit_abstime;
         self.metrics.sample_stage = 116;
         if index == 0 {
-            let rolled = helper_ticks_ns(
+            let rolled = self.ticks_ns(
                 usage
                     .ri_child_user_time
                     .checked_add(usage.ri_child_system_time)
@@ -3088,7 +4007,11 @@ impl HelperGroup {
             post_commit_pending: false,
             post_cpu: 0,
             post_late_cpu: 0,
-            accounted_helper_cpu: 0,
+            post_unexplained_cpu: 0,
+            post_startup_cpu: 0,
+            startup_accounted: false,
+            #[cfg(test)]
+            rollup_double_count_fault: false,
             rolled_user_ticks: 0,
             rolled_system_ticks: 0,
             grant_commit_pending: false,
@@ -3101,6 +4024,9 @@ impl HelperGroup {
             post_late_known: true,
             settled_cpu: None,
             usage_reconciled: false,
+            terminal_accounting_pending: false,
+            timebase: helper_timebase().unwrap_or_default(),
+            startup_late_cpu_ns: 0,
             accounting_settled: false,
             last_clock_ns: None,
             metrics: HelperMetrics {
@@ -3408,9 +4334,52 @@ impl HelperGroup {
         if !self.grant.opened {
             return;
         }
+        if self.grant.closed {
+            self.grant
+                .controller_end
+                .get_or_insert(self.metrics.controller_cpu_ns);
+            self.grant.pipe_end.get_or_insert(self.metrics.pipe_cpu_ns);
+        }
+        if self.grant.closed
+            && self.members[0].image_phase == HelperImagePhase::Exited
+            && !self.usage_reconciled
+        {
+            let wall = self.grant.slots[..usize::from(self.grant.reserved)]
+                .iter()
+                .try_fold(0u64, |total, slot| {
+                    let end = if slot.through_closure {
+                        self.grant.close_ns?
+                    } else {
+                        slot.ack_ns?
+                    };
+                    total.checked_add(end.checked_sub(self.grant.t0_ns)?)
+                });
+            if wall.is_some_and(|wall| wall > 25_000_000)
+                || self.grant_control_cpu().is_ok_and(|cpu| cpu > UNIT_NS)
+            {
+                control
+                    .accounting
+                    .resource_failed
+                    .store(true, Ordering::Release);
+                self.reject(control, 4);
+            }
+            if wall.is_none() {
+                self.reject(control, 5);
+            }
+            // WNOWAIT/RI close physical custody, not measured CPU accounting.
+            // Allow only paid raw drain/retirement until original wait4 arrives.
+            // C is frozen at this full active-owner handoff, not at STOP send.
+            self.terminal_accounting_pending = true;
+            self.grant_commit_pending = false;
+            self.corroboration_pending = false;
+            self.running = false;
+            return;
+        }
+        self.terminal_accounting_pending = false;
         let now = self.ledger_clock().unwrap_or(u64::MAX);
         let mut receipt = HelperGrantReceipt {
             sequence: self.identity.sequence,
+            grant_index: self.grant.index,
             pid: self.identity.pid,
             pgid: self.pgid,
             birth: self.identity.start_identity,
@@ -3420,9 +4389,12 @@ impl HelperGroup {
             c_ns: self.grant_control_cpu().unwrap_or(u64::MAX),
             closed: self.grant.closed,
             controller_baseline_ns: self.grant.controller_baseline,
-            controller_end_ns: self.metrics.controller_cpu_ns,
+            controller_end_ns: self
+                .grant
+                .controller_end
+                .unwrap_or(self.metrics.controller_cpu_ns),
             pipe_baseline_ns: self.grant.pipe_baseline,
-            pipe_end_ns: self.metrics.pipe_cpu_ns,
+            pipe_end_ns: self.grant.pipe_end.unwrap_or(self.metrics.pipe_cpu_ns),
             baseline_usage: self.grant.baseline_usage,
             ack_usage: self.grant.ack_usage,
             closure_usage: self.usage_observations,
@@ -3459,8 +4431,69 @@ impl HelperGroup {
             .ok()
             .and_then(|actual| actual.checked_sub(self.grant.actual_baseline))
             .unwrap_or(u64::MAX);
-        receipt.q_ns = receipt.w_ns.max(receipt.a_ns).saturating_add(receipt.c_ns);
+        if let Ok(measured) = self.measured_components(&mut receipt) {
+            receipt.basis = HelperChargeBasis::Measured;
+            receipt.a_ns = measured;
+        }
+        self.grant.basis = receipt.basis;
+        receipt.q_ns = match receipt.basis {
+            HelperChargeBasis::Measured => receipt.a_ns,
+            HelperChargeBasis::Window => receipt.w_ns.max(receipt.a_ns),
+        }
+        .saturating_add(receipt.c_ns);
         let first = !self.grant.charged_once;
+        if first && receipt.basis == HelperChargeBasis::Measured && receipt.rollup_provisional {
+            let fallback = receipt.w_ns.max(receipt.a_ns).saturating_add(receipt.c_ns);
+            self.grant.rollup_registered = true;
+            self.grant.rollup_fallback_q = fallback;
+            self.grant.rollup_q_delta = fallback.saturating_sub(receipt.q_ns);
+            self.grant.rollup_debt_delta = fallback
+                .max(UNIT_NS)
+                .saturating_sub(receipt.q_ns.max(UNIT_NS));
+            self.metrics.provisional_rollup_grants =
+                self.metrics.provisional_rollup_grants.saturating_add(1);
+            self.metrics.provisional_rollup_fallback_delta_ns = self
+                .metrics
+                .provisional_rollup_fallback_delta_ns
+                .saturating_add(fallback.saturating_sub(receipt.q_ns));
+            self.metrics.provisional_rollup_debt_delta_ns = self
+                .metrics
+                .provisional_rollup_debt_delta_ns
+                .saturating_add(
+                    fallback
+                        .max(UNIT_NS)
+                        .saturating_sub(receipt.q_ns.max(UNIT_NS)),
+                );
+            if fallback >= self.metrics.rollup_fallback_worst.q_ns {
+                let mut bill = receipt;
+                bill.basis = HelperChargeBasis::Window;
+                bill.q_ns = fallback;
+                self.metrics.rollup_fallback_worst = bill;
+            }
+        }
+        if !first
+            && self.grant.rollup_registered
+            && !self.grant.rollup_fallback_recovered
+            && receipt.basis == HelperChargeBasis::Window
+            && receipt.q_ns != u64::MAX
+            && self.grant.charged != u64::MAX
+            && receipt.q_ns >= self.grant.rollup_fallback_q
+        {
+            // A reopened original window may already have paid this grant's
+            // fallback. Keep its historical provisional fact, but never bill
+            // the same known fallback a second time at terminal conservation.
+            self.metrics.provisional_rollup_fallback_delta_ns = self
+                .metrics
+                .provisional_rollup_fallback_delta_ns
+                .saturating_sub(self.grant.rollup_q_delta);
+            self.metrics.provisional_rollup_debt_delta_ns = self
+                .metrics
+                .provisional_rollup_debt_delta_ns
+                .saturating_sub(self.grant.rollup_debt_delta);
+            self.metrics.recovered_rollup_grants =
+                self.metrics.recovered_rollup_grants.saturating_add(1);
+            self.grant.rollup_fallback_recovered = true;
+        }
         let additional = receipt
             .q_ns
             .max(self.grant.charged)
@@ -3468,6 +4501,12 @@ impl HelperGroup {
         self.grant.charged = self.grant.charged.max(receipt.q_ns);
         self.grant.charged_once = true;
         self.metrics.grants = self.metrics.grants.saturating_add(u64::from(first));
+        self.metrics.measured_grants = self.metrics.measured_grants.saturating_add(u64::from(
+            first && receipt.basis == HelperChargeBasis::Measured,
+        ));
+        self.metrics.window_grants = self.metrics.window_grants.saturating_add(u64::from(
+            first && receipt.basis == HelperChargeBasis::Window,
+        ));
         self.metrics.charged_ns = self.metrics.charged_ns.saturating_add(additional);
         if receipt.q_ns >= self.metrics.max_charge_ns {
             self.metrics.max_charge_ns = receipt.q_ns;
@@ -3480,6 +4519,12 @@ impl HelperGroup {
                 .saturating_sub(self.grant.reported_w),
         );
         self.metrics.active_cpu_ns = self.metrics.active_cpu_ns.saturating_add(
+            receipt
+                .a_ns
+                .max(self.grant.reported_a)
+                .saturating_sub(self.grant.reported_a),
+        );
+        self.metrics.charged_helper_cpu_ns = self.metrics.charged_helper_cpu_ns.saturating_add(
             receipt
                 .a_ns
                 .max(self.grant.reported_a)
@@ -3511,13 +4556,23 @@ impl HelperGroup {
         }
         self.lane_cpu = 0;
         self.corroboration_pending = self.grant.closed;
-        if self.grant.closed {
-            self.accounted_helper_cpu = self.actual_cpu().unwrap_or(u64::MAX);
-        }
-        if receipt.q_ns > UNIT_NS {
+        if receipt.q_ns > UNIT_NS || receipt.w_ns > 25_000_000 {
+            control
+                .accounting
+                .resource_failed
+                .store(true, Ordering::Release);
             self.reject(control, 4);
         }
-        if !self.grant.closed || receipt.a_ns > receipt.w_ns || receipt.q_ns == u64::MAX {
+        let slot_cpu_exceeds_wall = (0..usize::from(receipt.reserved)).any(|index| {
+            receipt.monotonic_mask & (1 << index) != 0
+                && receipt.slot_a_ns[index] > receipt.end_ns[index].saturating_sub(receipt.t0_ns)
+        });
+        if !self.grant.closed
+            || receipt.a_ns > receipt.w_ns
+            || slot_cpu_exceeds_wall
+            || (receipt.live_child_cpu_ns != 0 && receipt.rollup_child_cpu_ns != 0)
+            || receipt.q_ns == u64::MAX
+        {
             self.metrics.coverage_known = false;
             self.metrics.unknown_windows = self.metrics.unknown_windows.saturating_add(1);
             self.reject(control, 5);
@@ -3574,9 +4629,18 @@ impl HelperGroup {
             // every observed continuity failure refuse. Unsampled transient
             // exec is outside this conditional source premise, not a theorem
             // obtained from ESRCH plus a same-start RI record.
-            self.exited_member_usage(member.pid)?;
+            let native_exit = self.exited_member_usage(member.pid);
+            let rollup_exit = if index == 1 {
+                self.observe_retired_child_rollup(Some(&hint))?
+            } else {
+                false
+            };
+            if native_exit.is_err() && !rollup_exit {
+                return Err(());
+            }
             self.metrics.sample_stage = 134;
-            if self.members[index].exit_abstime == 0
+            if (self.members[index].exit_abstime == 0
+                && self.members[index].rollup_exit_observed_ns == 0)
                 || helper_token_exited(&member.audit_token) != Ok(true)
             {
                 return Err(());
@@ -3605,10 +4669,11 @@ impl HelperGroup {
         }
         self.metrics.sample_stage = 138;
         if pids[..count as usize].iter().any(|pid| {
-            !self
-                .members
-                .iter()
-                .any(|member| member.pid == *pid && member.exit_abstime != 0)
+            !self.members.iter().any(|member| {
+                member.pid == *pid
+                    && member.exit_abstime != 0
+                    && member.rollup_exit_observed_ns == 0
+            })
         }) {
             if self.stop_outcome != HelperStopOutcome::PendingTerminal {
                 self.capture_members()?;
@@ -3647,7 +4712,8 @@ impl HelperGroup {
     }
     fn closed_usage_covered(&self) -> bool {
         (self.metrics.rolled_descendant_cpu_ns <= self.members[1].cpu
-            || (self.members[1].exit_abstime != 0
+            || ((self.members[1].exit_abstime != 0
+                || self.members[1].rollup_exit_observed_ns != 0)
                 && self.rolled_user_ticks == self.members[1].user_ticks
                 && self.rolled_system_ticks >= self.members[1].system_ticks))
             && (self.identity.expected_members != 1
@@ -4097,13 +5163,13 @@ impl HelperGroup {
                 self.metrics.initial_kernel_cpu_ns = self
                     .metrics
                     .initial_kernel_cpu_ns
-                    .max(helper_ticks_ns(usage.ri_system_time)?);
+                    .max(self.ticks_ns(usage.ri_system_time)?);
             }
             let cpu = usage
                 .ri_user_time
                 .checked_add(usage.ri_system_time)
                 .ok_or(())?;
-            let cpu = helper_ticks_ns(cpu)?;
+            let cpu = self.ticks_ns(cpu)?;
             if cpu < prior.cpu {
                 return Err(());
             }
@@ -4137,6 +5203,11 @@ impl HelperGroup {
                 user_ticks: usage.ri_user_time,
                 system_ticks: usage.ri_system_time,
                 exit_abstime: usage.ri_proc_exit_abstime,
+                rollup_exit_observed_ns: if image_phase == HelperImagePhase::Exited {
+                    prior.rollup_exit_observed_ns
+                } else {
+                    0
+                },
             };
             self.note_incarnation(index, self.members[index]);
             if first_verified_descendant {
@@ -4149,7 +5220,7 @@ impl HelperGroup {
                     .ri_child_user_time
                     .checked_add(usage.ri_child_system_time)
                     .ok_or(())?;
-                let rolled = helper_ticks_ns(rolled)?;
+                let rolled = self.ticks_ns(rolled)?;
                 if rolled < self.metrics.rolled_descendant_cpu_ns {
                     return Err(());
                 }
@@ -4432,15 +5503,21 @@ impl Control {
             && self.error().is_none()
             && debts_paid
         {
-            if !h.confirmed_stopped || h.open_grant().is_err() {
-                h.reject(self, 5);
-            } else {
-                h.confirmed_stopped = false;
-                h.changed = Instant::now();
-                if unsafe { libc::kill(-h.pgid, libc::SIGCONT) } == 0 {
-                    h.running = true;
-                } else {
-                    h.reject(self, 5);
+            match h.refresh_pre_cont_baseline(self) {
+                Ok(false) => {} // fresh stopped C+L debt precedes any new grant
+                Err(()) => h.reject(self, 5),
+                Ok(true) => {
+                    if h.open_grant().is_err() {
+                        h.reject(self, 5);
+                    } else {
+                        h.confirmed_stopped = false;
+                        h.changed = Instant::now();
+                        if unsafe { libc::kill(-h.pgid, libc::SIGCONT) } == 0 {
+                            h.running = true;
+                        } else {
+                            h.reject(self, 5);
+                        }
+                    }
                 }
             }
         }
@@ -4448,7 +5525,12 @@ impl Control {
         let _ = h.account_controller(self, cpu);
         if !h.admission_failed && h.pending_closure() {
             match h.pending_charge_lower_bound() {
-                Ok(cost) if cost > UNIT_NS => h.reject(self, 4),
+                Ok(cost) if cost > UNIT_NS => {
+                    self.accounting
+                        .resource_failed
+                        .store(true, Ordering::Release);
+                    h.reject(self, 4);
+                }
                 Ok(_) => {}
                 Err(()) => h.reject(self, 5),
             }
@@ -4517,10 +5599,6 @@ impl Budget {
             self.paused = false;
             self.announce(w::Phase::Validate);
         }
-        self.heap_peak = self.heap_peak.max(heap());
-        if self.heap_peak > HEAP_MAX {
-            return Err(w::Code::ResourceLimit);
-        }
         let wall = Instant::now();
         let cpu = cpu_ns();
         if cpu == u64::MAX {
@@ -4528,6 +5606,14 @@ impl Budget {
                 .accounting
                 .clock_failed
                 .store(true, Ordering::Release);
+            return Err(w::Code::ResourceLimit);
+        }
+        self.heap_peak = self.heap_peak.max(heap());
+        let used = self.control.observe_interval(cpu, cpu_ns());
+        if self.heap_peak > HEAP_MAX || used > UNIT_NS {
+            let wall_ns = u64::try_from(wall.elapsed().as_nanos()).unwrap_or(u64::MAX);
+            let _ = self.read_charge_observed_heap(used, used, wall_ns, UNIT_NS, self.heap_peak);
+            self.control.read_pay();
             return Err(w::Code::ResourceLimit);
         }
         Ok((cpu, wall))
@@ -4541,6 +5627,16 @@ impl Budget {
         app: u64,
         wall_ns: u64,
         raw_limit: u64,
+    ) -> Result<(), w::Code> {
+        self.read_charge_observed_heap(cpu, app, wall_ns, raw_limit, heap())
+    }
+    pub(crate) fn read_charge_observed_heap(
+        &mut self,
+        cpu: u64,
+        app: u64,
+        wall_ns: u64,
+        raw_limit: u64,
+        observed_heap: u64,
     ) -> Result<(), w::Code> {
         let known = cpu != u64::MAX && app != u64::MAX && wall_ns != u64::MAX;
         let raw = if known { cpu } else { u64::MAX };
@@ -4560,7 +5656,7 @@ impl Budget {
                 u64::MAX
             });
         }
-        self.heap_peak = self.heap_peak.max(heap());
+        self.heap_peak = self.heap_peak.max(observed_heap);
         if !matches!(raw_limit, UNIT_NS | SPAN_NS)
             || raw > raw_limit
             || app > UNIT_NS
@@ -7650,6 +8746,384 @@ mod helper_admission_tests {
         })
     }
 
+    fn measured_accounting_group(reserved: u8) -> HelperGroup {
+        // API predicate inputs only, never native identities or qualification.
+        // Rejection cannot signal these labels: running remains false.
+        let mut helper = accounting_group();
+        helper.identity.expected_members = reserved;
+        helper.timebase = HelperTimebase {
+            numer: 125,
+            denom: 3,
+        };
+        let now = bootstrap::monotonic_ns().unwrap();
+        let t0 = now - 10_000_000;
+        helper.grant.opened = true;
+        helper.grant.closed = true;
+        helper.grant.reserved = reserved;
+        helper.grant.t0_ns = t0;
+        helper.grant.close_ns = Some(now);
+        helper.grant.post_ack_mask = (1 << reserved) - 1;
+        helper.confirmed_stopped = true;
+        for index in 0..usize::from(reserved) {
+            let pid = 101 + index as i32;
+            let baseline = 1200 * (index as u64 + 1);
+            helper.members[index] = HelperMember {
+                pid,
+                birth: 1,
+                start_abstime: 1,
+                audit_version: 1,
+                final_image_version: 1,
+                image_phase: HelperImagePhase::Descendant,
+                cpu: helper.ticks_ns(baseline + 2400).unwrap(),
+                user_ticks: baseline + 2400,
+                ..HelperMember::default()
+            };
+            helper.grant.slots[index] = HelperSlotWindow {
+                pid,
+                birth: 1,
+                start: 1,
+                version: 1,
+                ack_ns: Some(t0 + 5_000_000),
+                through_closure: false,
+            };
+            helper.grant.baseline_usage[index] = HelperUsageObservation {
+                pid,
+                user_ticks: baseline,
+                observed_ns: t0 - 1,
+                ..HelperUsageObservation::default()
+            };
+            helper.usage_observations[index] = HelperUsageObservation {
+                pid,
+                user_ticks: baseline + 2400,
+                observed_ns: now - 1,
+                ..HelperUsageObservation::default()
+            };
+            helper.task_observations[index] = HelperTaskObservation {
+                pid,
+                status: 4,
+                threads: 1,
+                running: 0,
+                observed_ns: t0 + 5_000_000,
+            };
+        }
+        helper.grant.baseline_slots = helper.grant.slots;
+        helper.grant.actual_baseline = helper
+            .ticks_ns(
+                helper
+                    .grant
+                    .baseline_usage
+                    .iter()
+                    .map(|u| u.user_ticks)
+                    .sum(),
+            )
+            .unwrap();
+        helper
+    }
+
+    #[test]
+    fn measured_quantum_requires_all_closure_predicates_and_keeps_wall_hard() {
+        for fault in [
+            "valid",
+            "unknown",
+            "pre_ack",
+            "pre_ack_clock",
+            "roster",
+            "version",
+            "counter_reverse",
+            "timebase",
+            "slot_cpu",
+            "wall",
+        ] {
+            let control = Control::fixture(Instant::now() + Duration::from_secs(2));
+            let mut helper = measured_accounting_group(2);
+            match fault {
+                "valid" => {}
+                "unknown" => helper.grant.baseline_slots[1].pid = 0,
+                "pre_ack" => helper.grant.post_ack_mask &= !1,
+                "pre_ack_clock" => {
+                    helper.usage_observations[0].observed_ns = helper.grant.t0_ns + 1
+                }
+                "roster" => helper.grant.closed = false,
+                "version" => helper.grant.slots[0].version += 1,
+                "counter_reverse" => helper.usage_observations[0].user_ticks = 1,
+                "timebase" => helper.timebase.denom = 0,
+                "slot_cpu" => helper.grant.slots[0].ack_ns = Some(helper.grant.t0_ns + 50_000),
+                "wall" => {
+                    helper.grant.t0_ns -= 30_000_000;
+                    for slot in &mut helper.grant.slots {
+                        slot.ack_ns = Some(slot.ack_ns.unwrap() + 1);
+                    }
+                    for usage in &mut helper.grant.baseline_usage {
+                        usage.observed_ns = helper.grant.t0_ns - 1;
+                    }
+                }
+                _ => unreachable!(),
+            }
+            helper.finish_grant(&control, 100_000);
+            let receipt = helper.metrics.worst_grant;
+            if matches!(fault, "valid" | "wall") {
+                assert_eq!(receipt.basis, HelperChargeBasis::Measured);
+                assert_eq!(receipt.unknown_mask, 0);
+                assert_eq!(receipt.post_ack_mask, 3);
+                assert_eq!(receipt.slot_a_ns, [100_000, 100_000]);
+                assert_eq!(receipt.q_ns, 300_000);
+                assert_eq!(control.error().is_some(), fault == "wall");
+                if fault == "wall" {
+                    assert!(receipt.w_ns > 25_000_000);
+                }
+            } else {
+                assert_eq!(receipt.basis, HelperChargeBasis::Window);
+                assert_eq!(
+                    receipt.q_ns,
+                    receipt.w_ns.max(receipt.a_ns).saturating_add(receipt.c_ns)
+                );
+                assert!(helper.admission_failed);
+                if fault == "slot_cpu" {
+                    assert!(!helper.metrics.coverage_known);
+                }
+            }
+            assert!(helper.metrics.debt_ns >= 9 * receipt.q_ns.clamp(UNIT_NS, SPAN_NS));
+            control.read_pay();
+        }
+    }
+
+    #[test]
+    fn measured_terminal_wait4_is_settlement_only_and_conservation_excess_is_paid() {
+        let control = Control::fixture(Instant::now() + Duration::from_secs(2));
+        let mut helper = measured_accounting_group(1);
+        helper.members[0].image_phase = HelperImagePhase::Exited;
+        helper.finish_grant(&control, 100_000);
+        assert!(helper.terminal_accounting_pending && !helper.pending_closure());
+        assert!(helper.payload_input_blocked() && helper.open_grant().is_err());
+        assert_eq!(
+            helper.metrics.grants, 0,
+            "RI exit cannot manufacture wait4 accounting"
+        );
+        let frozen_c = helper.grant_control_cpu().unwrap();
+        helper.metrics.controller_cpu_ns += 777;
+        assert_eq!(helper.grant_control_cpu().unwrap(), frozen_c);
+        // This is an explicitly synthetic API input; the owned process control
+        // below independently supplies real wait4 bytes and positive CPU.
+        helper.usage_reconciled = true;
+        helper.metrics.wait4_reads = 1;
+        helper.metrics.reap_user_upper_ns = 150_000;
+        helper.metrics.reap_system_upper_ns = 0;
+        helper.settled_cpu = Some(150_000);
+        helper.finish_grant(&control, 0);
+        assert!(!helper.terminal_accounting_pending);
+        assert_eq!(
+            helper.metrics.worst_grant.basis,
+            HelperChargeBasis::Measured
+        );
+        assert_eq!(helper.metrics.worst_grant.a_ns, 100_000);
+        helper.post_proof_pending = true;
+        helper.post_commit_pending = true;
+        helper.metrics.counter_reads = 3;
+        let raw_wait4 = 2_500_000;
+        assert!(helper.check_conservation(&control, raw_wait4).is_err());
+        let excess = helper.metrics.conservation_excess_ns;
+        assert!(excess > UNIT_NS && helper.post_unexplained_cpu == excess);
+        let debt_before = control.accounting.debt_total.load(Ordering::Acquire);
+        // The production adapter records C before this inclusive observation
+        // commits. Use this SAME control's canonical C floor in the API control.
+        control.accounting.charge(0, 0);
+        assert!(helper.commit_post_observation(&control, 0, 1).is_err());
+        assert_eq!(
+            control.accounting.debt_total.load(Ordering::Acquire) - debt_before,
+            9 * excess
+        );
+        assert_eq!(helper.metrics.unexplained_cpu_ns, excess);
+        assert_eq!(control.error(), Some(w::Code::ResourceLimit));
+        control.read_pay();
+    }
+
+    #[test]
+    fn measured_child_rollup_is_one_logical_counter_not_a_second_live_child_charge() {
+        let control = Control::fixture(Instant::now() + Duration::from_secs(2));
+        let mut helper = measured_accounting_group(2);
+        helper.grant.baseline_usage[0].child_user_ticks = helper.grant.baseline_usage[1].user_ticks;
+        helper.usage_observations[0].child_user_ticks = helper.usage_observations[1].user_ticks;
+        helper.rolled_user_ticks = helper.members[1].user_ticks;
+        helper.metrics.rolled_descendant_cpu_ns = helper.members[1].cpu;
+        helper.finish_grant(&control, 100_000);
+        assert_eq!(
+            helper.metrics.worst_grant.basis,
+            HelperChargeBasis::Measured
+        );
+        assert_eq!(helper.metrics.worst_grant.slot_a_ns, [100_000, 100_000]);
+        assert_eq!(helper.metrics.charged_helper_cpu_ns, 200_000);
+        assert_eq!(helper.metrics.worst_grant.q_ns, 300_000);
+        control.read_pay();
+    }
+
+    fn retired_rollup_accounting_group() -> HelperGroup {
+        // Deliberately synthetic API proof inputs; no PID is signalled. The
+        // native component witnesses remain separate from these guard controls.
+        let mut helper = measured_accounting_group(2);
+        helper.identity.pid = helper.members[0].pid;
+        helper.identity.pgid = helper.members[0].pid;
+        helper.identity.start_identity = helper.members[0].birth;
+        helper.metrics.descendants = 1;
+        helper.metrics.verified_descendants = 1;
+        helper.grant.index = 1;
+        for index in 0..2 {
+            let member = &mut helper.members[index];
+            member.audit_token.value[5] = member.pid as u32;
+            member.audit_token.value[7] = member.audit_version;
+            helper.retired_members[index] = RetiredMember {
+                pid: member.pid,
+                birth: member.birth,
+                token: member.audit_token,
+                current: true,
+            };
+        }
+        let retired = helper.grant.t0_ns + 6_000_000;
+        helper.members[1].image_phase = HelperImagePhase::Exited;
+        helper.members[1].rollup_exit_observed_ns = retired;
+        helper.grant.slots[1].ack_ns = Some(retired);
+        helper.grant.baseline_usage[0].child_user_ticks = helper.grant.baseline_usage[1].user_ticks;
+        helper.usage_observations[0].child_user_ticks = helper.usage_observations[1].user_ticks;
+        helper.rolled_user_ticks = helper.members[1].user_ticks;
+        helper.metrics.rolled_descendant_cpu_ns = helper.members[1].cpu;
+        helper.grant.rollup = HelperChildRollupProof {
+            checked: true,
+            grant_t0_ns: helper.grant.t0_ns,
+            leader: helper.grant.slots[0],
+            child: helper.grant.slots[1],
+            leader_ack_ns: helper.grant.slots[0].ack_ns.unwrap(),
+            child_exit_observed_ns: retired,
+            read_ns: helper.usage_observations[0].observed_ns,
+            child_count: 0,
+            user_ticks: helper.rolled_user_ticks,
+            system_ticks: 0,
+        };
+        helper
+    }
+
+    #[test]
+    fn measured_retired_child_rollup_requires_unique_post_exit_exclusive_provenance() {
+        for fault in ["valid", "mixed_child", "pre_exit_read", "double_count"] {
+            let control = Control::fixture(Instant::now() + Duration::from_secs(2));
+            let mut helper = retired_rollup_accounting_group();
+            match fault {
+                "valid" => {}
+                "mixed_child" => {
+                    helper.retired_members[2] = RetiredMember {
+                        pid: 999,
+                        birth: 2,
+                        current: true,
+                        ..RetiredMember::default()
+                    }
+                }
+                "pre_exit_read" => {
+                    helper.grant.rollup.read_ns = helper.grant.rollup.child_exit_observed_ns - 1
+                }
+                "double_count" => helper.rollup_double_count_fault = true,
+                _ => unreachable!(),
+            }
+            helper.finish_grant(&control, 100_000);
+            let raw = helper.metrics.worst_grant;
+            if fault == "valid" {
+                assert_eq!(raw.basis, HelperChargeBasis::Measured);
+                assert_eq!(
+                    raw.counter_source[1],
+                    HelperCounterSource::LeaderChildRollup
+                );
+                assert_eq!(
+                    (raw.live_child_cpu_ns, raw.rollup_child_cpu_ns),
+                    (0, 100_000)
+                );
+                assert_eq!(raw.a_ns, 200_000);
+                assert!(raw.rollup_provisional && !raw.rollup_reconciled);
+                assert_eq!(helper.metrics.provisional_rollup_grants, 1);
+                helper.usage_reconciled = true;
+                helper.metrics.wait4_reads = 1;
+                assert!(helper.check_conservation(&control, 200_000).is_ok());
+                assert!(helper.metrics.rollup_reconciled && !helper.metrics.rollup_revoked);
+            } else {
+                assert_eq!(raw.basis, HelperChargeBasis::Window);
+                assert!(helper.admission_failed && control.error().is_some());
+                assert_eq!(helper.metrics.provisional_rollup_grants, 0);
+                if fault == "double_count" {
+                    assert!(!helper.metrics.coverage_known);
+                }
+            }
+            control.read_pay();
+        }
+    }
+
+    #[test]
+    fn measured_rollup_terminal_mismatch_appends_window_bill_without_rewriting_history() {
+        let control = Control::fixture(Instant::now() + Duration::from_secs(2));
+        let mut helper = retired_rollup_accounting_group();
+        helper.finish_grant(&control, 100_000);
+        let original = helper.metrics.worst_grant;
+        let fallback = original.w_ns.max(original.a_ns) + original.c_ns;
+        let uncovered = fallback.max(UNIT_NS) - original.q_ns.max(UNIT_NS);
+        control.read_pay(); // the original measured prefix is already paid
+        let paid = control.accounting.debt_total.load(Ordering::Acquire);
+        helper.usage_reconciled = true;
+        helper.metrics.wait4_reads = 1;
+        helper.post_proof_pending = true;
+        helper.post_commit_pending = true;
+        assert!(helper.check_conservation(&control, 2_000_000).is_err());
+        assert!(helper.metrics.rollup_revoked && !helper.metrics.rollup_reconciled);
+        assert_eq!(
+            helper.metrics.worst_grant.basis,
+            HelperChargeBasis::Measured
+        );
+        assert_eq!(helper.metrics.worst_grant.q_ns, original.q_ns);
+        assert!(helper.metrics.worst_grant.rollup_revoked);
+        assert_eq!(
+            helper.metrics.rollup_fallback_worst.basis,
+            HelperChargeBasis::Window
+        );
+        assert_eq!(helper.metrics.rollup_fallback_worst.q_ns, fallback);
+        assert_eq!(
+            helper.metrics.rollup_fallback_charge_ns,
+            fallback - original.q_ns
+        );
+        assert_eq!(helper.metrics.rollup_fallback_debt_ns, 9 * uncovered);
+        assert_eq!(
+            control.accounting.debt_total.load(Ordering::Acquire) - paid,
+            9 * uncovered
+        );
+        helper.finalize_rollup_basis(&control);
+        assert_eq!(
+            control.accounting.debt_total.load(Ordering::Acquire) - paid,
+            9 * uncovered
+        );
+        control.accounting.charge(0, 0);
+        assert!(helper.commit_post_observation(&control, 0, 1).is_err());
+        assert_eq!(control.error(), Some(w::Code::ResourceLimit));
+        control.read_pay();
+        assert!(std::mem::size_of::<HelperGroup>() < storage::CONTROL as usize);
+    }
+
+    #[test]
+    fn measured_rollup_reopened_window_does_not_pay_the_same_fallback_twice() {
+        let control = Control::fixture(Instant::now() + Duration::from_secs(2));
+        let mut helper = retired_rollup_accounting_group();
+        helper.finish_grant(&control, 100_000);
+        assert_eq!(helper.metrics.provisional_rollup_grants, 1);
+        helper.invalidate_slot(1);
+        helper.finish_grant(&control, 0);
+        assert_eq!(helper.metrics.recovered_rollup_grants, 1);
+        assert_eq!(helper.metrics.provisional_rollup_fallback_delta_ns, 0);
+        assert_eq!(helper.metrics.provisional_rollup_debt_delta_ns, 0);
+        let already = control.accounting.debt_total.load(Ordering::Acquire);
+        helper.usage_reconciled = true;
+        helper.metrics.wait4_reads = 1;
+        helper.finalize_rollup_basis(&control);
+        assert!(helper.metrics.rollup_revoked);
+        assert_eq!(helper.metrics.rollup_fallback_debt_ns, 0);
+        assert_eq!(
+            control.accounting.debt_total.load(Ordering::Acquire),
+            already
+        );
+        control.read_pay();
+    }
+
     #[test]
     fn terminal_payload_fence_keeps_accounting_and_raw_drain_separate_from_stdin_authority() {
         // State/accounting controls only: no fixture PID is signalled and no
@@ -8027,6 +9501,277 @@ mod helper_admission_tests {
     }
 
     #[test]
+    fn measured_owned_cpu_wait4_detects_pre_ack_and_timebase_omission_without_qualification() {
+        // One throwaway source-known process, no shell/exec/helpers. After fork
+        // the child uses only async-signal-safe libc calls and stack scalars.
+        // This is a counter/conservation witness, not native birth admission or
+        // an installed tool's lifetime qualification.
+        let owner = Arc::new(Control::fixture(Instant::now() + Duration::from_secs(2)));
+        let mut ready = [0; 2];
+        assert_eq!(unsafe { libc::pipe(ready.as_mut_ptr()) }, 0);
+        let mut ready_read = unsafe { File::from_raw_fd(ready[0]) };
+        let ready_write = unsafe { File::from_raw_fd(ready[1]) };
+        let child_begin_ns = bootstrap::monotonic_ns().unwrap();
+        let pid = unsafe { libc::fork() };
+        assert!(pid >= 0);
+        if pid == 0 {
+            unsafe {
+                libc::close(ready[0]);
+                if libc::setpgid(0, 0) != 0 {
+                    libc::_exit(90);
+                }
+                let mut start = std::mem::zeroed::<libc::timespec>();
+                let mut now = std::mem::zeroed::<libc::timespec>();
+                if libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut start) != 0 {
+                    libc::_exit(91);
+                }
+                loop {
+                    if libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut now) != 0 {
+                        libc::_exit(92);
+                    }
+                    let elapsed =
+                        (now.tv_sec - start.tv_sec) * 1_000_000_000 + now.tv_nsec - start.tv_nsec;
+                    if elapsed >= 2_000_000 {
+                        break;
+                    }
+                }
+                let byte = 1u8;
+                if libc::write(ready[1], (&byte as *const u8).cast(), 1) != 1 {
+                    libc::_exit(93);
+                }
+                if libc::kill(libc::getpid(), libc::SIGSTOP) != 0 {
+                    libc::_exit(94);
+                }
+                libc::_exit(0);
+            }
+        }
+        let mut child = OwnedChild {
+            pid,
+            control: owner,
+            reaped: false,
+        };
+        if unsafe { libc::setpgid(pid, pid) } != 0 {
+            // Still-unreaped direct custody is exact even if group setup failed.
+            unsafe {
+                libc::kill(pid, libc::SIGKILL);
+            }
+            panic!("owned conservation fixture group setup failed");
+        }
+        drop(ready_write);
+        let mut poll = libc::pollfd {
+            fd: ready_read.as_raw_fd(),
+            events: libc::POLLIN | libc::POLLHUP,
+            revents: 0,
+        };
+        assert_eq!(unsafe { libc::poll(&mut poll, 1, 1000) }, 1);
+        let mut byte = [0u8];
+        ready_read.read_exact(&mut byte).unwrap();
+        let mut stop_status = 0;
+        let deadline = Instant::now() + Duration::from_secs(1);
+        loop {
+            let result =
+                unsafe { libc::waitpid(pid, &mut stop_status, libc::WUNTRACED | libc::WNOHANG) };
+            if result == pid {
+                break;
+            }
+            assert!(
+                result == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EINTR)
+            );
+            assert!(Instant::now() < deadline);
+            thread::sleep(Duration::from_micros(100));
+        }
+        assert!(libc::WIFSTOPPED(stop_status));
+        let ack_ns = bootstrap::monotonic_ns().unwrap();
+        let identity = helper_audit_member(pid, unsafe { libc::getpid() }).unwrap();
+        let mut raw = std::mem::MaybeUninit::<libc::rusage_info_v1>::uninit();
+        assert_eq!(
+            unsafe { libc::proc_pid_rusage(pid, 1, raw.as_mut_ptr().cast()) },
+            0
+        );
+        let raw = unsafe { raw.assume_init() };
+        let read_ns = bootstrap::monotonic_ns().unwrap();
+        assert!(read_ns >= ack_ns && raw.ri_proc_exit_abstime == 0);
+        let timebase = helper_timebase().unwrap();
+        let ticks = raw.ri_user_time.checked_add(raw.ri_system_time).unwrap();
+        let measured = helper_convert_ticks(ticks, timebase).unwrap();
+        assert!(measured >= 2_000_000);
+        // Establish the already-closed accounting input from this actual
+        // one-process source-known stopped roster. It is intentionally NOT a
+        // passing1ms quantum: this component tests independent L/conservation.
+        let mut observed = HelperGroup::attached(crate::dream::resolve::HelperIdentity {
+            sequence: 1,
+            pid,
+            pgid: pid,
+            start_identity: identity.birth,
+            expected_members: 1,
+            image: std::env::current_exe().unwrap(),
+            descendant_image: None,
+        });
+        observed.timebase = timebase;
+        observed.members[0] = HelperMember {
+            pid,
+            birth: identity.birth,
+            cpu: measured,
+            start_abstime: raw.ri_proc_start_abstime,
+            audit_version: identity.token.value[7],
+            audit_token: identity.token,
+            final_image_version: identity.token.value[7],
+            image_phase: HelperImagePhase::Descendant,
+            user_ticks: raw.ri_user_time,
+            system_ticks: raw.ri_system_time,
+            ..HelperMember::default()
+        };
+        observed.retired_members[0] = identity;
+        observed.observe_usage(0, pid, &raw);
+        observed.confirmed_stopped = true;
+        observed.grant.opened = true;
+        observed.grant.closed = true;
+        observed.grant.charged_once = true;
+        observed.grant.reserved = 1;
+        observed.grant.t0_ns = child_begin_ns;
+        observed.grant.slots[0].ack_ns = Some(ack_ns);
+        observed.grant.close_ns = Some(read_ns);
+        observed.metrics.grants = 1;
+        observed.metrics.charged_helper_cpu_ns = measured;
+        observed.retiring = true;
+        assert_eq!(unsafe { libc::kill(-pid, libc::SIGKILL) }, 0);
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while super::super::resolve::helper_exited(pid) != Ok(true) {
+            assert!(Instant::now() < deadline);
+            thread::sleep(Duration::from_micros(100));
+        }
+        let post_at = cpu_ns();
+        let post_wall = Instant::now();
+        assert_eq!(observed.observe_post_exit(&child.control), Ok(true));
+        let heap = heaps().1;
+        let post_cpu = child.control.observe_interval(post_at, cpu_ns());
+        let post_wall = u64::try_from(post_wall.elapsed().as_nanos()).unwrap();
+        let mut post_budget = Budget::new_read(
+            child.control.clone(),
+            Arc::new(crossbeam_queue::ArrayQueue::new(1)),
+        );
+        post_budget
+            .read_charge_observed_heap(post_cpu, post_cpu, post_wall, UNIT_NS, heap)
+            .unwrap();
+        observed
+            .commit_post_observation(&child.control, post_cpu, post_wall)
+            .unwrap();
+        child.control.read_pay();
+        let independent_late = observed.metrics.late_kernel_cpu_ns;
+        assert!(
+            independent_late < measured,
+            "already-observed burn cannot be relabeled as terminal L"
+        );
+        let mut status = 0;
+        let mut usage = std::mem::MaybeUninit::<libc::rusage>::uninit();
+        let deadline = Instant::now() + Duration::from_secs(1);
+        loop {
+            let got = unsafe { libc::wait4(pid, &mut status, libc::WNOHANG, usage.as_mut_ptr()) };
+            if got == pid {
+                break;
+            }
+            assert!(
+                got == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EINTR)
+            );
+            assert!(Instant::now() < deadline);
+            thread::sleep(Duration::from_micros(100));
+        }
+        child.reaped = true;
+        let usage = unsafe { usage.assume_init() };
+        assert!(libc::WIFSIGNALED(status) && libc::WTERMSIG(status) == libc::SIGKILL);
+        let raw_wait4 =
+            |value: libc::timeval| (value.tv_sec as u64 * 1_000_000 + value.tv_usec as u64) * 1000;
+        let user = raw_wait4(usage.ru_utime);
+        let system = raw_wait4(usage.ru_stime);
+        let whole = user.checked_add(system).unwrap();
+        assert!(whole >= 2_000_000);
+        for mutation in [
+            "complete",
+            "pre_ack_omitted",
+            "timebase_omitted",
+            "controller_post_only",
+        ] {
+            let control = Arc::new(Control::fixture(Instant::now() + Duration::from_secs(2)));
+            let mut helper = accounting_group();
+            helper.timebase = timebase;
+            helper.metrics.wait4_reads = 1;
+            helper.metrics.counter_reads = observed.metrics.counter_reads;
+            helper.metrics.late_kernel_cpu_ns = independent_late;
+            helper.metrics.charged_helper_cpu_ns = match mutation {
+                "complete" => measured,
+                "pre_ack_omitted" | "controller_post_only" => 0,
+                "timebase_omitted" => {
+                    assert!(
+                        timebase.numer > timebase.denom,
+                        "exact-host omission witness requires a nonidentity Mach timebase"
+                    );
+                    ticks
+                }
+                _ => unreachable!(),
+            };
+            if mutation == "controller_post_only" {
+                let mut budget = Budget::new_read(
+                    control.clone(),
+                    Arc::new(crossbeam_queue::ArrayQueue::new(1)),
+                );
+                for _ in 0..5 {
+                    let at = cpu_ns();
+                    let wall = Instant::now();
+                    while control.observe_interval(at, cpu_ns()) < 500_000 {
+                        std::hint::black_box(19u64.wrapping_mul(37));
+                    }
+                    let heap = heaps().1;
+                    let cpu = control.observe_interval(at, cpu_ns());
+                    let wall = u64::try_from(wall.elapsed().as_nanos()).unwrap();
+                    budget
+                        .read_charge_observed_heap(cpu, cpu, wall, UNIT_NS, heap)
+                        .unwrap();
+                    helper.metrics.post_cpu_ns += cpu;
+                    helper.metrics.post_units += 1;
+                    control.read_pay();
+                }
+                assert!(helper.metrics.post_cpu_ns >= 2_500_000);
+            }
+            helper.post_proof_pending = true;
+            helper.post_commit_pending = true;
+            let paid_controller_post = helper.metrics.post_cpu_ns;
+            let observation_at = cpu_ns();
+            let observation_wall = Instant::now();
+            let verdict = helper.check_conservation(&control, whole);
+            assert_eq!(verdict.is_ok(), mutation == "complete");
+            let excess = helper.metrics.conservation_excess_ns;
+            let before = control.accounting.debt_total.load(Ordering::Acquire);
+            let cpu = control.observe_interval(observation_at, cpu_ns());
+            let wall = u64::try_from(observation_wall.elapsed().as_nanos()).unwrap();
+            control.accounting.charge(cpu, cpu);
+            let _ = helper.commit_post_observation(&control, cpu, wall);
+            assert_eq!(
+                control.accounting.debt_total.load(Ordering::Acquire) - before,
+                9 * cpu.saturating_add(excess).max(UNIT_NS)
+            );
+            eprintln!(
+                "measured_cpu_conservation source_known=true conservation_only=true full_command_qualification=false mutation={mutation} pid={pid} birth={} audit_version={} ack_ns={ack_ns} counter_read_ns={read_ns} ri_user_ticks={} ri_system_ticks={} timebase_numer={} timebase_denom={} measured_ns={measured} wait4_pid={pid} wait4_signal=9 independent_late_ns={independent_late} actual_window_ns={} post_exit_user_before_ticks={} post_exit_system_before_ticks={} post_exit_user_after_ticks={} post_exit_system_after_ticks={} wait4_user_ns={user} wait4_system_ns={system} budget_ns={} allowance_ns={} excess_ns={excess} pass={} paid_controller_post_cpu_ns={paid_controller_post} observer_cpu_ns={cpu} observer_wall_ns={wall} debt_ns={}",
+                identity.birth,
+                identity.token.value[7],
+                raw.ri_user_time,
+                raw.ri_system_time,
+                timebase.numer,
+                timebase.denom,
+                ack_ns - child_begin_ns,
+                observed.metrics.post_exit_user_before_ticks,
+                observed.metrics.post_exit_system_before_ticks,
+                observed.metrics.post_exit_user_after_ticks,
+                observed.metrics.post_exit_system_after_ticks,
+                helper.metrics.conservation_budget_ns,
+                helper.metrics.conservation_allowance_ns,
+                helper.metrics.conservation_pass,
+                control.accounting.debt_total.load(Ordering::Acquire),
+            );
+            control.read_pay();
+        }
+    }
+
+    #[test]
     fn failed_stop_pending_live_exec_change_is_sticky_and_retains_actual_successor() {
         // Source-known deliberately invalid helper: a private shell is held on
         // its own pipe, then actually execs sleep after a consumed injected
@@ -8237,7 +9982,17 @@ mod helper_admission_tests {
                 (usage.ru_utime.tv_sec as u64 * 1_000_000 + usage.ru_utime.tv_usec as u64) * 1000;
             let system =
                 (usage.ru_stime.tv_sec as u64 * 1_000_000 + usage.ru_stime.tv_usec as u64) * 1000;
-            let _ = helper.reconcile_usage(&control, user, system, usage.ru_maxrss as u64);
+            let _ = helper.reconcile_usage(
+                &control,
+                crate::dream::resolve::HelperReapUsage {
+                    pid: helper.identity.pid,
+                    user_ns: user,
+                    system_ns: system,
+                    rss_bytes: usage.ru_maxrss as u64,
+                    observed_ns: bootstrap::monotonic_ns().unwrap(),
+                    readings: 1,
+                },
+            );
             let cost = control.observe_interval(reaping_at, cpu_ns());
             let wall = u64::try_from(reap_wall.elapsed().as_nanos()).unwrap_or(u64::MAX);
             let mut observed = Budget::new_read(
@@ -8430,7 +10185,12 @@ mod helper_admission_tests {
                     &control,
                     control.observe_interval(finalize_at, cpu_ns()),
                 );
-                assert!(helper.metrics.worst_grant.end_ns[0] >= failed.observed_ns);
+                assert!(helper.terminal_accounting_pending);
+                assert_eq!(
+                    helper.metrics.grants, 0,
+                    "actual wait4 is still outstanding"
+                );
+                assert!(helper.grant.slots[0].ack_ns.unwrap() >= failed.observed_ns);
                 assert!(helper.metrics.debt_ns >= 9 * UNIT_NS);
                 assert!(helper.stop_requested);
             }
@@ -8466,8 +10226,17 @@ mod helper_admission_tests {
                 let system = (usage.ru_stime.tv_sec as u64 * 1_000_000
                     + usage.ru_stime.tv_usec as u64)
                     * 1000;
-                let reconciled =
-                    helper.reconcile_usage(&control, user, system, usage.ru_maxrss as u64);
+                let reconciled = helper.reconcile_usage(
+                    &control,
+                    crate::dream::resolve::HelperReapUsage {
+                        pid: helper.identity.pid,
+                        user_ns: user,
+                        system_ns: system,
+                        rss_bytes: usage.ru_maxrss as u64,
+                        observed_ns: bootstrap::monotonic_ns().unwrap(),
+                        readings: 1,
+                    },
+                );
                 // Match helper_usage's owner observation: actual wait4 and
                 // reconciliation CPU joins newly observed late kernel CPU
                 // before detach pays the resulting fresh ordinary debt.
@@ -8533,6 +10302,7 @@ mod helper_admission_tests {
         // original real effect through actual settlement, never resets a fault.
         for fault in [
             "valid",
+            "wall_30ms",
             "initial_second_pending",
             "sequence",
             "grant",
@@ -8650,12 +10420,20 @@ mod helper_admission_tests {
                 let mut owner = control.helper.lock().unwrap();
                 let helper = owner.as_mut().unwrap();
                 helper.open_grant().unwrap();
+                if fault == "wall_30ms" {
+                    assert_eq!(unsafe { libc::kill(-pid, libc::SIGCONT) }, 0);
+                }
                 helper.running = true;
                 helper.confirmed_stopped = false;
                 assert_eq!(
                     helper.request_group_stop(),
                     Ok(HelperStopOutcome::Delivered)
                 );
+            }
+            if fault == "wall_30ms" {
+                // Delay the FIRST positive observation, never an already
+                // captured endpoint. No work/CONT is admitted during this wait.
+                thread::sleep(Duration::from_millis(30));
             }
             let until = Instant::now() + Duration::from_secs(1);
             let mut hint = loop {
@@ -8674,7 +10452,7 @@ mod helper_admission_tests {
             };
             let observed = hint.snapshots[0].unwrap().observed_ns;
             match fault {
-                "valid" | "initial_second_pending" => {}
+                "valid" | "wall_30ms" | "initial_second_pending" => {}
                 "sequence" => hint.ticket.sequence += 1,
                 "grant" => hint.grant_t0_ns += 1,
                 "attempt" => hint.stop_attempt += 1,
@@ -8744,7 +10522,7 @@ mod helper_admission_tests {
                 } else {
                     helper.sample_with_hint(&control, Some(hint))
                 };
-                if matches!(fault, "valid" | "initial_second_pending") {
+                if matches!(fault, "valid" | "wall_30ms" | "initial_second_pending") {
                     assert_eq!(result, Ok(true));
                     assert!(helper.grant.closed && helper.confirmed_stopped);
                     assert_eq!(
@@ -8757,6 +10535,16 @@ mod helper_admission_tests {
                         control.observe_interval(active_at, cpu_ns()),
                     );
                     helper.finish_grant(&control, 0);
+                    if fault == "wall_30ms" {
+                        let receipt = helper.metrics.worst_grant;
+                        assert_eq!(receipt.basis, HelperChargeBasis::Measured);
+                        assert!(
+                            receipt.q_ns <= UNIT_NS,
+                            "wall mutant must have an independently passing CPU quantum"
+                        );
+                        assert!(receipt.w_ns > 25_000_000);
+                        assert_eq!(control.error(), Some(w::Code::ResourceLimit));
+                    }
                     eprintln!(
                         "typed_stop_hint source_known=true pid={pid} observed_ns={observed} end_ns={} close_ns={} c_ns={} q_ns={} stop_attempts={}",
                         helper.metrics.worst_grant.end_ns[0],
@@ -9006,7 +10794,17 @@ mod helper_admission_tests {
                 let system = (usage.ru_stime.tv_sec as u64 * 1_000_000
                     + usage.ru_stime.tv_usec as u64)
                     * 1000;
-                let _ = helper.reconcile_usage(&control, user, system, usage.ru_maxrss as u64);
+                let _ = helper.reconcile_usage(
+                    &control,
+                    crate::dream::resolve::HelperReapUsage {
+                        pid: helper.identity.pid,
+                        user_ns: user,
+                        system_ns: system,
+                        rss_bytes: usage.ru_maxrss as u64,
+                        observed_ns: bootstrap::monotonic_ns().unwrap(),
+                        readings: 1,
+                    },
+                );
                 let used = control.observe_interval(reap_at, cpu_ns());
                 let wall = u64::try_from(reap_wall.elapsed().as_nanos()).unwrap_or(u64::MAX);
                 let mut observed = Budget::new_read(
@@ -9234,7 +11032,17 @@ mod helper_admission_tests {
                 let system = (usage.ru_stime.tv_sec as u64 * 1_000_000
                     + usage.ru_stime.tv_usec as u64)
                     * 1000;
-                let _ = helper.reconcile_usage(&control, user, system, usage.ru_maxrss as u64);
+                let _ = helper.reconcile_usage(
+                    &control,
+                    crate::dream::resolve::HelperReapUsage {
+                        pid: helper.identity.pid,
+                        user_ns: user,
+                        system_ns: system,
+                        rss_bytes: usage.ru_maxrss as u64,
+                        observed_ns: bootstrap::monotonic_ns().unwrap(),
+                        readings: 1,
+                    },
+                );
                 let used = control.observe_interval(reap_at, cpu_ns());
                 let wall = u64::try_from(reap_wall.elapsed().as_nanos()).unwrap_or(u64::MAX);
                 let mut observed = Budget::new_read(
@@ -9478,7 +11286,17 @@ mod helper_admission_tests {
                 let system = (usage.ru_stime.tv_sec as u64 * 1_000_000
                     + usage.ru_stime.tv_usec as u64)
                     * 1000;
-                let _ = helper.reconcile_usage(&control, user, system, usage.ru_maxrss as u64);
+                let _ = helper.reconcile_usage(
+                    &control,
+                    crate::dream::resolve::HelperReapUsage {
+                        pid: helper.identity.pid,
+                        user_ns: user,
+                        system_ns: system,
+                        rss_bytes: usage.ru_maxrss as u64,
+                        observed_ns: bootstrap::monotonic_ns().unwrap(),
+                        readings: 1,
+                    },
+                );
                 let used = control.observe_interval(reap_at, cpu_ns());
                 let wall = u64::try_from(reap_wall.elapsed().as_nanos()).unwrap_or(u64::MAX);
                 let mut observed = Budget::new_read(

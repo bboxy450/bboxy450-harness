@@ -3585,7 +3585,7 @@ fn member_windows_use_post_ack_unequal_endpoints_and_closed_roster() {
     );
     let control = capability_command(&probe, &["ledger-controls"], home.path(), "ledger-controls");
     let controls: serde_json::Value = serde_json::from_slice(&control.stdout).unwrap();
-    assert_eq!(controls["causal_controls"], 18);
+    assert_eq!(controls["causal_controls"], 27);
     assert_eq!(controls["tool_availability"], "verification_unproven");
     let native = home.path().join("native");
     private_dir(&native);
@@ -3606,17 +3606,48 @@ fn member_windows_use_post_ack_unequal_endpoints_and_closed_roster() {
     let windows = ledger["W_ns"].as_u64().unwrap();
     let actual = ledger["A_ns"].as_u64().unwrap();
     let controller = ledger["C_ns"].as_u64().unwrap();
+    let slot_actual = [
+        ledger["slot_A_ns"][0].as_u64().unwrap(),
+        ledger["slot_A_ns"][1].as_u64().unwrap(),
+    ];
     assert_eq!(windows, (first - t0) + (second - t0));
     assert!(
         windows < 2 * (second - t0),
         "unequal endpoints must retain their actual independent bounds"
     );
     assert!(actual <= windows, "unexplained A>W cannot acquire coverage");
-    assert_eq!(
-        ledger["Q_ns"].as_u64().unwrap(),
-        windows.max(actual) + controller
-    );
+    assert!(slot_actual[0] <= first - t0);
+    assert!(slot_actual[1] <= second - t0);
+    let member_charge = match ledger["charge_basis"].as_str().unwrap() {
+        "measured" => {
+            assert_eq!(ledger["unknown_mask"], 0);
+            for field in [
+                "baseline_mask",
+                "counter_identity_mask",
+                "counter_mask",
+                "conversion_mask",
+            ] {
+                assert_eq!(ledger[field].as_u64().unwrap() & 3, 3, "{field}");
+            }
+            assert_eq!(
+                (ledger["post_ack_mask"].as_u64().unwrap()
+                    | ledger["wait4_mask"].as_u64().unwrap())
+                    & 3,
+                3,
+                "each measured slot needs its post-ACK or retained wait4 counters"
+            );
+            assert_eq!(actual, slot_actual[0] + slot_actual[1]);
+            actual
+        }
+        "window" => windows.max(actual),
+        other => panic!("unsupported member charge basis {other}"),
+    };
+    assert_eq!(ledger["Q_ns"].as_u64().unwrap(), member_charge + controller);
     assert!(ledger["Q_ns"].as_u64().unwrap() <= 1_000_000);
+    assert!(
+        windows <= 25_000_000,
+        "the wall gate applies to either basis"
+    );
     assert!(
         ledger["post_cpu_ns"].as_u64().unwrap() + ledger["late_kernel_ns"].as_u64().unwrap()
             <= 1_000_000

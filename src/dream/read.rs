@@ -817,6 +817,16 @@ impl ProofClock {
             self.started = None;
             return Ok(());
         };
+        // Heap observation is substantive batch work, once per actual ordinary
+        // unit. Sampling it on every SHA checkpoint both repeated that work and
+        // left after()'s admission value stale until the next primitive.
+        let heap_at = cpu_ns();
+        let observed_heap = heaps().1;
+        let heap_cpu = self
+            .budget
+            .borrow()
+            .control
+            .observe_interval(heap_at, cpu_ns());
         let end = cpu_ns();
         let used = self.budget.borrow().control.observe_interval(at, end);
         let wall = self
@@ -831,11 +841,15 @@ impl ProofClock {
             let mut summary = self.helper_summary.borrow_mut();
             summary.cost_known &= used != u64::MAX && wall != u64::MAX;
             summary.proof_app_max_cpu = summary.proof_app_max_cpu.max(used);
+            summary.proof_heap_max_cpu = summary.proof_heap_max_cpu.max(heap_cpu);
         }
-        let result = self
-            .budget
-            .borrow_mut()
-            .read_charge(used, used, wall, 1_000_000);
+        let result = self.budget.borrow_mut().read_charge_observed_heap(
+            used,
+            used,
+            wall,
+            1_000_000,
+            observed_heap,
+        );
         if let Err(code) = result {
             self.remember(code);
             return Err(super::entry::Invalid("selected ordinary batch refused"));
@@ -860,6 +874,10 @@ impl Drop for ProofClock {
 struct HelperSummary {
     cost_known: bool,
     proof_app_max_cpu: u64,
+    proof_primitive_max_cpu: u64,
+    proof_boundary_max_cpu: u64,
+    proof_heap_max_cpu: u64,
+    proof_admission_max_cpu: u64,
     creations: u64,
     attempts: u64,
     effects: u64,
@@ -896,6 +914,13 @@ impl HelperSummary {
         eprintln!(
             "dream-read helper_cost profile=read-helper-native/1 cost_known={} proof_app_max_cpu_ns={}",
             self.cost_known, self.proof_app_max_cpu
+        );
+        eprintln!(
+            "dream-read proof_stage_cost units=thread_cpu_ns primitive_max={} boundary_max={} heap_observation_max={} admission_max={} diagnostic_only=true",
+            self.proof_primitive_max_cpu,
+            self.proof_boundary_max_cpu,
+            self.proof_heap_max_cpu,
+            self.proof_admission_max_cpu
         );
         eprintln!(
             "dream-read helper_native profile=read-helper-native/1 tag=process_create count={} reservations={} effects={} failures_with_effect={} unknown_effects={} last_errno={} last_failed_sequence={} cpu_ns={} max_cpu_ns={} max_wall_ns={} inclusive_max_cpu_ns={} inclusive_max_wall_ns={} app_max_cpu_ns={} debt_ns={}",
@@ -1026,7 +1051,7 @@ impl HelperSummary {
             96 * 1024 * 1024
         );
         eprintln!(
-            "dream-read helper_window_totals profile=read-helper-native/1 decision=65489 window_ns={} active_cpu_ns={} active_control_ns={} roster_closures={} reopened_slots={} unknown_windows={} clock_failures={} post_units={} post_cpu_ns={} post_max_cpu_ns={} late_kernel_cpu_ns={} late_kernel_observations={}",
+            "dream-read helper_window_totals profile=read-helper-native/1 decision=66236 window_ns={} active_cpu_ns={} active_control_ns={} roster_closures={} reopened_slots={} unknown_windows={} clock_failures={} post_units={} post_cpu_ns={} post_max_cpu_ns={} late_kernel_cpu_ns={} late_kernel_observations={}",
             m.window_ns,
             m.active_cpu_ns,
             m.active_control_ns,
@@ -1048,7 +1073,37 @@ impl HelperSummary {
                 continue;
             }
             eprintln!(
-                "dream-read helper_window_receipt profile=read-helper-native/1 decision=65489 selection={} sequence={} pid={} pgid={} birth={} reserved={} t0_ns={} end0_ns={} end1_ns={} close_ns={} member0_pid={} member1_pid={} member0_birth={} member1_birth={} member0_start={} member1_start={} member0_version={} member1_version={} controller_baseline_ns={} controller_end_ns={} pipe_baseline_ns={} pipe_end_ns={} w_ns={} a_ns={} c_ns={} q_ns={} closed={}",
+                "dream-read helper_charge_basis decision=66236 selection={selection} sequence={} grant_index={} basis={} effective_basis={} unknown_mask={} post_ack_mask={} monotonic_mask={} slot0_a_ns={} slot1_a_ns={} timebase_numer={} timebase_denom={} counters_read={} member0_counter_source={} member1_counter_source={} live_child_cpu_ns={} rollup_child_cpu_ns={} rollup_provisional={} rollup_reconciled={} rollup_revoked={} rollup_exit_observed_ns={} rollup_read_ns={} measured_grants={} window_grants={}",
+                r.sequence,
+                r.grant_index,
+                r.basis.as_str(),
+                if r.rollup_revoked {
+                    "window"
+                } else {
+                    r.basis.as_str()
+                },
+                r.unknown_mask,
+                r.post_ack_mask,
+                r.monotonic_mask,
+                r.slot_a_ns[0],
+                r.slot_a_ns[1],
+                r.timebase_numer,
+                r.timebase_denom,
+                r.counters_read,
+                r.counter_source[0].as_str(),
+                r.counter_source[1].as_str(),
+                r.live_child_cpu_ns,
+                r.rollup_child_cpu_ns,
+                r.rollup_provisional,
+                r.rollup_reconciled,
+                r.rollup_revoked,
+                r.rollup_exit_observed_ns,
+                r.rollup_read_ns,
+                m.measured_grants,
+                m.window_grants,
+            );
+            eprintln!(
+                "dream-read helper_window_receipt profile=read-helper-native/1 decision=66236 selection={} sequence={} pid={} pgid={} birth={} reserved={} t0_ns={} end0_ns={} end1_ns={} close_ns={} member0_pid={} member1_pid={} member0_birth={} member1_birth={} member0_start={} member1_start={} member0_version={} member1_version={} controller_baseline_ns={} controller_end_ns={} pipe_baseline_ns={} pipe_end_ns={} w_ns={} a_ns={} c_ns={} q_ns={} closed={}",
                 selection,
                 r.sequence,
                 r.pid,
@@ -1105,6 +1160,40 @@ impl HelperSummary {
         let (sequence, pid, pgid, birth) = self.reap_ticket.map_or((0, 0, 0, 0), |t| {
             (t.sequence, t.pid, t.pgid, t.start_identity)
         });
+        let fallback = m.rollup_fallback_worst;
+        eprintln!(
+            "dream-read helper_rollup_final decision=66236 sequence={sequence} pid={pid} provisional_grants={} recovered_by_reopened_window={} reconciled={} revoked={} remaining_fallback_charge_delta_ns={} remaining_fallback_debt_cost_ns={} charged_fallback_debt_ns={} fallback_worst_grant={} fallback_w_ns={} fallback_a_ns={} fallback_c_ns={} fallback_q_ns={} original_receipts_preserved=true controller_credit=false",
+            m.provisional_rollup_grants,
+            m.recovered_rollup_grants,
+            m.rollup_reconciled,
+            m.rollup_revoked,
+            m.rollup_fallback_charge_ns,
+            m.provisional_rollup_debt_delta_ns,
+            m.rollup_fallback_debt_ns,
+            fallback.grant_index,
+            fallback.w_ns,
+            fallback.a_ns,
+            fallback.c_ns,
+            fallback.q_ns,
+        );
+        eprintln!(
+            "dream-read helper_conservation decision=66236 selection=latest_reaped sequence={sequence} pid={pid} checked={} pass={} startup_cpu_ns={} startup_charged_cpu_ns={} charged_helper_cpu_ns={} included_late_kernel_cpu_ns={} startup_late_excluded_ns={} post_helper_cpu_ns={} counter_reads={} wait4_reads={} wait4_user_ns={} wait4_system_ns={} budget_ns={} allowance_ns={} excess_ns={} controller_post_is_budget=false",
+            m.conservation_checked,
+            m.conservation_pass,
+            m.startup_cpu_ns,
+            m.startup_charged_cpu_ns,
+            m.charged_helper_cpu_ns,
+            m.conservation_late_ns,
+            m.startup_late_excluded_ns,
+            m.post_helper_cpu_ns,
+            m.counter_reads,
+            m.wait4_reads,
+            m.reap_user_ns,
+            m.reap_system_ns,
+            m.conservation_budget_ns,
+            m.conservation_allowance_ns,
+            m.conservation_excess_ns,
+        );
         eprintln!(
             "dream-read helper_reap_receipt profile=read-helper-native/1 selection=latest_reaped sequence={sequence} pid={pid} pgid={pgid} birth={birth} user_ns={} system_ns={} user_upper_ns={} system_upper_ns={} quantization_ns={} ri_user_ticks={} ri_system_ticks={} timebase_numer={} timebase_denom={} reconciliation_unproven={} unexplained_cpu_ns={}",
             m.reap_user_ns,
@@ -1118,6 +1207,21 @@ impl HelperSummary {
             m.reap_timebase_denom,
             m.reconciliation_unproven,
             m.unexplained_cpu_ns
+        );
+        eprintln!(
+            "dream-read helper_post_exit_ri decision=66236 sequence={sequence} pid={pid} attempts={} known={} user_before_ticks={} system_before_ticks={} user_after_ticks={} system_after_ticks={} before_actual_wait4={} source={}",
+            m.post_exit_observations,
+            m.post_exit_observation_known,
+            m.post_exit_user_before_ticks,
+            m.post_exit_system_before_ticks,
+            m.post_exit_user_after_ticks,
+            m.post_exit_system_after_ticks,
+            m.post_exit_observation_known,
+            if m.post_exit_observation_known {
+                "independent_raw_ri"
+            } else {
+                "none"
+            },
         );
     }
 }
@@ -1324,25 +1428,88 @@ impl super::resolve::ProofPace for ProofClock {
         self.credits.borrow_mut().push(credit);
         Ok(())
     }
-    fn helper_usage(
-        &mut self,
-        ticket: HelperTicket,
-        user_ns: u64,
-        system_ns: u64,
-        rss_bytes: u64,
-    ) -> Result<(), super::entry::Invalid> {
+    fn helper_post_exit(&mut self, ticket: HelperTicket) -> Result<(), super::entry::Invalid> {
         let at = cpu_ns();
         let wall_at = Instant::now();
         let control = self.budget.borrow().control.clone();
+        control.read_pay();
+        let mut helper = control.helper.lock().unwrap_or_else(|p| p.into_inner());
+        while helper.as_ref().is_some_and(|h| {
+            h.identity.ticket() == ticket
+                && (h.usage_handoff_pending() || Instant::now() < h.debt_until)
+        }) {
+            // Finish the prior controller's complete C+L unit before opening
+            // this observation; cancellation cannot erase that owned debt.
+            drop(helper);
+            control.read_pay();
+            std::thread::sleep(Duration::from_millis(1));
+            helper = control.helper.lock().unwrap_or_else(|p| p.into_inner());
+        }
+        let h = helper
+            .as_mut()
+            .filter(|h| h.identity.ticket() == ticket && h.retiring)
+            .ok_or(super::entry::Invalid("helper post-exit custody mismatch"))?;
+        let observed = h.observe_post_exit(&control);
+        let heap = heaps().1;
+        let cpu = control.observe_interval(at, cpu_ns());
+        let wall = u64::try_from(wall_at.elapsed().as_nanos()).unwrap_or(u64::MAX);
+        let recorded = self
+            .budget
+            .borrow_mut()
+            .read_charge_observed_heap(cpu, cpu, wall, 1_000_000, heap);
+        let committed = if h.usage_observation_pending() {
+            h.commit_post_observation(&control, cpu, wall)
+        } else {
+            h.record_post_owner_cpu(&control, cpu);
+            Ok(())
+        };
+        let code = control.error();
+        drop(helper);
+        control.read_pay();
+        if observed.is_err() || recorded.is_err() || committed.is_err() {
+            self.remember(
+                code.or(recorded.err())
+                    .unwrap_or(c::Code::SourceUnavailable),
+            );
+            return Err(super::entry::Invalid(
+                "helper independent post-exit accounting refused",
+            ));
+        }
+        Ok(())
+    }
+    fn helper_usage(
+        &mut self,
+        ticket: HelperTicket,
+        usage: super::resolve::HelperReapUsage,
+    ) -> Result<(), super::entry::Invalid> {
+        let super::resolve::HelperReapUsage {
+            user_ns,
+            system_ns,
+            rss_bytes,
+            ..
+        } = usage;
+        let at = cpu_ns();
+        let wall_at = Instant::now();
+        let control = self.budget.borrow().control.clone();
+        control.read_pay();
         let mut helper = control
             .helper
             .lock()
             .map_err(|_| super::entry::Invalid("helper custody unavailable"))?;
+        while helper.as_ref().is_some_and(|h| {
+            h.identity.ticket() == ticket
+                && (h.usage_handoff_pending() || Instant::now() < h.debt_until)
+        }) {
+            drop(helper);
+            control.read_pay();
+            std::thread::sleep(Duration::from_millis(1));
+            helper = control.helper.lock().unwrap_or_else(|p| p.into_inner());
+        }
         let h = helper
             .as_mut()
             .filter(|h| h.pgid == ticket.pgid && h.identity.ticket() == ticket)
             .ok_or(super::entry::Invalid("helper usage custody"))?;
-        let measured = h.reconcile_usage(&control, user_ns, system_ns, rss_bytes);
+        let measured = h.reconcile_usage(&control, usage);
         {
             let mut summary = self.helper_summary.borrow_mut();
             let cpu = user_ns
@@ -1354,12 +1521,13 @@ impl super::resolve::ProofPace for ProofClock {
                 .unwrap_or(u64::MAX);
             summary.reaped_rss = summary.reaped_rss.max(rss_bytes);
         }
+        let heap = heaps().1;
         let used = control.observe_interval(at, cpu_ns());
         let wall = u64::try_from(wall_at.elapsed().as_nanos()).unwrap_or(u64::MAX);
         let recorded = self
             .budget
             .borrow_mut()
-            .read_charge(used, used, wall, 1_000_000);
+            .read_charge_observed_heap(used, used, wall, 1_000_000, heap);
         // The full observation belongs to this existing proof owner. A controller
         // cannot commit its newly observed late CPU before this endpoint.
         let committed = h.commit_post_observation(&control, used, wall);
@@ -1679,6 +1847,7 @@ impl super::resolve::ProofPace for ProofClock {
             }
         }
         let mut h = helper.take().unwrap();
+        h.finalize_rollup_basis(&b.control);
         drop(helper);
         // All expensive owners remain parked through residual/reconciled debt.
         while Instant::now() < h.debt_until {
@@ -1687,6 +1856,11 @@ impl super::resolve::ProofPace for ProofClock {
                     .saturating_duration_since(Instant::now())
                     .min(Duration::from_millis(1)),
             );
+        }
+        if !h.metrics.conservation_checked {
+            self.remember(c::Code::SourceUnavailable);
+        } else if !h.metrics.conservation_pass {
+            self.remember(c::Code::ResourceLimit);
         }
         if h.identity.expected_members == 2
             && (h.metrics.descendants != 1
@@ -1717,6 +1891,36 @@ impl super::resolve::ProofPace for ProofClock {
         m.reap_ri_system_ticks = h.metrics.reap_ri_system_ticks;
         m.reap_timebase_numer = h.metrics.reap_timebase_numer;
         m.reap_timebase_denom = h.metrics.reap_timebase_denom;
+        m.measured_grants = m.measured_grants.saturating_add(h.metrics.measured_grants);
+        m.window_grants = m.window_grants.saturating_add(h.metrics.window_grants);
+        m.startup_cpu_ns = h.metrics.startup_cpu_ns;
+        m.startup_charged_cpu_ns = h.metrics.startup_charged_cpu_ns;
+        m.charged_helper_cpu_ns = h.metrics.charged_helper_cpu_ns;
+        m.post_helper_cpu_ns = h.metrics.post_helper_cpu_ns;
+        m.counter_reads = h.metrics.counter_reads;
+        m.wait4_reads = h.metrics.wait4_reads;
+        m.conservation_budget_ns = h.metrics.conservation_budget_ns;
+        m.conservation_late_ns = h.metrics.conservation_late_ns;
+        m.startup_late_excluded_ns = h.metrics.startup_late_excluded_ns;
+        m.conservation_allowance_ns = h.metrics.conservation_allowance_ns;
+        m.conservation_excess_ns = h.metrics.conservation_excess_ns;
+        m.conservation_checked = h.metrics.conservation_checked;
+        m.conservation_pass = h.metrics.conservation_pass;
+        m.post_exit_observations = h.metrics.post_exit_observations;
+        m.post_exit_observation_known = h.metrics.post_exit_observation_known;
+        m.post_exit_user_before_ticks = h.metrics.post_exit_user_before_ticks;
+        m.post_exit_system_before_ticks = h.metrics.post_exit_system_before_ticks;
+        m.post_exit_user_after_ticks = h.metrics.post_exit_user_after_ticks;
+        m.post_exit_system_after_ticks = h.metrics.post_exit_system_after_ticks;
+        m.provisional_rollup_grants = h.metrics.provisional_rollup_grants;
+        m.recovered_rollup_grants = h.metrics.recovered_rollup_grants;
+        m.provisional_rollup_fallback_delta_ns = h.metrics.provisional_rollup_fallback_delta_ns;
+        m.provisional_rollup_debt_delta_ns = h.metrics.provisional_rollup_debt_delta_ns;
+        m.rollup_reconciled = h.metrics.rollup_reconciled;
+        m.rollup_revoked = h.metrics.rollup_revoked;
+        m.rollup_fallback_charge_ns = h.metrics.rollup_fallback_charge_ns;
+        m.rollup_fallback_debt_ns = h.metrics.rollup_fallback_debt_ns;
+        m.rollup_fallback_worst = h.metrics.rollup_fallback_worst;
         m.reconciliation_unproven = m
             .reconciliation_unproven
             .saturating_add(h.metrics.reconciliation_unproven);
@@ -1971,6 +2175,12 @@ impl super::resolve::ProofPace for ProofClock {
             return Err(super::entry::Invalid("main proof overlaps helper owner"));
         }
         let foreground = control.foreground.load(Ordering::Acquire);
+        if let Some(at) = self.epoch {
+            // Include the prior checkpoint's metadata and every intervening
+            // ordinary instruction before admitting another primitive. Never
+            // decide from after()'s earlier pre-bookkeeping CPU snapshot.
+            self.accounted = control.observe_interval(at, cpu_ns());
+        }
         if self.epoch.is_none() || self.accounted >= 400_000 || self.steps >= 64 || foreground {
             self.close_batch()?;
             let admitted = self.budget.borrow_mut().read_begin();
@@ -1980,6 +2190,9 @@ impl super::resolve::ProofPace for ProofClock {
             })?;
             self.epoch = Some(at);
             self.epoch_wall = Some(wall);
+            let admission = control.observe_interval(at, cpu_ns());
+            let mut summary = self.helper_summary.borrow_mut();
+            summary.proof_admission_max_cpu = summary.proof_admission_max_cpu.max(admission);
             self.accounted = 0;
             self.steps = 0;
         } else if let Some(code) = control.error() {
@@ -2000,25 +2213,32 @@ impl super::resolve::ProofPace for ProofClock {
         Ok(())
     }
     fn after(&mut self) -> Result<(), super::entry::Invalid> {
-        if self.started.take().is_none() {
+        let Some(primitive_at) = self.started.take() else {
             return Ok(());
-        }
+        };
         let end = cpu_ns();
         let at = self.epoch.unwrap_or(u64::MAX);
-        let used = self.budget.borrow().control.observe_interval(at, end);
+        let control = self.budget.borrow().control.clone();
+        let used = control.observe_interval(at, end);
+        let primitive = control.observe_interval(primitive_at, end);
         self.steps = self.steps.saturating_add(1);
         self.accounted = used;
         {
             let mut summary = self.helper_summary.borrow_mut();
             summary.cost_known &= used != u64::MAX;
             summary.proof_app_max_cpu = summary.proof_app_max_cpu.max(used);
+            summary.proof_primitive_max_cpu = summary.proof_primitive_max_cpu.max(primitive);
         }
-        let (code, heap_over) = {
-            let mut b = self.budget.borrow_mut();
-            b.heap_peak = b.heap_peak.max(heaps().0);
-            (b.control.error(), b.heap_peak > 96 * 1024 * 1024)
-        };
-        if used > 1_000_000 || heap_over {
+        let code = control.error();
+        let after_bookkeeping = cpu_ns();
+        let used = control.observe_interval(at, after_bookkeeping);
+        self.accounted = used;
+        let boundary = control.observe_interval(end, after_bookkeeping);
+        {
+            let mut summary = self.helper_summary.borrow_mut();
+            summary.proof_boundary_max_cpu = summary.proof_boundary_max_cpu.max(boundary);
+        }
+        if used > 1_000_000 {
             self.remember(c::Code::ResourceLimit);
             let _ = self.close_batch();
             return Err(super::entry::Invalid("selected worker stopped"));
@@ -2896,6 +3116,40 @@ mod helper_tests {
         assert!(summary.borrow().cost_known);
         assert!(control.error().is_none());
     }
+    #[test]
+    fn ordinary_admission_resamples_real_boundary_cpu_before_another_primitive() {
+        let (mut clock, summary, control) = owner();
+        clock.before().unwrap();
+        clock.after().unwrap();
+        // Hold the actual ordinary epoch after after()'s last admission value,
+        // exactly where boundary/caller bookkeeping previously accumulated.
+        let original = clock
+            .epoch
+            .expect("tiny initial API observation remains open");
+        let stale = clock.accounted;
+        let at = cpu_ns();
+        while control.observe_interval(at, cpu_ns()) < 450_000 {
+            std::hint::black_box(17u64.wrapping_mul(31));
+        }
+        assert_eq!(clock.accounted, stale);
+        let wall = Instant::now();
+        clock.before().unwrap();
+        assert!(clock.epoch.unwrap() > original);
+        assert!(wall.elapsed() >= Duration::from_millis(9));
+        assert!(clock.budget.borrow().counters.cpu >= 450_000);
+        clock.suspend().unwrap();
+        let summary = summary.borrow();
+        assert!(summary.proof_app_max_cpu <= 1_000_000);
+        assert!(summary.proof_heap_max_cpu > 0);
+        eprintln!(
+            "ordinary_boundary source_known_real_cpu=true stale_accounted_ns={stale} first_epoch_ns={original} primitive_max_cpu_ns={} boundary_max_cpu_ns={} heap_max_cpu_ns={} charged_cpu_ns={} debt_ns={}",
+            summary.proof_primitive_max_cpu,
+            summary.proof_boundary_max_cpu,
+            summary.proof_heap_max_cpu,
+            clock.budget.borrow().counters.cpu,
+            control.fixture_debt_totals().0,
+        );
+    }
     fn owner() -> (ProofClock, Rc<RefCell<HelperSummary>>, Arc<Control>) {
         fixture_priority();
         let control = Arc::new(Control::fixture(Instant::now() + Duration::from_secs(2)));
@@ -3521,7 +3775,23 @@ mod helper_tests {
                 child.0.try_wait().unwrap().is_none(),
                 "stale poll changed child"
             );
-            assert!(clock.helper_usage(stale, 7, 10, 19).is_err());
+            // Deliberately unproven inputs, not an observed wait4 receipt.
+            // The stale ticket must refuse before any usage interpretation.
+            assert!(
+                clock
+                    .helper_usage(
+                        stale,
+                        super::super::resolve::HelperReapUsage {
+                            pid: ticket.pid,
+                            user_ns: 7,
+                            system_ns: 10,
+                            rss_bytes: 19,
+                            observed_ns: u64::MAX,
+                            readings: 0,
+                        }
+                    )
+                    .is_err()
+            );
             assert!(
                 child.0.try_wait().unwrap().is_none(),
                 "stale usage changed child"

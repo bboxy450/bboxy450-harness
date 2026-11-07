@@ -3162,9 +3162,9 @@ pub fn helper_exec(control: u8) -> Model {
     m
 }
 
-/// Decision d93377961365489: exact representative window geometries, including
+/// Decision d93377961365489 legacy window geometries, extended by66236 below:
 /// unequal post-call endpoints and a reserved slot whose birth stays unknown.
-/// Costs0..3 use an immutable profile's250us/500us tick. Accepted ordinary
+/// Legacy costs0..3 use an immutable profile's250us/500us tick. Accepted ordinary
 /// charges owe9ms; the1.5ms overrun profile conservatively retains18ms. Three
 /// accepted observed charges fit additive debt0..27ms. No OS timing is proved.
 pub fn member_window(control: u8) -> Model {
@@ -3172,6 +3172,15 @@ pub fn member_window(control: u8) -> Model {
 }
 
 fn member_window_observer(control: u8, full_observer: bool) -> Model {
+    member_window_projection(control, full_observer, true, true)
+}
+
+fn member_window_projection(
+    control: u8,
+    full_observer: bool,
+    measured_law: bool,
+    forged_terminal_control: bool,
+) -> Model {
     let suffix = [
         "",
         "UnequalStop",
@@ -3202,6 +3211,15 @@ fn member_window_observer(control: u8, full_observer: bool) -> Model {
         "InitialCreation",
         "InitialDebt",
         "AccountingTailDebt",
+        "MeasuredOpenSlot",
+        "PreAckCounters",
+        "MeasuredOmitRollup",
+        "MeasuredRawTicks",
+        "MeasuredNoWallGate",
+        "MeasuredMultiThread",
+        "MixedChildRollup",
+        "PreExitRollup",
+        "DoubleCountRollup",
     ];
     let name = format!("DreamReadMemberWindow{}", suffix[control as usize]);
     const PH: usize = 0;
@@ -4225,6 +4243,9 @@ fn member_window_observer(control: u8, full_observer: bool) -> Model {
         eq(RETIRED, 1).or(eq(REAP, 1)).or(eq(QUAR, 1)),
         vec![retire, quarantine, rest],
     );
+    if measured_law {
+        extend_member_window_measured_law(&mut m, control, forged_terminal_control);
+    }
     if control != 0 {
         // TLC otherwise expands the state-only ORs as alternative next-state
         // branches, producing duplicate states/edges for every true disjunct.
@@ -4313,6 +4334,13 @@ fn member_window_observer(control: u8, full_observer: bool) -> Model {
             26 => &["InitialCorroborationRequiresSettledCreationOwnership"],
             27 => &["InitialCorroborationRequiresBothPriorDebtsPaid"],
             28 => &["DebtNeverDropsObservedOutstandingWork"],
+            29 | 30 => &["MeasuredNeedsClosure"],
+            31 | 32 => &["ChargedCoversBurned", "ConservationFailureRetainsRawAndRefusesTrust"],
+            33 => &["WallBounded"],
+            34 => &["MeasuredNeedsClosure", "PerSlotMeasuredCpuFitsWindow"],
+            35 => &["MeasuredNeedsClosure", "RollupRequiresUniqueAdmittedChild"],
+            36 => &["MeasuredNeedsClosure", "RollupNeedsCausalExitAndLeaderAck"],
+            37 => &["MeasuredNeedsClosure", "RollupCountedOnce"],
             _ => unreachable!(),
         };
         assert!(
@@ -4346,6 +4374,1172 @@ fn member_window_observer(control: u8, full_observer: bool) -> Model {
         );
     }
     m
+}
+
+/// Decision66236 adds correlated numeric observations to the SAME two-slot
+/// owner, grant, ACK, roster, debt, retirement and actual-reap actions above.
+/// Profile0 retains every65489 geometry/control with counters unavailable and
+/// window basis. The appended profiles use explicit ns constants, not a larger
+/// product of independently chosen CPU/clock/counter values. Original variable
+/// bounds, two grants, A1/B2/A3, one late observation and one post unit remain.
+/// Startup125us and member late250us are finite accounting projections, not OS
+/// timing guarantees. Debt rounds UP to whole abstract ms, never below9*Q.
+/// Counter-read provenance and one-thread/source closure remain premises with
+/// real API/process witnesses; the125/3 profile does not prove Mach arithmetic.
+fn extend_member_window_measured_law(m: &mut Model, control: u8, forged_terminal_control: bool) {
+    const LAW: usize = 54;
+    const BASIS: usize = 55;
+    const READ0: usize = 56;
+    const READ1: usize = 57;
+    const BURNED: usize = 58;
+    const CHARGED: usize = 59;
+    const WALL: usize = 60;
+    const A0: usize = 61;
+    const A1: usize = 62;
+    const W0: usize = 63;
+    const W1: usize = 64;
+    const MONOTONIC: usize = 65;
+    const CONVERTED: usize = 66;
+    const TERMINAL: usize = 67;
+    const CHECKED: usize = 68;
+    const QNS: usize = 69;
+    const REPORTED: usize = 70;
+    const SEEN: usize = 71;
+    const EXCESS: usize = 72;
+    const BASIS_EPOCH: usize = 73;
+    const CREATED_DEBT: usize = 74;
+    const TERMINAL_DEBT: usize = 75;
+    const ORIGIN0: usize = 76;
+    const ORIGIN1: usize = 77;
+    const PENDING: usize = 78;
+    const WAIT4: usize = 79;
+    const COMMITTED: usize = 80;
+    const ROLL_UNIQUE: usize = 81;
+    const ROLL_MIXED: usize = 82;
+    const ROLL_EXIT: usize = 83;
+    const ROLL_ACK: usize = 84;
+    const ROLL_COUNT: usize = 85;
+    const ROLL_CUMULATIVE: usize = 86;
+    const ROLL_BASELINE: usize = 87;
+    const PRIOR_LIVE: usize = 88;
+    const ROLL_DUPLICATE: usize = 89;
+    const RAW_Q: usize = 90;
+    const RAW_BASIS: usize = 91;
+    const ROLL_PENDING: usize = 92;
+    const ROLL_VALIDATED: usize = 93;
+    const ROLL_REVOKED: usize = 94;
+    const FALLBACK_Q: usize = 95;
+    const ROLL_DELTA: usize = 96;
+    const FALLBACK_DEBT: usize = 97;
+    const ROLL_ZERO_CHILDREN: usize = 98;
+    assert_eq!(m.variables.len(), LAW);
+    for (name, max) in [
+        ("measuredLawProfile", 19),
+        ("basisWindowMeasured", 1),
+        ("slot0CountersReadNonePreAckPostAckRetainedWait4", 3),
+        (
+            "slot1CountersReadNonePreAckPostAckRetainedWait4LeaderRollup",
+            4,
+        ),
+        ("cpuBurned", 8_000_000),
+        ("cpuCharged", 8_000_000),
+        ("wall", 30_000_000),
+        ("slot0ActualCpuNs", 2_000_000),
+        ("slot1ActualCpuNs", 2_000_000),
+        ("slot0WindowNs", 25_000_000),
+        ("slot1WindowNs", 25_000_000),
+        ("counterMonotonicMask", 3),
+        ("counterConversionMask", 3),
+        ("terminalConservationPendingPassedRefused", 2),
+        ("conservationChecked", 1),
+        ("basisQuantumNs", 3_000_000),
+        ("reportedMemberCpuNs", 3_000_000),
+        ("currentGrantCpuObserved", 1),
+        ("conservationExcessNs", 8_000_000),
+        ("basisCapturedEpoch", 2),
+        ("createdGrantDebtMs", 27),
+        ("terminalReconciliationDebtMs", 21),
+        ("slot0CounterEndpointNoneStoppedExitedClosedAbsence", 3),
+        ("slot1CounterEndpointNoneStoppedExitedClosedAbsence", 3),
+        ("directExitAccountingPending", 1),
+        ("actualWait4CpuNs", 8_000_000),
+        ("committedGrantCount", 2),
+        ("rollupUniqueAdmittedChild", 1),
+        ("rollupMixedUnadmittedChild", 1),
+        ("rollupChildExitProvenBeforeRead", 1),
+        ("rollupLeaderAckBeforeRead", 1),
+        ("qualifiedChildRollupAttributionCount", 2),
+        ("rollupCumulativeChildNs", 250_000),
+        ("rollupBaselineChildNs", 125_000),
+        ("priorLiveChildCreditNs", 125_000),
+        ("rollupDuplicateLiveChildNs", 125_000),
+        ("rawGrantQuantumNs", 3_000_000),
+        ("rawGrantBasisWindowMeasured", 1),
+        ("rollupConservationPending", 1),
+        ("rollupConservationValidated", 1),
+        ("rollupBasisRevoked", 1),
+        ("retainedFallbackQuantumNs", 3_000_000),
+        ("rollupCurrentDeltaNs", 250_000),
+        ("retainedFallbackDebtMs", 27),
+        ("rollupLeaderChildCountZeroBeforeRead", 1),
+    ] {
+        m.variables.push(Variable::new(name, 0, max, 0));
+    }
+    {
+        // Native vectors address fields by index; TLA export and test lookup
+        // address them by name. A duplicate could disagree silently between
+        // those consumers even though native full/reduced graphs are equal.
+        let names = m
+            .variables
+            .iter()
+            .map(|v| v.name.as_str())
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(
+            names.len(),
+            m.variables.len(),
+            "MemberWindow TLA variable names must be unique"
+        );
+    }
+    let new_law = eq(LAW, 0).negate();
+    let mut direct_exit = None;
+    let mut implicit_exit = None;
+    let mut unexpected_wait4 = None;
+    let mut rollup_continue = None;
+    // All physical lifecycle actions are shared. Only the numeric charge
+    // projection has separate alternatives; neither path can mint a new owner.
+    for action in &mut m.actions {
+        // Correlated profiles select one observation trajectory. LAW0 alone
+        // retains the complete independent legacy fault/foreground product;
+        // duplicating it for every numeric constant proves no additional law.
+        // Profile12 separately retains A1/B2/A3 while direct exit is pending.
+        if action.name.starts_with("ObserveClockStopRevokeCancelPanic")
+            || action.name.starts_with("ObserveForegroundFence")
+            || action
+                .name
+                .starts_with("OrdinaryExpensiveObservationAdmissionFailed")
+            || action.name == "ObserveDeadlineRetainsDebtAndOriginalEffect"
+            || action.name == "RefuseMissingWholeCommandOrTransientCoverage"
+        {
+            action.guard = action.guard.clone().and(eq(LAW, 0));
+        }
+        if action.name.starts_with("RestartOriginalEffectA1B2A3From") {
+            action.guard = action.guard.clone().and(eq(LAW, 0).or(all([
+                eq(LAW, 12),
+                eq(PENDING, 1),
+                eq(0, 6),
+                eq(40, 0),
+            ])));
+        }
+        if action.name == "UnknownSlotAwaitsCompleteSameGrantExclusion" {
+            action.guard = action.guard.clone().and(eq(LAW, 3).negate());
+        }
+        if action.name == "RetireRetainsOriginalWindowsAndSignalingCustody" {
+            action.guard = action.guard.clone().and(eq(LAW, 0).or(all([
+                eq(27, 0),
+                eq(28, 0),
+                all([eq(LAW, 12), eq(PENDING, 1)]).or(all([
+                    Int(0).lt(Var(QNS)),
+                    eq(46, 1),
+                    eq(LAW, 1).or(eq(LAW, 15)).negate().or(eq(49, 2)),
+                ])),
+            ])));
+        }
+        if action.name == "ObserveExactOriginalExitAndRetainedUsage"
+            || action.name == "ActuallyReapOriginalGroupAfterRetirement"
+        {
+            // This chooses when the controller observes an external outcome;
+            // it does not claim the kernel waits for payment or is fair.
+            action.guard = action
+                .guard
+                .clone()
+                .and(eq(LAW, 0).or(all([eq(27, 0), eq(28, 0)])));
+        }
+        if action.name == "LocalUnavailableDispositionRetainsOriginalEffect" {
+            // A refusal can occur with fresh debt still pending. Record the
+            // owned unavailable disposition immediately; it pays no debt,
+            // releases no effect and grants no stopped/measurement authority.
+            // Requiring retirement first disabled every fair local response
+            // while its selected observation waited for that same debt.
+            action.guard = action.guard.clone().and(eq(LAW, 0).or(eq(37, 0).negate()));
+        }
+        if action
+            .name
+            .starts_with("ChargeExactWindowActiveAndAllControllerCase")
+            || action
+                .name
+                .starts_with("FailedClosureStillRecordsQuantumAndDebtCase")
+        {
+            action.guard = action.guard.clone().and(eq(LAW, 0));
+        }
+        if action.name == "CreateStoppedRetainsOriginalEffect" {
+            action
+                .updates
+                .extend([(BURNED, Int(125_000)), (CHARGED, Int(125_000))]);
+        }
+        if action.name == "CheckedT0OpensEveryReservedSlotBeforeCont"
+            || action.name == "ContinueOnlyAfterClosureCorroborationAndAllDebt"
+        {
+            action.updates.extend([
+                (READ0, Int(0)),
+                (READ1, Int(0)),
+                (BASIS, Int(0)),
+                (SEEN, Int(0)),
+                (QNS, Int(0)),
+                (REPORTED, Int(0)),
+                (ORIGIN0, Int(0)),
+                (ORIGIN1, Int(0)),
+            ]);
+            action.guard = action.guard.clone().and(eq(PENDING, 0));
+        }
+        if action.name == "ContinueOnlyAfterClosureCorroborationAndAllDebt" {
+            let mut second = action.clone();
+            second.name = "ContinueQualifiedRollupSecondGrantRetainsPriorLiveCredit".into();
+            second.guard = second.guard.and(eq(LAW, 15));
+            second.updates.extend([
+                (A0, Int(250_000)),
+                (A1, Int(125_000)),
+                (W0, Int(375_000)),
+                (W1, Int(375_000)),
+                (WALL, Int(750_000)),
+                (ROLL_UNIQUE, Int(1)),
+                (ROLL_MIXED, Int(0)),
+                (ROLL_CUMULATIVE, Int(250_000)),
+                (ROLL_BASELINE, Var(PRIOR_LIVE)),
+                (ROLL_COUNT, Int(0)),
+                (ROLL_EXIT, Int(0)),
+                (ROLL_ACK, Int(0)),
+                (ROLL_ZERO_CHILDREN, Int(0)),
+                (ROLL_DELTA, Int(0)),
+                (RAW_Q, Int(0)),
+                (RAW_BASIS, Int(0)),
+            ]);
+            rollup_continue = Some(second);
+            // Profile1 supplies the two-grant accumulation witness. Each
+            // remaining correlated profile focuses one grant plus its selected
+            // terminal/late/post observation, retaining the global two bound.
+            action.guard = action.guard.clone().and(eq(LAW, 0).or(eq(LAW, 1)));
+        }
+        if action
+            .name
+            .starts_with("AckMember0AfterCurrentStopPredicatesCase")
+        {
+            action.guard = action.guard.clone().and(eq(LAW, 0).or(eq(SEEN, 1)));
+            action.guard = action
+                .guard
+                .clone()
+                .and(eq(LAW, 4).negate().or(eq(READ0, 1)));
+            if action.name.ends_with("Case2") {
+                let mut exited = action.clone();
+                exited.name = "ObserveDirectOriginalExitRetainsIdentityBeforeOwnWait4".into();
+                exited.guard = exited.guard.and(eq(LAW, 12));
+                for (slot, value) in &mut exited.updates {
+                    if *slot == 7 {
+                        *value = Int(4);
+                    }
+                }
+                exited.updates.push((ORIGIN0, Int(2)));
+                direct_exit = Some(exited);
+                action.guard = action.guard.clone().and(eq(LAW, 12).negate());
+            }
+        }
+        if action.name == "AckKnownMember1AfterCheckedHostClockCase1" {
+            action.guard = action
+                .guard
+                .clone()
+                .and(eq(LAW, 17).negate().or(eq(READ1, 4)));
+            let exited_profile = eq(LAW, 13)
+                .or(all([eq(LAW, 15), eq(49, 2)]))
+                .or(all([Int(15).lt(Var(LAW)), Var(LAW).lt(Int(20))]));
+            let mut exited = action.clone();
+            exited.name = "ObserveImplicitChildExitWithoutInventingOwnWait4".into();
+            exited.guard = exited.guard.and(exited_profile.clone());
+            for (slot, value) in &mut exited.updates {
+                if *slot == 8 {
+                    *value = Int(4);
+                }
+            }
+            exited.updates.push((ORIGIN1, Int(2)));
+            implicit_exit = Some(exited);
+            action.guard = action.guard.clone().and(exited_profile.negate());
+        }
+        if action.name == "ActuallyReapOriginalGroupAfterRetirement" {
+            let mut independent = action.clone();
+            independent.name = "ActualWait4IndependentlyRevealsUnchargedCpu".into();
+            independent.guard = independent.guard.and(eq(LAW, 14).or(eq(LAW, 19)));
+            independent.updates.extend([
+                (WAIT4, Var(BURNED).plus(Int(125_000))),
+                (BURNED, Var(BURNED).plus(Int(125_000))),
+            ]);
+            unexpected_wait4 = Some(independent);
+            action.guard = action
+                .guard
+                .clone()
+                .and(eq(LAW, 14).or(eq(LAW, 19)).negate());
+            action.updates.push((WAIT4, Var(BURNED)));
+        }
+        if action
+            .name
+            .starts_with("OrdinaryExpensiveObservationAdmissionFailed")
+        {
+            action.guard = action.guard.clone().and(eq(PENDING, 0));
+        }
+        if action.name == "ReleaseOnlyAfterRealReapAndEveryKnownDebt" {
+            action.guard = action.guard.clone().and(eq(LAW, 0).or(eq(CHECKED, 1)));
+        }
+        if action.name == "ResumeMainOnlyAfterFullSettlementAndPaidCoverage"
+            || action.name == "TrustOnlyClosedQualifiedActuallySettledAccounting"
+        {
+            action.guard = action
+                .guard
+                .clone()
+                .and(eq(LAW, 0).or(all([eq(CHECKED, 1), eq(TERMINAL, 1)])));
+        }
+        // Only actual member late-kernel CPU enters member conservation.
+        // The separate post-corroboration/controller unit still pays its own
+        // existing debt, but creates NO member CPU credit or raw member burn.
+        if action
+            .name
+            .starts_with("ReconcileLateKernelOnceWithFreshAdditiveDebtExplained")
+        {
+            action.updates.extend([
+                (BURNED, Var(BURNED).plus(Int(250_000))),
+                (CHARGED, Var(CHARGED).plus(Int(250_000))),
+            ]);
+        }
+    }
+    m.actions.extend([
+        direct_exit.expect("shared direct exit action"),
+        implicit_exit.expect("shared implicit exit action"),
+        unexpected_wait4.expect("shared actual wait4 action"),
+        rollup_continue.expect("shared second-grant continuation"),
+    ]);
+    // Legacy formula statements concern its unchanged normalized geometry.
+    // New raw-ns arithmetic is checked below; all identity, ownership, debt,
+    // failure, progress and actual-settlement properties remain shared.
+    for invariant in &mut m.invariants {
+        if invariant
+            .name
+            .starts_with("WindowUnionRetainsEveryReservedIntervalCase")
+            || invariant
+                .name
+                .starts_with("ObservedActiveCpuHasNoOmissionOrRollupDuplicationCase")
+            || invariant
+                .name
+                .starts_with("AllActiveControllerAndPipeCpuCountExactlyOnceCase")
+            || invariant
+                .name
+                .starts_with("QuantumIsMaxWindowOrActivePlusControllerCase")
+        {
+            invariant.condition = new_law.clone().or(invariant.condition.clone());
+        }
+    }
+    // profile: A0,A1,W0,W1,reported pre-ACK, case. Every value is immutable
+    // input geometry. The second-thread profile passes aggregate A<=sum(W)
+    // while failing A0<=W0, so an aggregate check cannot discharge coverage.
+    let profiles = [
+        (1, 250_000, 0, 10_000_000, 10_000_000, 250_000, 1),
+        (2, 500_000, 250_000, 12_500_000, 12_500_000, 750_000, 1),
+        (3, 250_000, 0, 250_000, 250_000, 250_000, 2),
+        (4, 375_000, 125_000, 375_000, 375_000, 250_000, 1),
+        (5, 250_000, 2_000_000, 500_000, 2_500_000, 2_250_000, 1),
+        (6, 500_000, 0, 500_000, 250_000, 500_000, 1),
+        (7, 250_000, 0, 15_000_000, 15_000_000, 250_000, 1),
+        (8, 500_000, 0, 100_000, 650_000, 500_000, 1),
+        (9, 250_000, 0, 250_000, 250_000, 250_000, 1),
+        (10, 250_000, 0, 250_000, 250_000, 250_000, 1),
+        (11, 250_000, 0, 375_000, 375_000, 250_000, 7),
+        (12, 250_000, 0, 250_000, 500_000, 250_000, 2),
+        (13, 250_000, 125_000, 375_000, 375_000, 375_000, 1),
+        (14, 250_000, 0, 375_000, 375_000, 250_000, 1),
+        (15, 125_000, 125_000, 250_000, 250_000, 250_000, 1),
+        (16, 250_000, 250_000, 375_000, 375_000, 500_000, 1),
+        (17, 250_000, 125_000, 375_000, 375_000, 375_000, 1),
+        (18, 250_000, 125_000, 375_000, 375_000, 375_000, 1),
+        (19, 250_000, 125_000, 375_000, 375_000, 375_000, 1),
+    ];
+    for (profile, a0, a1, w0, w1, pre_ack, case) in profiles {
+        let wall = w0 + w1;
+        let actual = a0 + a1;
+        act(
+            m,
+            &format!("ConfigureMeasuredLawCorrelatedProfile{profile}"),
+            all([eq(2, 0), eq(0, 0)]),
+            &[
+                (LAW, Int(profile)),
+                (1, Int(case)),
+                (2, Int(1)),
+                (42, Int(i64::from(profile == 3))),
+                (A0, Int(a0)),
+                (A1, Int(a1)),
+                (W0, Int(w0)),
+                (W1, Int(w1)),
+                (WALL, Int(wall)),
+                (MONOTONIC, Int(if profile == 10 { 0 } else { 3 })),
+                (CONVERTED, Int(if profile == 9 { 0 } else { 3 })),
+            ],
+        );
+        act(
+            m,
+            &format!("ObserveActualMemberCpuBeforePositiveAckProfile{profile}"),
+            all([
+                eq(LAW, profile),
+                eq(0, 4),
+                eq(SEEN, 0),
+                eq(14, 0),
+                eq(8, if matches!(profile, 3 | 12) { 5 } else { 2 }),
+                if profile == 15 { eq(49, 1) } else { Bool(true) },
+            ]),
+            &[(BURNED, Var(BURNED).plus(Int(actual))), (SEEN, Int(1))],
+        );
+        if profile >= 16 {
+            continue;
+        }
+        if profile == 4 {
+            act(
+                m,
+                "ReadCountersBeforePositiveAckRetainsItsProvenance",
+                all([
+                    eq(LAW, profile),
+                    eq(0, 4),
+                    eq(SEEN, 1),
+                    eq(14, 0),
+                    eq(READ0, 0),
+                ]),
+                &[(READ0, Int(1)), (READ1, Int(1)), (REPORTED, Int(pre_ack))],
+            );
+        } else if profile == 13 {
+            act(
+                m,
+                "ReadStoppedLeaderNeverLabelsExitedImplicitChildPostAck",
+                all([
+                    eq(LAW, profile),
+                    eq(0, 6),
+                    eq(14, 1),
+                    eq(15, 1),
+                    eq(7, 3),
+                    eq(8, 4),
+                    eq(18, 1),
+                    eq(READ0, 0),
+                ]),
+                &[
+                    (READ0, Int(2)),
+                    (ORIGIN0, Int(1)),
+                    (READ1, Int(0)),
+                    (ORIGIN1, Int(2)),
+                    (REPORTED, Int(actual)),
+                ],
+            );
+        } else if !matches!(profile, 3 | 9 | 12) {
+            act(
+                m,
+                &format!("ReadBothCountersOnlyAfterPositiveAckAndRosterProfile{profile}"),
+                all([
+                    eq(LAW, profile),
+                    eq(0, 6),
+                    eq(14, 1),
+                    eq(15, 1),
+                    eq(18, 1),
+                    eq(19, 1),
+                    eq(7, 3),
+                    eq(8, 3),
+                    eq(READ0, 0),
+                    if profile == 15 { eq(49, 1) } else { Bool(true) },
+                ]),
+                &[
+                    (READ0, Int(2)),
+                    (READ1, Int(2)),
+                    (REPORTED, Int(actual)),
+                    (ORIGIN0, Int(1)),
+                    (ORIGIN1, Int(1)),
+                ],
+            );
+        }
+        if profile == 12 {
+            // Direct-exit RI/identity proof closes physical custody, never the
+            // missing actual wait4 counter source. Reap needs no grant charge.
+            act(
+                m,
+                "DeferDirectExitGrantAccountingUntilOriginalOwnWait4",
+                all([
+                    eq(LAW, profile),
+                    eq(0, 6),
+                    eq(7, 4),
+                    eq(8, 0),
+                    eq(14, 1),
+                    eq(15, 1),
+                    eq(18, 1),
+                    eq(20, 1),
+                    eq(READ0, 0),
+                    eq(PENDING, 0),
+                    eq(37, 0),
+                ]),
+                &[(PENDING, Int(1)), (ORIGIN0, Int(2)), (ORIGIN1, Int(3))],
+            );
+            continue;
+        }
+        let omit_rollup = control == 31 && profile == 5;
+        let raw_ticks = control == 32 && profile == 6;
+        let reported = if omit_rollup {
+            a0
+        } else if raw_ticks {
+            12_000
+        } else if profile == 4 {
+            pre_ack
+        } else {
+            actual
+        };
+        let eligible = !matches!(profile, 3 | 4 | 8 | 9 | 10 | 13);
+        let forged = (control == 29 && profile == 3)
+            || (control == 30 && profile == 4)
+            || (control == 34 && profile == 8);
+        let measured = eligible || forged;
+        let member = if measured {
+            reported
+        } else {
+            wall.max(reported)
+        };
+        let q = member + 250_000;
+        let debt = (9 * q.max(1_000_000) + 999_999) / 1_000_000;
+        assert!(q <= 3_000_000 && debt <= 27);
+        let wall_ok = wall <= 25_000_000 || (control == 33 && profile == 7);
+        let coverage = (eligible || forged || profile == 13) && q <= 1_000_000 && wall_ok;
+        let mut guard = vec![
+            eq(LAW, profile),
+            eq(37, 0),
+            eq(SEEN, 1),
+            Var(5).eq(Var(6)),
+            Var(48).lt(Int(28 - debt)),
+            if profile == 15 { eq(49, 1) } else { Bool(true) },
+        ];
+        if profile == 3 {
+            // The SAME reserved slot remains unknown and unclosed. Its true
+            // pre-CONT window is charged; no positive ACK or seal is invented.
+            guard.extend([eq(0, 4), eq(14, 1), eq(15, 0), eq(8, 5)]);
+        } else {
+            guard.extend([
+                eq(0, 6),
+                eq(20, 1),
+                eq(
+                    READ0,
+                    if profile == 4 {
+                        1
+                    } else if profile == 9 {
+                        0
+                    } else {
+                        2
+                    },
+                ),
+            ]);
+        }
+        act(
+            m,
+            &format!("ChargeBasisDependentQuantumWithRetainedRawProfile{profile}"),
+            all(guard),
+            &[
+                (0, Int(7)),
+                (33, Int(0)),
+                (BASIS, Int(i64::from(measured))),
+                (BASIS_EPOCH, Var(5)),
+                (REPORTED, Int(reported)),
+                (QNS, Int(q)),
+                (CHARGED, Var(CHARGED).plus(Int(member))),
+                (CREATED_DEBT, Int(debt)),
+                (COMMITTED, Var(COMMITTED).plus(Int(1))),
+                (RAW_Q, Int(q)),
+                (RAW_BASIS, Int(i64::from(measured))),
+                (PRIOR_LIVE, Int(if profile == 15 { 125_000 } else { 0 })),
+                (21, Int(2)),
+                (22, Int(1)),
+                (23, Int(1)),
+                (24, Int(3)),
+                (26, Int(i64::from(coverage))),
+                (37, Int(if coverage { 0 } else { 6 })),
+                (27, Var(27).plus(Int(debt))),
+                (28, Var(28).plus(Int(debt))),
+                (48, Var(48).plus(Int(debt))),
+                (43, Int(1)),
+                (44, Int(1)),
+                (46, Int(i64::from(case != 7))),
+            ],
+        );
+    }
+    // Clarified66236: a qualified unique child can be represented by the
+    // stopped leader's POST-exit rollup. This is a distinct source from the
+    // controller's own wait4, and remains provisional until that final wait4.
+    act(
+        m,
+        "ObserveQualifiedRollupSecondGrantActualCpu",
+        all([
+            eq(LAW, 15),
+            eq(49, 2),
+            eq(0, 4),
+            eq(SEEN, 0),
+            eq(14, 0),
+            eq(8, 2),
+        ]),
+        &[(BURNED, Var(BURNED).plus(Int(375_000))), (SEEN, Int(1))],
+    );
+    act(
+        m,
+        "ReadLeaderRollupBeforeProvenChildExitRetainsBadOrdering",
+        all([
+            eq(LAW, 17),
+            eq(0, 4),
+            eq(SEEN, 1),
+            eq(14, 1),
+            eq(7, 3),
+            eq(8, 2),
+            eq(READ1, 0),
+        ]),
+        &[
+            (READ0, Int(2)),
+            (ORIGIN0, Int(1)),
+            (READ1, Int(4)),
+            (ROLL_UNIQUE, Int(1)),
+            (ROLL_MIXED, Int(0)),
+            (ROLL_EXIT, Int(0)),
+            (ROLL_ACK, Int(1)),
+            (ROLL_COUNT, Int(1)),
+            (ROLL_ZERO_CHILDREN, Int(0)),
+            (ROLL_CUMULATIVE, Int(0)),
+            (ROLL_BASELINE, Int(0)),
+            (ROLL_DELTA, Int(0)),
+            (ROLL_DUPLICATE, Int(0)),
+            (REPORTED, Int(250_000)),
+        ],
+    );
+    for profile in [15, 16, 18, 19] {
+        let cumulative = if matches!(profile, 15 | 16) {
+            250_000
+        } else {
+            125_000
+        };
+        let baseline = if profile == 15 { 125_000 } else { 0 };
+        let duplicate = if profile == 18 { 125_000 } else { 0 };
+        let delta = cumulative - baseline;
+        act(
+            m,
+            &format!("ReadClosedChildRollupAfterLeaderAckProfile{profile}"),
+            all([
+                eq(LAW, profile),
+                eq(49, if profile == 15 { 2 } else { 1 }),
+                eq(0, 6),
+                eq(14, 1),
+                eq(15, 1),
+                eq(18, 1),
+                eq(19, 1),
+                eq(7, 3),
+                eq(8, 4),
+                eq(READ0, 0),
+                eq(READ1, 0),
+            ]),
+            &[
+                (READ0, Int(2)),
+                (ORIGIN0, Int(1)),
+                (READ1, Int(4)),
+                (ORIGIN1, Int(2)),
+                (ROLL_UNIQUE, Int(i64::from(profile != 16))),
+                (ROLL_MIXED, Int(i64::from(profile == 16))),
+                (ROLL_EXIT, Int(1)),
+                (ROLL_ACK, Int(1)),
+                (ROLL_ZERO_CHILDREN, Int(1)),
+                (ROLL_COUNT, Int(if profile == 18 { 2 } else { 1 })),
+                (ROLL_CUMULATIVE, Int(cumulative)),
+                (ROLL_BASELINE, Int(baseline)),
+                (ROLL_DELTA, Int(delta)),
+                (ROLL_DUPLICATE, Int(duplicate)),
+                (REPORTED, Int(250_000 + delta + duplicate)),
+            ],
+        );
+    }
+    for profile in 15..=19 {
+        let reported = match profile {
+            16 | 18 => 500_000,
+            17 => 250_000,
+            _ => 375_000,
+        };
+        let qualified = matches!(profile, 15 | 19);
+        let forged = (control == 35 && profile == 16)
+            || (control == 36 && profile == 17)
+            || (control == 37 && profile == 18);
+        let measured = qualified || forged;
+        let member = if measured { reported } else { 750_000 };
+        let q = member + 250_000;
+        act(
+            m,
+            &format!("ChargeDistinctQualifiedLeaderRollupSourceProfile{profile}"),
+            all([
+                eq(LAW, profile),
+                eq(49, if profile == 15 { 2 } else { 1 }),
+                eq(0, 6),
+                eq(18, 1),
+                eq(19, 1),
+                eq(20, 1),
+                eq(14, 1),
+                eq(15, 1),
+                eq(READ0, 2),
+                eq(READ1, 4),
+                eq(37, 0),
+                Var(5).eq(Var(6)),
+                eq(REPORTED, reported),
+                eq(27, 0),
+                eq(28, 0),
+                Var(48).lt(Int(19)),
+            ]),
+            &[
+                (0, Int(7)),
+                (33, Int(0)),
+                (BASIS, Int(i64::from(measured))),
+                (BASIS_EPOCH, Var(5)),
+                (QNS, Int(q)),
+                (CREATED_DEBT, Int(9)),
+                (RAW_Q, Int(q)),
+                (RAW_BASIS, Int(i64::from(measured))),
+                (CHARGED, Var(CHARGED).plus(Int(member))),
+                (COMMITTED, Var(COMMITTED).plus(Int(1))),
+                (ROLL_PENDING, Int(i64::from(measured))),
+                (ROLL_VALIDATED, Int(0)),
+                (26, Int(i64::from(measured))),
+                (37, Int(if measured { 0 } else { 6 })),
+                (27, Int(9)),
+                (28, Int(9)),
+                (48, Var(48).plus(Int(9))),
+                (21, Int(2)),
+                (22, Int(1)),
+                (23, Int(1)),
+                (24, Int(3)),
+                (43, Int(1)),
+                (44, Int(1)),
+                (46, Int(1)),
+            ],
+        );
+    }
+    // Reaping stays the original physical action. Certification is a later
+    // local outcome; a detected shortfall is a valid refused execution whose
+    // raw totals/excess survive. Neither RI exit nor a failed STOP is wait4.
+    let bind_direct = m.actions.len();
+    act(
+        m,
+        "BindDirectOwnWait4CounterBeforeConservationClassification",
+        all([
+            eq(LAW, 12),
+            eq(PENDING, 1),
+            eq(40, 1),
+            eq(READ0, 0),
+            eq(ORIGIN0, 2),
+            eq(ORIGIN1, 3),
+            eq(18, 1),
+            eq(14, 1),
+            eq(15, 1),
+        ]),
+        &[(READ0, Int(3)), (REPORTED, Var(WAIT4).minus(Int(125_000)))],
+    );
+    let commit_direct = m.actions.len();
+    act(
+        m,
+        "CommitDeferredDirectGrantOnlyFromOriginalOwnWait4",
+        all([
+            eq(LAW, 12),
+            eq(PENDING, 1),
+            eq(40, 1),
+            eq(READ0, 3),
+            eq(ORIGIN0, 2),
+            eq(ORIGIN1, 3),
+            eq(READ1, 0),
+            eq(18, 1),
+            eq(19, 1),
+            eq(20, 1),
+            eq(14, 1),
+            eq(15, 1),
+            eq(42, 0),
+            Var(5).eq(Var(6)),
+            eq(37, 0),
+            eq(27, 0),
+            eq(28, 0),
+            eq(QNS, 0),
+            eq(REPORTED, 250_000),
+        ]),
+        &[
+            (PENDING, Int(0)),
+            (BASIS, Int(1)),
+            (BASIS_EPOCH, Var(5)),
+            (QNS, Int(500_000)),
+            (RAW_Q, Int(500_000)),
+            (RAW_BASIS, Int(1)),
+            (CREATED_DEBT, Int(9)),
+            (COMMITTED, Var(COMMITTED).plus(Int(1))),
+            (CHARGED, Var(CHARGED).plus(Var(REPORTED))),
+            (27, Int(9)),
+            (28, Int(9)),
+            (48, Var(48).plus(Int(9))),
+            (26, Int(1)),
+            (46, Int(1)),
+        ],
+    );
+    let refuse_direct = m.actions.len();
+    act(
+        m,
+        "FailedDeferredDirectGrantRetainsWindowChargeForSettlement",
+        all([
+            eq(LAW, 12),
+            eq(PENDING, 1),
+            eq(40, 1),
+            eq(37, 0).negate(),
+            eq(27, 0),
+            eq(28, 0),
+            eq(QNS, 0),
+        ]),
+        &[
+            (PENDING, Int(0)),
+            (BASIS, Int(0)),
+            (QNS, Int(1_000_000)),
+            (RAW_Q, Int(1_000_000)),
+            (RAW_BASIS, Int(0)),
+            (COMMITTED, Var(COMMITTED).plus(Int(1))),
+            (CREATED_DEBT, Int(9)),
+            (CHARGED, Var(CHARGED).plus(Int(750_000))),
+            (27, Int(9)),
+            (28, Int(9)),
+            (48, Var(48).plus(Int(9))),
+            (26, Int(0)),
+            (34, Int(0)),
+        ],
+    );
+    if control == 30 {
+        act(
+            m,
+            "BrokenDirectExitRiCounterPretendsToBeStoppedPostAck",
+            all([eq(LAW, 12), eq(PENDING, 1), eq(40, 0), eq(READ0, 0)]),
+            &[(BASIS, Int(1)), (BASIS_EPOCH, Var(5)), (READ0, Int(2))],
+        );
+    }
+    let conserved = Var(CHARGED).lt(Var(WAIT4)).negate();
+    let check = m.actions.len();
+    act(
+        m,
+        "CertifyConservationOnlyAfterActualRetainedWait4",
+        all([
+            new_law.clone(),
+            eq(40, 1),
+            eq(CHECKED, 0),
+            eq(PENDING, 0),
+            eq(27, 0),
+            eq(28, 0),
+            conserved.clone(),
+        ]),
+        &[
+            (CHECKED, Int(1)),
+            (TERMINAL, Int(1)),
+            (ROLL_VALIDATED, Var(ROLL_PENDING)),
+            (ROLL_PENDING, Int(0)),
+        ],
+    );
+    let refuse = m.actions.len();
+    for profile in 1..=19 {
+        let debt = if profile == 5 { 21 } else { 9 };
+        let mut refused = vec![
+            (CHECKED, Int(1)),
+            (TERMINAL, Int(2)),
+            (EXCESS, Var(WAIT4).minus(Var(CHARGED))),
+            (37, Int(6)),
+            (26, Int(0)),
+            (34, Int(0)),
+            (TERMINAL_DEBT, Int(debt)),
+            (27, Int(debt)),
+            (28, Int(debt)),
+            (ROLL_PENDING, Int(0)),
+            (ROLL_VALIDATED, Int(0)),
+        ];
+        if matches!(profile, 15 | 19) {
+            // Effective accounting is withdrawn; immutable raw measured Q,
+            // member credit and the actual shortfall are NEVER rewritten to
+            // make conservation pass. The fallback bill is retained separately.
+            refused.extend([
+                (BASIS, Int(0)),
+                (QNS, Int(1_000_000)),
+                (ROLL_REVOKED, Int(1)),
+                (FALLBACK_Q, Int(1_000_000)),
+                (FALLBACK_DEBT, Int(9)),
+            ]);
+        }
+        act(
+            m,
+            &format!("RefuseConservationExcessRetainsActualRawUsageProfile{profile}"),
+            all([
+                eq(LAW, profile),
+                eq(40, 1),
+                eq(CHECKED, 0),
+                eq(PENDING, 0),
+                eq(27, 0),
+                eq(28, 0),
+                conserved.clone().negate(),
+            ]),
+            &refused,
+        );
+    }
+    if forged_terminal_control && matches!(control, 31 | 32) {
+        // COMPOSED fault: omit/misconvert a contribution AND independently
+        // bypass terminal certification. Pure omission retains the hard gate
+        // and must refuse, as the separate nonvacuity checks below require.
+        act(
+            m,
+            "BrokenOmittedCpuContributionForgesTerminalAccounting",
+            all([
+                eq(LAW, if control == 31 { 5 } else { 6 }),
+                eq(40, 1),
+                eq(CHECKED, 0),
+                eq(BASIS, 1),
+                Int(0).lt(Var(QNS)),
+                eq(27, 0),
+                eq(28, 0),
+                eq(REPORTED, if control == 31 { 250_000 } else { 12_000 }),
+                conserved.clone().negate(),
+            ]),
+            &[(CHECKED, Int(1)), (TERMINAL, Int(1))],
+        );
+    }
+    let unique_rollup = all([eq(ROLL_UNIQUE, 1), eq(ROLL_MIXED, 0)]);
+    let causal_rollup = all([
+        eq(ROLL_EXIT, 1),
+        eq(ROLL_ACK, 1),
+        eq(ROLL_ZERO_CHILDREN, 1),
+        eq(ORIGIN1, 2),
+    ]);
+    let counted_rollup = all([
+        eq(ROLL_COUNT, 1),
+        eq(ROLL_DUPLICATE, 0),
+        Var(ROLL_DELTA).eq(Var(ROLL_CUMULATIVE).minus(Var(ROLL_BASELINE))),
+        Var(ROLL_BASELINE).eq(Var(PRIOR_LIVE)),
+        Var(REPORTED).eq(Var(A0).plus(Var(ROLL_DELTA))),
+    ]);
+    let rollup_proof = all([
+        unique_rollup.clone(),
+        causal_rollup.clone(),
+        counted_rollup.clone(),
+    ]);
+    let read = |slot, origin| {
+        all([eq(slot, 2), eq(origin, 1)])
+            .or(all([eq(slot, 3), eq(origin, 2), eq(40, 1)]))
+            .or(all([eq(slot, 0), eq(origin, 3)]))
+            .or(all([
+                Bool(slot == READ1),
+                eq(slot, 4),
+                eq(origin, 2),
+                rollup_proof.clone(),
+            ]))
+    };
+    let slot_fits = all([Var(W0).lt(Var(A0)).negate(), Var(W1).lt(Var(A1)).negate()]);
+    safe(
+        m,
+        "MeasuredNeedsClosure",
+        eq(BASIS, 0).or(all([
+            eq(18, 1),
+            eq(19, 1),
+            eq(14, 1),
+            eq(15, 1),
+            eq(42, 0),
+            eq(50, 1),
+            Var(BASIS_EPOCH).eq(Var(6)),
+            read(READ0, ORIGIN0),
+            read(READ1, ORIGIN1),
+            eq(MONOTONIC, 3),
+            eq(CONVERTED, 3),
+            slot_fits.clone(),
+        ])),
+    );
+    safe(
+        m,
+        "PerSlotMeasuredCpuFitsWindow",
+        eq(BASIS, 0).or(slot_fits),
+    );
+    let certified_rollup = all([eq(BASIS, 1), eq(READ1, 4)]);
+    safe(
+        m,
+        "RollupRequiresUniqueAdmittedChild",
+        certified_rollup.clone().negate().or(unique_rollup),
+    );
+    safe(
+        m,
+        "RollupNeedsCausalExitAndLeaderAck",
+        certified_rollup.clone().negate().or(causal_rollup),
+    );
+    safe(
+        m,
+        "RollupCountedOnce",
+        certified_rollup.negate().or(counted_rollup),
+    );
+    safe(
+        m,
+        "RollupTrustWaitsForIndependentLeaderWait4",
+        eq(READ1, 4).negate().or(eq(34, 0)).or(all([
+            eq(40, 1),
+            eq(CHECKED, 1),
+            eq(TERMINAL, 1),
+            eq(ROLL_PENDING, 0),
+            eq(ROLL_VALIDATED, 1),
+            eq(ROLL_REVOKED, 0),
+        ])),
+    );
+    safe(
+        m,
+        "RevokedRollupRetainsRawMeasuredReceiptAndFallbackBill",
+        eq(ROLL_REVOKED, 0).or(all([
+            eq(BASIS, 0),
+            eq(RAW_BASIS, 1),
+            eq(READ1, 4),
+            eq(CHECKED, 1),
+            eq(TERMINAL, 2),
+            eq(37, 6),
+            eq(26, 0),
+            eq(34, 0),
+            eq(ROLL_PENDING, 0),
+            eq(ROLL_VALIDATED, 0),
+            Var(RAW_Q).eq(Var(REPORTED).plus(Int(250_000))),
+            Var(FALLBACK_Q).eq(Var(WALL).plus(Int(250_000))),
+            Var(QNS).eq(Var(FALLBACK_Q)),
+            eq(FALLBACK_DEBT, 9),
+            Int(0).lt(Var(EXCESS)),
+            Var(CHARGED).lt(Var(WAIT4)),
+        ])),
+    );
+    safe(
+        m,
+        "ChargedCoversBurned",
+        eq(TERMINAL, 1).negate().or(all([
+            eq(40, 1),
+            eq(CHECKED, 1),
+            conserved.clone(),
+            Var(CHARGED).lt(Var(BURNED)).negate(),
+        ])),
+    );
+    safe(
+        m,
+        "ExitedDirectMeasuredSourceRequiresOriginalOwnWait4",
+        eq(LAW, 12)
+            .negate()
+            .or(eq(BASIS, 0))
+            .or(all([eq(40, 1), eq(READ0, 3), eq(ORIGIN0, 2)])),
+    );
+    safe(
+        m,
+        "PendingDirectExitCannotAdmitExpensiveWorkOrTrust",
+        eq(PENDING, 0).or(all([
+            eq(BASIS, 0),
+            eq(26, 0),
+            eq(QNS, 0),
+            eq(CHECKED, 0),
+            eq(COMMITTED, 0),
+            eq(33, 0),
+            eq(34, 0),
+        ])),
+    );
+    safe(
+        m,
+        "CounterProvenanceDistinguishesStoppedFromExited",
+        all([
+            eq(READ0, 2).negate().or(eq(ORIGIN0, 1)),
+            eq(READ1, 2).negate().or(eq(ORIGIN1, 1)),
+            eq(READ0, 3).negate().or(all([eq(ORIGIN0, 2), eq(40, 1)])),
+            eq(READ1, 3).negate().or(all([eq(ORIGIN1, 2), eq(40, 1)])),
+        ]),
+    );
+    safe(
+        m,
+        "ActualWait4RawUsageRemainsIndependentOfChargedLedger",
+        eq(LAW, 0).or(eq(40, 0)).or(Var(WAIT4).eq(Var(BURNED))),
+    );
+    safe(
+        m,
+        "WallBounded",
+        eq(LAW, 0).or(eq(26, 0)).or(Var(WALL).lt(Int(25_000_001))),
+    );
+    safe(
+        m,
+        "CertifiedBasisQuantumIsOrdinary",
+        eq(LAW, 0).or(eq(26, 0)).or(Var(QNS).lt(Int(1_000_001))),
+    );
+    safe(
+        m,
+        "BasisQuantumIncludesAllActiveControllerCpu",
+        eq(LAW, 0).or(eq(QNS, 0)).or(all([
+            eq(BASIS, 1),
+            Var(QNS).eq(Var(REPORTED).plus(Int(250_000))),
+        ])
+        .or(all([
+            eq(BASIS, 0),
+            all([
+                Var(WALL).lt(Var(REPORTED)).negate(),
+                Var(QNS).eq(Var(WALL).plus(Int(250_000))),
+            ])
+            .or(all([
+                Var(WALL).lt(Var(REPORTED)),
+                Var(QNS).eq(Var(REPORTED).plus(Int(250_000))),
+            ])),
+        ]))),
+    );
+    let full_debt = (9..=27)
+        .map(|debt| {
+            all([
+                eq(CREATED_DEBT, debt),
+                Var(QNS).lt(Int(debt * 1_000_000 / 9 + 1)),
+            ])
+        })
+        .fold(Bool(false), Expr::or);
+    safe(
+        m,
+        "CreatedDebtCoversUnclampedBasisQuantum",
+        eq(LAW, 0).or(eq(QNS, 0)).or(full_debt),
+    );
+    safe(
+        m,
+        "ConservationFailureRetainsRawAndRefusesTrust",
+        all([
+            eq(CHECKED, 0).or(conserved).or(all([
+                eq(TERMINAL, 2),
+                eq(26, 0),
+                eq(34, 0),
+                eq(37, 6),
+                Var(EXCESS).eq(Var(WAIT4).minus(Var(CHARGED))),
+            ])),
+            eq(TERMINAL, 2).negate().or(all([
+                eq(40, 1),
+                eq(CHECKED, 1),
+                Int(0).lt(Var(EXCESS)),
+                eq(26, 0),
+                eq(34, 0),
+                all([eq(TERMINAL_DEBT, 9), Var(EXCESS).lt(Int(1_000_001))])
+                    .or(all([eq(TERMINAL_DEBT, 21), Var(EXCESS).lt(Int(2_333_334))])),
+            ])),
+        ]),
+    );
+    safe(
+        m,
+        "MeasuredTrustRequiresTerminalConservation",
+        eq(LAW, 0)
+            .or(eq(34, 0))
+            .or(all([eq(CHECKED, 1), eq(TERMINAL, 1)])),
+    );
+    progress(
+        m,
+        "ActualReapGetsLocalConservationOutcome",
+        all([
+            new_law,
+            eq(40, 1),
+            eq(CHECKED, 0),
+            eq(PENDING, 0),
+            eq(27, 0),
+            eq(28, 0),
+        ]),
+        eq(CHECKED, 1),
+        (check..=refuse + 18).collect(),
+    );
+    progress(
+        m,
+        "RetainedOwnWait4CanResolveDeferredGrantWithoutAnotherCont",
+        all([eq(LAW, 12), eq(PENDING, 1), eq(40, 1), eq(27, 0), eq(28, 0)]),
+        eq(PENDING, 0),
+        vec![bind_direct, commit_direct, refuse_direct],
+    );
 }
 
 /// Decision d93377961365654: a reviewed finite program/build premise is distinct
@@ -6404,6 +7598,44 @@ mod helper_observer_lowering_equivalence {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn member_window_failure_rows(
+        model: &Model,
+        states: &[Vec<i64>],
+        property: &str,
+        prefix: &[usize],
+        cycle: &[usize],
+        outgoing: impl Fn(usize) -> Vec<(usize, String)>,
+    ) {
+        let rows = prefix
+            .iter()
+            .rev()
+            .take(2)
+            .chain(cycle.iter().take(2))
+            .copied()
+            .collect::<std::collections::BTreeSet<_>>();
+        for row in rows {
+            let values = model
+                .variables
+                .iter()
+                .zip(&states[row])
+                .map(|(v, n)| format!("{}={n}", v.name))
+                .collect::<Vec<_>>();
+            let enabled = outgoing(row).into_iter().take(12).collect::<Vec<_>>();
+            let incoming = prefix.windows(2).find(|pair| pair[1] == row).map(|pair| {
+                outgoing(pair[0])
+                    .into_iter()
+                    .filter(|(to, _)| *to == row)
+                    .take(4)
+                    .collect::<Vec<_>>()
+            });
+            eprintln!(
+                "{} {property} state{row} incoming={incoming:?} enabled={enabled:?} values={values:?}",
+                model.name
+            );
+        }
+    }
+
     #[test]
     fn closure_codec_currentness_has_all_causal_controls() {
         let good = closure_codec(0).check(100_000).unwrap();
@@ -6760,7 +7992,7 @@ mod tests {
 
     #[test]
     fn member_window_observer_guard_keeps_every_original_state_edge_and_named_verdict() {
-        for control in 1..=28 {
+        for control in 1..=37 {
             let original = member_window_observer(control, true)
                 .check(100_000)
                 .unwrap();
@@ -6794,9 +8026,609 @@ mod tests {
     }
 
     #[test]
+    fn measured_extension_keeps_every_legacy_state_labelled_edge_and_named_trace() {
+        use std::collections::BTreeSet;
+        for control in 0..=28 {
+            let legacy = member_window_projection(control, false, false, false);
+            let extended = member_window(control);
+            let before = legacy.check(100_000).unwrap();
+            let after = extended.check(100_000).unwrap();
+            let width = legacy.variables.len();
+            assert_eq!(width, 54);
+            let old_states = before.states.iter().cloned().collect::<BTreeSet<_>>();
+            let new_states = after
+                .states
+                .iter()
+                .filter(|s| s[width] == 0)
+                .map(|s| s[..width].to_vec())
+                .collect::<BTreeSet<_>>();
+            assert_eq!(old_states, new_states, "control{control} legacy states");
+            let mut old_edges = BTreeSet::new();
+            for (from, edges) in before.edges.iter().enumerate() {
+                for edge in edges {
+                    old_edges.insert((
+                        before.states[from].clone(),
+                        legacy.actions[edge.action].name.clone(),
+                        before.states[edge.to].clone(),
+                    ));
+                }
+            }
+            let mut new_edges = BTreeSet::new();
+            for (from, edges) in after.edges.iter().enumerate() {
+                if after.states[from][width] != 0 {
+                    continue;
+                }
+                for edge in edges {
+                    if after.states[edge.to][width] == 0 {
+                        new_edges.insert((
+                            after.states[from][..width].to_vec(),
+                            extended.actions[edge.action].name.clone(),
+                            after.states[edge.to][..width].to_vec(),
+                        ));
+                    }
+                }
+            }
+            assert_eq!(
+                old_edges, new_edges,
+                "control{control} legacy labelled edges"
+            );
+            let old_traces = before
+                .violations
+                .iter()
+                .map(|v| {
+                    (
+                        v.property.clone(),
+                        v.prefix
+                            .iter()
+                            .map(|i| before.states[*i].clone())
+                            .collect::<Vec<_>>(),
+                        v.cycle
+                            .iter()
+                            .map(|i| before.states[*i].clone())
+                            .collect::<Vec<_>>(),
+                    )
+                })
+                .collect::<BTreeSet<_>>();
+            let new_traces = after
+                .violations
+                .iter()
+                .filter(|v| {
+                    v.prefix
+                        .iter()
+                        .chain(&v.cycle)
+                        .all(|i| after.states[*i][width] == 0)
+                })
+                .map(|v| {
+                    (
+                        v.property.clone(),
+                        v.prefix
+                            .iter()
+                            .map(|i| after.states[*i][..width].to_vec())
+                            .collect::<Vec<_>>(),
+                        v.cycle
+                            .iter()
+                            .map(|i| after.states[*i][..width].to_vec())
+                            .collect::<Vec<_>>(),
+                    )
+                })
+                .collect::<BTreeSet<_>>();
+            assert_eq!(
+                old_traces, new_traces,
+                "control{control} legacy named traces"
+            );
+        }
+    }
+
+    #[test]
+    fn measured_member_windows_cover_both_bases_raw_refusals_and_named_controls() {
+        let model = member_window(0);
+        let variable = |name: &str| model.variables.iter().position(|v| v.name == name).unwrap();
+        let law = variable("measuredLawProfile");
+        let basis = variable("basisWindowMeasured");
+        let read0 = variable("slot0CountersReadNonePreAckPostAckRetainedWait4");
+        let read1 = variable("slot1CountersReadNonePreAckPostAckRetainedWait4LeaderRollup");
+        let burned = variable("cpuBurned");
+        let charged = variable("cpuCharged");
+        let wall = variable("wall");
+        let q = variable("basisQuantumNs");
+        let terminal = variable("terminalConservationPendingPassedRefused");
+        let checked = variable("conservationChecked");
+        let excess = variable("conservationExcessNs");
+        let origin0 = variable("slot0CounterEndpointNoneStoppedExitedClosedAbsence");
+        let origin1 = variable("slot1CounterEndpointNoneStoppedExitedClosedAbsence");
+        let pending = variable("directExitAccountingPending");
+        let wait4 = variable("actualWait4CpuNs");
+        let committed = variable("committedGrantCount");
+        let unique = variable("rollupUniqueAdmittedChild");
+        let mixed = variable("rollupMixedUnadmittedChild");
+        let exit_before_read = variable("rollupChildExitProvenBeforeRead");
+        let zero_children = variable("rollupLeaderChildCountZeroBeforeRead");
+        let ack_before_read = variable("rollupLeaderAckBeforeRead");
+        let rollup_count = variable("qualifiedChildRollupAttributionCount");
+        let cumulative = variable("rollupCumulativeChildNs");
+        let baseline = variable("rollupBaselineChildNs");
+        let prior_live = variable("priorLiveChildCreditNs");
+        let duplicate = variable("rollupDuplicateLiveChildNs");
+        let delta = variable("rollupCurrentDeltaNs");
+        let reported = variable("reportedMemberCpuNs");
+        let raw_q = variable("rawGrantQuantumNs");
+        let raw_basis = variable("rawGrantBasisWindowMeasured");
+        let provisional = variable("rollupConservationPending");
+        let validated = variable("rollupConservationValidated");
+        let revoked = variable("rollupBasisRevoked");
+        let fallback_q = variable("retainedFallbackQuantumNs");
+        let fallback_debt = variable("retainedFallbackDebtMs");
+        let good = model.check(100_000).unwrap();
+        for violation in good.violations.iter().take(3) {
+            member_window_failure_rows(
+                &model,
+                &good.states,
+                &violation.property,
+                &violation.prefix,
+                &violation.cycle,
+                |row| {
+                    good.edges[row]
+                        .iter()
+                        .map(|edge| (edge.to, model.actions[edge.action].name.clone()))
+                        .collect()
+                },
+            );
+        }
+        assert!(good.violations.is_empty(), "{:?}", good.violations);
+        assert!(
+            good.states.iter().any(|s| s[law] == 1
+                && s[0] == 7
+                && s[basis] == 1
+                && s[q] == 500_000
+                && s[wall] == 20_000_000
+                && s[26] == 1
+                && s[27] == 9),
+            "slow wall/low CPU measured grant pays fresh debt without borrowing wall credit"
+        );
+        assert!(
+            good.states.iter().any(|s| s[law] == 2
+                && s[0] == 7
+                && s[basis] == 1
+                && s[q] == 1_000_000
+                && s[wall] == 25_000_000
+                && s[26] == 1
+                && s[27] == 9),
+            "both exact hard boundaries are accepted with full fresh9ms debt"
+        );
+        assert!(
+            good.states.iter().any(|s| s[law] == 1
+                && s[49] == 2
+                && s[0] == 7
+                && s[burned] == 625_000
+                && s[charged] == 625_000),
+            "two separately paid grants accumulate CPU without resetting startup accounting"
+        );
+        for profile in [3, 4, 9, 10] {
+            assert!(
+                good.states.iter().any(|s| s[law] == profile
+                    && s[0] == 7
+                    && s[basis] == 0
+                    && s[26] == 0
+                    && s[q] > 0
+                    && s[27] > 0),
+                "unknown/preACK/missing/reversed profile{profile} retains window charge and refuses trust"
+            );
+        }
+        assert!(
+            good.states.iter().any(|s| s[law] == 10
+                && s[0] == 7
+                && s[37] == 6
+                && s[27] == 9
+                && s[28] == 9
+                && s[41] == 1
+                && s[51] == 1
+                && s[26] == 0
+                && s[34] == 0
+                && s[checked] == 0),
+            "fresh refusal debt does not block an owned unavailable disposition or fabricate settlement"
+        );
+        assert!(
+            good.states
+                .iter()
+                .any(|s| s[law] == 4 && s[0] == 7 && s[read0] == 1),
+            "early reads never turn into postACK evidence merely because ACK arrives later"
+        );
+        assert!(
+            good.states.iter().any(|s| s[law] == 7
+                && s[0] == 7
+                && s[basis] == 1
+                && s[q] == 500_000
+                && s[wall] == 30_000_000
+                && s[26] == 0
+                && s[37] == 6
+                && s[27] == 9),
+            "30ms remains a raw hard wall refusal even when measured CPU passes"
+        );
+        let a0 = variable("slot0ActualCpuNs");
+        let a1 = variable("slot1ActualCpuNs");
+        let w0 = variable("slot0WindowNs");
+        assert!(
+            good.states.iter().any(|s| s[law] == 8
+                && s[0] == 7
+                && s[a0] > s[w0]
+                && s[a0] + s[a1] <= s[wall]
+                && s[basis] == 0
+                && s[26] == 0),
+            "aggregate passing CPU cannot replace the per-slot one-thread coverage predicate"
+        );
+        assert!(
+            good.states.iter().any(|s| s[law] == 5
+                && s[0] == 7
+                && s[q] == 2_500_000
+                && s[26] == 0
+                && s[27] == 23
+                && s[burned] == 2_375_000
+                && s[charged] == 2_375_000),
+            "actual2ms descendant rollup is retained and its overrun pays rounded-up full debt"
+        );
+        assert!(
+            good.states.iter().any(|s| s[law] == 11
+                && s[48] == 27
+                && s[46] == 1
+                && s[burned] == 625_000
+                && s[charged] == 625_000),
+            "late member CPU and controller post-work each pay debt, but controller work adds no member credit"
+        );
+        assert!(
+            good.states.iter().any(|s| s[law] == 1
+                && s[40] == 1
+                && s[checked] == 1
+                && s[terminal] == 1
+                && s[34] == 1),
+            "trusted measured accounting requires actual reap and passed terminal conservation"
+        );
+        assert!(
+            good.states.iter().any(|s| s[law] == 14
+                && s[40] == 1
+                && s[checked] == 1
+                && s[terminal] == 2
+                && s[excess] > 0
+                && s[burned] > s[charged]
+                && s[26] == 0
+                && s[34] == 0
+                && s[41] == 1),
+            "independent wait4 excess after a closed charge is an honest refused reap retaining original custody"
+        );
+        assert!(
+            good.states.iter().any(|s| s[law] == 12
+                && s[pending] == 1
+                && s[read0] == 3
+                && s[origin0] == 2
+                && s[40] == 1
+                && s[checked] == 0),
+            "direct retained wait4 is acquired before conservation classification, never from RI exit"
+        );
+        assert!(
+            good.states.iter().any(|s| s[law] == 12
+                && s[pending] == 1
+                && s[40] == 0
+                && s[read0] == 0
+                && s[basis] == 0
+                && s[q] == 0
+                && s[26] == 0
+                && s[33] == 0
+                && s[34] == 0
+                && s[41] == 1
+                && s[committed] == 0),
+            "direct exit parks accounting while original retirement/reap remains possible without a charge"
+        );
+        assert!(
+            good.states.iter().any(|s| s[law] == 12
+                && s[pending] == 0
+                && s[40] == 1
+                && s[read0] == 3
+                && s[basis] == 1
+                && s[q] == 500_000
+                && s[27] == 9
+                && s[checked] == 0
+                && s[committed] == 1),
+            "own actual wait4 can commit the frozen terminal grant then pay its fresh debt"
+        );
+        assert!(
+            good.states.iter().any(|s| s[law] == 12
+                && s[40] == 1
+                && s[terminal] == 1
+                && s[checked] == 1
+                && s[34] == 1),
+            "deferred direct-exit accounting has an actual settled trusted path without charge/reap deadlock"
+        );
+        assert!(
+            good.states.iter().any(|s| s[law] == 12
+                && s[40] == 1
+                && s[pending] == 0
+                && s[basis] == 0
+                && s[q] == 1_000_000
+                && s[37] != 0
+                && s[checked] == 1
+                && s[27] == 0
+                && s[41] == 0
+                && s[34] == 0),
+            "fault/ABA while pending retains window accounting and can settle without granting trust"
+        );
+        assert!(
+            good.states.iter().any(|s| s[law] == 13
+                && s[0] == 7
+                && s[origin1] == 2
+                && s[read1] == 0
+                && s[basis] == 0
+                && s[q] == 1_000_000
+                && s[26] == 1),
+            "implicit exited child lacks own wait4 and keeps the proven conservative window basis"
+        );
+        assert!(
+            good.states.iter().any(|s| s[law] == 14
+                && s[40] == 1
+                && s[checked] == 1
+                && s[terminal] == 2
+                && s[wait4] == 500_000
+                && s[charged] == 375_000
+                && s[excess] == 125_000
+                && s[37] == 6
+                && s[26] == 0
+                && s[34] == 0
+                && s[27] == 9),
+            "independent actual wait4 can expose a good-profile shortfall after an apparently complete measured charge"
+        );
+        assert!(
+            good.states.iter().any(|s| s[law] == 14
+                && s[terminal] == 2
+                && s[wait4] == 500_000
+                && s[excess] == 125_000
+                && s[27] == 0
+                && s[28] == 0
+                && s[34] == 0),
+            "the unexpected raw shortfall remains refused after its fresh reconciliation debt is actually paid"
+        );
+        assert!(
+            good.states.iter().any(|s| s[law] == 15
+                && s[49] == 2
+                && s[0] == 7
+                && s[basis] == 1
+                && s[read1] == 4
+                && s[unique] == 1
+                && s[mixed] == 0
+                && s[exit_before_read] == 1
+                && s[zero_children] == 1
+                && s[ack_before_read] == 1
+                && s[rollup_count] == 1
+                && s[cumulative] == 250_000
+                && s[baseline] == 125_000
+                && s[prior_live] == 125_000
+                && s[delta] == 125_000
+                && s[duplicate] == 0
+                && s[reported] == 375_000
+                && s[q] == 625_000
+                && s[charged] == 750_000
+                && s[burned] == 750_000
+                && s[provisional] == 1
+                && s[validated] == 0
+                && s[40] == 0
+                && s[34] == 0),
+            "unique post-exit rollup excludes prior live child credit and startup, and remains provisional"
+        );
+        assert!(
+            good.states.iter().any(|s| s[law] == 15
+                && s[read1] == 4
+                && s[40] == 1
+                && s[wait4] == 750_000
+                && s[charged] == 750_000
+                && s[provisional] == 0
+                && s[validated] == 1
+                && s[revoked] == 0
+                && s[terminal] == 1
+                && s[34] == 1),
+            "qualified child rollup is distinct from own wait4 and trusts only after final leader conservation"
+        );
+        assert!(
+            good.states.iter().all(|s| s[read1] != 3),
+            "leader child rollup is never fabricated as controller-owned child wait4"
+        );
+        for profile in [16, 17, 18] {
+            assert!(
+                good.states.iter().any(|s| s[law] == profile
+                    && s[0] == 7
+                    && s[read1] == 4
+                    && s[basis] == 0
+                    && s[q] == 1_000_000
+                    && s[37] == 6
+                    && s[26] == 0
+                    && s[34] == 0
+                    && s[27] == 9),
+                "mixed/pre-exit/duplicated rollup profile{profile} retains window cost and refuses authority"
+            );
+        }
+        assert!(
+            good.states.iter().any(|s| s[law] == 17
+                && s[0] == 7
+                && s[8] == 4
+                && s[exit_before_read] == 0
+                && s[zero_children] == 0
+                && s[ack_before_read] == 1
+                && s[read1] == 4
+                && s[basis] == 0),
+            "later child exit cannot backdate causal closure of an earlier rollup read"
+        );
+        assert!(
+            good.states.iter().any(|s| s[law] == 19
+                && s[40] == 1
+                && s[terminal] == 2
+                && s[checked] == 1
+                && s[revoked] == 1
+                && s[basis] == 0
+                && s[raw_basis] == 1
+                && s[raw_q] == 625_000
+                && s[reported] == 375_000
+                && s[q] == 1_000_000
+                && s[fallback_q] == 1_000_000
+                && s[fallback_debt] == 9
+                && s[wait4] == 625_000
+                && s[charged] == 500_000
+                && s[excess] == 125_000
+                && s[27] == 9
+                && s[34] == 0),
+            "terminal rollup mismatch revokes effective basis and retains raw shortfall plus fresh fallback billing"
+        );
+        assert!(
+            good.states.iter().any(|s| s[law] == 19
+                && s[revoked] == 1
+                && s[27] == 0
+                && s[28] == 0
+                && s[raw_q] == 625_000
+                && s[excess] == 125_000
+                && s[terminal] == 2
+                && s[34] == 0),
+            "paid fallback debt never erases the original measured receipt or reclassifies conservation failure"
+        );
+        for (control, property) in [
+            (29, "MeasuredNeedsClosure"),
+            (30, "MeasuredNeedsClosure"),
+            (31, "ChargedCoversBurned"),
+            (32, "ChargedCoversBurned"),
+            (33, "WallBounded"),
+            (34, "PerSlotMeasuredCpuFitsWindow"),
+            (35, "RollupRequiresUniqueAdmittedChild"),
+            (36, "RollupNeedsCausalExitAndLeaderAck"),
+            (37, "RollupCountedOnce"),
+        ] {
+            let broken = member_window(control);
+            let result = broken.check(100_000).unwrap();
+            assert!(
+                result.violations.iter().any(|v| v.property == property),
+                "{} must violate intended {property}, not merely TypeOK",
+                broken.name
+            );
+            assert!(
+                !result.violations.iter().any(|v| v.property == "TypeOK"),
+                "{} must retain every declared finite bound",
+                broken.name
+            );
+            if matches!(control, 31 | 32) {
+                assert!(
+                    result
+                        .states
+                        .iter()
+                        .any(|s| s[law] == if control == 31 { 5 } else { 6 }
+                            && s[40] == 1
+                            && s[terminal] == 1
+                            && s[burned] > s[charged]),
+                    "omitted rollup/conversion must falsely certify independently retained raw CPU"
+                );
+                assert!(
+                    result
+                        .states
+                        .iter()
+                        .any(|s| s[law] == if control == 31 { 5 } else { 6 }
+                            && s[40] == 1
+                            && s[terminal] == 2
+                            && s[excess] > 0),
+                    "the same raw shortfall also has a correct detected-refusal path"
+                );
+            }
+            if control == 30 {
+                assert!(
+                    result.states.iter().any(|s| s[law] == 12
+                        && s[40] == 0
+                        && s[basis] == 1
+                        && s[read0] == 2
+                        && s[origin0] == 2),
+                    "RI exit cannot be relabeled a stopped postACK counter before own actual wait4"
+                );
+            }
+            if control == 37 {
+                assert!(
+                    result.states.iter().any(|s| s[law] == 18
+                        && s[basis] == 1
+                        && s[q] == 750_000
+                        && s[rollup_count] == 2
+                        && s[duplicate] == 125_000
+                        && s[charged] >= s[burned]
+                        && s[26] == 1),
+                    "double rollup attribution must fail even when CPU fits and a conservation upper bound would pass"
+                );
+            }
+            if control == 35 {
+                assert!(
+                    result.states.iter().any(|s| s[law] == 16
+                        && s[basis] == 1
+                        && s[mixed] == 1
+                        && s[unique] == 0
+                        && s[q] == 750_000
+                        && s[charged] == s[burned]),
+                    "mixed unadmitted child must fail its source predicate even when numeric accounting reconciles"
+                );
+            }
+            if control == 36 {
+                assert!(
+                    result.states.iter().any(|s| s[law] == 17
+                        && s[basis] == 1
+                        && s[exit_before_read] == 0
+                        && s[zero_children] == 0
+                        && s[ack_before_read] == 1
+                        && s[8] == 4),
+                    "later retired identity cannot launder a rollup read made before proven causal exit"
+                );
+            }
+        }
+        for control in [31, 32] {
+            // Remove ONLY the extra forged-certification fault. Pure omitted
+            // rollup/conversion is contained by the unchanged hard gate.
+            let pure = member_window_projection(control, false, true, false);
+            let result = pure.check(100_000).unwrap();
+            assert!(
+                result.violations.is_empty(),
+                "pure omission {control}: {:?}",
+                result.violations
+            );
+            let profile = if control == 31 { 5 } else { 6 };
+            let fresh_debt = if control == 31 { 21 } else { 9 };
+            assert!(
+                result.states.iter().any(|s| s[law] == profile
+                    && s[40] == 1
+                    && s[checked] == 1
+                    && s[terminal] == 2
+                    && s[wait4] > s[charged]
+                    && s[excess] == s[wait4] - s[charged]
+                    && s[37] == 6
+                    && s[26] == 0
+                    && s[34] == 0
+                    && s[27] == fresh_debt
+                    && s[41] == 1),
+                "pure omission/conversion must retain independent wait4 excess, resource refusal and fresh debt"
+            );
+            assert!(
+                result.states.iter().any(|s| s[law] == profile
+                    && s[terminal] == 2
+                    && s[excess] > 0
+                    && s[27] == 0
+                    && s[28] == 0
+                    && s[34] == 0),
+                "pure omission remains refused after all fresh debt is paid"
+            );
+            assert!(
+                result
+                    .states
+                    .iter()
+                    .all(|s| s[law] != profile || s[34] == 0),
+                "pure omission cannot trust output even though the good hard gate contains the fault"
+            );
+        }
+    }
+
+    #[test]
     fn dream_read_member_windows_preserve_required_closure_and_additive_debt() {
-        let good = member_window(0).check(100_000).unwrap();
+        let model = member_window(0);
+        let good = model.check(100_000).unwrap();
         println!("HarnessDreamReadMemberWindow: {} states", good.states.len());
+        for violation in good.violations.iter().take(3) {
+            member_window_failure_rows(&model, &good.states, &violation.property,
+                &violation.prefix, &violation.cycle, |row| good.edges[row].iter()
+                    .map(|edge| (edge.to, model.actions[edge.action].name.clone())).collect());
+        }
         assert!(good.violations.is_empty(), "{:?}", good.violations);
         assert!(
             good.states.iter().any(|s| s[0] == 3
