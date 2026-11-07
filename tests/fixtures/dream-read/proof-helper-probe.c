@@ -2413,6 +2413,16 @@ struct engine_stage_observation {uint64_t wall_begin,wall_end,cpu_begin,cpu_end,
 struct engine_unit_observation {
     const char *site;unsigned line,ordinary;uint64_t open,end,supplied_actual,supplied_cost,inclusive,actual,cost,poll_before,poll_cpu;
 };
+struct engine_initial_physical_observation {
+    unsigned stage,predicate_mask,bsd_known,audit_path_expected,own_wnowait_known,own_wnowait_terminal,group_original_only,physical_basis;
+    int group_result,group_error,child_result,child_error,audit_result,audit_error,bsd_result,bsd_error;
+    uint32_t pid,ppid,pgid,status,uid;uint64_t birth;
+};
+#define ENGINE_EXIT_TEARDOWN_CEILING_NS 150000ULL
+struct engine_child_reap_proof {
+    pid_t pid;uint32_t version;unsigned valid;
+    uint64_t birth,start,exit_ns,zero_ns,ack_ns,read_ns,rollup_ticks;
+};
 struct engine_owner {
     const struct private_engine_context *context;struct private_engine_result *result;
     struct engine_ticket ticket;struct engine_member members[2];
@@ -2423,12 +2433,21 @@ struct engine_owner {
     uint64_t accounted_ticks,grant_tick_before;
     uint64_t startup_cpu,charged_member_cpu,justified_late_cpu,justified_post_cpu,counter_reads,wait4_reads;
     uint64_t observed_raw[3],observed_user[3],observed_system[3],post_exit_before[3],post_exit_after[3],post_exit_delta;
-    unsigned post_exit_observed;
+    unsigned post_exit_observed,post_exit_initial,post_exit_initial_source_valid,post_exit_ri_unavailable;
+    unsigned post_exit_attempt_retained,post_exit_attempt_paid,post_exit_ri_attempted;
+    struct engine_initial_physical_observation initial_physical;
     unsigned provisional_count,provisional_revoked,provisional_finalized,rollup_source_failed,worst_provisional_grant;
     uint64_t provisional_quantum_difference,provisional_rest_difference,provisional_debt_added;
     struct window_ledger worst_provisional_window;
+    struct engine_child_reap_proof child_reap_proof;
+    uint64_t independent_cpu_credit,raw_wait4_cpu,residual_required_cost,residual_raw,residual_retained_cost,residual_payment_target,residual_debit_entries,residual_last_debit_unit,last_charged_cost;
+    uint64_t exit_teardown_limit_ns,exit_teardown_allowance_ns,conservation_upper;
+    unsigned residual_required_known,residual_cost_paid,teardown_direct_reaps,teardown_child_reaps,teardown_process_records_written;
     uint64_t rounding_allowance,wait4_upper,accounted_upper,conservation_excess;
     unsigned startup_known,conservation_known,conservation_checked,conservation_ok,grant_accounted,accounting_pending;
+    unsigned startup_charged,stopped_corroborating,stopped_units;
+    uint32_t startup_timebase_numer,startup_timebase_denom;
+    uint64_t stopped_max_cpu;
     struct engine_unit_observation failed_unit_first,failed_unit_last;uint64_t failed_units,last_poll_cpu;
     struct rusage retained_wait;int retained_status;uint64_t wait_read_ns;
     unsigned running,stop_requested,retiring,failed,closed,foreground,direct_reaped,direct_custody,coverage_lost;
@@ -2463,6 +2482,9 @@ static int engine_conservation(struct engine_owner *);
 static int engine_credit_member(struct engine_owner *,uint64_t,int);
 static void engine_observed_counters(struct engine_owner *);
 static int engine_independent_post_exit(struct engine_owner *);
+static int engine_stopped_checkpoint(struct engine_owner *,const char *);
+static int engine_residual_cost_covers(struct engine_owner *);
+static void engine_residual_payment_retained(struct engine_owner *,uint64_t,uint64_t,uint64_t);
 // Scratch custody and the actual verifier argv survive all direct commands
 // and any refused owned effect. This is not a second controller or tool grant.
 static struct private_git_sig_temp engine_signature_storage={.scratch_fd=-1,.signature_fd=-1};
@@ -2832,6 +2854,7 @@ static int engine_roster(struct engine_owner *owner,int final,int *closed) {
         // Capture the real logical effect before expensive token/image checks.
         owner->members[1].state.pid=child;
         if(!owner->child_created){owner->child_created=1;owner->result->created++;owner->result->members_max=2;}
+        if(owner->stopped_corroborating){owner->coverage_lost=1;return engine_failure(owner,"coverage_unknown","stopped corroboration discovered an unbound member");}
         if(owner->settlement_quarantined){owner->coverage_lost=1;return engine_failure(owner,"coverage_unknown","quarantined observation discovered an unbound child");}
         if(owner->stop_pending)return engine_failure(owner,"coverage_unknown","new child cannot close a pending terminal unknown slot");
         owner->stop_requested=0;
@@ -2842,8 +2865,10 @@ static int engine_roster(struct engine_owner *owner,int final,int *closed) {
         owner->coverage_lost=owner->rollup_source_failed=1;
         return engine_failure(owner,"coverage_unknown","second logical child identity changed");
     }
+    if(!engine_stopped_checkpoint(owner,"stopped_child_census"))return 0;
     int pids[3]={0};int n=proc_listpgrppids(owner->ticket.pgid,pids,sizeof(pids));
     if(n<0||n>2||(unsigned)n>owner->slots)return engine_failure(owner,"coverage_unknown","exact group roster unavailable or exceeds reservation");
+    if(!engine_stopped_checkpoint(owner,"stopped_group_census"))return 0;
     unsigned seen=0;int all=1;
     for(int i=0;i<n;i++) {
         unsigned index=pids[i]==owner->ticket.pid?0u:1u;
@@ -2856,22 +2881,27 @@ static int engine_roster(struct engine_owner *owner,int final,int *closed) {
             owner->grant.end[index]=engine_now(owner,CLOCK_MONOTONIC);owner->grant.ack_mask|=1u<<index;
             owner->grant.identity_mask|=1u<<index;
         }
+        if(owner->stopped_corroborating&&!ack)return engine_failure(owner,"coverage_unknown","corroboration lost original stopped member");
+        if(!engine_stopped_checkpoint(owner,"stopped_member_identity"))return 0;
     }
     if(!(seen&1u)) {
         int done=0;if(!engine_direct_exited(owner,&done)||!done||!engine_member_exit(owner,0))return engine_failure(owner,"coverage_unknown","missing leader lacks exact unreaped exit evidence");
         if(owner->grant.t0&&!owner->grant.end[0])owner->grant.end[0]=engine_now(owner,CLOCK_MONOTONIC);
         owner->grant.ack_mask|=1;owner->grant.identity_mask|=1;
+        if(!engine_stopped_checkpoint(owner,"stopped_leader_exit"))return 0;
     }
     if(owner->members[1].state.pid&&!(seen&2u)) {
         if(!engine_member_exit(owner,1))return engine_failure(owner,"coverage_unknown","missing original child has no retained exact exit evidence");
         if(owner->grant.t0&&!owner->grant.end[1])owner->grant.end[1]=engine_now(owner,CLOCK_MONOTONIC);
         owner->grant.ack_mask|=2;owner->grant.identity_mask|=2;
+        if(!engine_stopped_checkpoint(owner,"stopped_child_exit"))return 0;
     }
     if(!all)return 1;
     if(owner->members[1].state.pid) {
         int own[3]={0};int c=proc_listchildpids(owner->members[1].state.pid,own,sizeof(own));
         if(c<0&&owner->members[1].phase!=ENGINE_EXITED)return engine_failure(owner,"coverage_unknown","verifier child-edge census unavailable");
         if(c>0){owner->coverage_lost=owner->rollup_source_failed=1;return engine_failure(owner,"coverage_unknown","verifier created an unapproved child");}
+        if(!engine_stopped_checkpoint(owner,"stopped_verifier_census"))return 0;
     }
     if(!final){*closed=1;return 1;}
     // A second, current-incarnation pass is required in this same grant. Only
@@ -2887,6 +2917,7 @@ static int engine_roster(struct engine_owner *owner,int final,int *closed) {
             owner->grant.end[i]=0;owner->grant.unknown_mask|=1u<<i;*closed=0;return 1;
         }
         if(owner->members[i].user!=users[i])return engine_failure(owner,"coverage_unknown","user work advanced after tentative stop acknowledgement");
+        if(!engine_stopped_checkpoint(owner,"stopped_member_continuity"))return 0;
     }
     int final_group[3]={0},final_children[3]={0};
     int g=proc_listpgrppids(owner->ticket.pgid,final_group,sizeof(final_group));
@@ -2895,6 +2926,7 @@ static int engine_roster(struct engine_owner *owner,int final,int *closed) {
     if(c&&!owner->members[1].state.pid) {
         owner->members[1].state.pid=final_children[0];owner->grant.unknown_mask|=2u;
         if(!owner->child_created){owner->child_created=1;owner->result->created++;owner->result->members_max=2;}
+        if(owner->stopped_corroborating){owner->coverage_lost=1;return engine_failure(owner,"coverage_unknown","stopped final corroboration discovered an unbound member");}
         if(owner->settlement_quarantined){owner->coverage_lost=1;return engine_failure(owner,"coverage_unknown","quarantined final roster discovered an unbound child");}
         if(owner->stop_pending)return engine_failure(owner,"coverage_unknown","late unknown child cannot close pending terminal proof");
         owner->stop_requested=0;
@@ -2904,6 +2936,7 @@ static int engine_roster(struct engine_owner *owner,int final,int *closed) {
     for(int i=0;i<g;i++)if(final_group[i]!=owner->ticket.pid&&final_group[i]!=owner->members[1].state.pid)
         return engine_failure(owner,"coverage_unknown","new member appeared during mandatory continuity");
     if(c&&final_children[0]!=owner->members[1].state.pid)return engine_failure(owner,"coverage_unknown","new child appeared during closure");
+    if(!engine_stopped_checkpoint(owner,"stopped_final_census"))return 0;
     if(owner->slots==2&&!owner->members[1].state.pid) {
         if(owner->members[0].child_user||owner->members[0].child_system) {
             owner->coverage_lost=1; // An observed unbound effect cannot become vacuous group settlement.
@@ -2986,15 +3019,64 @@ static uint64_t engine_unit_tail(const struct engine_unit_observation *unit) {
     if(unit->actual==UINT64_MAX||unit->supplied_actual==UINT64_MAX||unit->actual<unit->supplied_actual)return UINT64_MAX;
     return unit->actual-unit->supplied_actual;
 }
+static int engine_teardown_records(struct engine_owner *owner) {
+    if(!owner->conservation_checked||owner->teardown_process_records_written)return 1;
+    // Attempt once: an unresolved write remains a refusal, never a reason to
+    // repeat a receipt or book the aggregate original wait4 cost again.
+    owner->teardown_process_records_written=1;char bytes[4096];
+    int n=snprintf(bytes,sizeof(bytes),
+        "{\"kind\":\"exit_teardown_accounting\",\"sequence\":%u,\"form\":%u,"
+        "\"T_ns\":%llu,\"direct_actual_reaps\":%u,\"qualified_child_reaps\":%u,\"N_reaped\":%u,\"N_times_T_ns\":%llu,"
+        "\"raw_wait4_cpu_ns\":%llu,\"wait4_upper_ns\":%llu,\"independent_helper_credit_ns\":%llu,"
+        "\"rounding_allowance_ns\":%llu,\"independent_plus_rounding_ns\":%llu,\"conservation_upper_ns\":%llu,\"excess_ns\":%llu,"
+        "\"residual_required_known\":%u,\"raw_residual_ns\":%llu,\"residual_required_cost_ns\":%llu,"
+        "\"residual_retained_cost_ns\":%llu,\"residual_debit_entries\":%llu,\"residual_cost_paid\":%u,"
+        "\"residual_scope\":\"original_leader_wait4_subtree_once\",\"fixed_ceiling_is_credit\":false,\"runtime_approved\":false}\n",
+        owner->ticket.sequence,owner->command,(unsigned long long)owner->exit_teardown_limit_ns,
+        owner->teardown_direct_reaps,owner->teardown_child_reaps,owner->teardown_direct_reaps+owner->teardown_child_reaps,
+        (unsigned long long)owner->exit_teardown_allowance_ns,(unsigned long long)owner->raw_wait4_cpu,(unsigned long long)owner->wait4_upper,
+        (unsigned long long)owner->independent_cpu_credit,(unsigned long long)owner->rounding_allowance,(unsigned long long)owner->accounted_upper,
+        (unsigned long long)owner->conservation_upper,(unsigned long long)owner->conservation_excess,owner->residual_required_known,
+        (unsigned long long)owner->residual_raw,(unsigned long long)owner->residual_required_cost,
+        (unsigned long long)owner->residual_retained_cost,(unsigned long long)owner->residual_debit_entries,owner->residual_cost_paid);
+    if(!engine_write_record(owner,bytes,n))return 0;
+    if(owner->teardown_direct_reaps) {
+        n=snprintf(bytes,sizeof(bytes),
+            "{\"kind\":\"exit_teardown_process\",\"sequence\":%u,\"pid\":%d,\"birth\":%llu,\"start\":%llu,\"pidversion\":%u,"
+            "\"source\":\"original_own_wait4\",\"T_ns\":%llu,\"raw_user_ns\":%llu,\"raw_system_ns\":%llu,"
+            "\"cost_scope\":\"original_leader_wait4_subtree_once\",\"residual_cost_ns\":%llu,\"residual_paid\":%u}\n",
+            owner->ticket.sequence,owner->ticket.pid,(unsigned long long)owner->ticket.birth,(unsigned long long)owner->ticket.start,
+            owner->members[0].token.val[7],(unsigned long long)owner->exit_teardown_limit_ns,
+            (unsigned long long)owner->wait_user,(unsigned long long)owner->wait_system,
+            (unsigned long long)owner->residual_required_cost,owner->residual_cost_paid);
+        if(!engine_write_record(owner,bytes,n))return 0;
+    }
+    if(owner->teardown_child_reaps) {
+        const struct engine_child_reap_proof *p=&owner->child_reap_proof;
+        n=snprintf(bytes,sizeof(bytes),
+            "{\"kind\":\"exit_teardown_process\",\"sequence\":%u,\"pid\":%d,\"birth\":%llu,\"start\":%llu,\"pidversion\":%u,"
+            "\"source\":\"qualified_unique_leader_rollup\",\"T_ns\":%llu,\"child_exit_ns\":%llu,\"count_zero_ns\":%llu,"
+            "\"leader_ACK_ns\":%llu,\"rollup_read_ns\":%llu,\"raw_rollup_ticks\":%llu,"
+            "\"individual_wait4\":null,\"individual_residual_cost_ns\":null,\"cost_scope\":\"included_in_original_leader_subtree_once\"}\n",
+            owner->ticket.sequence,p->pid,(unsigned long long)p->birth,(unsigned long long)p->start,p->version,
+            (unsigned long long)owner->exit_teardown_limit_ns,(unsigned long long)p->exit_ns,(unsigned long long)p->zero_ns,
+            (unsigned long long)p->ack_ns,(unsigned long long)p->read_ns,(unsigned long long)p->rollup_ticks);
+        if(!engine_write_record(owner,bytes,n))return 0;
+    }
+    return 1;
+}
 static int engine_accounting_record(struct engine_owner *owner) {
     if(!owner->conservation_checked&&!owner->failed_units&&!owner->provisional_count)return 1;
     char bytes[4096];const struct engine_unit_observation *a=&owner->failed_unit_first,*b=&owner->failed_unit_last;
     int n=snprintf(bytes,sizeof(bytes),
         "{\"kind\":\"accounting\",\"phase\":\"accounting\",\"sequence\":%u,\"form\":%u,\"grant\":%u,"
         "\"conservation_known\":%u,\"conservation_checked\":%u,\"conservation_passed\":%u,"
-        "\"startup_cpu_ns\":%llu,\"charged_member_cpu_ns\":%llu,\"justified_late_cpu_ns\":%llu,\"member_post_cpu_ns\":%llu,"
+        "\"startup_cpu_ns\":%llu,\"startup_charged\":%u,\"startup_timebase\":[%u,%u],\"stopped_units\":%u,\"stopped_max_cpu_ns\":%llu,"
+        "\"charged_member_cpu_ns\":%llu,\"justified_late_cpu_ns\":%llu,\"member_post_cpu_ns\":%llu,"
         "\"counter_reads\":%llu,\"wait4_reads\":%llu,\"rounding_allowance_ns\":%llu,\"wait4_upper_ns\":%llu,"
-        "\"post_exit_observed\":%u,\"post_exit_before_ticks\":[%llu,%llu,%llu],\"post_exit_after_ticks\":[%llu,%llu,%llu],\"post_exit_delta_ns\":%llu,"
+        "\"post_exit_observed\":%u,\"post_exit_initial\":%u,\"post_exit_initial_source_valid\":%u,\"post_exit_ri_unavailable\":%u,\"post_exit_ri_attempted\":%u,\"post_exit_attempt_retained\":%u,\"post_exit_attempt_paid\":%u,"
+        "\"initial_physical_basis\":%u,\"initial_own_WNOWAIT_known\":%u,\"initial_own_WNOWAIT_terminal\":%u,\"initial_BSD_known\":%u,\"initial_BSD_result\":%d,\"initial_BSD_errno\":%d,"
+        "\"post_exit_before_ticks\":[%llu,%llu,%llu],\"post_exit_after_ticks\":[%llu,%llu,%llu],\"post_exit_delta_ns\":%llu,"
         "\"accounted_upper_ns\":%llu,\"conservation_excess_ns\":%llu,\"failed_units\":%llu,"
         "\"rollup_provisional_count\":%u,\"rollup_disposition\":\"%s\",\"rollup_source_failed\":%u,"
         "\"rollup_Q_difference_ns\":%llu,\"rollup_rest_difference_ns\":%llu,\"rollup_fallback_debt_ns\":%llu,"
@@ -3004,10 +3086,14 @@ static int engine_accounting_record(struct engine_owner *owner) {
         "\"first_failed_unit\":[\"%s\",%u,%u,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu],"
         "\"last_failed_unit\":[\"%s\",%u,%u,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu],\"conditional_source_only\":true}\n",
         owner->ticket.sequence,owner->command,owner->grants,owner->conservation_known,owner->conservation_checked,owner->conservation_ok,
-        (unsigned long long)owner->startup_cpu,(unsigned long long)owner->charged_member_cpu,
+        (unsigned long long)owner->startup_cpu,owner->startup_charged,owner->startup_timebase_numer,owner->startup_timebase_denom,
+        owner->stopped_units,(unsigned long long)owner->stopped_max_cpu,(unsigned long long)owner->charged_member_cpu,
         (unsigned long long)owner->justified_late_cpu,(unsigned long long)owner->justified_post_cpu,
         (unsigned long long)owner->counter_reads,(unsigned long long)owner->wait4_reads,(unsigned long long)owner->rounding_allowance,
-        (unsigned long long)owner->wait4_upper,owner->post_exit_observed,
+        (unsigned long long)owner->wait4_upper,owner->post_exit_observed,owner->post_exit_initial,
+        owner->post_exit_initial_source_valid,owner->post_exit_ri_unavailable,owner->post_exit_ri_attempted,owner->post_exit_attempt_retained,owner->post_exit_attempt_paid,
+        owner->initial_physical.physical_basis,owner->initial_physical.own_wnowait_known,owner->initial_physical.own_wnowait_terminal,
+        owner->initial_physical.bsd_known,owner->initial_physical.bsd_result,owner->initial_physical.bsd_error,
         (unsigned long long)owner->post_exit_before[0],(unsigned long long)owner->post_exit_before[1],(unsigned long long)owner->post_exit_before[2],
         (unsigned long long)owner->post_exit_after[0],(unsigned long long)owner->post_exit_after[1],(unsigned long long)owner->post_exit_after[2],
         (unsigned long long)owner->post_exit_delta,(unsigned long long)owner->accounted_upper,(unsigned long long)owner->conservation_excess,
@@ -3025,7 +3111,7 @@ static int engine_accounting_record(struct engine_owner *owner) {
         b->site?b->site:"none",b->line,b->ordinary,(unsigned long long)b->open,(unsigned long long)b->end,(unsigned long long)b->supplied_actual,
         (unsigned long long)b->supplied_cost,(unsigned long long)b->inclusive,(unsigned long long)b->actual,(unsigned long long)b->cost,
         (unsigned long long)engine_unit_tail(b),(unsigned long long)b->poll_before,(unsigned long long)b->poll_cpu);
-    return engine_write_record(owner,bytes,n);
+    return engine_write_record(owner,bytes,n)&&engine_teardown_records(owner);
 }
 static int engine_record(struct engine_owner *owner,const char *phase) {
     if(owner->ledger<0)return engine_failure(owner,"settlement_unknown","owned raw ledger is unavailable");
@@ -3111,6 +3197,7 @@ static int engine_charge_at(struct engine_owner *owner,uint64_t actual,uint64_t 
         if(!engine_safe_sum(cost,extra,&cost))cost=UINT64_MAX;
     }
     private_cost.last_unit=actual;
+    owner->last_charged_cost=cost;
     observation.actual=actual;observation.cost=cost;
     if(ordinary)engine_max(&owner->result->ordinary_max_ns,actual);
     int scheduled=private_schedule_cost(cost);
@@ -3136,27 +3223,71 @@ static int engine_charge_at(struct engine_owner *owner,uint64_t actual,uint64_t 
     return 1;
 }
 #define engine_charge(owner,actual,cost,ordinary) engine_charge_at((owner),(actual),(cost),(ordinary),__func__,__LINE__)
+#ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
+static uint64_t source_known_stopped_stage_cpu;
+#endif
+static int engine_stopped_checkpoint(struct engine_owner *owner,const char *stage) {
+    if(!owner->stopped_corroborating)return 1;
+    if(!owner->closed||owner->running||owner->accounting_pending||owner->stop_pending
+        ||(owner->grant.t0&&!owner->grant_accounted))
+        return engine_failure(owner,"coverage_unknown","stopped checkpoint cannot split an original open grant");
+#ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
+    if(source_known_stopped_stage_cpu) {
+        uint64_t start=engine_now(owner,CLOCK_THREAD_CPUTIME_ID);
+        while(engine_interval(start,engine_now(owner,CLOCK_THREAD_CPUTIME_ID))<source_known_stopped_stage_cpu){}
+    }
+#endif
+    // One bounded census or one member observation per unit gives nominal
+    // <=0.5ms headroom. An unexpectedly costly primitive still hits the SAME
+    // 1ms hard gate, with its full cost/rest; no historical span is split.
+    uint64_t used=engine_interval(private_cost.open_cpu,engine_now(owner,CLOCK_THREAD_CPUTIME_ID));
+    int paid=engine_charge_at(owner,used,used,1,stage,__LINE__);
+    if(owner->stopped_units==UINT_MAX)return engine_failure(owner,"clock_unknown","stopped stage count overflow");
+    owner->stopped_units++;
+    if(private_cost.last_unit>owner->stopped_max_cpu)owner->stopped_max_cpu=private_cost.last_unit;
+    engine_sum(&owner->result->post_cpu_ns,private_cost.last_unit);
+    return paid;
+}
 static int engine_stopped_corroboration(struct engine_owner *owner) {
-    uint64_t at=private_cost.open_cpu,cpu_before,user_before,system_before;
-    if(!engine_actual(owner,&cpu_before,&user_before,&system_before))return 0;
+    if(!owner->closed||owner->running||owner->accounting_pending||owner->stop_pending||(owner->grant.t0&&!owner->grant_accounted))
+        return engine_failure(owner,"coverage_unknown","corroboration requires already closed original members");
+    uint64_t cpu_before,user_before,system_before;int paid=0;
+    owner->stopped_corroborating=1;
+    if(!engine_actual(owner,&cpu_before,&user_before,&system_before))goto finished;
+    if(!engine_stopped_checkpoint(owner,"stopped_entry"))goto finished;
     int closed;
-    if(!engine_roster(owner,1,&closed)||!closed||!engine_memory(owner))return engine_failure(owner,"coverage_unknown","post-closure seal could not be corroborated");
-    uint64_t cpu,user,system;if(!engine_actual(owner,&cpu,&user,&system))return 0;
-    if(user!=user_before||system<system_before||cpu<owner->accounted_cpu)return engine_failure(owner,"coverage_unknown","unexplained stopped user or resource movement");
+    if(!engine_roster(owner,1,&closed)||!closed||!engine_memory(owner)) {
+        (void)engine_failure(owner,"coverage_unknown","post-closure seal could not be corroborated");goto finished;
+    }
+    if(!engine_stopped_checkpoint(owner,"stopped_memory"))goto finished;
+    uint64_t cpu,user,system;if(!engine_actual(owner,&cpu,&user,&system))goto finished;
+    if(user!=user_before||system<system_before||cpu<owner->accounted_cpu) {
+        (void)engine_failure(owner,"coverage_unknown","unexplained stopped user or resource movement");goto finished;
+    }
     uint64_t late,ticks;
-    if(!engine_actual_delta(owner,owner->accounted_ticks,&late,&ticks))return 0;
+    if(!engine_actual_delta(owner,owner->accounted_ticks,&late,&ticks))goto finished;
     int initial=!owner->startup_known;
-    if(initial){owner->startup_cpu=cpu;owner->startup_known=owner->conservation_known=1;}
+    if(initial) {
+        mach_timebase_info_data_t scale;
+        if(mach_timebase_info(&scale)!=KERN_SUCCESS||!scale.numer||!scale.denom) {
+            (void)engine_failure(owner,"clock_unknown","initial stopped timebase unavailable");goto finished;
+        }
+        owner->startup_timebase_numer=scale.numer;owner->startup_timebase_denom=scale.denom;
+        owner->startup_cpu=cpu;owner->startup_known=owner->conservation_known=1;
+    }
     owner->accounted_ticks=ticks;owner->accounted_cpu=cpu;owner->accounted_user=user;owner->accounted_system=system;
-    if(!engine_record(owner,"closed"))return 0;
-    uint64_t used=engine_interval(at,engine_now(owner,CLOCK_THREAD_CPUTIME_ID)),cost;
+    uint64_t used=engine_interval(private_cost.open_cpu,engine_now(owner,CLOCK_THREAD_CPUTIME_ID)),cost;
     if(!engine_safe_sum(used,late,&cost))cost=UINT64_MAX;
     engine_sum(&owner->result->post_cpu_ns,used);engine_sum(&owner->result->late_kernel_ns,late);
-    uint64_t booked=private_cost.closed_units;int paid=engine_charge(owner,used,cost,1);
+    uint64_t booked=private_cost.closed_units;paid=engine_charge(owner,used,cost,1);
     if(private_cost.closed_units!=booked+1||cost==UINT64_MAX)owner->conservation_known=0;
+    else if(initial)owner->startup_charged=1;
     else if(!initial)(void)engine_credit_member(owner,late,1);
     engine_observed_counters(owner);
-    return paid;
+    if(paid&&engine_record(owner,"closed"))paid=engine_stopped_checkpoint(owner,"stopped_ledger");
+    else paid=0;
+finished:
+    owner->stopped_corroborating=0;return paid;
 }
 static int engine_window_cost(struct engine_owner *owner,uint64_t end,int closed) {
     struct window_ledger *g=&owner->grant;enum ledger_result verdict;
@@ -3197,15 +3328,27 @@ static void engine_observed_counters(struct engine_owner *owner) {
     owner->observed_system[0]=owner->members[0].system;owner->observed_system[1]=owner->members[1].system;
     owner->observed_system[2]=owner->members[0].child_system;
 }
+static int engine_paid_stopped_roster(struct engine_owner *owner,int *closed) {
+    if(!owner->closed||owner->running||owner->stop_pending||owner->accounting_pending
+        ||(owner->grant.t0&&!owner->grant_accounted))
+        return engine_failure(owner,"coverage_unknown","paid stopped roster cannot split an original open grant");
+    unsigned prior=owner->stopped_corroborating;owner->stopped_corroborating=1;
+    int proved=engine_roster(owner,1,closed);owner->stopped_corroborating=prior;return proved;
+}
 static int engine_grant_baseline(struct engine_owner *owner) {
-    // One stopped observation, one paid unit; never recursively re-observe
-    // after paying its cost and pretend that the sample was at CONT.
+    // The bounded already-stopped roster stages pay separately. The final
+    // raw baseline/kernel observation is ONE paid unit; never recursively
+    // re-observe after its rest and pretend that its sample was at CONT.
     int closed=0;
-    if(!engine_roster(owner,1,&closed)||!closed)return engine_failure(owner,"coverage_unknown","pre-CONT original stopped roster unavailable");
+    if(!engine_paid_stopped_roster(owner,&closed)||!closed)return engine_failure(owner,"coverage_unknown","pre-CONT original stopped roster unavailable");
     uint64_t cpu,user,system,ticks,u,s,late=0;
     if(!engine_actual(owner,&cpu,&user,&system)||!engine_actual_ticks(owner,&ticks,&u,&s))return 0;
     int initial=!owner->startup_known;
     if(initial) {
+        mach_timebase_info_data_t scale;
+        if(mach_timebase_info(&scale)!=KERN_SUCCESS||!scale.numer||!scale.denom)
+            return engine_failure(owner,"clock_unknown","initial baseline timebase unavailable");
+        owner->startup_timebase_numer=scale.numer;owner->startup_timebase_denom=scale.denom;
         owner->startup_known=owner->conservation_known=1;owner->startup_cpu=cpu;late=cpu;
     } else {
         if(user!=owner->accounted_user||system<owner->accounted_system||ticks<owner->accounted_ticks)
@@ -3217,6 +3360,7 @@ static int engine_grant_baseline(struct engine_owner *owner) {
     if(!engine_safe_sum(used,late,&cost))cost=UINT64_MAX;
     uint64_t booked=private_cost.closed_units;int paid=engine_charge(owner,used,cost,1);
     if(private_cost.closed_units!=booked+1||cost==UINT64_MAX)owner->conservation_known=0;
+    else if(initial)owner->startup_charged=1;
     else if(!initial)(void)engine_credit_member(owner,late,1);
     engine_observed_counters(owner);
     engine_sum(&owner->result->post_cpu_ns,used);engine_sum(&owner->result->late_kernel_ns,late);
@@ -3303,6 +3447,15 @@ static int engine_provisional_add(struct engine_owner *owner) {
         return engine_failure(owner,"coverage_unknown","qualified rollup provisional inventory exhausted or unknown");
     }
     owner->provisional_count++;owner->provisional_quantum_difference=difference;owner->provisional_rest_difference=rest_difference;
+    struct engine_member *child=&owner->members[1];
+    if(owner->command==12&&owner->verified_descendants==1&&owner->child_created&&child->phase==ENGINE_EXITED
+        &&child->token_known&&child->state.pid>0&&child->state.birth&&child->state.start_absolute&&child->exit_abstime
+        &&owner->git_signature&&owner->git_signature->bound&&owner->git_signature->pid==child->state.pid
+        &&owner->git_signature->pidversion==child->token.val[7]) {
+        owner->child_reap_proof=(struct engine_child_reap_proof){.pid=child->state.pid,.version=child->token.val[7],.valid=1,
+            .birth=child->state.birth,.start=child->state.start_absolute,.exit_ns=g->rollup_child_exit_ns,.zero_ns=g->rollup_child_zero_ns,
+            .ack_ns=g->rollup_leader_ack_ns,.read_ns=g->rollup_read_ns,.rollup_ticks=owner->members[0].state.raw_waited};
+    }
     if(owner->provisional_count==1||fallback.charge>owner->worst_provisional_window.charge) {
         owner->worst_provisional_window=fallback;owner->worst_provisional_grant=owner->grants;
     }
@@ -3653,19 +3806,142 @@ static int engine_observe_wait4(struct engine_owner *owner) {
     if(owner->stop_pending&&owner->stop_terminal_candidate){owner->stop_terminal=1;owner->stop_terminal_ns=owner->wait_read_ns;}
     return owner->wait_read_ns!=UINT64_MAX;
 }
+enum engine_terminal_ri_result { ENGINE_TERMINAL_RI_KNOWN,ENGINE_TERMINAL_RI_UNAVAILABLE,ENGINE_TERMINAL_RI_INVALID };
+#ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
+static unsigned source_known_initial_ri_unavailable,source_known_initial_payment_interrupt,source_known_initial_ri_calls;
+#endif
+static int engine_initial_ri_read(pid_t pid,struct rusage_info_v1 *usage) {
+#ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
+    source_known_initial_ri_calls++;
+#endif
+    return proc_pid_rusage(pid,RUSAGE_INFO_V1,(rusage_info_t *)usage);
+}
+static unsigned engine_initial_physical_basis(const struct engine_initial_physical_observation *p,int original_eligible) {
+    if(!original_eligible||!p->own_wnowait_known||!p->own_wnowait_terminal
+        ||!p->group_original_only||p->group_result<0||p->child_result!=0)return 0;
+    if(p->bsd_known&&p->predicate_mask==255u)return 1;
+    // For this SOURCE-ADMITTED never-continued one-slot startup, an original
+    // unreaped positive PID pin + its OWN fresh WNOWAIT terminal result, old
+    // token ESRCH, retained birth/start and exact census are independent proof.
+    // BSD ESRCH supplies NO exit or absence inference. Any returned BSD row
+    // must instead satisfy every original identity/zombie predicate above.
+    if(!p->bsd_known&&p->bsd_result==0&&p->bsd_error==ESRCH&&p->predicate_mask==1u)return 2;
+    return 0;
+}
+static enum engine_terminal_ri_result engine_initial_terminal_ri(struct engine_owner *owner) {
+    struct engine_member *leader=&owner->members[0];struct proc_bsdinfo b;
+    struct engine_initial_physical_observation *p=&owner->initial_physical;p->stage=2;
+    char path[PROC_PIDPATHINFO_MAXSIZE];errno=0;
+    p->audit_result=proc_pidpath_audittoken(&leader->token,path,sizeof(path));p->audit_error=p->audit_result<=0?errno:0;
+    p->audit_path_expected=p->audit_result>0&&(size_t)p->audit_result<sizeof(path)
+        &&strnlen(path,sizeof(path))<sizeof(path)&&!strcmp(path,owner->image);
+    errno=0;p->bsd_result=proc_pidinfo(owner->ticket.pid,PROC_PIDTBSDINFO,0,&b,sizeof(b));p->bsd_error=p->bsd_result==(int)sizeof(b)?0:errno;
+    if(p->audit_result<=0&&p->audit_error==ESRCH)p->predicate_mask|=1u;
+    if(p->bsd_result==(int)sizeof(b)) {
+        p->bsd_known=1;p->pid=b.pbi_pid;p->ppid=b.pbi_ppid;p->pgid=b.pbi_pgid;p->status=b.pbi_status;p->uid=b.pbi_uid;
+        p->birth=(uint64_t)b.pbi_start_tvsec*1000000+b.pbi_start_tvusec;
+        p->predicate_mask|=2u;
+        if(p->pid==(uint32_t)owner->ticket.pid)p->predicate_mask|=4u;
+        if(p->ppid==(uint32_t)getpid())p->predicate_mask|=8u;
+        if(p->pgid==(uint32_t)owner->ticket.pgid)p->predicate_mask|=16u;
+        if(p->status==SZOMB)p->predicate_mask|=32u;
+        if(p->uid==geteuid())p->predicate_mask|=64u;
+        if(p->birth==owner->ticket.birth)p->predicate_mask|=128u;
+    }
+    p->physical_basis=engine_initial_physical_basis(p,owner->post_exit_initial);
+    if(!p->physical_basis)return ENGINE_TERMINAL_RI_INVALID;
+    p->stage=3;
+    owner->post_exit_ri_attempted=1;
+    struct rusage_info_v1 usage;int read=engine_initial_ri_read(owner->ticket.pid,&usage);
+#ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
+    if(source_known_initial_ri_unavailable){read=-1;errno=ENOTSUP;}
+#endif
+    if(read!=0)return ENGINE_TERMINAL_RI_UNAVAILABLE;
+    if(usage.ri_proc_start_abstime!=owner->ticket.start||usage.ri_user_time<leader->user||usage.ri_system_time<leader->system)
+        return ENGINE_TERMINAL_RI_INVALID;
+    if(!usage.ri_proc_exit_abstime)return ENGINE_TERMINAL_RI_UNAVAILABLE;
+    if(!engine_usage(owner,0,&usage))return ENGINE_TERMINAL_RI_INVALID;
+    leader->phase=ENGINE_EXITED;leader->exit_proved_ns=engine_now(owner,CLOCK_MONOTONIC);
+    return leader->exit_proved_ns!=UINT64_MAX&&leader->exit_proved_ns?ENGINE_TERMINAL_RI_KNOWN:ENGINE_TERMINAL_RI_INVALID;
+}
+static int engine_initial_predicate_record(struct engine_owner *owner) {
+    const struct engine_initial_physical_observation *p=&owner->initial_physical;char line[1536];
+    int n=snprintf(line,sizeof(line),"{\"kind\":\"initial_terminal_predicates\",\"stage\":%u,\"leader\":%d,\"expected_parent\":%d,\"expected_pgid\":%d,\"expected_birth\":%llu,\"expected_start\":%llu,\"expected_uid\":%u,\"expected_status\":%u,\"token_version\":%u,\"returned_BSD_required_mask\":255,\"predicate_mask\":%u,\"group_result\":%d,\"group_errno\":%d,\"child_result\":%d,\"child_errno\":%d,\"audit_result\":%d,\"audit_errno\":%d,\"audit_path_expected\":%u,\"bsd_result\":%d,\"bsd_errno\":%d,\"bsd_known\":%u,\"bsd_pid\":%u,\"bsd_parent\":%u,\"bsd_pgid\":%u,\"bsd_status\":%u,\"bsd_uid\":%u,\"bsd_birth\":%llu,\"own_WNOWAIT_known\":%u,\"own_WNOWAIT_terminal\":%u,\"physical_basis\":%u,\"source_valid\":%u,\"ri_attempted\":%u,\"ri_unavailable\":%u,\"attempt_retained\":%u,\"attempt_paid\":%u,\"debt_charged_ns\":%llu,\"debt_paid_ns\":%llu,\"runtime_approved\":false}\n",
+        p->stage,owner->ticket.pid,getpid(),owner->ticket.pgid,(unsigned long long)owner->ticket.birth,(unsigned long long)owner->ticket.start,
+        (unsigned)geteuid(),(unsigned)SZOMB,owner->members[0].token.val[7],p->predicate_mask,p->group_result,p->group_error,p->child_result,p->child_error,
+        p->audit_result,p->audit_error,p->audit_path_expected,p->bsd_result,p->bsd_error,p->bsd_known,p->pid,p->ppid,p->pgid,p->status,p->uid,
+        (unsigned long long)p->birth,p->own_wnowait_known,p->own_wnowait_terminal,p->physical_basis,owner->post_exit_initial_source_valid,owner->post_exit_ri_attempted,owner->post_exit_ri_unavailable,
+        owner->post_exit_attempt_retained,owner->post_exit_attempt_paid,(unsigned long long)private_cost.debt,(unsigned long long)private_cost.debt_paid);
+    int recorded=engine_write_record(owner,line,n);
+    uint64_t used=engine_interval(private_cost.open_cpu,engine_now(owner,CLOCK_THREAD_CPUTIME_ID));
+    int paid=engine_charge(owner,used,used,1);engine_sum(&owner->result->post_cpu_ns,private_cost.last_unit);
+    return recorded&&paid;
+}
+static int engine_initial_attempt_paid(struct engine_owner *owner) {
+    uint64_t now;
+    int paid=owner->post_exit_initial&&owner->post_exit_initial_source_valid&&owner->post_exit_ri_attempted&&owner->post_exit_attempt_retained
+        &&!private_has_retained_cost()&&!private_cost.retained_overflow&&private_cost.debt_paid==private_cost.debt
+        &&private_cost.open_cpu!=UINT64_MAX&&known_clock_ns(CLOCK_MONOTONIC,&now)&&now>=private_cost.rest_until;
+    owner->post_exit_attempt_paid=(unsigned)paid;return paid;
+}
 static int engine_independent_post_exit(struct engine_owner *owner) {
-    if(owner->post_exit_observed||owner->direct_reaped||!owner->grant_accounted
+    if(owner->post_exit_observed&&owner->post_exit_initial) {
+        if(!engine_initial_attempt_paid(owner))return 0;
+        return !owner->post_exit_ri_unavailable&&owner->conservation_known;
+    }
+    struct engine_member *leader=&owner->members[0];
+    int initial=owner->source_admitted&&owner->startup_known&&owner->startup_charged&&owner->conservation_known
+        &&owner->slots==1&&owner->closed&&owner->grant.roster_closed&&!owner->grants&&!owner->grant.t0
+        &&!owner->child_created&&!owner->members[1].state.pid&&!owner->grant.unknown_mask
+        &&!owner->coverage_lost&&!owner->pending_identity_lost&&!owner->stop_pending
+        &&owner->observed_user[0]==0&&leader->user==0&&owner->retired_count==1
+        &&leader->token_known&&leader->state.pid==owner->ticket.pid&&leader->state.birth==owner->ticket.birth
+        &&leader->state.start_absolute&&leader->state.start_absolute==owner->ticket.start
+        &&owner->context->basis->source_coverage==127&&owner->context->basis->command_coverage==65535;
+    int original=0;
+    for(unsigned i=0;i<owner->retired_count;i++)if(owner->retired[i].current&&owner->retired[i].pid==owner->ticket.pid
+        &&owner->retired[i].birth==owner->ticket.birth&&owner->retired[i].start==owner->ticket.start
+        &&!memcmp(&owner->retired[i].token,&leader->token,sizeof(leader->token)))original=1;
+    initial=initial&&original;
+    if(owner->startup_known&&owner->startup_charged&&!owner->grants&&!owner->grant.t0&&!initial)
+        return engine_failure(owner,"coverage_unknown","charged initial terminal source lacks original validated eligibility");
+    if(owner->post_exit_observed||owner->direct_reaped||(!owner->grant_accounted&&!initial)
         ||!owner->grant.roster_closed||owner->running||owner->accounting_pending)return 1;
+    uint32_t numer=initial?owner->startup_timebase_numer:owner->grant.timebase_numer;
+    uint32_t denom=initial?owner->startup_timebase_denom:owner->grant.timebase_denom;
+    mach_timebase_info_data_t scale;
+    uint64_t paid_wall;
+    if(private_has_retained_cost()||private_cost.retained_overflow||private_cost.debt_paid!=private_cost.debt
+        ||private_cost.open_cpu==UINT64_MAX||!known_clock_ns(CLOCK_MONOTONIC,&paid_wall)||paid_wall<private_cost.rest_until
+        ||mach_timebase_info(&scale)!=KERN_SUCCESS||!numer||!denom||numer!=scale.numer||denom!=scale.denom)
+        return engine_failure(owner,"coverage_unknown","independent post-exit RI requires original timebase and fully paid prior debt");
     int done=0;
     if(!known_exited(owner->ticket.pid,&done)||!done)
         return engine_failure(owner,"settlement_unknown","independent post-exit RI needs the original unreaped WNOWAIT identity");
-    owner->post_exit_observed=1;
+    owner->post_exit_observed=1;owner->post_exit_initial=(unsigned)initial;int initial_roster_valid=1;
+    if(initial) {
+        struct engine_initial_physical_observation *p=&owner->initial_physical;p->stage=1;
+        p->own_wnowait_known=p->own_wnowait_terminal=1; // This caller's immediately preceding successful original WNOWAIT.
+        int group[3]={0},children[2]={0};
+        errno=0;int n=proc_listpgrppids(owner->ticket.pgid,group,sizeof(group));p->group_result=n;p->group_error=n<0?errno:0;
+        errno=0;int c=proc_listchildpids(owner->ticket.pid,children,sizeof(children));p->child_result=c;p->child_error=c<0?errno:0;
+        p->group_original_only=n>=0&&n<=1&&(n==0||group[0]==owner->ticket.pid);
+        if(n<0||c<0||n>1||c||((n==1)&&group[0]!=owner->ticket.pid)) {
+            if(n>1||c>0||((n==1)&&group[0]!=owner->ticket.pid))owner->coverage_lost=1;
+            initial_roster_valid=0;(void)engine_failure(owner,"coverage_unknown","initial terminal RI lacks fresh original closed child/group roster");
+        }
+    }
     uint64_t before,after,old_user,new_user,old_system,new_system,delta=UINT64_MAX;
     memcpy(owner->post_exit_before,owner->observed_raw,sizeof(owner->post_exit_before));
     int known=engine_safe_sum(owner->observed_raw[0],owner->observed_raw[1]>owner->observed_raw[2]?owner->observed_raw[1]:owner->observed_raw[2],&before)
         &&engine_safe_sum(owner->observed_user[0],owner->observed_user[1]>owner->observed_user[2]?owner->observed_user[1]:owner->observed_user[2],&old_user)
         &&engine_safe_sum(owner->observed_system[0],owner->observed_system[1]>owner->observed_system[2]?owner->observed_system[1]:owner->observed_system[2],&old_system);
-    if(!engine_member_exit(owner,0))known=0;
+    if(initial) {
+        enum engine_terminal_ri_result result=initial_roster_valid?engine_initial_terminal_ri(owner):ENGINE_TERMINAL_RI_INVALID;
+        owner->post_exit_initial_source_valid=result!=ENGINE_TERMINAL_RI_INVALID;
+        owner->post_exit_ri_unavailable=result==ENGINE_TERMINAL_RI_UNAVAILABLE;
+        if(result!=ENGINE_TERMINAL_RI_KNOWN)known=0;
+    } else if(!engine_member_exit(owner,0))known=0;
     if(owner->members[1].state.pid&&!engine_member_exit(owner,1))known=0;
     uint64_t raw[3]={owner->members[0].state.raw_rusage_cpu,owner->members[1].state.raw_rusage_cpu,owner->members[0].state.raw_waited};
     memcpy(owner->post_exit_after,raw,sizeof(raw));
@@ -3673,32 +3949,105 @@ static int engine_independent_post_exit(struct engine_owner *owner) {
         ||!engine_safe_sum(owner->members[0].user,owner->members[1].user>owner->members[0].child_user?owner->members[1].user:owner->members[0].child_user,&new_user)
         ||!engine_safe_sum(owner->members[0].system,owner->members[1].system>owner->members[0].child_system?owner->members[1].system:owner->members[0].child_system,&new_system)
         ||!known||after<before||new_system<old_system
-        ||!engine_scaled_ticks(new_system-old_system,owner->grant.timebase_numer,owner->grant.timebase_denom,1,&delta))known=0;
+        ||!engine_scaled_ticks(new_system-old_system,numer,denom,1,&delta))known=0;
     int justified=known&&new_user==old_user;
+    if(initial&&((!known&&!owner->post_exit_ri_unavailable)||(known&&!justified)))owner->post_exit_initial_source_valid=0;
     if(!justified)(void)engine_failure(owner,"coverage_unknown","post-exit raw RI lacks stable user or original monotonic source proof");
     owner->post_exit_delta=delta;
     uint64_t used=engine_interval(private_cost.open_cpu,engine_now(owner,CLOCK_THREAD_CPUTIME_ID)),cost;
     if(!engine_safe_sum(used,delta,&cost))cost=UINT64_MAX;
+#ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
+    if(initial&&source_known_initial_payment_interrupt){source_known_initial_payment_interrupt=0;source_known_payment_interrupts=1;}
+#endif
     uint64_t booked=private_cost.closed_units;int paid=engine_charge(owner,used,cost,1);
+    if(initial) {
+        owner->post_exit_attempt_retained=private_cost.closed_units==booked+1;
+        (void)engine_initial_attempt_paid(owner);
+    }
     engine_sum(&owner->result->post_cpu_ns,used);engine_sum(&owner->result->late_kernel_ns,delta);
     if(justified&&cost!=UINT64_MAX&&private_cost.closed_units==booked+1)(void)engine_credit_member(owner,delta,1);
     else owner->conservation_known=0;
     engine_observed_counters(owner);
-    return paid&&justified;
+    int recorded=1;
+    if(initial&&!owner->post_exit_initial_source_valid)recorded=engine_initial_predicate_record(owner);
+    return paid&&justified&&recorded;
 }
-static int engine_wait4_late(struct engine_owner *owner,uint64_t *late) {
+static int engine_independent_credit(struct engine_owner *owner,uint64_t *credit) {
+    return owner->startup_known&&owner->startup_cpu!=UINT64_MAX&&owner->charged_member_cpu!=UINT64_MAX
+        &&owner->justified_late_cpu!=UINT64_MAX&&owner->justified_post_cpu!=UINT64_MAX
+        &&engine_safe_sum(owner->startup_cpu,owner->charged_member_cpu,credit)
+        &&engine_safe_sum(*credit,owner->justified_late_cpu,credit)
+        &&engine_safe_sum(*credit,owner->justified_post_cpu,credit);
+}
+static int engine_residual_obligation(struct engine_owner *owner,uint64_t pending_independent) {
+    uint64_t raw,upper,credit=0;
+    if(!owner->direct_reaped||!owner->wait_observed||owner->wait_user==UINT64_MAX||owner->wait_system==UINT64_MAX
+        ||!engine_safe_sum(owner->wait_user,owner->wait_system,&raw)||!engine_safe_sum(raw,2000,&upper)) {
+        owner->residual_required_known=0;return 0;
+    }
+    int known=engine_independent_credit(owner,&credit)&&pending_independent!=UINT64_MAX
+        &&engine_safe_sum(credit,pending_independent,&credit);
+    owner->raw_wait4_cpu=raw;owner->wait4_upper=upper;owner->residual_required_known=(unsigned)known;
+    owner->independent_cpu_credit=known?credit:0;
+    // Unknown prefix credit is never subtracted as a known zero or used for
+    // certification. Cost-only recovery conservatively bills the FULL known
+    // own wait4 upper total in that case; conservation still refuses unknown.
+    owner->residual_raw=known&&raw>credit?raw-credit:known?0:raw;
+    owner->residual_required_cost=known&&upper>credit?upper-credit:known?0:upper;
+    return 1;
+}
+static int engine_residual_cost_covers(struct engine_owner *owner) {
+    uint64_t now;
+    int paid=owner->residual_required_known&&owner->residual_retained_cost>=owner->residual_required_cost
+        &&!private_has_retained_cost()&&!private_cost.retained_overflow&&private_cost.debt_paid==private_cost.debt
+        &&private_cost.open_cpu!=UINT64_MAX&&known_clock_ns(CLOCK_MONOTONIC,&now)&&now>=private_cost.rest_until;
+    owner->residual_cost_paid=(unsigned)paid;return paid;
+}
+static void engine_residual_payment_retained(struct engine_owner *owner,uint64_t amount,uint64_t before,uint64_t whole_cost) {
+    if(amount&&amount!=UINT64_MAX&&whole_cost!=UINT64_MAX&&whole_cost>=amount
+        &&owner->last_charged_cost!=UINT64_MAX&&owner->last_charged_cost>=amount
+        &&private_cost.closed_units==before+1&&private_cost.closed_units>owner->residual_last_debit_unit) {
+        if(owner->residual_debit_entries==UINT64_MAX||!engine_safe_sum(owner->residual_retained_cost,amount,&owner->residual_retained_cost)) {
+            owner->conservation_known=0;owner->residual_cost_paid=0;(void)engine_failure(owner,"clock_unknown","retained residual cost ledger overflow");return;
+        }
+        owner->residual_debit_entries++;owner->residual_last_debit_unit=private_cost.closed_units;
+    }
+    (void)engine_residual_cost_covers(owner);
+}
+static unsigned engine_reaped_for_teardown(const struct engine_owner *owner,unsigned *direct,unsigned *child) {
+    *direct=owner->direct_reaped&&owner->wait_observed&&owner->wait4_reads==1;
+    const struct engine_child_reap_proof *p=&owner->child_reap_proof;const struct engine_member *m=&owner->members[1];
+    *child=*direct&&p->valid&&owner->command==12&&owner->verified_descendants==1&&owner->child_created
+        &&!owner->coverage_lost&&!owner->pending_identity_lost&&!owner->rollup_source_failed
+        &&owner->context->basis->source_coverage==127&&owner->context->basis->command_coverage==65535
+        &&m->phase==ENGINE_EXITED&&m->exit_abstime&&m->token_known&&m->state.pid==p->pid&&m->state.birth==p->birth
+        &&m->state.start_absolute==p->start&&m->token.val[7]==p->version
+        &&owner->git_signature&&owner->git_signature->bound&&owner->git_signature->pid==p->pid&&owner->git_signature->pidversion==p->version
+        &&p->exit_ns&&p->zero_ns&&p->ack_ns&&p->read_ns>=p->exit_ns&&p->read_ns>=p->zero_ns&&p->read_ns>=p->ack_ns
+        &&owner->members[0].state.raw_waited>=p->rollup_ticks;
+    // Accounting rejection alone does not erase independently proven physical
+    // reaps. Neither expected slots nor a wait4 residual contributes a count.
+    return *direct+*child;
+}
+static int engine_wait4_late(struct engine_owner *owner,uint64_t pending_independent,uint64_t *late) {
     uint64_t cpu,user,system,user_upper,system_upper,tick;
     mach_timebase_info_data_t scale;
-    if(!owner->wait_observed||owner->wait_user==UINT64_MAX||owner->wait_system==UINT64_MAX
-        ||!engine_actual(owner,&cpu,&user,&system)||mach_timebase_info(&scale)!=KERN_SUCCESS
-        ||!engine_scaled_ticks(1,scale.numer,scale.denom,1,&tick)
-        ||!engine_safe_sum(owner->wait_user,1000,&user_upper)||!engine_safe_sum(user_upper,tick,&user_upper)
-        ||!engine_safe_sum(owner->wait_system,1000,&system_upper)||!engine_safe_sum(system_upper,tick,&system_upper)
-        ||owner->wait_user>user||user_upper<user||system_upper<system)return 0;
+    if(!engine_residual_obligation(owner,pending_independent))return 0;
+    int matched=engine_actual(owner,&cpu,&user,&system)&&mach_timebase_info(&scale)==KERN_SUCCESS
+        &&engine_scaled_ticks(1,scale.numer,scale.denom,1,&tick)
+        &&engine_safe_sum(owner->wait_user,1000,&user_upper)&&engine_safe_sum(user_upper,tick,&user_upper)
+        &&engine_safe_sum(owner->wait_system,1000,&system_upper)&&engine_safe_sum(system_upper,tick,&system_upper)
+        &&owner->wait_user<=user&&user_upper>=user&&system_upper>=system;
     // Each actual timeval field is rounded UP by1us; one explicit Mach-tick
     // conversion allowance covers its RI comparison. User growth is refused.
-    *late=system_upper-system;
-    if(owner->grant_accounted&&owner->grant.wait4_subtree_ns)*late=0;
+    uint64_t cost=owner->residual_required_cost;
+    if(matched) {
+        uint64_t prior=system_upper-system;
+        if(owner->grant_accounted&&owner->grant.wait4_subtree_ns)prior=0;
+        if(prior>cost)cost=prior;
+    } else (void)engine_failure(owner,"coverage_unknown","final raw user/system cutoffs are not reconciled; full known wait4 residual still billed");
+    if(cost>owner->residual_payment_target)owner->residual_payment_target=cost;
+    *late=owner->residual_payment_target>owner->residual_retained_cost?owner->residual_payment_target-owner->residual_retained_cost:0;
     return 1;
 }
 static int engine_conservation_failure(struct engine_owner *owner,const char *code,const char *detail) {
@@ -3711,11 +4060,17 @@ static int engine_conservation(struct engine_owner *owner) {
     if(owner->result->terminal_conservation_checked==UINT_MAX)
         return engine_conservation_failure(owner,"clock_unknown","terminal conservation result count overflow");
     owner->result->terminal_conservation_checked++;
+    unsigned reaped=engine_reaped_for_teardown(owner,&owner->teardown_direct_reaps,&owner->teardown_child_reaps);
+    owner->exit_teardown_limit_ns=ENGINE_EXIT_TEARDOWN_CEILING_NS;
+    if(reaped>2||!owner->exit_teardown_limit_ns||reaped>UINT64_MAX/owner->exit_teardown_limit_ns)
+        return engine_conservation_failure(owner,"clock_unknown","actual reaped exit-teardown ceiling overflow");
+    owner->exit_teardown_allowance_ns=reaped*owner->exit_teardown_limit_ns;
     mach_timebase_info_data_t scale;uint64_t tick_allowance,wait_allowance,credit,raw;
     if(!owner->startup_known||!owner->conservation_known||!owner->direct_reaped||!owner->wait_observed||owner->rollup_source_failed||owner->coverage_lost
         ||owner->wait_user==UINT64_MAX||owner->wait_system==UINT64_MAX
         ||mach_timebase_info(&scale)!=KERN_SUCCESS||!scale.numer||!scale.denom
         ||(owner->grant.timebase_numer&&(scale.numer!=owner->grant.timebase_numer||scale.denom!=owner->grant.timebase_denom))
+        ||(owner->startup_timebase_numer&&(scale.numer!=owner->startup_timebase_numer||scale.denom!=owner->startup_timebase_denom))
         ||!engine_scaled_ticks(owner->counter_reads,scale.numer,scale.denom,1,&tick_allowance)
         ||owner->wait4_reads>UINT64_MAX/2000)
         return engine_conservation_failure(owner,"coverage_unknown","terminal conservation has missing source counters or rounding evidence");
@@ -3727,10 +4082,19 @@ static int engine_conservation(struct engine_owner *owner) {
         ||!engine_safe_sum(credit,owner->justified_post_cpu,&credit)
         ||!engine_safe_sum(credit,owner->rounding_allowance,&owner->accounted_upper))
         return engine_conservation_failure(owner,"clock_unknown","terminal conservation checked sum overflow");
+    owner->raw_wait4_cpu=raw;owner->independent_cpu_credit=credit;owner->residual_required_known=1;
+    owner->residual_raw=raw>credit?raw-credit:0;
+    owner->residual_required_cost=owner->wait4_upper>credit?owner->wait4_upper-credit:0;
+    if(!engine_safe_sum(owner->accounted_upper,owner->exit_teardown_allowance_ns,&owner->conservation_upper))
+        return engine_conservation_failure(owner,"clock_unknown","fixed exit-teardown and independent ceiling sum overflow");
     // Controller/formatting CPU and normalized 1ms floors are NOT helper CPU
     // credit. Only the independently retained charged helper components above
     // may explain the actual whole-subtree wait4 upper bound.
-    owner->conservation_excess=owner->wait4_upper>owner->accounted_upper?owner->wait4_upper-owner->accounted_upper:0;
+    // T is a SEPARATE fixed per-actual-reaped-process ceiling, never helper
+    // CPU credit, rounding, a native class or a wait4-derived allowance.
+    owner->conservation_excess=owner->wait4_upper>owner->conservation_upper?owner->wait4_upper-owner->conservation_upper:0;
+    if(!engine_residual_cost_covers(owner))
+        return engine_conservation_failure(owner,"resource_limit","terminal wait4 residual cost was not fully retained and paid");
     if(owner->conservation_excess)return engine_conservation_failure(owner,"resource_limit","actual terminal CPU exceeds independently charged helper conservation bound");
     if(owner->result->terminal_conservation_passed==UINT_MAX)return engine_conservation_failure(owner,"clock_unknown","terminal conservation pass count overflow");
     owner->result->terminal_conservation_passed++;owner->conservation_ok=1;owner->provisional_finalized=1;return 1;
@@ -3761,6 +4125,12 @@ static int engine_original_group_gone(struct engine_owner *owner) {
     // original settlement or a replacement generation. Never signal it again.
     return count==0;
 }
+static void engine_quarantine_provisional(struct engine_owner *owner) {
+    // A deadline/accounting refusal revokes an unfinalized measured rebate,
+    // but cannot erase a separately retained physical child-reap proof.
+    // Actual identity/roster loss retains its explicit source/coverage flags.
+    if(owner->provisional_count&&!owner->provisional_finalized)(void)engine_revoke_provisional(owner);
+}
 static int engine_quarantine(struct engine_owner *owner,const char *detail) {
     owner->settlement_quarantined=1;owner->retiring=1;private_cost.custody_hold=1;
     if(!owner->controller_parent)owner->controller_parent=private_cost.original_parent?private_cost.original_parent:getppid();
@@ -3779,9 +4149,7 @@ static int engine_quarantine(struct engine_owner *owner,const char *detail) {
     // Unknown terminal provenance cannot keep a provisional measured rebate
     // while this same owner holds custody. Retain/pay arrears before the raw
     // quarantine disposition; failure remains owned by the shared barrier.
-    if(owner->provisional_count&&!owner->provisional_finalized) {
-        owner->rollup_source_failed=1;(void)engine_revoke_provisional(owner);
-    }
+    engine_quarantine_provisional(owner);
     engine_max(&owner->result->late_kernel_ns,UINT64_MAX);
     // The attempt flag precedes every evidence write: unknown writes are not
     // replayed at atexit. A successful persisted receipt links these unresolved
@@ -3898,7 +4266,8 @@ static int engine_retire(struct engine_owner *owner,int *exit_code) {
                 owner->case_fired=1;engine_failure(owner,"settlement_unknown","fixture refused completion while original handle remained unreaped");
                 return engine_quarantine(owner,"source-known delayed reap retains the original unreaped handle");
             }
-            if(!engine_independent_post_exit(owner))return engine_quarantine(owner,"post-exit independent RI or paid observation refused before own wait4");
+            if(!engine_independent_post_exit(owner)&&!engine_initial_attempt_paid(owner))
+                return engine_quarantine(owner,"post-exit independent RI or paid observation refused before own wait4");
             if(engine_observe_wait4(owner))break;
             if(!owner->direct_custody&&!owner->direct_reaped)return engine_quarantine(owner,"actual direct wait4 unavailable");
         }
@@ -3933,8 +4302,12 @@ static int engine_retire(struct engine_owner *owner,int *exit_code) {
         uint64_t gs2_used=engine_interval(private_cost.open_cpu,engine_now(owner,CLOCK_THREAD_CPUTIME_ID));
         (void)engine_charge(owner,gs2_used,gs2_used,1);
     }
-    uint64_t late=UINT64_MAX;
-    if(!engine_wait4_late(owner,&late))engine_failure(owner,"coverage_unknown","final raw user/system cutoffs are not reconciled");
+    uint64_t late=UINT64_MAX,open_independent=0;
+    if(owner->grant.t0&&!owner->grant.roster_closed&&!owner->grant_accounted) {
+        uint64_t tick_end;
+        if(!engine_actual_delta(owner,owner->grant_tick_before,&open_independent,&tick_end))open_independent=UINT64_MAX;
+    }
+    if(!engine_wait4_late(owner,open_independent,&late))engine_failure(owner,"coverage_unknown","final raw user/system cutoffs are not reconciled");
     if(!engine_original_group_gone(owner)) {
         // An unknown child/token cannot improve through an empty census or an
         // unbounded sleep loop. Preserve original handles and paid raw evidence
@@ -3956,8 +4329,7 @@ static int engine_retire(struct engine_owner *owner,int *exit_code) {
     uint64_t used=engine_interval(private_cost.open_cpu,engine_now(owner,CLOCK_THREAD_CPUTIME_ID)),cost;
     if(owner->grant.t0&&!owner->grant.roster_closed) {
         owner->grant.cpu_close=engine_now(owner,CLOCK_THREAD_CPUTIME_ID);
-        uint64_t tick_end;
-        if(!engine_actual_delta(owner,owner->grant_tick_before,&owner->grant.actual_cpu,&tick_end))owner->grant.actual_cpu=UINT64_MAX;
+        owner->grant.actual_cpu=open_independent;
         // An unfinished original grant includes teardown/late kernel work.
         // The final wait4 reconciliation cannot disappear merely because the
         // signal/window closure failed. Unknown stays unknown and refuses.
@@ -3970,15 +4342,18 @@ static int engine_retire(struct engine_owner *owner,int *exit_code) {
         uint64_t outstanding=owner->grant.charge>=prepaid?owner->grant.charge-prepaid:UINT64_MAX;
         if(owner->grant.charge>1000000)engine_failure(owner,"resource_limit","original open settlement Q exceeds one millisecond");
         uint64_t booked=private_cost.closed_units;(void)engine_charge(owner,actual,outstanding,1);
+        engine_residual_payment_retained(owner,late,booked,outstanding);
         if(private_cost.closed_units==booked+1&&owner->grant.actual_cpu!=UINT64_MAX) {
-            // Open fallback A already contains the terminal late component.
-            if(!owner->grant_accounted)(void)engine_credit_member(owner,owner->grant.actual_cpu,0);
+            // The full fallback cost contains the final wait4 residual, but
+            // only this independent raw RI delta can fund conservation's RHS.
+            if(!owner->grant_accounted)(void)engine_credit_member(owner,open_independent,0);
             owner->grant_accounted=1;
         } else owner->conservation_known=0;
     } else {
         if(!engine_safe_sum(used,late,&cost))cost=UINT64_MAX;
         engine_sum(&owner->result->post_cpu_ns,used);engine_sum(&owner->result->late_kernel_ns,late);
         uint64_t booked=private_cost.closed_units;(void)engine_charge(owner,used,cost,1);
+        engine_residual_payment_retained(owner,late,booked,cost);
         // This residual is still fully charged, but comes from the SAME final
         // wait4 as the conservation LHS. It is never independent RHS credit.
         if(private_cost.closed_units!=booked+1||cost==UINT64_MAX)owner->conservation_known=0;
@@ -4000,7 +4375,7 @@ static int engine_hold_member_terminal(struct engine_owner *owner,unsigned index
     return engine_member_exit(owner,index);
 }
 static int engine_hold_late(struct engine_owner *owner,uint64_t *late) {
-    return engine_wait4_late(owner,late);
+    return engine_wait4_late(owner,0,late);
 }
 static int engine_hold_original_bound(const struct engine_owner *owner) {
     if(owner->slots<1||owner->slots>2||owner->ticket.pid<=0||owner->ticket.pgid!=owner->ticket.pid
@@ -4084,13 +4459,15 @@ static int engine_hold_observe(struct engine_owner *owner) {
         char line[256];int n=snprintf(line,sizeof(line),"private_quarantine_owner_lost pid=%d parent=%d recorded=%s outcome=quarantined same_controller_alive=true\n",getpid(),owner->controller_parent,recorded?"true":"false");
         if(n>0&&(size_t)n<sizeof(line))(void)write(STDERR_FILENO,line,(size_t)n);
     }
+    int initial_ready=engine_initial_attempt_paid(owner);
     int ready=!owner->coverage_lost&&!owner->pending_identity_lost&&engine_hold_original_bound(owner);
     for(unsigned i=0;i<owner->slots&&ready;i++) {
+        if(initial_ready&&owner->post_exit_ri_unavailable&&i==0)continue; // Original WNOWAIT/BSD/token proof; actual wait4 still follows.
         if(owner->hold_terminal_samples==UINT64_MAX)return engine_hold_unknown_cost(owner,"terminal observation counter overflow");
         owner->hold_terminal_samples++;
         if(!engine_hold_member_terminal(owner,i))ready=0;
     }
-    if(ready&&!owner->direct_reaped) {
+    if(ready&&!owner->direct_reaped&&!initial_ready) {
         if(owner->hold_roster_checks==UINT64_MAX)return engine_hold_unknown_cost(owner,"roster observation counter overflow");
         owner->hold_roster_checks++;int closed=0;
         if(!engine_roster(owner,1,&closed)||!closed)ready=0;
@@ -4101,7 +4478,7 @@ static int engine_hold_observe(struct engine_owner *owner) {
         else {
             if(owner->hold_wait4_calls==UINT64_MAX)return engine_hold_unknown_cost(owner,"wait4 observation counter overflow");
             owner->hold_wait4_calls++;
-            if(!engine_independent_post_exit(owner))ready=0;
+            if(!engine_independent_post_exit(owner)&&!engine_initial_attempt_paid(owner))ready=0;
             else if(engine_observe_wait4(owner))owner->hold_reap_normal=WIFEXITED(owner->retained_status)&&!engine_cancel_signal;
             else ready=0;
         }
@@ -4137,6 +4514,7 @@ static int engine_hold_observe(struct engine_owner *owner) {
         // This exact late cost now belongs to the shared retained/booked debt,
         // even when scheduling/payment failed. Do not add it a second time.
         engine_sum(&owner->result->late_kernel_ns,late);owner->hold_late_charged=1;
+        engine_residual_payment_retained(owner,late,booked,cost);
     }
     uint64_t paid_wall=0;
     if(!known_clock_ns(CLOCK_MONOTONIC,&paid_wall)||paid_wall<wall||paid_wall<owner->hold_last_wall)

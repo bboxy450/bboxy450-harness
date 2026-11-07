@@ -56,6 +56,13 @@ pub(crate) struct HelperReapUsage {
     pub(crate) observed_ns: u64,
     pub(crate) readings: u64,
 }
+/// Private settlement permission, separate from proof/accounting success. The
+/// original controller retains its ticket and every pin while this is Held.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum HelperReapReadiness {
+    Held,
+    Ready,
+}
 impl HelperIdentity {
     pub(crate) fn ticket(&self) -> HelperTicket {
         HelperTicket {
@@ -437,6 +444,7 @@ pub(crate) trait ProofPace {
     fn helper_retire(&mut self, ticket: HelperTicket) -> Result<(), Invalid>;
     fn helper_detach(&mut self, ticket: HelperTicket) -> Result<(), Invalid>;
     fn helper_post_exit(&mut self, ticket: HelperTicket) -> Result<(), Invalid>;
+    fn helper_reap_ready(&mut self, ticket: HelperTicket) -> Result<HelperReapReadiness, Invalid>;
     fn helper_usage(&mut self, ticket: HelperTicket, usage: HelperReapUsage)
     -> Result<(), Invalid>;
     /// Drain with the C1 cleanup lane even after cancellation or a failed clock.
@@ -811,6 +819,15 @@ fn helper_hook(ticket: HelperTicket, action: u8) -> Result<(), Invalid> {
             4 => owner.pace.helper_post_exit(ticket),
             _ => Err(Invalid("unknown helper custody hook")),
         }
+    })
+}
+fn helper_reap_ready(ticket: HelperTicket) -> Result<HelperReapReadiness, Invalid> {
+    SELECTED.with(|slot| {
+        slot.borrow_mut()
+            .as_mut()
+            .ok_or(Invalid("selected helper owner unavailable"))?
+            .pace
+            .helper_reap_ready(ticket)
     })
 }
 /// Observe completion without reaping. The direct leader pins its process-group
@@ -2088,13 +2105,14 @@ fn selected_command_input_owned(
     let mut reap_observed_ns = u64::MAX;
     let mut group_gone = false;
     let needs_post_exit = std::cell::Cell::new(false);
-    let post_exit_done = std::cell::Cell::new(false);
+    let post_exit_attempted = std::cell::Cell::new(false);
+    let reap_ready = std::cell::Cell::new(false);
     let mut settle = || {
         if status.is_none() {
             match helper_exited(pgid) {
                 Ok(false) => return true,
                 Ok(true) => {
-                    if !post_exit_done.get() {
+                    if !reap_ready.get() {
                         needs_post_exit.set(true);
                         return false; // original leader remains UNREAPED
                     }
@@ -2160,15 +2178,19 @@ fn selected_command_input_owned(
                 exhausted = true;
             }
         }
-        if needs_post_exit.get() && !post_exit_done.get() {
+        if needs_post_exit.get() {
             // Leave cleanup's SELECTED borrow before this disjoint paid owner
-            // observation. A refused observation still proceeds to actual reap;
-            // it never retries a signal/native effect or fabricates settlement.
-            post_exit_done.set(true);
+            // observation. Accounting failure is NOT own-reap permission:
+            // only the exact controller's physical/retained/paid predicate
+            // below may release its original direct-child pin.
             needs_post_exit.set(false);
-            if let Err(error) = helper_catch(|| helper_hook(retained_ticket, 4)) {
+            if !post_exit_attempted.replace(true)
+                && let Err(error) = helper_catch(|| helper_hook(retained_ticket, 4))
+            {
                 post_exit_error = Some(error);
             }
+            let ready = helper_catch(|| helper_reap_ready(retained_ticket));
+            reap_ready.set(ready == Ok(HelperReapReadiness::Ready));
             continue;
         }
         if exhausted {
@@ -4099,6 +4121,12 @@ mod selected_helper_process_tests {
         }
         fn helper_post_exit(&mut self, ticket: HelperTicket) -> Result<(), Invalid> {
             self.inner.helper_post_exit(ticket)
+        }
+        fn helper_reap_ready(
+            &mut self,
+            ticket: HelperTicket,
+        ) -> Result<HelperReapReadiness, Invalid> {
+            self.inner.helper_reap_ready(ticket)
         }
         fn helper_usage(
             &mut self,

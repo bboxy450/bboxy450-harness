@@ -1209,7 +1209,7 @@ impl HelperSummary {
             m.unexplained_cpu_ns
         );
         eprintln!(
-            "dream-read helper_post_exit_ri decision=66236 sequence={sequence} pid={pid} attempts={} known={} user_before_ticks={} system_before_ticks={} user_after_ticks={} system_after_ticks={} before_actual_wait4={} source={}",
+            "dream-read helper_post_exit_ri decision=66236 sequence={sequence} pid={pid} attempts={} known={} user_before_ticks={} system_before_ticks={} user_after_ticks={} system_after_ticks={} before_actual_wait4={} source={} initial_ungranted={} initial_baseline_ns={} initial_rest_until_ns={}",
             m.post_exit_observations,
             m.post_exit_observation_known,
             m.post_exit_user_before_ticks,
@@ -1222,6 +1222,48 @@ impl HelperSummary {
             } else {
                 "none"
             },
+            m.initial_post_exit_observation,
+            m.initial_startup_baseline_ns,
+            m.initial_startup_rest_until_ns,
+        );
+        eprintln!(
+            "dream-read helper_reap_permission decision=66236 sequence={sequence} pid={pid} physical_valid={} actual_ri_attempts={} counter_unknown={} raw_l_ns={} attempt_retained={} attempt_clock_known={} attempt_cpu_ns={} attempt_wall_ns={} bsd_result={} bsd_errno={:?} ri_result={:?} ri_errno={:?} ri_unavailable_injected={} last_guard={} native_code={} accounting_success_is_permission=false",
+            m.terminal_physical_valid,
+            m.terminal_ri_attempts,
+            m.terminal_attempt_unknown,
+            m.terminal_l_raw_ns,
+            m.terminal_attempt_retained,
+            m.terminal_attempt_clock_known,
+            m.terminal_attempt_cpu_ns,
+            m.terminal_attempt_wall_ns,
+            m.terminal_bsd_result,
+            m.terminal_bsd_errno,
+            m.terminal_ri_result,
+            m.terminal_ri_errno,
+            m.terminal_ri_injected_unavailable,
+            m.terminal_last_guard,
+            m.terminal_native_code,
+        );
+        eprintln!(
+            "dream-read helper_conservation_teardown decision=66236 sequence={sequence} pid={pid} residual_scope=leader_wait4_subtree known={} comparison_pass={} final_pass={} independent_credit_ns={} rounding_ns={} direct_own_reaps={} qualified_rollup_reaps={} fixed_T_ns={} T_ceiling_ns={} total_ceiling_ns={} pre_T_gap_ns={} remaining_excess_ns={} residual_known_prefix_ns={} raw_residual_ns={} upper_residual_ns={} charged_residual_ns={} residual_cost_retained={} residual_cost_paid={} residual_is_rhs_credit=false",
+            m.conservation_known,
+            m.conservation_comparison_pass,
+            m.conservation_pass,
+            m.conservation_budget_ns,
+            m.conservation_allowance_ns,
+            m.conservation_direct_reaps,
+            m.conservation_rollup_reaps,
+            m.conservation_teardown_per_process_ns,
+            m.conservation_teardown_ceiling_ns,
+            m.conservation_total_ceiling_ns,
+            m.conservation_pre_teardown_excess_ns,
+            m.conservation_excess_ns,
+            m.terminal_residual_known_credit_ns,
+            m.terminal_residual_raw_ns,
+            m.terminal_residual_upper_ns,
+            m.terminal_residual_charged_ns,
+            m.terminal_residual_cost_retained,
+            m.terminal_residual_cost_paid,
         );
     }
 }
@@ -1451,7 +1493,8 @@ impl super::resolve::ProofPace for ProofClock {
             .ok_or(super::entry::Invalid("helper post-exit custody mismatch"))?;
         let observed = h.observe_post_exit(&control);
         let heap = heaps().1;
-        let cpu = control.observe_interval(at, cpu_ns());
+        let first_end = cpu_ns();
+        let cpu = control.observe_interval(at, first_end);
         let wall = u64::try_from(wall_at.elapsed().as_nanos()).unwrap_or(u64::MAX);
         let recorded = self
             .budget
@@ -1463,10 +1506,16 @@ impl super::resolve::ProofPace for ProofClock {
             h.record_post_owner_cpu(&control, cpu);
             Ok(())
         };
+        // Include actual closing bookkeeping in this SAME C+L unit. Retention
+        // upgrades its existing payment and re-anchors full fresh rest.
+        let final_end = cpu_ns();
+        let full_cpu = control.observe_interval(at, final_end);
+        let full_wall = u64::try_from(wall_at.elapsed().as_nanos()).unwrap_or(u64::MAX);
+        h.retain_terminal_attempt_cost(&control, cpu, full_cpu, full_wall);
         let code = control.error();
         drop(helper);
         control.read_pay();
-        if observed.is_err() || recorded.is_err() || committed.is_err() {
+        if observed.is_err() || recorded.is_err() || committed.is_err() || code.is_some() {
             self.remember(
                 code.or(recorded.err())
                     .unwrap_or(c::Code::SourceUnavailable),
@@ -1476,6 +1525,46 @@ impl super::resolve::ProofPace for ProofClock {
             ));
         }
         Ok(())
+    }
+    fn helper_reap_ready(
+        &mut self,
+        ticket: HelperTicket,
+    ) -> Result<super::resolve::HelperReapReadiness, super::entry::Invalid> {
+        let control = self.budget.borrow().control.clone();
+        // A completion marker cannot bypass this attempt's or a preceding
+        // cleanup unit's unpaid debt. This performs no proof work or signals.
+        control.read_pay();
+        let mut retry_physical = false;
+        let mut exact_owner = false;
+        let lookup_cpu = super::c1::cleanup_unit_observed(&control, || {
+            let helper = control.helper.lock().unwrap_or_else(|p| p.into_inner());
+            if let Some(h) = helper
+                .as_ref()
+                .filter(|h| h.identity.ticket() == ticket && h.retiring)
+            {
+                exact_owner = true;
+                retry_physical = h.terminal_physical_reobservation_pending();
+            }
+        });
+        control.read_pay();
+        if !exact_owner {
+            return Err(super::entry::Invalid("helper reap custody mismatch"));
+        }
+        if lookup_cpu == u64::MAX {
+            return Ok(super::resolve::HelperReapReadiness::Held);
+        }
+        if retry_physical {
+            // One bounded, fully measured existing-owner physical observation.
+            // An RI query already attempted/committed is NEVER repeated here.
+            let _ = super::resolve::ProofPace::helper_post_exit(self, ticket);
+        }
+        control.read_pay();
+        let helper = control.helper.lock().unwrap_or_else(|p| p.into_inner());
+        let h = helper
+            .as_ref()
+            .filter(|h| h.identity.ticket() == ticket && h.retiring)
+            .ok_or(super::entry::Invalid("helper reap custody mismatch"))?;
+        Ok(h.terminal_reap_readiness(&control, ticket))
     }
     fn helper_usage(
         &mut self,
@@ -1531,10 +1620,31 @@ impl super::resolve::ProofPace for ProofClock {
         // The full observation belongs to this existing proof owner. A controller
         // cannot commit its newly observed late CPU before this endpoint.
         let committed = h.commit_post_observation(&control, used, wall);
-        let code = control.error();
+        let full_used = control.observe_interval(at, cpu_ns());
+        let full_wall = u64::try_from(wall_at.elapsed().as_nanos()).unwrap_or(u64::MAX);
+        h.retain_reap_residual_cost(&control, used, full_used, full_wall);
         drop(helper);
-        control.read_pay();
-        if measured.is_err() || committed.is_err() || recorded.is_err() {
+        let residual_paid = loop {
+            control.read_pay();
+            let mut helper = control.helper.lock().unwrap_or_else(|p| p.into_inner());
+            let h = helper
+                .as_mut()
+                .filter(|h| h.identity.ticket() == ticket && h.retiring)
+                .ok_or(super::entry::Invalid("helper residual custody mismatch"))?;
+            if Instant::now() < h.debt_until {
+                drop(helper);
+                std::thread::sleep(Duration::from_millis(1));
+                continue;
+            }
+            break h.finish_reap_residual_payment(&control);
+        };
+        let code = control.error();
+        if measured.is_err()
+            || committed.is_err()
+            || recorded.is_err()
+            || !residual_paid
+            || code.is_some()
+        {
             self.remember(
                 code.or(recorded.err())
                     .unwrap_or(c::Code::SourceUnavailable),
@@ -1905,9 +2015,41 @@ impl super::resolve::ProofPace for ProofClock {
         m.conservation_allowance_ns = h.metrics.conservation_allowance_ns;
         m.conservation_excess_ns = h.metrics.conservation_excess_ns;
         m.conservation_checked = h.metrics.conservation_checked;
+        m.conservation_known = h.metrics.conservation_known;
         m.conservation_pass = h.metrics.conservation_pass;
+        m.conservation_comparison_pass = h.metrics.conservation_comparison_pass;
+        m.conservation_direct_reaps = h.metrics.conservation_direct_reaps;
+        m.conservation_rollup_reaps = h.metrics.conservation_rollup_reaps;
+        m.conservation_teardown_per_process_ns = h.metrics.conservation_teardown_per_process_ns;
+        m.conservation_teardown_ceiling_ns = h.metrics.conservation_teardown_ceiling_ns;
+        m.conservation_total_ceiling_ns = h.metrics.conservation_total_ceiling_ns;
+        m.conservation_pre_teardown_excess_ns = h.metrics.conservation_pre_teardown_excess_ns;
+        m.terminal_residual_known_credit_ns = h.metrics.terminal_residual_known_credit_ns;
+        m.terminal_residual_raw_ns = h.metrics.terminal_residual_raw_ns;
+        m.terminal_residual_upper_ns = h.metrics.terminal_residual_upper_ns;
+        m.terminal_residual_charged_ns = h.metrics.terminal_residual_charged_ns;
+        m.terminal_residual_cost_retained = h.metrics.terminal_residual_cost_retained;
+        m.terminal_residual_cost_paid = h.metrics.terminal_residual_cost_paid;
         m.post_exit_observations = h.metrics.post_exit_observations;
         m.post_exit_observation_known = h.metrics.post_exit_observation_known;
+        m.initial_post_exit_observation = h.metrics.initial_post_exit_observation;
+        m.initial_startup_baseline_ns = h.metrics.initial_startup_baseline_ns;
+        m.initial_startup_rest_until_ns = h.metrics.initial_startup_rest_until_ns;
+        m.terminal_physical_valid = h.metrics.terminal_physical_valid;
+        m.terminal_ri_attempts = h.metrics.terminal_ri_attempts;
+        m.terminal_attempt_unknown = h.metrics.terminal_attempt_unknown;
+        m.terminal_attempt_retained = h.metrics.terminal_attempt_retained;
+        m.terminal_attempt_clock_known = h.metrics.terminal_attempt_clock_known;
+        m.terminal_l_raw_ns = h.metrics.terminal_l_raw_ns;
+        m.terminal_last_guard = h.metrics.terminal_last_guard;
+        m.terminal_native_code = h.metrics.terminal_native_code;
+        m.terminal_bsd_result = h.metrics.terminal_bsd_result;
+        m.terminal_bsd_errno = h.metrics.terminal_bsd_errno;
+        m.terminal_ri_result = h.metrics.terminal_ri_result;
+        m.terminal_ri_errno = h.metrics.terminal_ri_errno;
+        m.terminal_ri_injected_unavailable = h.metrics.terminal_ri_injected_unavailable;
+        m.terminal_attempt_cpu_ns = h.metrics.terminal_attempt_cpu_ns;
+        m.terminal_attempt_wall_ns = h.metrics.terminal_attempt_wall_ns;
         m.post_exit_user_before_ticks = h.metrics.post_exit_user_before_ticks;
         m.post_exit_system_before_ticks = h.metrics.post_exit_system_before_ticks;
         m.post_exit_user_after_ticks = h.metrics.post_exit_user_after_ticks;

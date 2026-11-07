@@ -44,8 +44,7 @@ ASSERTIONS = {
     'quantum-open-slot': (b'unknown late-child slot never obtains measured basis',),
     'quantum-pre-ack': (b'counter read before positive ACK never obtains measured basis',),
     'quantum-omit-rollup': (b'actual reaped-descendant rollup is included in terminal charged conservation',),
-    'quantum-raw-ticks': (b'actual Mach tick conversion preserves terminal charged conservation',
-                          b'actual Mach tick interval uses explicit retained timebase'),
+    'quantum-raw-ticks': (b'actual Mach tick interval uses explicit retained timebase',),
     'quantum-no-wall': (b'low measured CPU cannot waive actual delayed ACK twenty-five millisecond wall gate',),
     'quantum-slot-over-wall': (b'actual second thread and per-slot CPU over wall both refuse coverage',),
     'quantum-no-conservation': (b'actual wait4 catches CPU burned after the deliberately early counter read',),
@@ -55,11 +54,20 @@ ASSERTIONS = {
     'quantum-rollup-pre-exit': (b'rollup read before original child exit cannot acquire later proof',),
     'quantum-rollup-double': (b'live child and post-exit leader rollup cannot both be charged',),
     'quantum-rollup-forgotten-debt': (b'terminal mismatch retains once-only fallback debt even when scheduling fails',),
+    'stopped-unpaid-stages': (b'stopped corroboration bounded stages pay fresh debt instead of pooling ordinary work',),
+    'startup-no-terminal-ri': (b'charged never-continued startup obtains an independent paid original terminal RI before own wait4',),
+    'startup-unpaid-attempt': (b'unpaid initial terminal attempt cannot release original wait4 ownership',),
+    'initial-no-own-wnowait': (b'BSD ESRCH alone cannot replace original own-WNOWAIT terminal proof',),
+    'teardown-unbounded': (b'fixed exit teardown ceiling rejects actual CPU burned after the last sample',),
+    'teardown-uncharged-residual': (b'terminal residual without its actual retained paid debit is refused',),
+    'teardown-wait4-derived': (b'fixed exit teardown ceiling rejects actual CPU burned after the last sample',),
+    'teardown-unproven-child': (b'unproven child cannot mint exit-teardown process credit',),
+    'teardown-quarantine-source-loss': (b'accounting quarantine revokes rebates without erasing independent child reap proof',),
 }
 LEDGERS = ('terminal-ledger.ndjson', 'live-ledger.ndjson', 'exec-ledger.ndjson',
            'unknown-ledger.ndjson', 'deadline-ledger.ndjson', 'failed-receipt-ledger.ndjson', 'hold-ledger.ndjson', 'result.json', 'claim.json', 'closure-late-stop.ndjson', 'closure-over-cpu.ndjson',
            *('diagnostic-' + str(i) + '/' + name for i in range(4) for name in ('stderr', 'stdout', 'result.json')),
-           *(f'quantum-{i}.ndjson' for i in range(9)), 'charge-diagnostic.ndjson')
+           *(f'quantum-{i}.ndjson' for i in range(9)), 'charge-diagnostic.ndjson', 'stopped-stages.ndjson', 'startup-post-exit.ndjson', 'startup-unavailable.ndjson', 'startup-unpaid.ndjson', 'exit-teardown.ndjson')
 
 
 def sha(data):
@@ -210,11 +218,11 @@ def compile_source(directory, filename, report):
 
 
 def retain_ledgers(stdout, directory, report):
-    matches = re.findall(rb'private_engine_controls=pass cases=66 synthetic_source_known=true '
+    matches = re.findall(rb'private_engine_controls=pass cases=71 synthetic_source_known=true '
                          rb'real_candidate_created=0 runtime_approved=false retained='
                          rb'(/private/tmp/dream-private-engine-controls\.[A-Za-z0-9]+)\n', stdout)
     if len(matches) != 1:
-        raise ValueError('current fixture did not report the exact 66 source-known controls')
+        raise ValueError('current fixture did not report the exact 71 source-known controls')
     source_dir = Path(os.fsdecode(matches[0]))
     if str(source_dir) != report['commands'][-1]['fixture_capture']['source_dir']:
         raise ValueError('completed fixture root differs from its original command binding')
@@ -305,6 +313,14 @@ def verify(directory, inputs, report):
         'rollup_before_exit': b'||g->rollup_read_ns<g->rollup_child_exit_ns||g->rollup_read_ns<g->rollup_child_zero_ns',
         'rollup_double': b'if(g->live_child_cpu_ns||g->rollup_child_cpu_ns!=g->slot_cpu[1])return LEDGER_COVERAGE;',
         'rollup_debt': b'if(difference>UINT64_MAX/9||!private_retain_debt_adjustment(difference))return 0;',
+        'stopped_payment': b'int paid=engine_charge_at(owner,used,used,1,stage,__LINE__);',
+        'startup_read': b'int read=engine_initial_ri_read(owner->ticket.pid,&usage);',
+        'initial_attempt_paid': b'owner->post_exit_attempt_paid=(unsigned)paid;return paid;',
+        'initial_own_wnowait': b'||!p->own_wnowait_known||!p->own_wnowait_terminal',
+        'teardown_limit': b'owner->exit_teardown_limit_ns=ENGINE_EXIT_TEARDOWN_CEILING_NS;',
+        'residual_paid': b'owner->residual_cost_paid=(unsigned)paid;return paid;',
+        'teardown_count': b'return *direct+*child;',
+        'quarantine_provisional': b'if(owner->provisional_count&&!owner->provisional_finalized)(void)engine_revoke_provisional(owner);',
     }
     if any(source.count(anchor) != 1 for anchor in quantum_anchors.values()):
         raise ValueError('66236 causal mutation anchor differs; no guessed mutation')
@@ -324,12 +340,23 @@ def verify(directory, inputs, report):
         'quantum-rollup-pre-exit': source.replace(quantum_anchors['rollup_before_exit'], b'||0', 1),
         'quantum-rollup-double': source.replace(quantum_anchors['rollup_double'], b'(void)g->live_child_cpu_ns;', 1),
         'quantum-rollup-forgotten-debt': source.replace(quantum_anchors['rollup_debt'], b'(void)private_retain_debt_adjustment;if(difference>UINT64_MAX/9)return 0;', 1),
+        'stopped-unpaid-stages': source.replace(quantum_anchors['stopped_payment'], b'(void)used;(void)stage;int paid=1;', 1),
+        'startup-no-terminal-ri': source.replace(quantum_anchors['startup_read'], b'(void)engine_initial_ri_read;int read=-1;errno=ENOTSUP;', 1),
+        'startup-unpaid-attempt': source.replace(quantum_anchors['initial_attempt_paid'], b'(void)paid;owner->post_exit_attempt_paid=owner->post_exit_initial_source_valid&&owner->post_exit_attempt_retained;return owner->post_exit_attempt_paid;', 1),
+        'initial-no-own-wnowait': source.replace(quantum_anchors['initial_own_wnowait'], b'||0', 1),
+        'teardown-unbounded': source.replace(quantum_anchors['teardown_limit'], b'owner->exit_teardown_limit_ns=30000000000ULL;', 1),
+        'teardown-uncharged-residual': source.replace(quantum_anchors['residual_paid'], b'(void)paid;owner->residual_cost_paid=1;return 1;', 1),
+        'teardown-wait4-derived': source.replace(quantum_anchors['teardown_limit'], b'owner->exit_teardown_limit_ns=owner->wait_user+owner->wait_system+2000;', 1),
+        'teardown-unproven-child': source.replace(quantum_anchors['teardown_count'], b'return *direct+(owner->slots==2);', 1),
+        'teardown-quarantine-source-loss': source.replace(quantum_anchors['quarantine_provisional'],
+            b'owner->rollup_source_failed=1;' + quantum_anchors['quarantine_provisional'], 1),
     })
     quantum_modes = {'quantum-open-slot': 0, 'quantum-pre-ack': 1, 'quantum-omit-rollup': 2,
                      'quantum-raw-ticks': 3, 'quantum-no-wall': 4, 'quantum-slot-over-wall': 5,
                      'quantum-no-conservation': 1, 'quantum-credit-controller-post': 2,
                      'quantum-rollup-mixed': 6, 'quantum-rollup-pre-exit': 7,
-                     'quantum-rollup-double': 8, 'quantum-rollup-forgotten-debt': 8}
+                     'quantum-rollup-double': 8, 'quantum-rollup-forgotten-debt': 8,
+                     'teardown-unproven-child': 2, 'teardown-quarantine-source-loss': 2}
     for name, wire in variants.items():
         own = directory / name
         own.mkdir(mode=0o700)
@@ -351,6 +378,11 @@ def verify(directory, inputs, report):
             arguments.extend(['quantum-control', str(quantum_modes[name])])
         elif name == 'engine-drop-inclusive-tail':
             arguments.append('charge-diagnostic-control')
+        elif name in ('stopped-unpaid-stages', 'startup-no-terminal-ri', 'startup-unpaid-attempt', 'initial-no-own-wnowait'):
+            mode = {'stopped-unpaid-stages': '0', 'startup-no-terminal-ri': '1', 'startup-unpaid-attempt': '3', 'initial-no-own-wnowait': '0'}[name]
+            arguments.extend(['initial-stopped-control', mode])
+        elif name in ('teardown-unbounded', 'teardown-uncharged-residual', 'teardown-wait4-derived'):
+            arguments.extend(['exit-teardown-control', '1' if name == 'teardown-uncharged-residual' else '0'])
         code, stdout, stderr = run(arguments, own, 'controls', report, fixture=True)
         expect(code, 0 if name == 'current' else 81, name + ' controls')
         if name == 'current':
