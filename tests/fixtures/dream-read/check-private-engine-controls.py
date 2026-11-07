@@ -59,7 +59,8 @@ def read_stable(path, limit):
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
     try:
         before = os.fstat(fd)
-        if not stat.S_ISREG(before.st_mode) or before.st_size > limit:
+        if (not stat.S_ISREG(before.st_mode) or before.st_uid != os.geteuid()
+                or before.st_nlink != 1 or before.st_size > limit):
             raise ValueError('source/evidence kind or length: ' + str(path))
         with os.fdopen(fd, 'rb', closefd=False) as source:
             data = source.read(limit + 1)
@@ -79,7 +80,39 @@ def retain(path, data):
     return {'path': str(path), 'len': len(data), 'sha256': sha(data)}
 
 
-def run(command, directory, label, report):
+def retain_fixture_evidence(stderr, directory, label, pid):
+    matches = re.findall(
+        rb'^private_engine_fixture_source_known pid=([0-9]+) retained='
+        rb'(/private/tmp/dream-private-engine-controls\.[A-Za-z0-9]{6}) '
+        rb'real_candidate_created=0 runtime_approved=false\n', stderr, re.MULTILINE)
+    if len(matches) != 1 or int(matches[0][0]) != pid:
+        raise ValueError('source-known fixture root is not bound to the exact command PID')
+    source_dir = Path(os.fsdecode(matches[0][1]))
+    identity = source_dir.lstat()
+    if not stat.S_ISDIR(identity.st_mode) or identity.st_uid != os.geteuid() or identity.st_mode & 0o077:
+        raise ValueError('source-known fixture root custody differs')
+    destination = directory / (label + '-fixture-evidence')
+    destination.mkdir(mode=0o700)
+    record = {'source_dir': str(source_dir), 'command_pid': pid, 'root_device': identity.st_dev,
+              'root_inode': identity.st_ino, 'files': [], 'not_created': [],
+              'boundary': 'stable owned fixture bytes after command exit; no candidate or descendant-lifetime proof'}
+    for name in LEDGERS:
+        try:
+            data = read_stable(source_dir / name, 2 * 1024 * 1024)
+        except FileNotFoundError:
+            record['not_created'].append(name)
+            continue
+        retained = destination / name
+        retained.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        record['files'].append(retain(retained, data))
+    current = source_dir.lstat()
+    if (current.st_dev, current.st_ino, current.st_uid, current.st_mode) != (
+            identity.st_dev, identity.st_ino, identity.st_uid, identity.st_mode):
+        raise ValueError('source-known fixture root changed during capture')
+    return record
+
+
+def run(command, directory, label, report, *, fixture=False):
     stdout_path = directory / (label + '.stdout.log')
     stderr_path = directory / (label + '.stderr.log')
     record = {'command': command, 'cwd': str(directory), 'timeout_seconds': 45,
@@ -110,6 +143,10 @@ def run(command, directory, label, report):
         path.chmod(0o400)
         record[name] = {'path': str(path), 'len': len(data), 'sha256': sha(data)}
         outputs.append(data)
+    if fixture:
+        # Capture before checking the verdict: a failed assertion must retain
+        # the independent raw diagnostic files too, not just its final line.
+        record['fixture_capture'] = retain_fixture_evidence(outputs[1], directory, label, process.pid)
     if record['timed_out']:
         raise ValueError('command timed out; original operation was not retried: ' + label)
     return record['exit_code'], *outputs
@@ -138,6 +175,8 @@ def retain_ledgers(stdout, directory, report):
     if len(matches) != 1:
         raise ValueError('current fixture did not report the exact 55 source-known controls')
     source_dir = Path(os.fsdecode(matches[0]))
+    if str(source_dir) != report['commands'][-1]['fixture_capture']['source_dir']:
+        raise ValueError('completed fixture root differs from its original command binding')
     identity = source_dir.lstat()
     if not stat.S_ISDIR(identity.st_mode) or identity.st_uid != os.geteuid() or identity.st_mode & 0o077:
         raise ValueError('source-known evidence directory custody differs')
@@ -148,6 +187,26 @@ def retain_ledgers(stdout, directory, report):
         data = read_stable(source_dir / name, 2 * 1024 * 1024)
         (retained / name).parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         report['process_ledgers'].append(retain(retained / name, data))
+
+
+def verify_setup_budget(program, directory, report):
+    code, stdout, _ = run([str(program), 'diagnostic-setup-budget-control'],
+                          directory, 'setup-budget', report, fixture=True)
+    expect(code, 0, 'diagnostic setup measured-overrun control')
+    rows = re.findall(
+        rb'^private_diagnostic_setup_budget_source_known guard_return=0 clocks_known=1 '
+        rb'observed_cpu_ns=([0-9]+) raw_cpu_ns=([0-9]+) debt_charged_ns=([0-9]+) '
+        rb'debt_paid_ns=([0-9]+) full_cost_retained=true control_only=true '
+        rb'real_candidate_created=0 runtime_approved=false whole_command_lifetime_proof=false\n',
+        stdout, re.MULTILINE)
+    if len(rows) != 1:
+        raise ValueError('diagnostic setup lacks its exact measured-overrun evidence')
+    observed, raw, charged, paid = map(int, rows[0])
+    if not (2_000_000 <= observed <= raw <= (2**64 - 1) // 9 and charged == paid == 9 * raw):
+        raise ValueError('diagnostic setup overrun cost or paid debt differs')
+    report['commands'][-1]['closed_setup_cost_checked'] = {
+        'observed_cpu_ns': observed, 'raw_cpu_ns': raw, 'debt_charged_ns': charged,
+        'debt_paid_ns': paid, 'boundary': 'one closed source-known setup unit; not whole-command proof'}
 
 
 def verify(directory, inputs, report):
@@ -207,12 +266,27 @@ def verify(directory, inputs, report):
             arguments.append('hold-scheduling-control')
         elif name == 'hold-forgotten-final-cost':
             arguments.append('hold-final-scheduling-control')
-        code, stdout, stderr = run(arguments, own, 'controls', report)
+        code, stdout, stderr = run(arguments, own, 'controls', report, fixture=True)
         expect(code, 0 if name == 'current' else 81, name + ' controls')
         if name == 'current':
             retain_ledgers(stdout, own, report)
+            verify_setup_budget(program, own, report)
         elif not any(assertion in stderr for assertion in ASSERTIONS[name]):
             raise ValueError(name + ': exit81 lacks the required causal assertion')
+    anchor = b'int ok=private_end_unit(step->start);'
+    if controls.count(anchor) != 1:
+        raise ValueError('diagnostic setup cost mutation anchor differs')
+    own = directory / 'fixture-forgotten-setup-cost'
+    own.mkdir(mode=0o700)
+    report['snapshots'].append(retain(own / SOURCE.name, source))
+    mutant = controls.replace(anchor, b'private_cost.open_cpu=clock_ns(CLOCK_THREAD_CPUTIME_ID);' + anchor, 1)
+    report['snapshots'].append(retain(own / CONTROLS.name, mutant))
+    program = compile_source(own, CONTROLS.name, report)
+    code, _, stderr = run([str(program), 'diagnostic-setup-budget-control'],
+                           own, 'controls', report, fixture=True)
+    expect(code, 81, 'discarded diagnostic setup cost control')
+    if b'diagnostic setup overrun retains full paid cost before refusal' not in stderr:
+        raise ValueError('discarded setup cost lacks its own causal assertion')
     own = directory / 'production-no-test-hooks'
     own.mkdir(mode=0o700)
     report['snapshots'].append(retain(own / SOURCE.name, source))

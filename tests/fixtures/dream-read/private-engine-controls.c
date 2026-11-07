@@ -213,26 +213,86 @@ static void result_controls(void) {
     require(engine_complete_result(&context,&r)&&!strcmp(r.outcome,"expected_rejection"),"specific corrupt result classification");controls++;
     strcpy(outer.case_name,"positive");
 }
+// Source-known fixture setup uses the SAME inclusive epoch and additive debt
+// as the frozen probe. Stage clocks label work; they never replace open_cpu.
+struct diagnostic_setup_step {
+    const char *name;uint64_t start,end,epoch_before,epoch_after,observed_cpu_ns,raw_cpu_ns;
+    uint64_t debt_before,debt_after,paid_after;int clocks_known,action_ok,ok;
+};
+static void diagnostic_setup_begin(struct diagnostic_setup_step *step,const char *name) {
+    memset(step,0,sizeof(*step));step->name=name;step->epoch_before=private_cost.open_cpu;
+    step->debt_before=private_cost.debt;step->clocks_known=known_clock_ns(CLOCK_THREAD_CPUTIME_ID,&step->start);
+}
+static int diagnostic_setup_end(struct diagnostic_setup_step *step) {
+    uint64_t end=0;int known=known_clock_ns(CLOCK_THREAD_CPUTIME_ID,&end);
+    step->end=end;step->clocks_known=step->clocks_known&&known&&end>=step->start;
+    step->observed_cpu_ns=step->clocks_known?end-step->start:UINT64_MAX;
+    int ok=private_end_unit(step->start);
+    step->raw_cpu_ns=private_cost.last_unit;step->epoch_after=private_cost.open_cpu;
+    step->debt_after=private_cost.debt;step->paid_after=private_cost.debt_paid;
+    step->clocks_known=step->clocks_known&&step->raw_cpu_ns!=UINT64_MAX;
+    step->ok=ok&&step->clocks_known;return step->ok;
+}
+static void diagnostic_setup_trace(unsigned variant,const struct diagnostic_setup_step *steps,unsigned count) {
+    for(unsigned i=0;i<count;i++) {
+        const struct diagnostic_setup_step *step=&steps[i];
+        printf("private_diagnostic_setup_stage_source_known variant=%u stage=%s clocks_known=%d action_ok=%d guard_return=%d cpu_start_ns=%llu cpu_end_ns=%llu original_epoch_ns=%llu closed_epoch_ns=%llu observed_cpu_ns=%llu raw_cpu_ns=%llu debt_before_ns=%llu debt_after_ns=%llu paid_after_ns=%llu real_candidate_created=0 runtime_approved=false\n",
+            variant,step->name,step->clocks_known,step->action_ok,step->ok,(unsigned long long)step->start,(unsigned long long)step->end,
+            (unsigned long long)step->epoch_before,(unsigned long long)step->epoch_after,(unsigned long long)step->observed_cpu_ns,
+            (unsigned long long)step->raw_cpu_ns,(unsigned long long)step->debt_before,(unsigned long long)step->debt_after,(unsigned long long)step->paid_after);
+    }
+}
+static void diagnostic_setup_budget_control(void) {
+    reset();struct diagnostic_setup_step step;diagnostic_setup_begin(&step,"actual-over-2ms-cpu");
+    require(step.clocks_known&&step.start<=UINT64_MAX-2000000,"diagnostic setup negative has known finite beginning clock");
+    uint64_t until=step.start+2000000,now=step.start;
+    while(now<until)require(known_clock_ns(CLOCK_THREAD_CPUTIME_ID,&now)&&now>=step.start,"diagnostic setup negative has known ordered CPU clocks");
+    step.action_ok=1;int ok=diagnostic_setup_end(&step);
+    int retained=!ok&&step.clocks_known&&step.observed_cpu_ns>=2000000&&step.raw_cpu_ns!=UINT64_MAX
+        &&step.raw_cpu_ns>=step.observed_cpu_ns&&step.raw_cpu_ns<=UINT64_MAX/9
+        &&step.debt_after>=step.debt_before&&step.debt_after-step.debt_before==9*step.raw_cpu_ns&&step.paid_after==step.debt_after;
+    diagnostic_setup_trace(0,&step,1);
+    printf("private_diagnostic_setup_budget_source_known guard_return=%d clocks_known=%d observed_cpu_ns=%llu raw_cpu_ns=%llu debt_charged_ns=%llu debt_paid_ns=%llu full_cost_retained=%s control_only=true real_candidate_created=0 runtime_approved=false whole_command_lifetime_proof=false\n",
+        ok,step.clocks_known,(unsigned long long)step.observed_cpu_ns,(unsigned long long)step.raw_cpu_ns,
+        (unsigned long long)step.debt_after,(unsigned long long)step.paid_after,retained?"true":"false");
+    require(fflush(stdout)==0,"diagnostic setup negative raw evidence flush");
+    require(retained,"diagnostic setup overrun retains full paid cost before refusal");
+}
 static void terminal_diagnostic_controls(int root) {
     for(unsigned variant=0;variant<4;variant++) {
         reset();char name[48];snprintf(name,sizeof(name),"diagnostic-%u",variant);
-        require(mkdirat(root,name,0700)==0,"owned diagnostic output directory");
-        int dir=openat(root,name,O_RDONLY|O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC);require(dir>=0,"owned diagnostic output custody");
+        struct diagnostic_setup_step steps[20];unsigned step_count=0;
+        const char *setup_failure=NULL;int dir=-1,planted=-1,out=-1,err=-1,saved_out=-1,saved_err=-1;
+        struct private_engine_result result;
+#define DIAGNOSTIC_SETUP(name,action,failure) do { \
+    require(step_count<20,"fixed diagnostic setup stage bound"); \
+    struct diagnostic_setup_step *step=&steps[step_count++];diagnostic_setup_begin(step,(name)); \
+    step->action_ok=(action);int stage_ok=diagnostic_setup_end(step); \
+    if(!step->action_ok||!stage_ok){setup_failure=(failure);goto diagnostic_setup_failed;} \
+} while(0)
+        DIAGNOSTIC_SETUP("directory-create",mkdirat(root,name,0700)==0,"owned diagnostic output directory");
+        DIAGNOSTIC_SETUP("directory-open",(dir=openat(root,name,O_RDONLY|O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC))>=0,"owned diagnostic output custody");
         outer.output.fd=dir;strcpy(outer.case_name,"positive");
         if(variant==0||variant==3) {
-            int planted=openat(dir,"result.json",O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,0600);
-            require(planted>=0&&write(planted,"owned collision\n",16)==16&&close(planted)==0,"actual exclusive publication collision");
-            private_fail("cancelled","source-known causal control failure");
-            private_fail("coverage_unknown","source-known second independent control error");
+            DIAGNOSTIC_SETUP("collision-open",(planted=openat(dir,"result.json",O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,0600))>=0,"actual exclusive publication collision open");
+            DIAGNOSTIC_SETUP("collision-write",write(planted,"owned collision\n",16)==16,"actual exclusive publication collision write");
+            DIAGNOSTIC_SETUP("collision-close",close(planted)==0,"actual exclusive publication collision close");planted=-1;
+            DIAGNOSTIC_SETUP("causal-errors",(private_fail("cancelled","source-known causal control failure"),private_fail("coverage_unknown","source-known second independent control error"),1),"owned diagnostic causal error setup");
         }
-        int out=openat(dir,"stdout",O_RDWR|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,0600);
-        int err=openat(dir,"stderr",O_RDWR|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,0600);
-        require(out>=0&&err>=0&&fflush(stdout)==0&&fflush(stderr)==0,"owned diagnostic capture");
-        int saved_out=dup(STDOUT_FILENO),saved_err=dup(STDERR_FILENO);require(saved_out>=0&&saved_err>=0,"owned diagnostic standard descriptor pins");
-        if(variant==1){require(close(out)==0,"owned readonly stdout setup");out=openat(dir,"stdout",O_RDONLY|O_NOFOLLOW|O_CLOEXEC);require(out>=0,"actual readonly stdout negative");}
-        require(dup2(out,STDOUT_FILENO)==STDOUT_FILENO&&dup2(err,STDERR_FILENO)==STDERR_FILENO,"owned diagnostic redirection");
-        struct private_engine_result result;nominal_result(&result);
-        private_terminal.control_known=1;private_terminal.control_ok=variant!=0&&variant!=3;
+        DIAGNOSTIC_SETUP("stdout-open",(out=openat(dir,"stdout",O_RDWR|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,0600))>=0,"owned diagnostic stdout capture");
+        DIAGNOSTIC_SETUP("stderr-open",(err=openat(dir,"stderr",O_RDWR|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,0600))>=0,"owned diagnostic stderr capture");
+        DIAGNOSTIC_SETUP("stdout-flush",fflush(stdout)==0,"owned diagnostic stdout flush");
+        DIAGNOSTIC_SETUP("stderr-flush",fflush(stderr)==0,"owned diagnostic stderr flush");
+        DIAGNOSTIC_SETUP("stdout-save",(saved_out=dup(STDOUT_FILENO))>=0,"owned diagnostic stdout descriptor pin");
+        DIAGNOSTIC_SETUP("stderr-save",(saved_err=dup(STDERR_FILENO))>=0,"owned diagnostic stderr descriptor pin");
+        if(variant==1) {
+            DIAGNOSTIC_SETUP("stdout-readonly-close",close(out)==0,"owned readonly stdout setup");out=-1;
+            DIAGNOSTIC_SETUP("stdout-readonly-open",(out=openat(dir,"stdout",O_RDONLY|O_NOFOLLOW|O_CLOEXEC))>=0,"actual readonly stdout negative");
+        }
+        DIAGNOSTIC_SETUP("stdout-redirect",dup2(out,STDOUT_FILENO)==STDOUT_FILENO,"owned diagnostic stdout redirection");
+        DIAGNOSTIC_SETUP("stderr-redirect",dup2(err,STDERR_FILENO)==STDERR_FILENO,"owned diagnostic stderr redirection");
+        DIAGNOSTIC_SETUP("nominal-result",(nominal_result(&result),private_terminal.control_known=1,private_terminal.control_ok=variant!=0&&variant!=3,1),"owned diagnostic nominal result setup");
+#undef DIAGNOSTIC_SETUP
         int emitted=private_emit(&outer,input_hash,&result);
         int actual_closed=0;(void)private_close_observed(dir,&actual_closed);outer.output.fd=-1;
         source_known_tail_over_cpu=variant>=2;
@@ -240,6 +300,14 @@ static void terminal_diagnostic_controls(int root) {
         source_known_tail_over_cpu=0;
         require(dup2(saved_out,STDOUT_FILENO)==STDOUT_FILENO&&dup2(saved_err,STDERR_FILENO)==STDERR_FILENO
             &&close(saved_out)==0&&close(saved_err)==0,"restore exact diagnostic standard descriptors");
+        saved_out=saved_err=-1;
+        diagnostic_setup_trace(variant,steps,step_count);
+        printf("private_terminal_diagnostic_conjuncts_source_known variant=%u emitted=%d control_ok=%u cost_ok=%u cost_unknown=%u persist_ok=%u persist_unknown=%u stdout_complete=%u cancelled_count=%llu coverage_count=%llu settlement_count=%llu resource_count=%llu first_error_cancelled=%d ordinary_max_ns=%llu debt_charged_ns=%llu debt_paid_ns=%llu real_candidate_created=0 runtime_approved=false\n",
+            variant,emitted,private_terminal.control_ok,private_terminal.cost_ok,private_terminal.cost_unknown,private_terminal.persist_ok,
+            private_terminal.persist_unknown,private_terminal.stdout_complete,(unsigned long long)private_errors[0].count,
+            (unsigned long long)private_errors[2].count,(unsigned long long)private_errors[7].count,(unsigned long long)private_errors[5].count,
+            !strcmp(private_error,"cancelled"),(unsigned long long)private_cost.ordinary_max,(unsigned long long)private_cost.debt,(unsigned long long)private_cost.debt_paid);
+        require(fflush(stdout)==0,"bounded diagnostic setup and conjunct evidence flush");
         char log[32769];ssize_t n=pread(err,log,sizeof(log)-1,0);require(n>0&&(size_t)n<sizeof(log)-1,"bounded actual terminal diagnostic bytes");log[n]=0;
         const char *tail=strstr(log,"private_candidate_exit_tail "),*final=strstr(log,"private_candidate_terminal ");
         require(private_terminal.tail_complete&&tail&&final&&tail<final&&!strstr(final+1,"private_candidate_terminal "),
@@ -271,6 +339,15 @@ static void terminal_diagnostic_controls(int root) {
         printf("private_terminal_diagnostic_source_known variant=%u control=%s persistence=%s stdout_complete=%u terminal_cost=%s all_error_count=%llu tail_before_final=true real_candidate_created=0 runtime_approved=false\n",
             variant,private_terminal.control_ok?"passed":"failed",private_terminal.persist_ok?"passed":"failed",private_terminal.stdout_complete,
             private_terminal.cost_ok?"passed":"failed",(unsigned long long)private_error_count);controls++;
+        continue;
+diagnostic_setup_failed:
+        if(saved_out>=0){require(dup2(saved_out,STDOUT_FILENO)==STDOUT_FILENO&&close(saved_out)==0,"restore diagnostic stdout after setup refusal");saved_out=-1;}
+        if(saved_err>=0){require(dup2(saved_err,STDERR_FILENO)==STDERR_FILENO&&close(saved_err)==0,"restore diagnostic stderr after setup refusal");saved_err=-1;}
+        diagnostic_setup_trace(variant,steps,step_count);
+        printf("private_terminal_diagnostic_setup_refused_source_known variant=%u completed_stages=%u ordinary_max_ns=%llu debt_charged_ns=%llu debt_paid_ns=%llu real_candidate_created=0 runtime_approved=false\n",
+            variant,step_count,(unsigned long long)private_cost.ordinary_max,(unsigned long long)private_cost.debt,(unsigned long long)private_cost.debt_paid);
+        require(fflush(stdout)==0,"diagnostic setup refusal raw evidence flush");
+        require(0,setup_failure?setup_failure:"diagnostic setup stage refused");
     }
     reset();
 }
@@ -801,11 +878,15 @@ int main(int argc,char **argv) {
     unsigned lifetime_only=argc==2&&!strcmp(argv[1],"hold-lifetime-control");
     unsigned diagnostics_only=argc==2&&!strcmp(argv[1],"terminal-diagnostic-controls");
     unsigned closure_only=argc==2&&!strcmp(argv[1],"closure-stage-controls");
+    unsigned setup_budget_only=argc==2&&!strcmp(argv[1],"diagnostic-setup-budget-control");
     if(argc==2&&!strcmp(argv[1],"hold-scheduling-control")){payment_only=1;hold_scheduling_only=1;}
     if(argc==2&&!strcmp(argv[1],"hold-final-scheduling-control")){payment_only=1;hold_scheduling_only=2;}
-    require(argc==1||payment_only||lifetime_only||diagnostics_only||closure_only,"private source-known controls argc");require(atexit(dispose_owned)==0,"owned cleanup registration");
+    require(argc==1||payment_only||lifetime_only||diagnostics_only||closure_only||setup_budget_only,"private source-known controls argc");require(atexit(dispose_owned)==0,"owned cleanup registration");
     char root[]="/private/tmp/dream-private-engine-controls.XXXXXX";require(mkdtemp(root)!=NULL,"owned fixture directory");
     int dir=open(root,O_RDONLY|O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC);require(dir>=0,"owned fixture root");
+    fprintf(stderr,"private_engine_fixture_source_known pid=%d retained=%s real_candidate_created=0 runtime_approved=false\n",getpid(),root);
+    require(fflush(stderr)==0,"early source-known fixture marker flush");
+    if(setup_budget_only){diagnostic_setup_budget_control();require(close(dir)==0,"owned diagnostic budget root close");return 0;}
     int fd=openat(dir,"payload",O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,0600);
     require(fd>=0&&write(fd,payload,sizeof(payload)-1)==sizeof(payload)-1&&close(fd)==0,"owned pinned unsigned public payload");
     // Adapted public signature bytes: https://github.com/git/git/blob/v2.54.0/t/t7510-signed-commit.sh
