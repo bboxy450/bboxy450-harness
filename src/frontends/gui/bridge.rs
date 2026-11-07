@@ -132,6 +132,13 @@ pub struct ActorIntake {
     request: OpId,
     version: u32,
 }
+/// A parked view's transcript and solved rows; see [`Bridge::reattach`].
+#[derive(Clone, Default)]
+pub struct Retained {
+    pub transcript: Arc<Transcript>,
+    #[cfg(feature = "embedded")]
+    pub prepared: Option<Arc<super::view::PreparedRows>>,
+}
 #[derive(Clone, Default)]
 pub struct FrameState {
     pub actor_intake: Option<ActorIntake>,
@@ -681,6 +688,34 @@ impl Bridge {
         let profiles = machine_profiles(std::env::var_os("HOME"));
         self.connect_with_profiles(socket, after, profiles);
     }
+    /// What a parked view keeps: the transcript it showed and its solved rows.
+    pub fn retained(&self) -> Retained {
+        Retained {
+            transcript: self.state.transcript.clone(),
+            #[cfg(feature = "embedded")]
+            prepared: self.state.prepared.clone(),
+        }
+    }
+    /// Reconnect a parked view: it shows what it had at once, then streams
+    /// only the events after its cursor instead of replaying the whole log.
+    pub fn reattach(&mut self, socket: PathBuf, retained: Retained) {
+        let profiles = machine_profiles(std::env::var_os("HOME"));
+        self.created_session = None;
+        self.attach_setup(profiles.clone());
+        let mailbox = self.mailbox.clone();
+        let detach = self.detach.clone();
+        self.worker = Some(bbt_rt::handle().spawn(async move {
+            load_catalogue(&mailbox, profiles).await;
+            consume_from(
+                Source::Unix { socket },
+                None,
+                Some(retained),
+                mailbox,
+                detach,
+            )
+            .await;
+        }));
+    }
     /// A caller with a private harness home supplies its catalogue directory.
     /// Both entry points use the same safe projection as standalone startup.
     pub fn connect_with_profiles(
@@ -1008,11 +1043,38 @@ async fn consume(
     mailbox: Arc<Mailbox>,
     detach: CancellationToken,
 ) {
+    consume_from(source, initial_after, None, mailbox, detach).await
+}
+async fn consume_from(
+    source: Source,
+    initial_after: Option<(Epoch, Seq)>,
+    retained: Option<Retained>,
+    mailbox: Arc<Mailbox>,
+    detach: CancellationToken,
+) {
     let mut model = Transcript::default();
     let mut after = initial_after;
     let mut detached = false;
     let mut owned_turns = std::collections::BTreeMap::new();
     let mut preparer = Preparer::default();
+    // A retained prefix is the same as an internal reconnect's: keep the model,
+    // show it now, and ask the log only for what follows its cursor.
+    if let Some(retained) = retained
+        && retained.transcript.session.is_some()
+    {
+        model = (*retained.transcript).clone();
+        after = Some((model.epoch, model.cursor));
+        #[cfg(feature = "embedded")]
+        if let Some(prepared) = &retained.prepared {
+            preparer.seed(prepared);
+        }
+        mailbox.publish(FrameState {
+            transcript: retained.transcript,
+            #[cfg(feature = "embedded")]
+            prepared: retained.prepared,
+            ..Default::default()
+        });
+    }
     let (outcomes, mut responses) = tokio::sync::mpsc::unbounded_channel();
     let mut dispatch_error = None;
     let mut last_connect: Option<tokio::time::Instant> = None;

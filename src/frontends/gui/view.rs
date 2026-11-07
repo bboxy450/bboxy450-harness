@@ -3353,6 +3353,15 @@ impl Preparer {
     pub fn set_zoom(&mut self, zoom: Zoom) {
         self.zoom = zoom;
     }
+    /// Resumes a parked view: its solved rows stay valid for the same session,
+    /// theme and width, so returning to a pane lays out only what changed.
+    pub(crate) fn seed(&mut self, prepared: &PreparedRows) {
+        self.theme = prepared.theme;
+        self.theme_revision = prepared.theme_revision;
+        self.documents.set_theme(prepared.theme);
+        self.rows = prepared.rows.clone();
+        self.scope = Some((prepared.source.session, prepared.source.epoch));
+    }
     /// Blob loading is completed before preparation, on the background path.
     pub fn has_terminal_output(&self, id: &ItemId) -> bool {
         self.terminal_outputs.contains_key(id)
