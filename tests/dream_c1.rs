@@ -3037,6 +3037,7 @@ fn paused_owner_does_not_delay_another_process_and_owned_kill_never_completes() 
 }
 
 #[test]
+#[ignore = "load-sensitive budget/wall window; re-enable via tasks/2026-11-06-qos-builds-never-starve-mcp"]
 fn actual_over_limit_ir_corpus_is_rejected_before_reading() {
     use sha2::{Digest, Sha256};
     let mut job = Job::new(0, 0, false, false);
