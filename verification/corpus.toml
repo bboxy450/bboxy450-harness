@@ -2329,6 +2329,16 @@ expected = "safety"
 frontend = "project"
 
 [[model]]
+name = "BrokenHarnessDreamProofToolsComponentHostControlMasksTerminal"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamProofToolsComponentHostControlMasksPersistence"
+expected = "safety"
+frontend = "project"
+
+[[model]]
 name = "HarnessDreamProofToolsHiddenWork"
 expected = "pass"
 frontend = "project"

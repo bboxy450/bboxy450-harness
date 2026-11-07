@@ -46,65 +46,65 @@ VERIFIER_SHA = "21cb9adcad96b7be404014ff6e9fb837160a2135455c217dec9efe196cf0661a
 # Only an explicit live Root amendment can select a FUNCTIONAL immutable input.
 # The old5493 and a386 preflight checkpoints remain historical, not fallbacks.
 # This is an offline ingestion premise, never a runtime approval flag or API.
-# Selected by the task ORACLE FREEZE AMENDMENT on 2026-11-06. Custody and all
+# Selected by the task FINAL RE-FREEZE on 2026-11-06. Custody and all
 # preparation cross-bindings must still pass; selection alone admits nothing.
-ROOT_Q2_INPUT = {'root': {'path': '/Users/feral/mydev/bboxy450-harness-dream-read-q2/target/dream-read-c-audit/corrected-signed-preparation/dream-read-c-preparation/compile-7ov2n68v',
+ROOT_Q2_INPUT = {'root': {'path': '/Users/feral/mydev/bboxy450-harness-dream-read-q2/target/dream-read-c-audit/final-signed-verdict-preparation/dream-read-c-preparation/compile-2ezbx4j3',
           'dev': 16777234,
-          'ino': 180981045,
+          'ino': 181937474,
           'uid': 501},
- 'source': {'path': '/Users/feral/mydev/bboxy450-harness-dream-read-q2/target/dream-read-c-audit/corrected-signed-preparation/dream-read-c-preparation/compile-7ov2n68v/source-30f27ccc6f9021ae884e1406c9f415898d6a7eb8/tests/fixtures/dream-read/proof-helper-probe.c',
-            'sha256': '140e808b40600086bbea9184057271e66c0655de0ece3650edec3c3fb3ec4c7c',
-            'ctime_ns': 1794002803962818861,
+ 'source': {'path': '/Users/feral/mydev/bboxy450-harness-dream-read-q2/target/dream-read-c-audit/final-signed-verdict-preparation/dream-read-c-preparation/compile-2ezbx4j3/source-35d3e60288d394ff0f0d9e2e6abb521d3d60b007/tests/fixtures/dream-read/proof-helper-probe.c',
+            'sha256': '7a7536546a8cae7d088a3a372d1baeb26f46a3990e2524a792624f59ae12030e',
+            'ctime_ns': 1794011332034338814,
             'dev': 16777234,
-            'ino': 180981080,
-            'len': 316739,
+            'ino': 181937598,
+            'len': 331208,
             'mode': 33024,
-            'mtime_ns': 1794002803962674570,
+            'mtime_ns': 1794011332034182980,
             'nlink': 1,
-            'size': 316739,
+            'size': 331208,
             'uid': 501},
- 'executable': {'path': '/Users/feral/mydev/bboxy450-harness-dream-read-q2/target/dream-read-c-audit/corrected-signed-preparation/dream-read-c-preparation/compile-7ov2n68v/probe',
-                'sha256': '76f35824d7c2ca6fa336611d59333e01abde429eb1476b0bb5cbd4931c6eb56c',
-                'ctime_ns': 1794002803962105821,
+ 'executable': {'path': '/Users/feral/mydev/bboxy450-harness-dream-read-q2/target/dream-read-c-audit/final-signed-verdict-preparation/dream-read-c-preparation/compile-2ezbx4j3/probe',
+                'sha256': '86c5c9b5705f117cefda90f0d0bcd892813c631cf7aa9de573c19607be5a8858',
+                'ctime_ns': 1794011332033564689,
                 'dev': 16777234,
-                'ino': 180981071,
-                'len': 268744,
+                'ino': 181937589,
+                'len': 269176,
                 'mode': 33088,
-                'mtime_ns': 1794002803931233017,
+                'mtime_ns': 1794011332001133991,
                 'nlink': 1,
-                'size': 268744,
+                'size': 269176,
                 'uid': 501},
- 'preparation': {'path': '/Users/feral/mydev/bboxy450-harness-dream-read-q2/target/dream-read-c-audit/corrected-signed-preparation/dream-read-c-preparation/compile-7ov2n68v/preparation-a4998fb7168936dffdf363e03e81c242c8ffcbe87c9d6e7279a9713fc4439458.json',
-                 'sha256': 'a4998fb7168936dffdf363e03e81c242c8ffcbe87c9d6e7279a9713fc4439458',
-                 'ctime_ns': 1794002804160615005,
+ 'preparation': {'path': '/Users/feral/mydev/bboxy450-harness-dream-read-q2/target/dream-read-c-audit/final-signed-verdict-preparation/dream-read-c-preparation/compile-2ezbx4j3/preparation-d66feb400b89b47aac0e55fc2d2ada994362bde770a398108fe02f1fb1d318c6.json',
+                 'sha256': 'd66feb400b89b47aac0e55fc2d2ada994362bde770a398108fe02f1fb1d318c6',
+                 'ctime_ns': 1794011332271009196,
                  'dev': 16777234,
-                 'ino': 180981428,
-                 'len': 511507,
+                 'ino': 181937957,
+                 'len': 514287,
                  'mode': 33024,
-                 'mtime_ns': 1794002804160424755,
+                 'mtime_ns': 1794011332270809279,
                  'nlink': 1,
-                 'size': 511507,
+                 'size': 514287,
                  'uid': 501},
- 'source_commit': '30f27ccc6f9021ae884e1406c9f415898d6a7eb8',
+ 'source_commit': '35d3e60288d394ff0f0d9e2e6abb521d3d60b007',
  'signer_fingerprint': '9B07E849480C68328CA20684844ECC0587DE7AB0',
- 'preparation_commit': 'b1171237cc73fc312cec6324d8ed3766705d8c2f',
+ 'preparation_commit': '35d3e60288d394ff0f0d9e2e6abb521d3d60b007',
  'preparation_signer_fingerprint': '9B07E849480C68328CA20684844ECC0587DE7AB0',
- 'bindings': {'build': '184af3f21ce3492cf5206efd0f7241022b4eda65d605bd94ed84193b16a106c6',
+ 'bindings': {'build': '00b0c07d96666b45ad8bcb3604eac4c715429bcbb89103b02fac61c7aaef7749',
               'compiler': 'a3d577375b2a73419600eee3110f6bb210bbec0c10d5abd48022c9809ff23838',
-              'dependency_discovery': 'ef9441ff3e37c1b5c5e97c3c3fe0af65c20d37b3bbf8038dd551204c3517267b',
-              'executable': '840cc2cae66467b764d8893345a6dd9f8ee39f92d81834378568203cd5e5151a',
-              'header_inputs': '9d594b3999e7590bff941f0fcd0fb8f5e94d4094b72fecd4cf056258c071087e',
-              'inputs': '56ffa28bebca5a97ef265ff1c78fffca23be98b06c6b55d639f635f83183a33a',
+              'dependency_discovery': 'd67fcc314d920b24fbea837249a66095ab0da1d5c1672aea8180783d949ff094',
+              'executable': 'e0c3f5d414428ea45efbcbb4e5873629c748274f3a79e8018c131fb46806957e',
+              'header_inputs': '7786896677c6b7e9aadb87f62d8b80da51191b40a46c8b2b4cbdd09eb648a753',
+              'inputs': '4f3c8778d1567d7c6e87acc8d61bb5fd22f0c085d84c7fbfd7eac37e3ca875af',
               'linker': '7cea27482a67bfa92b546ec35ad5ba71bcedd3910bd3b12df9e618fbcfbdf01c',
               'platform': '994c24fbd511ae90c273cfcd5c5f3e78b99b70a35692800dcb48d289bdaab6e3',
-              'provisioning_source': '35260e817f41a3599b8c08cf7dc0b641816000d5ac0546f0f309782a4489ed93',
+              'provisioning_source': '8024a13c4e874dca6a0f1176d132fed02e2808a058d3f92f4758f6f0417a70e1',
               'sdk': '18544f8f94b14d8ac2da05b462679964250d8885f603422c994201d5e4e483ff',
-              'input_commits': 'e7446efc896d35bc2b6c908001d04cc7ee51e54ab6a1f8859af970353b31f289',
-              'preparation_commit': '5efdbbb5612f46ba5ce38f00c78714c70a4268b5f5831244549bcbcb11d21bc1',
+              'input_commits': '4fd0967962d8f5ea8efe5b039f12b2d976f872e16c25a430d313be804d6b8e76',
+              'preparation_commit': 'f78dbbeec9bd9a3c92f0132a5e4eda9f5bc5de1974bc0dcc36cbf0e4d3624845',
               'preparation_signer_fingerprint': '4e588b4e7396747b3b7b317d37a22c5981401da546e6eadebc4008472c4367e9',
-              'preparation_snapshot': 'e26ae89dcda4e8c7525c73f98c234d27365d2a0a431307d76b42be367ff4e762',
-              'retained_outputs': '871ce0c9f5d6a0a39ff3e98ccbc567fcff0bfaaca63905836248f004bc062a31',
-              'retained_root': '269fa1672c2d0898f5e8a8e46ead72f4bbe8888cda97756451e59c1123f2ce77',
+              'preparation_snapshot': '2d9a0356b0c8340c111cd30dcd3ff1faefd7f5aea80b11d3dad37920f208409d',
+              'retained_outputs': '9035a3e146fb5e9edb28428dd94e38d3968ee0471fed3b47cf9a5037f07f1df5',
+              'retained_root': '354de281e24de8541dfa27453d5619e0146548e223df1e4f4b34ac886ad06329',
               'retained_directory_mode': '4962ec3a0b2818a90f5ef116da5f517a840b1071e51fba8ee2bef6af2f531067'},
  'build_closure': [{'path': '/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/lib/darwin/libclang_rt.osx.a',
                     'sha256': '5f20304aa257ed57bcba9f64287497d0be09b8cc7a5a91479b6a274294a22dfe',
@@ -130,7 +130,7 @@ ROOT_Q2_INPUT = {'root': {'path': '/Users/feral/mydev/bboxy450-harness-dream-rea
                     'uid': 0}],
  'macho': {'cpu_type': 16777228,
            'cpu_subtype': 0,
-           'uuid': '2fece13ecc04317eb13cfd19e9cf2504',
+           'uuid': '60a24fe0c16e33fd9873b08173e9a99f',
            'fat': False,
            'rpaths': [],
            'loads': [{'mode': 'load', 'name': '/usr/lib/libSystem.B.dylib'}]}}
@@ -2986,29 +2986,117 @@ def component_result(raw, descriptor, actual_exit):
     return result
 
 
-def component_terminal(stderr, case):
-    # These are the selected Q2 source's own raw terminal receipts, not a
-    # second engine/result wire. Exit81 alone cannot distinguish a causal
-    # control from an additional formatter/write/close failure.
+def component_terminal(stderr, case, result=None, actual_exit=None):
+    # Consume private_finish_diagnostics from the exact selected producer. Its
+    # final receipt follows the paid tail and complete error-code diagnostics;
+    # its own write remains the explicit cutoff, corroborated by parent wait4.
+    require(stderr.endswith(b"\n"), "canonical terminal stderr is incomplete")
     lines = stderr.decode("utf-8", errors="strict").splitlines()
-    terminal = [line for line in lines if line.startswith("private_candidate_terminal ")]
-    tail = [line for line in lines if line.startswith("private_candidate_exit_tail ")]
-    require(len(terminal) == len(tail) == 1 and not any(line.startswith("private_candidate_terminal_gate=failed") for line in lines), "canonical terminal receipt missing or failed")
+    terminal = [i for i, line in enumerate(lines) if line.startswith("private_candidate_terminal ")]
+    tail = [i for i, line in enumerate(lines) if line.startswith("private_candidate_exit_tail ")]
+    require(len(terminal) == len(tail) == 1 and tail[0] < terminal[0] == len(lines) - 1
+            and not any(line.startswith("private_candidate_terminal_gate=failed") for line in lines),
+            "canonical final receipt must follow the paid tail exactly once")
     def values(line):
-        pairs = [word.split("=", 1) for word in line.split()[1:]]
-        require(all(len(pair) == 2 for pair in pairs) and len({p[0] for p in pairs}) == len(pairs), "canonical terminal receipt tokens")
+        words = line.split(" ")[1:]
+        require(all(word and word.count("=") == 1 for word in words), "canonical terminal receipt tokens")
+        pairs = [word.split("=", 1) for word in words]
+        require(len({p[0] for p in pairs}) == len(pairs), "canonical terminal duplicate token")
         return dict(pairs)
-    row, end = values(terminal[0]), values(tail[0])
-    require(row["runtime_approved"] == "false" and row["result_complete"] == row["rss_known"] == row["format_paid"] == row["write_paid"] == "true"
-            and end["output_closed"] == "true", "canonical terminal persistence/clock/debt refusal")
+    def number(value):
+        require(type(value) is str and re.fullmatch(r"0|[1-9][0-9]{0,19}", value) is not None, "canonical terminal integer")
+        parsed = int(value); checked_int(parsed, 0, 2**64 - 1)
+        return parsed
+    row, end = values(lines[terminal[0]]), values(lines[tail[0]])
+    fields(end, "output_closed close_max_ns debt_charged_ns debt_paid_ns ordinary_max_ns")
+    fields(row, "profile stage metrics_cutoff metadata_kind terminal_cutoff runtime_approved helper_created helper_reaped result_complete control_verdict persistence_verdict terminal_cost_verdict tail_complete persistence_attempted persistence_open persistence_write persistence_fsync persistence_close persistence_directory_fsync persistence_errno stdout_errno persistence_paid formatter_cpu_start_ns formatter_cpu_end_ns formatter_inclusive_ns write_cpu_start_ns write_cpu_end_ns write_inclusive_ns close_max_cpu_ns probe_rss_peak_bytes rss_known ordinary_max_ns debt_charged_ns debt_paid_ns retained_units retained_overflow format_paid write_paid error_count error_codes error_counts errors_complete diagnostics_complete parent_actual_reap_required")
+    require(row["profile"] == "read-helper-native/1" and row["metrics_cutoff"] == "pre_result_emission"
+            and row["metadata_kind"] == "declared_peak_capacity"
+            and row["terminal_cutoff"] == "after_paid_tail_and_error_diagnostics_before_final_receipt"
+            and row["runtime_approved"] == "false", "canonical independent terminal verdict source/cutoff")
+    for name in ("result_complete", "tail_complete", "persistence_attempted", "persistence_open", "persistence_write",
+                 "persistence_fsync", "persistence_close", "persistence_directory_fsync", "persistence_paid", "rss_known",
+                 "format_paid", "write_paid", "errors_complete", "diagnostics_complete", "parent_actual_reap_required"):
+        require(row[name] == "true", "canonical terminal incomplete observation: " + name)
+    require(row["persistence_verdict"] == "persisted" and row["terminal_cost_verdict"] == "passed"
+            and number(row["persistence_errno"]) == number(row["stdout_errno"]) == 0
+            and end["output_closed"] == "true", "canonical independent persistence or terminal-cost refusal")
     for stem in ("formatter", "write"):
-        before, after = int(row[stem + "_cpu_start_ns"]), int(row[stem + "_cpu_end_ns"])
-        require(0 <= before <= after and after - before <= 1000000 and 0 <= int(row[stem + "_inclusive_ns"]) <= 1000000, "canonical terminal ordinary span exceeds gate")
-    require(0 <= int(row["close_max_cpu_ns"]) <= 1000000 and 0 <= int(end["close_max_ns"]) <= 1000000
-            and row["debt_charged_ns"] == row["debt_paid_ns"] and end["debt_charged_ns"] == end["debt_paid_ns"], "canonical terminal close/debt gate")
-    require(case in ("positive", "corrupt_proof"),
-            "selected Q2 exit81 controls lack independent persisted/final-tail verdicts; no successful qualification from missing terminal evidence")
-    return {"terminal": row, "exit_tail": end}
+        before, after = number(row[stem + "_cpu_start_ns"]), number(row[stem + "_cpu_end_ns"])
+        require(before <= after and after - before <= 1000000 and number(row[stem + "_inclusive_ns"]) <= 1000000,
+                "canonical terminal ordinary span exceeds gate")
+    require(number(row["formatter_cpu_end_ns"]) <= number(row["write_cpu_start_ns"])
+            and number(row["close_max_cpu_ns"]) <= 1000000 and number(end["close_max_ns"]) <= 1000000,
+            "canonical terminal order/close gate")
+    debt = number(row["debt_charged_ns"])
+    require(debt == number(row["debt_paid_ns"]) and number(end["debt_charged_ns"]) == number(end["debt_paid_ns"]) <= debt
+            and number(row["retained_units"]) == number(row["retained_overflow"]) == 0,
+            "canonical terminal unpaid or retained debt")
+    require(number(row["probe_rss_peak_bytes"]) <= 96 * 1024 * 1024, "canonical terminal RSS limit")
+    created, reaped = number(row["helper_created"]), number(row["helper_reaped"])
+    require(0 < created == reaped <= 256, "canonical terminal helpers lack actual settlement")
+    success_case = case in ("positive", "corrupt_proof", "pause_resume")
+    expected = {"cancel": "cancelled", "stale_incarnation": "coverage_unknown", "clock_failure": "clock_unknown",
+                "debt_overlap": "coverage_unknown", "late_stop": "resource_limit", "reap_delay": "settlement_unknown"}
+    require(success_case or case in expected, "unknown canonical terminal case")
+    require(row["control_verdict"] == ("passed" if success_case else "failed"), "canonical independent control verdict")
+    codes = ("cancelled", "clock_unknown", "coverage_unknown", "deadline", "input_invalid", "resource_limit",
+             "review_unbound", "settlement_unknown", "signature_unexpected", "source_changed", "other")
+    require(row["error_codes"] == ",".join(codes), "canonical terminal error-code ordering")
+    counts = row["error_counts"].split(",")
+    require(len(counts) == len(codes), "canonical terminal error-count shape")
+    histogram = {code: number(value) for code, value in zip(codes, counts)}
+    require(sum(histogram.values()) == number(row["error_count"]), "canonical complete error-count sum")
+    errors = {}
+    for index, line in enumerate(lines):
+        if not line.startswith('{"code":'): continue
+        observation = strict_json(line.encode(), 2304)
+        fields(observation, "code count details_truncated first_detail kind last_detail")
+        require(observation["kind"] == "private_candidate_error" and observation["code"] in codes
+                and tail[0] < index < terminal[0] and observation["code"] not in errors,
+                "canonical error diagnostic identity/order")
+        checked_int(observation["count"], 1, 2**64 - 1)
+        require(observation["details_truncated"] is False, "canonical error detail coverage is truncated")
+        for name in ("first_detail", "last_detail"):
+            require(type(observation[name]) is str and len(observation[name].encode()) <= 160, "canonical error detail bound")
+        errors[observation["code"]] = observation
+    require(list(errors) == [code for code in codes if histogram[code]]
+            and all(observation["count"] == histogram[code] for code, observation in errors.items()),
+            "canonical complete error diagnostics disagree with final histogram")
+    require(sum(len((line + "\n").encode()) for line in lines[tail[0]:]) <= 32768, "canonical terminal diagnostic byte bound")
+    if success_case:
+        require(not errors and created == 16 and row["stage"] == "settled"
+                and number(row["ordinary_max_ns"]) <= 1000000 and number(end["ordinary_max_ns"]) <= 1000000,
+                "canonical successful control carries additional errors or cost")
+    else:
+        require(histogram[expected[case]] > 0, "canonical causal control error is absent")
+        allowed = {expected[case]}
+        # These auxiliary failures are explicit consequences of the selected
+        # producer's injected unknown-clock/quarantine path, before terminal
+        # observation starts. Other error classes remain an additional failure.
+        if case == "clock_failure":
+            allowed.add("resource_limit")
+            if "resource_limit" in errors:
+                require(errors["resource_limit"]["first_detail"] == errors["resource_limit"]["last_detail"]
+                        == "unchanged native2ms wall25ms application1ms inclusive3ms gate", "additional resource failure in clock control")
+        if case == "reap_delay":
+            allowed.add("clock_unknown")
+            if "clock_unknown" in errors:
+                known = {"unknown or overflowing closed-unit cost", "closed engine unit has unknown CPU"}
+                require(errors["clock_unknown"]["first_detail"] in known and errors["clock_unknown"]["last_detail"] in known,
+                        "additional clock failure in reap control")
+        require(set(errors) <= allowed, "canonical control has additional error classes")
+        # These may retain the deliberately failed engine metric. Their final
+        # independent terminal-cost verdict above must still pass.
+        number(row["ordinary_max_ns"]); number(end["ordinary_max_ns"])
+    if result is not None:
+        require(row["stage"] == result["phase"] and created == result["settlement"]["created"]
+                and reaped >= result["settlement"]["reaped"], "canonical final settlement/result binding")
+        require((result["error"] is None) == success_case, "canonical final control/result error binding")
+        if not success_case: require(result["error"]["code"] == expected[case], "canonical first control error differs")
+    if actual_exit is not None:
+        require(actual_exit == (0 if case in ("positive", "corrupt_proof") else 81), "canonical final verdict/actual exit binding")
+    return {"terminal": row, "exit_tail": end, "errors": errors}
 
 
 def run_private_components(run, prefix, basis):
@@ -3047,7 +3135,7 @@ def run_private_components(run, prefix, basis):
         if ledger.exists(): record["ledger"] = retained_file(prefix, ledger)
         exclusive(case / "retained.json", canonical(record))
         result = component_result(report, descriptor, waited["exit_code"])
-        component_terminal(read_regular(case / "stderr", MAX_TAR, True), name)
+        component_terminal(read_regular(case / "stderr", MAX_TAR, True), name, result, waited["exit_code"])
         require(read_regular(output / "result.json", 65536, True) == report, "persisted Q2 result differs from unaltered stdout")
         records.append(record)
         exclusive(case / "checked.json", canonical({"check_exit": 0, "actual_exit": waited["exit_code"], "outcome": result["outcome"], "runtime_approved": False}))
@@ -4195,21 +4283,109 @@ class ComponentHandoffTests(unittest.TestCase):
         with mock.patch.dict(basis_platform_current.__globals__, {"current_cache_uuid": lambda: "2" * 32}):
             with self.assertRaises(Refused): basis_platform_current(basis)
 
-    def test_component_terminal_failure_cannot_be_hidden_by_expected_control_exit(self):
-        row = {"runtime_approved": "false", "result_complete": "true", "rss_known": "true", "format_paid": "true", "write_paid": "true",
-               "formatter_cpu_start_ns": "1", "formatter_cpu_end_ns": "2", "formatter_inclusive_ns": "1",
-               "write_cpu_start_ns": "3", "write_cpu_end_ns": "4", "write_inclusive_ns": "1",
-               "close_max_cpu_ns": "1", "debt_charged_ns": "9", "debt_paid_ns": "9"}
-        tail = "private_candidate_exit_tail output_closed=true close_max_ns=1 debt_charged_ns=9 debt_paid_ns=9 ordinary_max_ns=1\n"
+    def terminal_fixture(self, case="positive", extra_errors=None):
+        # Inert copies of the selected producer's exact raw diagnostic shapes;
+        # these do not execute Q2 or provide qualification/native evidence.
+        codes = ("cancelled", "clock_unknown", "coverage_unknown", "deadline", "input_invalid", "resource_limit",
+                 "review_unbound", "settlement_unknown", "signature_unexpected", "source_changed", "other")
+        causal = {"cancel": "cancelled", "stale_incarnation": "coverage_unknown", "clock_failure": "clock_unknown",
+                  "debt_overlap": "coverage_unknown", "late_stop": "resource_limit", "reap_delay": "settlement_unknown"}
+        good = case in ("positive", "corrupt_proof", "pause_resume")
+        errors = {}
+        if not good:
+            errors[causal[case]] = {"code": causal[case], "count": 1, "details_truncated": False,
+                                  "first_detail": "INERT causal-control diagnostic", "last_detail": "INERT causal-control diagnostic",
+                                  "kind": "private_candidate_error"}
+        if extra_errors: errors.update(extra_errors)
+        counts = {code: errors[code]["count"] if code in errors else 0 for code in codes}
+        row = {"profile": "read-helper-native/1", "stage": "settled" if good else "settling",
+               "metrics_cutoff": "pre_result_emission", "metadata_kind": "declared_peak_capacity",
+               "terminal_cutoff": "after_paid_tail_and_error_diagnostics_before_final_receipt", "runtime_approved": "false",
+               "helper_created": "16" if good else "1", "helper_reaped": "16" if good else "1", "result_complete": "true",
+               "control_verdict": "passed" if good else "failed", "persistence_verdict": "persisted", "terminal_cost_verdict": "passed",
+               "tail_complete": "true", "persistence_attempted": "true", "persistence_open": "true", "persistence_write": "true",
+               "persistence_fsync": "true", "persistence_close": "true", "persistence_directory_fsync": "true", "persistence_errno": "0",
+               "stdout_errno": "0", "persistence_paid": "true", "formatter_cpu_start_ns": "1", "formatter_cpu_end_ns": "2",
+               "formatter_inclusive_ns": "1", "write_cpu_start_ns": "3", "write_cpu_end_ns": "4", "write_inclusive_ns": "1",
+               "close_max_cpu_ns": "1", "probe_rss_peak_bytes": "4096", "rss_known": "true", "ordinary_max_ns": "1",
+               "debt_charged_ns": "27", "debt_paid_ns": "27", "retained_units": "0", "retained_overflow": "0", "format_paid": "true",
+               "write_paid": "true", "error_count": str(sum(counts.values())), "error_codes": ",".join(codes),
+               "error_counts": ",".join(str(counts[code]) for code in codes), "errors_complete": "true", "diagnostics_complete": "true",
+               "parent_actual_reap_required": "true"}
+        end = {"output_closed": "true", "close_max_ns": "1", "debt_charged_ns": "9", "debt_paid_ns": "9", "ordinary_max_ns": "1"}
         def raw():
-            return ("private_candidate_terminal " + " ".join(k + "=" + v for k, v in row.items()) + "\n" + tail).encode()
-        component_terminal(raw(), "positive")
-        with self.assertRaisesRegex(Refused, "independent persisted/final-tail"):
-            component_terminal(raw(), "cancel")
-        row["write_paid"] = "false"
-        with self.assertRaises(Refused): component_terminal(raw(), "positive")
-        row["write_paid"] = "true"; row["write_inclusive_ns"] = "1000001"
-        with self.assertRaises(Refused): component_terminal(raw(), "positive")
+            tail = "private_candidate_exit_tail " + " ".join(k + "=" + v for k, v in end.items()) + "\n"
+            diagnostics = b"".join(canonical(errors[code]) + b"\n" for code in codes if code in errors)
+            final = "private_candidate_terminal " + " ".join(k + "=" + v for k, v in row.items()) + "\n"
+            return tail.encode() + diagnostics + final.encode()
+        return row, end, errors, raw
+
+    def test_component_independent_terminal_verdicts_accept_only_complete_evidence(self):
+        for case in ("positive", "corrupt_proof", "pause_resume", "cancel", "stale_incarnation", "clock_failure", "debt_overlap", "late_stop", "reap_delay"):
+            with self.subTest(case=case):
+                row, _, errors, raw = self.terminal_fixture(case)
+                actual_exit = 0 if case in ("positive", "corrupt_proof") else 81
+                observed = component_terminal(raw(), case, actual_exit=actual_exit)
+                self.assertEqual(observed["terminal"], row)
+                self.assertEqual(observed["errors"], errors)
+                with self.assertRaises(Refused): component_terminal(raw(), case, actual_exit=0 if actual_exit else 81)
+
+    def test_component_terminal_failure_cannot_be_hidden_by_expected_control_exit(self):
+        mutations = {"control_verdict": "unknown", "persistence_verdict": "unknown", "terminal_cost_verdict": "failed",
+                     "tail_complete": "false", "persistence_write": "false", "persistence_fsync": "false", "persistence_close": "false",
+                     "persistence_directory_fsync": "false", "persistence_errno": "5", "stdout_errno": "5", "persistence_paid": "false",
+                     "format_paid": "false", "write_paid": "false", "write_inclusive_ns": "1000001", "retained_units": "1",
+                     "retained_overflow": "1", "debt_paid_ns": "26", "errors_complete": "false", "diagnostics_complete": "false",
+                     "parent_actual_reap_required": "false", "helper_reaped": "0", "rss_known": "false", "error_count": "2"}
+        for key, value in mutations.items():
+            with self.subTest(key=key):
+                row, _, _, raw = self.terminal_fixture("cancel")
+                row[key] = value
+                with self.assertRaises(Refused): component_terminal(raw(), "cancel", actual_exit=81)
+
+    def test_component_final_receipt_follows_paid_tail_and_complete_error_rows(self):
+        _, _, _, make_raw = self.terminal_fixture("cancel")
+        raw = make_raw(); lines = raw.splitlines(keepends=True)
+        controls = (b"".join((lines[-1], *lines[:-1])), b"".join((lines[0], lines[-1])),
+                    raw + lines[-1], raw + b"private trailing failure\n", raw[:-1],
+                    raw.replace(b" helper_reaped=1 ", b" helper_reaped=1 helper_reaped=1 "),
+                    raw.replace(b"control_verdict=failed", b"control_verdict=passed"),
+                    raw.replace(b"terminal_cutoff=after_paid_tail_and_error_diagnostics_before_final_receipt", b"terminal_cutoff=pre_terminal_receipt"))
+        for index, value in enumerate(controls):
+            with self.subTest(index=index), self.assertRaises(Refused): component_terminal(value, "cancel", actual_exit=81)
+
+    def test_component_error_histogram_preserves_later_failures(self):
+        extra = {"resource_limit": {"code": "resource_limit", "count": 1, "details_truncated": False,
+                                   "first_detail": "ordinary validation exceeds one millisecond", "last_detail": "ordinary validation exceeds one millisecond",
+                                   "kind": "private_candidate_error"}}
+        _, _, _, raw = self.terminal_fixture("cancel", extra)
+        with self.assertRaisesRegex(Refused, "additional error classes"): component_terminal(raw(), "cancel", actual_exit=81)
+        row, _, errors, raw = self.terminal_fixture("cancel")
+        errors["cancelled"]["count"] = 2
+        with self.assertRaisesRegex(Refused, "disagree with final histogram"): component_terminal(raw(), "cancel", actual_exit=81)
+        errors["cancelled"]["count"] = 1; errors["cancelled"]["details_truncated"] = True
+        with self.assertRaisesRegex(Refused, "truncated"): component_terminal(raw(), "cancel", actual_exit=81)
+        errors["cancelled"]["details_truncated"] = False; row["error_counts"] = "01," + row["error_counts"].split(",", 1)[1]
+        with self.assertRaisesRegex(Refused, "integer"): component_terminal(raw(), "cancel", actual_exit=81)
+
+    def test_component_terminal_result_and_actual_settlement_are_cross_bound(self):
+        descriptor, result = self.fixture()
+        _, _, _, raw = self.terminal_fixture()
+        checked = component_result(canonical(result) + b"\n", descriptor, 0)
+        component_terminal(raw(), "positive", checked, 0)
+        checked["settlement"]["created"] = 15
+        with self.assertRaisesRegex(Refused, "settlement/result binding"): component_terminal(raw(), "positive", checked, 0)
+
+    def test_component_source_known_auxiliary_errors_do_not_waive_terminal_gates(self):
+        detail = "unchanged native2ms wall25ms application1ms inclusive3ms gate"
+        extra = {"resource_limit": {"code": "resource_limit", "count": 1, "details_truncated": False,
+                                   "first_detail": detail, "last_detail": detail, "kind": "private_candidate_error"}}
+        row, _, errors, raw = self.terminal_fixture("clock_failure", extra)
+        component_terminal(raw(), "clock_failure", actual_exit=81)
+        errors["resource_limit"]["last_detail"] = "unrelated resource failure"
+        with self.assertRaisesRegex(Refused, "additional resource failure"): component_terminal(raw(), "clock_failure", actual_exit=81)
+        errors["resource_limit"]["last_detail"] = detail; row["terminal_cost_verdict"] = "unknown"
+        with self.assertRaises(Refused): component_terminal(raw(), "clock_failure", actual_exit=81)
 
 
 def unit(d, signature_only=False):

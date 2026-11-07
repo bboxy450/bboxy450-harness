@@ -852,11 +852,7 @@ pub fn pretest_basis(control: u8) -> Model {
             13 => control == 9,
             _ => false,
         };
-        if omitted {
-            Bool(true)
-        } else {
-            eq(field, 1)
-        }
+        if omitted { Bool(true) } else { eq(field, 1) }
     }));
     let controlled_epoch = if control == 10 {
         exact_epoch
@@ -1519,15 +1515,17 @@ pub fn closure_boundary(control: u8) -> Model {
 }
 
 /// One private component invocation and its retained original host handle.
-/// `wait_component` observes actual wait4 independently of a Q2 result wire;
-/// `component_result` can admit only a successful, physically settled result.
+/// `component_terminal` and `run_private_components` keep actual wait4 separate
+/// from the Q2 case wire and the independent persistence/terminal verdicts.
 /// Source/build/clock measurements are external premises, not finite proofs.
-/// Wire arrival, helper settlement, debt observation and actual exit have NO
-/// fairness; only local release and sealing bookkeeping is weakly fair.
+/// Wire arrival, helper settlement, debt/verdict observations and actual exit
+/// have NO fairness; only local release/verdict/seal bookkeeping is weakly fair.
 pub fn component_host(control: u8) -> Model {
     let suffix = match control {
         1 => "WireIsExit",
         2 => "ReplaceUnresolved",
+        3 => "ControlMasksTerminal",
+        4 => "ControlMasksPersistence",
         _ => "",
     };
     let mut m = base(
@@ -1535,7 +1533,7 @@ pub fn component_host(control: u8) -> Model {
         control != 0,
         &[
             ("created", 1, 0),
-            ("wire", 2, 0), // absent, successful, refusal/quarantine
+            ("wire", 3, 0), // absent, successful, refusal/quarantine, expected control
             ("actualWait4", 1, 0),
             ("helpersSettled", 1, 0),
             ("debtPaid", 1, 0),
@@ -1544,6 +1542,9 @@ pub fn component_host(control: u8) -> Model {
             ("hostReleased", 1, 0),
             ("sealed", 1, 0),
             ("runtimeApproved", 1, 0),
+            ("persistenceVerdict", 2, 0), // unobserved, complete, failed
+            ("terminalVerdict", 2, 0),    // unobserved, complete, failed
+            ("caseAccepted", 1, 0),
         ],
     );
     act(
@@ -1552,7 +1553,11 @@ pub fn component_host(control: u8) -> Model {
         eq(0, 0),
         &[(0, Int(1)), (5, Int(1)), (6, Int(1))],
     );
-    for (name, wire) in [("ReceiveSuccessfulWire", 1), ("ReceiveRefusalWire", 2)] {
+    for (name, wire) in [
+        ("ReceiveSuccessfulWire", 1),
+        ("ReceiveRefusalWire", 2),
+        ("ReceiveExpectedControlWire", 3),
+    ] {
         act(&mut m, name, all([eq(0, 1), eq(1, 0)]), &[(1, Int(wire))]);
     }
     // These observations may occur in any order or never occur. A refusal
@@ -1564,7 +1569,22 @@ pub fn component_host(control: u8) -> Model {
     ] {
         act(&mut m, name, eq(0, 1), &[(variable, Int(1))]);
     }
+    for (name, variable, verdict) in [
+        ("ObservePersistenceComplete", 10, 1),
+        ("ObservePersistenceFailure", 10, 2),
+        ("ObserveTerminalComplete", 11, 1),
+        ("ObserveTerminalFailure", 11, 2),
+    ] {
+        act(
+            &mut m,
+            name,
+            all([eq(0, 1), eq(variable, 0)]),
+            &[(variable, Int(verdict))],
+        );
+    }
     let terminal = all([eq(2, 1), eq(3, 1), eq(4, 1)]);
+    let independent = all([eq(10, 1), eq(11, 1)]);
+    let admissible_wire = eq(1, 1).or(eq(1, 3));
     let release = m.actions.len();
     act(
         &mut m,
@@ -1589,11 +1609,42 @@ pub fn component_host(control: u8) -> Model {
             &[(6, Int(2))],
         );
     }
+    // Expected controls may satisfy their own causal case verdict (and the
+    // bound expected exit81), while persistence or terminal work independently
+    // fails. Neither that expected exit nor the case verdict masks the failure.
+    let accept = m.actions.len();
+    act(
+        &mut m,
+        "AcceptOnlyCompleteIndependentCaseVerdicts",
+        all([
+            eq(12, 0),
+            admissible_wire.clone(),
+            terminal.clone(),
+            if control == 4 {
+                eq(10, 1).or(all([eq(1, 3), eq(10, 2)]))
+            } else {
+                eq(10, 1)
+            },
+            if control == 3 {
+                eq(11, 1).or(all([eq(1, 3), eq(11, 2)]))
+            } else {
+                eq(11, 1)
+            },
+        ]),
+        &[(12, Int(1))],
+    );
     let seal = m.actions.len();
     act(
         &mut m,
         "SealSuccessfulSettledCandidate",
-        all([eq(7, 1), eq(1, 1), terminal.clone()]),
+        all([
+            eq(8, 0),
+            eq(7, 1),
+            eq(1, 1),
+            eq(12, 1),
+            terminal.clone(),
+            independent.clone(),
+        ]),
         &[(8, Int(1))],
     );
     safe(
@@ -1614,7 +1665,32 @@ pub fn component_host(control: u8) -> Model {
     safe(
         &mut m,
         "BadWireNeverQualifiesCandidate",
-        eq(8, 0).or(all([eq(1, 1), eq(7, 1), terminal.clone()])),
+        eq(8, 0).or(all([
+            eq(1, 1),
+            eq(7, 1),
+            eq(12, 1),
+            terminal.clone(),
+            independent.clone(),
+        ])),
+    );
+    safe(
+        &mut m,
+        "ExpectedControlRequiresIndependentTerminalProof",
+        eq(12, 0).or(Var(1).lt(Int(3))).or(eq(11, 1)),
+    );
+    safe(
+        &mut m,
+        "ExpectedControlRequiresIndependentPersistenceProof",
+        eq(12, 0).or(Var(1).lt(Int(3))).or(eq(10, 1)),
+    );
+    safe(
+        &mut m,
+        "AcceptedCaseRequiresAllIndependentVerdicts",
+        eq(12, 0).or(all([
+            admissible_wire.clone(),
+            terminal.clone(),
+            independent.clone(),
+        ])),
     );
     safe(&mut m, "PrivateCandidateNeverRuntimeApproved", eq(9, 0));
     progress(
@@ -1626,10 +1702,17 @@ pub fn component_host(control: u8) -> Model {
     );
     progress(
         &mut m,
+        "CompleteCaseEventuallyHasHostVerdict",
+        all([admissible_wire, terminal.clone(), independent.clone()]),
+        eq(12, 1),
+        vec![accept],
+    );
+    progress(
+        &mut m,
         "SuccessfulTerminalResultEventuallySeals",
-        all([eq(1, 1), terminal]),
+        all([eq(1, 1), terminal, independent]),
         eq(8, 1),
-        vec![release, seal],
+        vec![release, accept, seal],
     );
     m
 }
@@ -1640,7 +1723,7 @@ pub fn corpus() -> Vec<(Model, &'static str)> {
         (publication as fn(u8) -> Model, 5),
         (binding as fn(u8) -> Model, 5),
         (custody as fn(u8) -> Model, 6),
-        (component_host as fn(u8) -> Model, 2),
+        (component_host as fn(u8) -> Model, 4),
         (hidden_work as fn(u8) -> Model, 2),
         (source_seven as fn(u8) -> Model, 8),
         (pretest_basis as fn(u8) -> Model, 14),
@@ -1696,6 +1779,8 @@ fn dream_proof_tools_controls_reach_their_named_failure() {
             vec![
                 (1, "HostReleaseRequiresActualTerminalProof"),
                 (2, "NoReplacementWhileOriginalUnresolved"),
+                (3, "ExpectedControlRequiresIndependentTerminalProof"),
+                (4, "ExpectedControlRequiresIndependentPersistenceProof"),
             ],
         ),
         (
@@ -1769,7 +1854,9 @@ fn dream_proof_tools_good_models_are_nonvacuous() {
     );
     let host = component_host(0).check(100_000).unwrap();
     assert!(
-        host.states.iter().any(|s| s[1] == 2 && s[2] == 0 && s[5] == 1),
+        host.states
+            .iter()
+            .any(|s| s[1] == 2 && s[2] == 0 && s[5] == 1),
         "refusal wire can precede actual controller exit while its original handle remains retained"
     );
     assert!(
@@ -1784,8 +1871,32 @@ fn dream_proof_tools_good_models_are_nonvacuous() {
             && s[2] == 1
             && s[3] == 1
             && s[4] == 1
-            && s[9] == 0),
+            && s[9] == 0
+            && s[10] == 1
+            && s[11] == 1
+            && s[12] == 1),
         "successful terminal evidence can seal a private, runtime-unapproved candidate"
+    );
+    for (persistence, terminal) in [(1, 2), (2, 1)] {
+        assert!(
+            host.states.iter().any(|s| s[1] == 3
+                && s[2] == 1
+                && s[3] == 1
+                && s[4] == 1
+                && s[10] == persistence
+                && s[11] == terminal
+                && s[12] == 0
+                && s[8] == 0),
+            "expected causal control cannot mask an independent failed verdict"
+        );
+    }
+    assert!(
+        host.states.iter().any(|s| s[1] == 3
+            && s[10] == 1
+            && s[11] == 1
+            && s[12] == 1
+            && s[8] == 0),
+        "independently complete expected control can be accepted without sealing a successful candidate"
     );
     let hidden = hidden_work(0).check(100_000).unwrap();
     for kind in 1..=3 {
@@ -2025,8 +2136,12 @@ fn dream_proof_tools_closure_boundary_controls_are_causal() {
             "closure control {control} did not reach safety invariant {property}"
         );
         if control == 13 {
-            assert!(bad.states.iter().any(|s| s[12] == 2 && s[26] == 1 && s[17] == 1),
-                "observed mismatch then A return must causally admit stale metadata in the broken control");
+            assert!(
+                bad.states
+                    .iter()
+                    .any(|s| s[12] == 2 && s[26] == 1 && s[17] == 1),
+                "observed mismatch then A return must causally admit stale metadata in the broken control"
+            );
         }
     }
 }
@@ -2127,9 +2242,10 @@ fn dream_proof_tools_closure_boundary_signed_authority_is_exact() {
         "valid-mode-upward",
         "valid-mode-lazy",
     ] {
-        assert!(rows
-            .iter()
-            .any(|row| row["id"] == id && row["expected"] == "accept"));
+        assert!(
+            rows.iter()
+                .any(|row| row["id"] == id && row["expected"] == "accept")
+        );
     }
     for (id, invariant) in [
         ("duplicate-image", "candidate_identity"),

@@ -328,8 +328,8 @@ six-source baseline, authenticates the new source and preserves the mandatory
 library check. It substitutes no Homebrew binary libraries. Joined qualification
 still requires Root's frozen canonical private-candidate probe; normal Git mode
 remains `verification_unproven`.
-The verifier consumes the task's frozen 30f27ccc source, supplied 76f35824
-executable and corrected a4998fb7 preparation receipt. The offline adapter checks
+The verifier consumes the task's frozen 35d3e602 source, supplied 86c5c9b5
+executable and final d66feb40 preparation receipt. The offline adapter checks
 compiler, SDK, lexical header aliases, retained outputs and build closure. It never
 recompiles a probe or discovers a replacement. Historical probe results and the
 signed C preflight remain separate evidence. Large preparation/header receipts
