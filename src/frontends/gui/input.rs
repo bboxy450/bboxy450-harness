@@ -226,7 +226,7 @@ impl HarnessView {
                         if self.composer.view.text.is_empty() {
                             self.composer.handle(composer::Command::Edit(Edit::Insert(
                                 if a.preview.is_some() {
-                                    "[Image]".into()
+                                    format!("[Image #{}]", self.inputs.attachments.len() + 1)
                                 } else {
                                     format!("@{}", a.label)
                                 },
@@ -502,37 +502,67 @@ impl HarnessView {
             return composer;
         }
         let ink = f::ink(context());
-        let mut rows = vec![];
+        // One row of compact chips, as a terminal shows `[Image #1]`: a small
+        // thumbnail, the label and a × that removes it.
+        let mut chips = vec![];
         for (i, a) in self.inputs.attachments.iter().enumerate() {
-            let mut row = vec![];
-            if let Some(image) = &a.preview {
-                row.push(fixed(c::Element::Image {
+            let mut chip = vec![];
+            let label = if let Some(image) = &a.preview {
+                chip.push(fixed(c::Element::Image {
                     asset: image.name.clone(),
-                    size: ui::Length::Px(48.),
+                    size: ui::Length::Px(20.),
                     radius: ui::Length::Px(4.),
                 }));
-            }
-            row.push(fixed(line(&a.label, 12., 400, ink.fg, false)));
-            row.push(fixed(named(
+                if a.label == "Pasted image" {
+                    format!("Image #{}", i + 1)
+                } else {
+                    a.label.clone()
+                }
+            } else {
+                a.label.clone()
+            };
+            chip.push(fixed(line(&label, 11.5, 500, ink.fg, false)));
+            chip.push(fixed(named(
                 format!("attachment/remove/{i}"),
-                line("Remove", 12., 500, ink.dim, false),
+                frame(
+                    Frame {
+                        padding: [0., 2., 0., 2.],
+                        ..Default::default()
+                    },
+                    vec![fixed(line("×", 13., 500, ink.dim, false))],
+                ),
             )));
+            chips.push(fixed(frame(
+                Frame {
+                    row: true,
+                    gap: 5.,
+                    fill: f::alpha(ink.fg, 0.06),
+                    border: Some(f::alpha(ink.fg, 0.10)),
+                    radius: [7.; 4],
+                    padding: [2., 5., 2., 3.],
+                    ..Default::default()
+                },
+                chip,
+            )));
+        }
+        let mut rows = vec![];
+        if !chips.is_empty() {
             rows.push(fixed(frame(
                 Frame {
                     row: true,
-                    gap: 8.,
+                    gap: 6.,
                     ..Default::default()
                 },
-                row,
+                chips,
             )));
         }
         if let Some(status) = &self.inputs.status {
-            rows.push(fixed(line(status, 12., 400, ink.dim, false)));
+            rows.push(fixed(line(status, 11.5, 400, ink.dim, false)));
         }
         let strip = frame(
             Frame {
-                padding: [4., 12., 4., 12.],
-                gap: 4.,
+                padding: [2., 12., 4., 12.],
+                gap: 3.,
                 ..Default::default()
             },
             rows,
