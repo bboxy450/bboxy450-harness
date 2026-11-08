@@ -2880,15 +2880,17 @@ static int engine_expand(const struct private_engine_context *context,const char
     while(*text) {
         const char *value=NULL;size_t take=1;
         if(*text=='{') {
-            const char *end=strchr(text,'}');if(!end)return 0;take=(size_t)(end-text)+1;
+            const char *end=strchr(text,'}');take=end?(size_t)(end-text)+1:strlen(text);
 #define EXPAND(name,content) if(take==sizeof(name)-1&&!memcmp(text,name,take))value=(content)
             EXPAND("{gpg}",gpg);else EXPAND("{commit}",commit);else EXPAND("{ancestor}",f->ancestor);
             else EXPAND("{record}",record);else EXPAND("{policy_branch}",branch);
-            else EXPAND("{home}",home);else EXPAND("{scratch}",scratch);else return 0;
+            else EXPAND("{home}",home);else EXPAND("{scratch}",scratch);
 #undef EXPAND
         }
         if(value){size_t len=strlen(value);if(len>4096-used)return 0;memcpy(out+used,value,len);used+=len;}
-        else {if(used>=4096)return 0;out[used++]=*text;}
+        // Only the named inputs above are placeholders. Git's own revision
+        // braces, including ^{tree}, remain exact literal argv bytes.
+        else {if(take>4096-used)return 0;memcpy(out+used,text,take);used+=take;}
         text+=take;
     }
     out[used]=0;return 1;

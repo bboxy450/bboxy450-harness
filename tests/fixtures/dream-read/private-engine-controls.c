@@ -60,6 +60,9 @@ static void fixture_check(int ok,const char *label) {
 #define require(ok,label) fixture_check((ok),(label))
 static void fixture(int root) {
     memset(&outer,0,sizeof(outer));memset(&basis,0,sizeof(basis));
+    basis.build.tools[0].ref.path=(struct private_slice){(const unsigned char *)"\"/source-known/git\"",sizeof("\"/source-known/git\"")-1};
+    basis.build.tools[1].ref.path=(struct private_slice){(const unsigned char *)"\"/source-known/gpg\"",sizeof("\"/source-known/gpg\"")-1};
+    basis.fixture.policy_branch=(struct private_slice){(const unsigned char *)"\"refs/heads/main\"",sizeof("\"refs/heads/main\"")-1};
     strcpy(outer.case_name,"positive");outer.repo.fd=root;outer.prefix.fd=outer.output.fd=-1;
     outer.deadline=clock_ns(CLOCK_MONOTONIC)+30000000000ULL;
     strcpy(basis.fixture.ancestor,"2ac709c836778e8203ecc9232daa5153a166cc0f");
@@ -81,6 +84,44 @@ static void fixture(int root) {
 static void output(struct engine_owner *owner,const void *bytes,size_t n) {
     require(n<=sizeof(capture),"source-known output bound");if(n)memcpy(capture,bytes,n);owner->capture=capture;owner->out_len=n;
 }
+static void argv_expansion_controls(int dir) {
+    reset();fixture(dir);strcpy(outer.repo.path,"/source-known/fixture");
+    const char *home="/source-known/home",*scratch="/source-known/scratch";
+    require(!strcmp(private_forms[10].id,"tree_pin")&&private_forms[10].argc==2
+        &&!strcmp(private_forms[10].argv[1],"{commit}^{tree}"),"tree pin registry retains original exact Git syntax");
+    for(unsigned corrupt=0;corrupt<2;corrupt++) {
+        strcpy(outer.case_name,corrupt?"corrupt_proof":"positive");struct engine_prepared prepared;
+        int ready=engine_prepare_argv(&context,10,home,scratch,&prepared);
+        char expected[64];int n=snprintf(expected,sizeof(expected),"%s^{tree}",corrupt?basis.fixture.corrupt:basis.fixture.valid);
+        require(ready&&n==47&&prepared.argc==19&&prepared.argv[19]==NULL
+            &&!strcmp(prepared.argv[17],"rev-parse")&&!strcmp(prepared.argv[18],expected)
+            &&prepared.envc==11&&!strcmp(prepared.image,"/source-known/git"),
+            "actual registry tree_pin argv preparation preserves selected commit and literal tree selector");
+        require(private_end_unit(private_cost.open_cpu),"actual valid or corrupt tree argv preparation cost paid");
+    }
+    struct engine_prepared forbidden_prepared;
+    require(!engine_prepare_argv(&context,15,home,scratch,&forbidden_prepared),"implicit verifier form15 remains forbidden to direct argv preparation");
+    strcpy(outer.case_name,"positive");char out[4097];
+    const char *literal[]={"^{tree}","{unknown}","a{tree}b","{}","{open","{outer{commit}}","{{commit}}","}"};
+    for(unsigned i=0;i<sizeof(literal)/sizeof(literal[0]);i++)
+        require(engine_expand(&context,literal[i],home,scratch,out)&&!strcmp(out,literal[i]),"other brace sequences remain exact literal Git bytes");
+    require(engine_expand(&context,"x{record}^{tree}",home,scratch,out)&&!strcmp(out,"xsecond^{tree}"),"only named placeholders expand beside literal Git syntax");
+    const char *forbidden[]={"{git_signature_temp}","{signature}","x{signature}y","prefix{git_signature_temp}suffix","{outer{signature}}"};
+    for(unsigned i=0;i<sizeof(forbidden)/sizeof(forbidden[0]);i++)
+        require(!engine_expand(&context,forbidden[i],home,scratch,out),"B matcher and retired signature token remain banned even when embedded");
+    require(private_end_unit(private_cost.open_cpu),"literal and forbidden brace vectors fully paid");
+    char bounded[4098];memset(bounded,'x',4096);bounded[4096]=0;
+    require(engine_expand(&context,bounded,home,scratch,out)&&strlen(out)==4096,"literal expansion exact4096 byte bound");
+    bounded[4096]='x';bounded[4097]=0;
+    require(!engine_expand(&context,bounded,home,scratch,out),"literal expansion refuses4097 bytes without truncation");
+    bounded[4096]=0;
+    require(engine_expand(&context,"{home}",bounded,scratch,out)&&strlen(out)==4096
+        &&!engine_expand(&context,"{home}x",bounded,scratch,out),"named expansion retains exact4096 bound and refuses combined overflow");
+    require(private_end_unit(private_cost.open_cpu),"bounded argv overflow controls fully paid");
+    printf("private_argv_expansion_source_known actual_registry_form=10 prepared_valid=true prepared_corrupt=true selector_literal=true vector_scope=production_prepare_and_expand native_process=false runtime_approved=false\n");
+    require(fflush(stdout)==0&&private_end_unit(private_cost.open_cpu),"argv source-known evidence fully paid");controls++;reset();
+}
+
 static void semantic_controls(void) {
     struct private_engine_result result;struct engine_owner owner;memset(&owner,0,sizeof(owner));memset(&result,0,sizeof(result));
     owner.context=&context;owner.result=&result;
@@ -125,14 +166,17 @@ static void semantic_controls(void) {
     reset();sig.settled=0;output(&owner,"B\0\0\n",4);require(!engine_semantic(&owner,12,0),"missing GS2 refuses bad-signature result");controls++;
     strcpy(outer.case_name,"positive");reset();private_guards_dispose();
 }
-static unsigned flow_variant,flow_commands;
+static unsigned flow_variant,flow_commands,flow_prepares,flow_prepared_forms;
 static int source_known_current(const struct private_engine_context *ctx) {
     return private_context_same(ctx)&&private_guards.stage==2;
 }
 static int source_known_command(struct engine_owner *owner,struct engine_prepared *prepared,unsigned form,
     const char *home,const char *scratch,const unsigned char *input,size_t length,int *status) {
     ENGINE_FLOW_STAGE(1000+form);
-    (void)prepared;(void)home;(void)scratch;(void)input;(void)length;
+    (void)input;(void)length;
+    if(!engine_prepare_argv(owner->context,form,home,scratch,prepared))
+        return engine_failure(owner,"input_invalid","actual fixed command argv preparation failed in source-known flow");
+    flow_prepares++;flow_prepared_forms|=1u<<form;
     flow_commands++;owner->command=form;owner->verified_descendants=owner->child_created=owner->child_settled=0;
     unsigned slots=private_forms[form].members;owner->result->attempts+=(uint16_t)slots;
     owner->result->created+=(uint16_t)slots;owner->result->reaped+=(uint16_t)slots;
@@ -215,12 +259,22 @@ static void flow_controls(const char *root,int dir) {
         basis.fixture.valid_signature.path=(struct private_slice){(const unsigned char *)"\"valid-signature\"",sizeof("\"valid-signature\"")-1};
         basis.fixture.corrupt_signature.path=(struct private_slice){(const unsigned char *)"\"corrupt-signature\"",sizeof("\"corrupt-signature\"")-1};
         memset(&engine_signature_storage,0,sizeof(engine_signature_storage));engine_signature_storage.scratch_fd=engine_signature_storage.signature_fd=-1;
-        flow_variant=variant;flow_commands=0;private_source_known_effects=&effects;
+        flow_variant=variant;flow_commands=flow_prepares=flow_prepared_forms=0;private_source_known_effects=&effects;
         struct private_engine_result r;memset(&r,0,sizeof(r));
         int completed=private_dispatch(1,1,1,&context,&r);int dispatch_error=errno;
         private_source_known_effects=NULL;
-        if(completed!=(variant==0||variant==3)||flow_commands!=15)flow_failure_diagnostic(variant,completed,dispatch_error,&r);
-        require(completed==(variant==0||variant==3)&&flow_commands==15,"same functional validate/claim/15-command/semantic/settle flow");
+        uint64_t flow_end=clock_ns(CLOCK_MONOTONIC);
+        if(completed!=(variant==0||variant==3)||flow_commands!=15||flow_prepares!=15||flow_prepared_forms!=32767u)flow_failure_diagnostic(variant,completed,dispatch_error,&r);
+        require(completed==(variant==0||variant==3)&&flow_commands==15&&flow_prepares==15&&flow_prepared_forms==32767u,"same functional validate/claim/15-command/semantic/settle flow");
+        printf("private_flow_cost_source_known variant=%u actual_argv_prepares=%u prepared_forms=%u entry_ns=%llu end_ns=%llu elapsed_ns=%llu original_deadline_ns=%llu ordinary_max_ns=%llu ordinary_cost_ns=%llu ordinary_raw_cpu_ns=%llu ordinary_floor_surcharge_ns=%llu booked_ordinary_units=%llu global_debt_ns=%llu global_paid_ns=%llu helper_cost_total_ns=%llu path_units=%llu retained_fixture_guards=%u actual_helper_births=0 native_wait4_metrics=scripted entry_scope=command_engine_only outer_inner_auth_platform_validation=not_exercised runtime_approved=false\n",
+            variant,flow_prepares,flow_prepared_forms,(unsigned long long)private_cost.entry,(unsigned long long)flow_end,
+            (unsigned long long)engine_interval(private_cost.entry,flow_end),(unsigned long long)private_cost.deadline,(unsigned long long)private_cost.ordinary_max,
+            (unsigned long long)private_cost.booked_ordinary_cost_ns,(unsigned long long)private_cost.ordinary_raw_total_ns,(unsigned long long)private_cost.ordinary_floor_total_ns,
+            (unsigned long long)private_cost.booked_units,(unsigned long long)private_cost.debt,(unsigned long long)private_cost.debt_paid,
+            (unsigned long long)private_cost.booked_helper_cost_ns,(unsigned long long)private_cost.path_walk_units,private_guards.count);
+        require(fflush(stdout)==0&&private_end_unit(private_cost.open_cpu),"full15 engine source-known raw cost evidence paid under original deadline");
+        require(flow_end!=UINT64_MAX&&flow_end>=private_cost.entry&&flow_end<private_cost.deadline&&private_cost.debt==private_cost.debt_paid,
+            "full15 actual argv engine loop preserves original30s and paid ordinary floors");
         require(r.engine_entered&&r.created==16&&r.reaped==16&&r.attempts==16,"scripted effects flow through real accounting owner");
         if(completed)require(r.semantic_forms==32767&&r.commands_completed==15&&!strcmp(r.outcome,variant==3?"expected_rejection":"completed"),"same real flow completion and proof outcome");
         else require(r.semantic_forms!=32767&&r.commands_completed==14&&!strcmp(r.observed_proof,"not_reached"),"missing verifier/generic error cannot complete corrupt proof");
@@ -1067,7 +1121,8 @@ int main(int argc,char **argv) {
     unsigned setup=argc==2&&!strcmp(argv[1],"diagnostic-setup-budget-control");
     unsigned deadline=argc==2&&!strcmp(argv[1],"terminal-deadline-controls");
     unsigned cpu_debt=argc==2&&!strcmp(argv[1],"helper-cpu-debt-control");
-    require(argc==1||selected<12||diagnostics||setup||deadline||cpu_debt||hold||flow||result_only||charge||boundary||retained,"private source-known controls argc");
+    unsigned expand=argc==2&&!strcmp(argv[1],"argv-expansion-controls");
+    require(argc==1||selected<12||diagnostics||setup||deadline||cpu_debt||expand||hold||flow||result_only||charge||boundary||retained,"private source-known controls argc");
     require(atexit(dispose_owned)==0,"owned cleanup registration");
     char root[]="/private/tmp/dream-private-engine-controls.XXXXXX";require(mkdtemp(root)!=NULL,"owned fixture directory");
     int dir=open(root,O_RDONLY|O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC);require(dir>=0,"owned fixture root");
@@ -1098,10 +1153,11 @@ int main(int argc,char **argv) {
     if(retained){total_retained_guard_api();require(close(dir)==0,"owned retained guard API root close");return 0;}
     if(selected<12){total_control(self,root,dir,selected);require(close(dir)==0,"owned narrow fixture root close");return 0;}
     if(diagnostics){terminal_diagnostic_controls(dir);require(close(dir)==0,"owned diagnostic root close");return 0;}
+    if(expand){argv_expansion_controls(dir);require(close(dir)==0,"owned argv expansion root close");return 0;}
     if(cpu_debt){helper_cpu_debt_control(self,root,dir);require(close(dir)==0,"owned CPU-debt root close");return 0;}
     if(deadline){terminal_deadline_controls(dir);require(close(dir)==0,"owned terminal-deadline root close");return 0;}
     if(setup){diagnostic_setup_budget_control();require(close(dir)==0,"owned setup root close");return 0;}
-    semantic_controls();result_controls();flow_controls(root,dir);terminal_diagnostic_controls(dir);terminal_deadline_controls(dir);charge_diagnostic_control(dir);
+    argv_expansion_controls(dir);semantic_controls();result_controls();flow_controls(root,dir);terminal_diagnostic_controls(dir);terminal_deadline_controls(dir);charge_diagnostic_control(dir);
     for(unsigned mode=0;mode<12;mode++)total_control(self,root,dir,mode);
     helper_cpu_debt_control(self,root,dir);
     total_boundary_api();

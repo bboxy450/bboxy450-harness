@@ -35,6 +35,7 @@ LEDGERS = ('hold-ledger.ndjson', 'hold-control-success', 'claim.json', 'charge-d
            *(f'pause-{i}-{phase}' for i in (9,10) for phase in ('start','done','release')),
            *('diagnostic-' + str(i) + '/' + name for i in range(4) for name in ('stderr', 'stdout', 'result.json')))
 ASSERTIONS = {
+ 'argv-tree-literal-reject': b'actual registry tree_pin argv preparation preserves selected commit and literal tree selector',
  'helper-cpu-not-wall': b'long wall helper adds only nine times wait4 CPU above its existing global debt baseline',
  'total-helper-floor': b'helper CPU debt API preserves one millisecond floor and conservative unknown cost',
  'currentness-empty-floors': b'same bounded currentness open stat and close share one fully paid unit',
@@ -271,6 +272,8 @@ def variants(source):
     result = {}
     def add(name, anchor, replacement, args):
         result[name] = (changed(source, anchor, replacement), args)
+    add('argv-tree-literal-reject', b'else EXPAND("{home}",home);else EXPAND("{scratch}",scratch);',
+        b'else EXPAND("{home}",home);else EXPAND("{scratch}",scratch);else return 0;', ['argv-expansion-controls'])
     add('helper-cpu-not-wall', b'uint64_t cost=engine_helper_cpu_cost(o->terminal_cpu_ns);',
         b'uint64_t cost=engine_interval(o->activation_ns,engine_now(o,CLOCK_MONOTONIC));if(cost<1000000)cost=1000000;', ['helper-cpu-debt-control'])
     add('total-helper-floor', b'static uint64_t engine_helper_cpu_cost(uint64_t cpu) {return cpu==UINT64_MAX?3000000:cpu<1000000?1000000:cpu;}',
@@ -338,9 +341,9 @@ def variants(source):
 
 
 def retain_current(stdout, report):
-    found=re.findall(rb'private_engine_controls=pass cases=67 total_budget_controls=8 synthetic_source_known=true real_candidate_created=0 runtime_approved=false retained=(/private/tmp/dream-private-engine-controls\.[A-Za-z0-9]+)\n',stdout)
+    found=re.findall(rb'private_engine_controls=pass cases=68 total_budget_controls=8 synthetic_source_known=true real_candidate_created=0 runtime_approved=false retained=(/private/tmp/dream-private-engine-controls\.[A-Za-z0-9]+)\n',stdout)
     if len(found)!=1:
-        raise ValueError('current fixture lacks exact67 remaining controls and eight total-budget witnesses')
+        raise ValueError('current fixture lacks exact68 remaining controls and eight total-budget witnesses')
     if os.fsdecode(found[0]) != report['commands'][-1]['fixture_capture']['source_dir']:
         raise ValueError('completed fixture root differs from original command binding')
     modes=re.findall(rb'private_total_budget_control_source_known mode=([0-9]+) original_pid=([0-9]+) actual_own_wait4=1 group_gone=1 terminal_cpu_ns=([0-9]+)',stdout)
@@ -355,7 +358,18 @@ def retain_current(stdout, report):
     if wall<100000000 or wall<=2*cpu or cost!=max(1000000,cpu) or delta!=9*cost or target!=before+delta or not before or paid<target:
         raise ValueError('helper CPU delta is conflated with elapsed wall or the cumulative controller baseline')
     report['helper_cpu_debt_owned_process_witness']={'pid':pid,'wall_ns':wall,'authoritative_CPU_ns':cpu,'helper_delta_ns':delta,'global_debt_before_ns':before,'global_target_ns':target,'global_paid_after_ns':paid,'scope':'actual owned fixture, not installed tool qualification'}
-    report['baseline_cases']=67
+    argv_marker=b'private_argv_expansion_source_known actual_registry_form=10 prepared_valid=true prepared_corrupt=true selector_literal=true vector_scope=production_prepare_and_expand native_process=false runtime_approved=false\n'
+    if stdout.count(argv_marker)!=1:
+        raise ValueError('production registry/preparation argv tree-selector control missing or duplicated')
+    flows=re.findall(rb'private_flow_cost_source_known variant=([0-3]) actual_argv_prepares=15 prepared_forms=32767 entry_ns=([0-9]+) end_ns=([0-9]+) elapsed_ns=([0-9]+) original_deadline_ns=([0-9]+)',stdout)
+    if sorted(int(row[0]) for row in flows)!=list(range(4)):
+        raise ValueError('all four source-known full15 actual argv engine flow costs required')
+    for variant,start,end,elapsed,deadline in flows:
+        start,end,elapsed,deadline=map(int,(start,end,elapsed,deadline))
+        if end<start or end-start!=elapsed or end>=deadline or deadline-start!=30000000000:
+            raise ValueError('source-known engine flow violated original30s timing or raw elapsed identity')
+    report['source_known_argv_and_engine_scope']={'actual_registry_forms':list(range(15)),'actual_prepares_per_variant':15,'variants':4,'timing_raw_scope':'command_engine_only; real controller/config/reference/argv/semantic work, native/wait4 scripted; outer-inner authentication/platform validation not exercised','actual_helper_births':0,'whole_private_candidate_fit_proven':False}
+    report['baseline_cases']=68
     marker=b'private_total_retained_guard_source_known api=true supplied_clock_and_identity_values=true native_process=false runtime_approved=false\n'
     if stdout.count(marker)!=1:
         raise ValueError('current retained-clock/child production API witness missing or duplicated')
