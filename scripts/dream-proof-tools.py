@@ -3021,7 +3021,7 @@ def component_terminal(stderr, case, result=None, actual_exit=None):
         return parsed
     row, end = values(lines[terminal[0]]), values(lines[tail[0]])
     fields(end, "output_closed close_max_ns debt_charged_ns debt_paid_ns ordinary_max_ns")
-    fields(row, "profile stage metrics_cutoff metadata_kind terminal_cutoff runtime_approved helper_created helper_reaped result_complete control_verdict persistence_verdict terminal_cost_verdict tail_complete persistence_attempted persistence_open persistence_write persistence_fsync persistence_close persistence_directory_fsync persistence_errno stdout_errno stdout_attempted reporting_only original_entry_ns original_deadline_ns deadline_observed_ns deadline_first_ns deadline_first_unit_ns deadline_first_line deadline_last_line reporting_started_ns closed_unit_count path_walk_components path_walk_units persistence_paid formatter_cpu_start_ns formatter_cpu_end_ns formatter_inclusive_ns write_cpu_start_ns write_cpu_end_ns write_inclusive_ns close_max_cpu_ns probe_rss_peak_bytes rss_known ordinary_max_ns debt_charged_ns debt_paid_ns retained_units retained_overflow format_paid write_paid error_count error_codes error_counts errors_complete diagnostics_complete parent_actual_reap_required")
+    fields(row, "profile stage metrics_cutoff metadata_kind terminal_cutoff runtime_approved helper_created helper_reaped result_complete control_verdict persistence_verdict terminal_cost_verdict tail_complete persistence_attempted persistence_open persistence_write persistence_fsync persistence_close persistence_directory_fsync persistence_errno stdout_errno stdout_attempted reporting_only original_entry_ns original_deadline_ns deadline_observed_ns deadline_first_ns deadline_first_unit_ns deadline_first_line deadline_last_line reporting_started_ns closed_unit_count path_walk_components path_walk_units booked_ordinary_units engine_charge_calls poll_closure_calls ordinary_cost_ns ordinary_raw_cpu_ns ordinary_raw_complete ordinary_floor_surcharge_ns helper_cost_total_ns debt_components_match debt_scope persistence_paid formatter_cpu_start_ns formatter_cpu_end_ns formatter_inclusive_ns write_cpu_start_ns write_cpu_end_ns write_inclusive_ns close_max_cpu_ns probe_rss_peak_bytes rss_known ordinary_max_ns debt_charged_ns debt_paid_ns retained_units retained_overflow format_paid write_paid error_count error_codes error_counts errors_complete diagnostics_complete parent_actual_reap_required")
     # Frozen result-path C:424-426/452/3934-3940: one textual boolean,
     # one terminal reporting flag, two unsigned32 source lines and nine uint64
     # observations. C:610-616 records first-unit CPU only after its 1ms gate.
@@ -3034,6 +3034,13 @@ def component_terminal(stderr, case, result=None, actual_exit=None):
                  "reporting_started_ns", "closed_unit_count", "path_walk_components", "path_walk_units"):
         number(row[name])
     require(number(row["deadline_first_unit_ns"]) <= 1000000, "canonical terminal first expired unit CPU range")
+    # INPUT54 C:3970-3978, authorized by the task's exact ten-field ruling.
+    for name in ("booked_ordinary_units", "engine_charge_calls", "poll_closure_calls", "ordinary_cost_ns",
+                 "ordinary_raw_cpu_ns", "ordinary_floor_surcharge_ns", "helper_cost_total_ns"):
+        number(row[name])
+    for name in ("ordinary_raw_complete", "debt_components_match"):
+        require(row[name] in ("true", "false"), "canonical terminal INPUT54 boolean")
+    require(row["debt_scope"] == "whole_controller_cumulative", "canonical terminal INPUT54 debt scope")
     require(row["profile"] == "read-helper-native/1" and row["metrics_cutoff"] == "pre_result_emission"
             and row["metadata_kind"] == "declared_peak_capacity"
             and row["terminal_cutoff"] == "after_paid_tail_and_error_diagnostics_before_final_receipt"
@@ -4376,6 +4383,10 @@ class ComponentHandoffTests(unittest.TestCase):
                "original_deadline_ns": "30000000001", "deadline_observed_ns": "0", "deadline_first_ns": "0",
                "deadline_first_unit_ns": "0", "deadline_first_line": "0", "deadline_last_line": "0",
                "reporting_started_ns": "2", "closed_unit_count": "1", "path_walk_components": "1", "path_walk_units": "1",
+               "booked_ordinary_units": "3", "engine_charge_calls": "1", "poll_closure_calls": "1",
+               "ordinary_cost_ns": "3", "ordinary_raw_cpu_ns": "3", "ordinary_raw_complete": "true",
+               "ordinary_floor_surcharge_ns": "0", "helper_cost_total_ns": "0", "debt_components_match": "true",
+               "debt_scope": "whole_controller_cumulative",
                "persistence_paid": "true", "formatter_cpu_start_ns": "1", "formatter_cpu_end_ns": "2",
                "formatter_inclusive_ns": "1", "write_cpu_start_ns": "3", "write_cpu_end_ns": "4", "write_inclusive_ns": "1",
                "close_max_cpu_ns": "1", "probe_rss_peak_bytes": "4096", "rss_known": "true", "ordinary_max_ns": "1",
@@ -4421,7 +4432,9 @@ class ComponentHandoffTests(unittest.TestCase):
         # Inert wire parsing only; field widths and sentinels come from the
         # frozen C declarations, not a new controller or runtime qualification.
         limits = {name: 2**64 - 1 for name in ("original_entry_ns", "original_deadline_ns", "deadline_observed_ns",
-                  "deadline_first_ns", "reporting_started_ns", "closed_unit_count", "path_walk_components", "path_walk_units")}
+                  "deadline_first_ns", "reporting_started_ns", "closed_unit_count", "path_walk_components", "path_walk_units",
+                  "booked_ordinary_units", "engine_charge_calls", "poll_closure_calls", "ordinary_cost_ns",
+                  "ordinary_raw_cpu_ns", "ordinary_floor_surcharge_ns", "helper_cost_total_ns")}
         limits.update({"deadline_first_line": 2**32 - 1, "deadline_last_line": 2**32 - 1,
                        "deadline_first_unit_ns": 1000000})
         for name, maximum in limits.items():
@@ -4444,6 +4457,38 @@ class ComponentHandoffTests(unittest.TestCase):
                 with self.subTest(name=name, rejected=value), self.assertRaises(Refused):
                     row[name] = value
                     component_terminal(raw(), "positive", actual_exit=0)
+
+    def test_component_input54_terminal_fields_are_required_closed_and_typed(self):
+        row, _, _, raw = self.terminal_fixture()
+        names = ("booked_ordinary_units", "engine_charge_calls", "poll_closure_calls", "ordinary_cost_ns",
+                 "ordinary_raw_cpu_ns", "ordinary_floor_surcharge_ns", "helper_cost_total_ns",
+                 "ordinary_raw_complete", "debt_components_match", "debt_scope")
+        for name in names:
+            with self.subTest(missing=name):
+                value = row.pop(name)
+                with self.assertRaisesRegex(Refused, "unknown/missing fields"):
+                    component_terminal(raw(), "positive", actual_exit=0)
+                row[name] = value
+            with self.subTest(duplicate=name), self.assertRaisesRegex(Refused, "duplicate token"):
+                duplicate = raw()[:-1] + (" " + name + "=" + row[name] + "\n").encode()
+                component_terminal(duplicate, "positive", actual_exit=0)
+        row["input54_future_field"] = "0"
+        with self.assertRaisesRegex(Refused, "unknown/missing fields"):
+            component_terminal(raw(), "positive", actual_exit=0)
+        del row["input54_future_field"]
+        for name in ("ordinary_raw_complete", "debt_components_match"):
+            for value in ("true", "false"):
+                row[name] = value
+                component_terminal(raw(), "positive", actual_exit=0)
+            for value in ("0", "1", "True", "null", ""):
+                with self.subTest(boolean=name, rejected=value), self.assertRaises(Refused):
+                    row[name] = value
+                    component_terminal(raw(), "positive", actual_exit=0)
+            row[name] = "true"
+        for value in ("", "whole_helper_cumulative", "whole_controller", "true"):
+            with self.subTest(scope=value), self.assertRaisesRegex(Refused, "INPUT54 debt scope"):
+                row["debt_scope"] = value
+                component_terminal(raw(), "positive", actual_exit=0)
 
     def test_component_terminal_failure_cannot_be_hidden_by_expected_control_exit(self):
         mutations = {"control_verdict": "unknown", "persistence_verdict": "unknown", "terminal_cost_verdict": "failed",
