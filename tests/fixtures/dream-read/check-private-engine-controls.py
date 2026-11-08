@@ -31,10 +31,13 @@ VALIDATED = (b'if(!engine_owner_priority()||!engine_pretest_current(context)'
 # is re-labelled as a current pass.
 LEDGERS = ('hold-ledger.ndjson', 'hold-control-success', 'claim.json', 'charge-diagnostic.ndjson',
            'admitted-descriptor', 'retained-descriptor', 'deadline-result/stdout', 'deadline-result/result.json',
-           *(f'total-{i}.ndjson' for i in range(12)), 'rollup-2', 'rollup-2-terminal', 'rollup-2-release', 'release-6',
+           *(f'total-{i}.ndjson' for i in range(13)), 'rollup-2', 'rollup-2-terminal', 'rollup-2-release', 'release-6',
            *(f'pause-{i}-{phase}' for i in (9,10) for phase in ('start','done','release')),
            *('diagnostic-' + str(i) + '/' + name for i in range(4) for name in ('stderr', 'stdout', 'result.json')))
 ASSERTIONS = {
+ 'helper-cpu-not-wall': b'long wall helper adds only nine times wait4 CPU above its existing global debt baseline',
+ 'total-helper-floor': b'helper CPU debt API preserves one millisecond floor and conservative unknown cost',
+ 'currentness-empty-floors': b'same bounded currentness open stat and close share one fully paid unit',
  'terminal-descriptor-hash': b'admitted FD fresh hash refuses actual in-place mutation despite identical length',
  'terminal-work-deadline': b'expired original work deadline forbids next work after full cost payment',
  'terminal-deadline-output': b'expired deadline still attempts one bounded fully paid refusal result and persistence',
@@ -268,6 +271,12 @@ def variants(source):
     result = {}
     def add(name, anchor, replacement, args):
         result[name] = (changed(source, anchor, replacement), args)
+    add('helper-cpu-not-wall', b'uint64_t cost=engine_helper_cpu_cost(o->terminal_cpu_ns);',
+        b'uint64_t cost=engine_interval(o->activation_ns,engine_now(o,CLOCK_MONOTONIC));if(cost<1000000)cost=1000000;', ['helper-cpu-debt-control'])
+    add('total-helper-floor', b'static uint64_t engine_helper_cpu_cost(uint64_t cpu) {return cpu==UINT64_MAX?3000000:cpu<1000000?1000000:cpu;}',
+        b'static uint64_t engine_helper_cpu_cost(uint64_t cpu) {return cpu==UINT64_MAX?3000000:cpu;}', ['total-boundary-api'])
+    add('currentness-empty-floors', b'if(final&&leave_final_unpaid&&steps<63&&now>=begin&&now-begin<400000&&!private_open_last.native_failed)',
+        b'if(final&&0&&leave_final_unpaid&&steps<63&&now>=begin&&now-begin<400000&&!private_open_last.native_failed)', ['terminal-deadline-controls'])
     add('terminal-descriptor-hash', b'&&private_same_file(&before,&after)&&!strcmp(hash,expected_hash);',
         b'&&private_same_file(&before,&after)&&(expected_hash!=NULL);', ['terminal-deadline-controls'])
     add('terminal-work-deadline', b'if(!private_cost.reporting_only)return 0;',
@@ -329,9 +338,9 @@ def variants(source):
 
 
 def retain_current(stdout, report):
-    found=re.findall(rb'private_engine_controls=pass cases=66 total_budget_controls=8 synthetic_source_known=true real_candidate_created=0 runtime_approved=false retained=(/private/tmp/dream-private-engine-controls\.[A-Za-z0-9]+)\n',stdout)
+    found=re.findall(rb'private_engine_controls=pass cases=67 total_budget_controls=8 synthetic_source_known=true real_candidate_created=0 runtime_approved=false retained=(/private/tmp/dream-private-engine-controls\.[A-Za-z0-9]+)\n',stdout)
     if len(found)!=1:
-        raise ValueError('current fixture lacks exact66 remaining controls and eight total-budget witnesses')
+        raise ValueError('current fixture lacks exact67 remaining controls and eight total-budget witnesses')
     if os.fsdecode(found[0]) != report['commands'][-1]['fixture_capture']['source_dir']:
         raise ValueError('completed fixture root differs from original command binding')
     modes=re.findall(rb'private_total_budget_control_source_known mode=([0-9]+) original_pid=([0-9]+) actual_own_wait4=1 group_gone=1 terminal_cpu_ns=([0-9]+)',stdout)
@@ -339,7 +348,14 @@ def retain_current(stdout, report):
         raise ValueError('twelve original ownwait4/groupgone witnesses missing or duplicated')
     report['total_budget_owned_process_witnesses']=[{'mode':int(m),'original_pid':int(pid),'authoritative_rounded_wait4_ns':int(cpu),
         'scope':'mandated_decision66280' if int(m)<8 else 'additional_terminal_RSS_or_paused_user_boundary'} for m,pid,cpu in modes]
-    report['baseline_cases']=66
+    debt = re.findall(rb'private_helper_cpu_debt_source_known original_pid=([0-9]+) actual_own_wait4=1 group_gone=1 wall_ns=([0-9]+) CPU_ns=([0-9]+) helper_cost_ns=([0-9]+) helper_debt_before_ns=([0-9]+) helper_debt_delta_ns=([0-9]+) helper_debt_target_ns=([0-9]+) global_paid_after_helper_ns=([0-9]+)',stdout)
+    if len(debt)!=1:
+        raise ValueError('actual original long-wall helper CPU debt witness missing or duplicated')
+    pid,wall,cpu,cost,before,delta,target,paid=map(int,debt[0])
+    if wall<100000000 or wall<=2*cpu or cost!=max(1000000,cpu) or delta!=9*cost or target!=before+delta or not before or paid<target:
+        raise ValueError('helper CPU delta is conflated with elapsed wall or the cumulative controller baseline')
+    report['helper_cpu_debt_owned_process_witness']={'pid':pid,'wall_ns':wall,'authoritative_CPU_ns':cpu,'helper_delta_ns':delta,'global_debt_before_ns':before,'global_target_ns':target,'global_paid_after_ns':paid,'scope':'actual owned fixture, not installed tool qualification'}
+    report['baseline_cases']=67
     marker=b'private_total_retained_guard_source_known api=true supplied_clock_and_identity_values=true native_process=false runtime_approved=false\n'
     if stdout.count(marker)!=1:
         raise ValueError('current retained-clock/child production API witness missing or duplicated')

@@ -424,6 +424,8 @@ struct private_metrics {
     int rss_known;unsigned custody_hold,retained_overflow,reporting_only,deadline_expired;pid_t original_parent;
     uint64_t closed_unit_count,path_walk_units,path_walk_components,deadline_observed_ns,reporting_started_ns;
     uint64_t deadline_first_ns,deadline_first_unit_ns;unsigned deadline_first_line,deadline_last_line;
+    uint64_t booked_ordinary_cost_ns,booked_helper_cost_ns,ordinary_raw_total_ns,ordinary_floor_total_ns;
+    uint64_t engine_charge_calls,poll_closure_calls;
 };
 static const char *private_error="input_invalid",*private_detail="strict private input decoding failed";
 static struct private_metrics private_cost;
@@ -493,15 +495,17 @@ static int private_retain_closed_cost(uint64_t raw_cost) {
         private_fail("clock_unknown","unknown or overflowing closed-unit cost");
         cost=3000000; // Canonical finite mandatory-settlement debt; raw cost stays unknown.
     }
+    uint64_t floor=cost>raw_cost?cost-raw_cost:0;
     if(private_cost.retained_overflow||UINT64_MAX-private_cost.retained_cost_ns<cost
         ||private_cost.retained_units==UINT64_MAX||private_cost.closed_units==UINT64_MAX
-        ||(raw_cost==UINT64_MAX?private_cost.retained_unknown_units==UINT64_MAX:UINT64_MAX-private_cost.retained_raw_ns<raw_cost)) {
+        ||(raw_cost==UINT64_MAX?private_cost.retained_unknown_units==UINT64_MAX:UINT64_MAX-private_cost.retained_raw_ns<raw_cost
+            ||UINT64_MAX-private_cost.ordinary_raw_total_ns<raw_cost||UINT64_MAX-private_cost.ordinary_floor_total_ns<floor)) {
         private_cost.retained_overflow=1;
         return private_fail("clock_unknown","retained closed-unit cost overflow; original owner stays held");
     }
     private_cost.retained_cost_ns+=cost;private_cost.retained_units++;private_cost.closed_units++;
     if(raw_cost==UINT64_MAX)private_cost.retained_unknown_units++;
-    else private_cost.retained_raw_ns+=raw_cost;
+    else {private_cost.retained_raw_ns+=raw_cost;private_cost.ordinary_raw_total_ns+=raw_cost;private_cost.ordinary_floor_total_ns+=floor;}
     return 1;
 }
 static int private_retain_helper_cost(uint64_t extra_cost) {
@@ -531,12 +535,16 @@ static int private_book_retained_cost(void) {
     uint64_t base=private_cost.rest_until>now?private_cost.rest_until:now;
     if(cost>UINT64_MAX/9||UINT64_MAX-base<9*cost
         ||UINT64_MAX-private_cost.debt<9*cost||UINT64_MAX-private_cost.booked_units<private_cost.retained_units
-        ||UINT64_MAX-private_cost.booked_adjustments<private_cost.retained_adjustments)
+        ||UINT64_MAX-private_cost.booked_adjustments<private_cost.retained_adjustments
+        ||UINT64_MAX-private_cost.booked_ordinary_cost_ns<private_cost.retained_cost_ns
+        ||UINT64_MAX-private_cost.booked_helper_cost_ns<private_cost.retained_adjustment_cost_ns)
         return private_fail("clock_unknown","shared additive debt overflow");
     uint64_t deadline=base+9*cost;
     // Moving retained -> booked is atomic in this single controller. Failed
     // payment leaves the booked debt intact; recovery never books it twice.
     private_cost.rest_until=deadline;private_cost.debt+=9*cost;private_cost.booked_units+=private_cost.retained_units;
+    private_cost.booked_ordinary_cost_ns+=private_cost.retained_cost_ns;
+    private_cost.booked_helper_cost_ns+=private_cost.retained_adjustment_cost_ns;
     private_cost.booked_adjustments+=private_cost.retained_adjustments;
     private_cost.retained_cost_ns=private_cost.retained_raw_ns=private_cost.retained_units=private_cost.retained_unknown_units=0;
     private_cost.retained_adjustment_cost_ns=private_cost.retained_adjustments=0;
@@ -546,6 +554,11 @@ static int private_schedule_cost(uint64_t raw_cost) {
     if(!private_retain_closed_cost(raw_cost))return 0;
     if(!private_book_retained_cost())return 0;
     return 1;
+}
+static int private_debt_components_match(void) {
+    if(UINT64_MAX-private_cost.booked_ordinary_cost_ns<private_cost.booked_helper_cost_ns)return 0;
+    uint64_t cost=private_cost.booked_ordinary_cost_ns+private_cost.booked_helper_cost_ns;
+    return cost<=UINT64_MAX/9&&private_cost.debt==9*cost;
 }
 static uint64_t private_rest_slice_ns(uint64_t remaining) {return remaining>1000000?1000000:remaining;}
 static int private_pay_pending(void) {
@@ -566,6 +579,7 @@ static int private_pay_pending(void) {
         if(!known_clock_ns(CLOCK_THREAD_CPUTIME_ID,&current)||private_cost.open_cpu==UINT64_MAX||current<private_cost.open_cpu)return private_fail("clock_unknown","rest polling CPU clock unavailable");
         uint64_t unit=current-private_cost.open_cpu;
         if(unit>=400000) {
+            if(private_cost.poll_closure_calls!=UINT64_MAX)private_cost.poll_closure_calls++;
             if(unit>private_cost.ordinary_max)private_cost.ordinary_max=unit;
             if(!private_retain_closed_cost(unit))return 0;
             private_cost.open_cpu=current;
@@ -742,14 +756,14 @@ static int private_path(const char *path,int absolute) {
     return 1;
 }
 static int private_close(int fd);
-struct private_open_observation {unsigned budget_refused,native_failed,components,units;int native_errno;};
+struct private_open_observation {unsigned budget_refused,native_failed,components,units,final_unpaid;int native_errno;};
 static struct private_open_observation private_open_last;
 static int private_open_failure(const char *code,const char *detail) {
     // A paid deadline/cost refusal is not evidence of a pathname mutation.
     if(private_open_last.budget_refused&&!private_open_last.native_failed)return 0;
     return private_fail(code,detail);
 }
-static int private_open_walk(int root,const char *path,int absolute,int final_flags) {
+static int private_open_walk_mode(int root,const char *path,int absolute,int final_flags,int leave_final_unpaid) {
     memset(&private_open_last,0,sizeof(private_open_last));
     uint64_t begin=clock_ns(CLOCK_THREAD_CPUTIME_ID);
     int path_valid=private_path(path,absolute);
@@ -767,6 +781,12 @@ static int private_open_walk(int root,const char *path,int absolute,int final_fl
         if(next<0||closed!=0){private_open_last.native_failed=1;private_open_last.native_errno=next<0?open_error:errno;}
         final=!end;if(end)p=end+1;
         uint64_t now=clock_ns(CLOCK_THREAD_CPUTIME_ID);
+        // Currentness includes the final open, held/named fstats and close.
+        // They share ONE bounded ordinary unit, rather than three tiny units
+        // with three artificial floors. Intermediate400us/64-step cuts remain.
+        if(final&&leave_final_unpaid&&steps<63&&now>=begin&&now-begin<400000&&!private_open_last.native_failed) {
+            private_open_last.final_unpaid=1;return dir;
+        }
         // One finite pathname operation: bounded 64 components/400us nominal
         // checkpoints, full ending cost and fresh rest before the next batch.
         if(++steps==64||now<begin||now-begin>=400000||final||private_open_last.native_failed) {
@@ -778,6 +798,19 @@ static int private_open_walk(int root,const char *path,int absolute,int final_fl
     }
     if(!steps&&!final){private_open_last.units++;private_cost.path_walk_units++;if(!private_end_unit(begin))private_open_last.budget_refused=1;}
     private_close(dir);return -1;
+}
+static int private_open_walk(int root,const char *path,int absolute,int final_flags) {
+    return private_open_walk_mode(root,path,absolute,final_flags,0);
+}
+static int private_current_close(int fd,uint64_t at) {
+    uint64_t begin=clock_ns(CLOCK_THREAD_CPUTIME_ID);int result=close(fd),error=result?errno:0;
+    uint64_t end=clock_ns(CLOCK_THREAD_CPUTIME_ID);
+    if(end<begin)private_fail("clock_unknown","currentness descriptor-close clock reversed");
+    else if(end-begin>private_cost.close_max)private_cost.close_max=end-begin;
+    if(private_open_last.final_unpaid){private_open_last.final_unpaid=0;private_open_last.units++;private_cost.path_walk_units++;}
+    int paid=private_end_unit(at);
+    if(result!=0){errno=error;return private_fail("source_changed","currentness descriptor close failed");}
+    return paid&&end>=begin;
 }
 static int private_dir_open(struct private_dir *d) {
     int fd=private_open_walk(-1,d->path,1,O_RDONLY|O_DIRECTORY);if(fd<0)return private_open_failure("source_changed","owned root custody unavailable");
@@ -839,12 +872,12 @@ static int private_close_observed(int fd,int *actual_closed) {
 }
 static int private_close(int fd) {int actual_closed;int paid=private_close_observed(fd,&actual_closed);return paid&&actual_closed;}
 static int private_root_current(const struct private_dir *root) {
-    int current=private_open_walk(-1,root->path,1,O_RDONLY|O_DIRECTORY);if(current<0)return private_open_failure("source_changed","exact root path changed");
+    int current=private_open_walk_mode(-1,root->path,1,O_RDONLY|O_DIRECTORY,1);if(current<0)return private_open_failure("source_changed","exact root path changed");
     uint64_t at=clock_ns(CLOCK_THREAD_CPUTIME_ID);struct stat held,now;
     int same=fstat(root->fd,&held)==0&&fstat(current,&now)==0&&S_ISDIR(now.st_mode)&&now.st_uid==root->uid&&(now.st_mode&0777)==0700
         &&(uint64_t)now.st_dev==root->dev&&(uint64_t)now.st_ino==root->ino&&held.st_dev==now.st_dev&&held.st_ino==now.st_ino;
-    int paid=private_end_unit(at);int closed=private_close(current);
-    if(!paid||!closed)return 0;if(!same)return private_fail("source_changed","held root and exact path differ");return 1;
+    int paid=private_current_close(current,at);
+    if(!paid)return 0;if(!same)return private_fail("source_changed","held root and exact path differ");return 1;
 }
 static int private_same_file(const struct stat *a,const struct stat *b) {
     return a->st_dev==b->st_dev&&a->st_ino==b->st_ino&&a->st_uid==b->st_uid&&a->st_gid==b->st_gid
@@ -853,12 +886,12 @@ static int private_same_file(const struct stat *a,const struct stat *b) {
         &&a->st_ctimespec.tv_sec==b->st_ctimespec.tv_sec&&a->st_ctimespec.tv_nsec==b->st_ctimespec.tv_nsec;
 }
 static int private_named_current(int fd,int root,const char *path,int absolute,const struct stat *original) {
-    int current=private_open_walk(root,path,absolute,O_RDONLY);
+    int current=private_open_walk_mode(root,path,absolute,O_RDONLY,1);
     if(current<0)return private_open_failure("source_changed","original descriptor pathname changed");
     uint64_t at=clock_ns(CLOCK_THREAD_CPUTIME_ID);struct stat held,named;
     int same=fstat(fd,&held)==0&&fstat(current,&named)==0&&private_same_file(original,&held)&&private_same_file(&held,&named);
-    int paid=private_end_unit(at),closed=private_close(current);
-    if(!paid||!closed)return 0;
+    int paid=private_current_close(current,at);
+    if(!paid)return 0;
     if(!same)return private_fail("source_changed","original hashed stamp descriptor and pathname differ");return 1;
 }
 static int private_admitted_descriptor_current(int fd,const struct stat *original,const char *expected_hash) {
@@ -2328,7 +2361,7 @@ struct engine_owner {
     struct rusage retained_wait;int retained_status;uint64_t wait_read_ns,wait_user,wait_system,wait_rss,terminal_cpu_ns;
     int64_t wait_rss_native_raw;unsigned wait_rss_known,wait_rss_test_withheld;
     unsigned wait_observed,helper_cost_retained,helper_cost_paid,terminal_budget_checked,terminal_budget_passed;
-    uint64_t helper_debt_before,helper_debt_target;
+    uint64_t helper_debt_before,helper_debt_target,helper_cost_ns,helper_debt_delta_ns,helper_global_paid_after;
     unsigned settlement_quarantined,quarantine_recorded,quarantine_durable,quarantine_settled;
     unsigned refusal_attempted,refusal_complete,owner_lost,owner_lost_recorded,allocations_owned;
     unsigned hold_rounds,hold_unknown_units;pid_t controller_parent;
@@ -2432,6 +2465,7 @@ static void engine_failed_unit(struct engine_owner *owner,const struct engine_un
     owner->failed_units++;owner->failed_unit_last=*observation;
 }
 static int engine_charge_at(struct engine_owner *owner,uint64_t actual,uint64_t cost,int ordinary,const char *site,unsigned line) {
+    if(private_cost.engine_charge_calls!=UINT64_MAX)private_cost.engine_charge_calls++;
     uint64_t end=engine_now(owner,CLOCK_THREAD_CPUTIME_ID);
     uint64_t inclusive=engine_interval(private_cost.open_cpu,end);
     struct engine_unit_observation observation={.site=site,.line=line,.ordinary=(unsigned)ordinary,.open=private_cost.open_cpu,.end=end,
@@ -2779,12 +2813,12 @@ static int engine_census_record(struct engine_owner *o) {
     return engine_write_record(o,line,n);
 }
 static int engine_record(struct engine_owner *o,const char *phase) {
-    char bytes[2048];int n=snprintf(bytes,sizeof(bytes),"{\"kind\":\"helper_total_budget\",\"decision\":66280,\"phase\":\"%s\",\"sequence\":%u,\"pid\":%d,\"birth\":%llu,\"start\":%llu,\"live_cpu_ns\":%llu,\"last_sample_ns\":%llu,\"sample_gap_ns\":%llu,\"max_sample_gap_ns\":%llu,\"sample_gap_checks\":%llu,\"activation_ns\":%llu,\"qos_checked_mask\":%u,\"priority\":[%d,%d],\"wait4_user_ns\":%llu,\"wait4_system_ns\":%llu,\"terminal_cpu_ns\":%llu,\"job_cpu_ns\":%llu,\"command_cap_ns\":%llu,\"job_cap_ns\":%llu,\"terminal_rss_bytes\":%llu,\"helper_cost_retained\":%u,\"helper_cost_paid\":%u,\"helper_debt_target\":%llu,\"debt_charged_ns\":%llu,\"debt_paid_ns\":%llu,\"group_kill_attempted\":%u,\"group_kill_errno\":%d,\"group_kill_pending\":%u,\"group_kill_raced_exit\":%u,\"actual_own_wait4\":%u,\"group_gone\":%u,\"quarantined\":%u,\"owner_lost\":%u,\"runtime_approved\":false}\n",
+    char bytes[2048];int n=snprintf(bytes,sizeof(bytes),"{\"kind\":\"helper_total_budget\",\"decision\":66280,\"phase\":\"%s\",\"sequence\":%u,\"pid\":%d,\"birth\":%llu,\"start\":%llu,\"live_cpu_ns\":%llu,\"last_sample_ns\":%llu,\"sample_gap_ns\":%llu,\"max_sample_gap_ns\":%llu,\"sample_gap_checks\":%llu,\"activation_ns\":%llu,\"qos_checked_mask\":%u,\"priority\":[%d,%d],\"wait4_user_ns\":%llu,\"wait4_system_ns\":%llu,\"terminal_cpu_ns\":%llu,\"job_cpu_ns\":%llu,\"command_cap_ns\":%llu,\"job_cap_ns\":%llu,\"terminal_rss_bytes\":%llu,\"helper_cost_retained\":%u,\"helper_cost_paid\":%u,\"helper_debt_target\":%llu,\"helper_debt_before_ns\":%llu,\"helper_cost_ns\":%llu,\"helper_debt_delta_ns\":%llu,\"helper_global_paid_after_ns\":%llu,\"debt_scope\":\"whole_controller_cumulative\",\"helper_debt_target_scope\":\"global_watermark\",\"debt_charged_ns\":%llu,\"debt_paid_ns\":%llu,\"group_kill_attempted\":%u,\"group_kill_errno\":%d,\"group_kill_pending\":%u,\"group_kill_raced_exit\":%u,\"actual_own_wait4\":%u,\"group_gone\":%u,\"quarantined\":%u,\"owner_lost\":%u,\"runtime_approved\":false}\n",
         phase,o->ticket.sequence,o->ticket.pid,(unsigned long long)o->ticket.birth,(unsigned long long)o->ticket.start,
         (unsigned long long)o->live_cpu_ns,(unsigned long long)o->last_sample_ns,(unsigned long long)o->sample_gap_ns,(unsigned long long)o->max_sample_gap_ns,(unsigned long long)o->sample_gap_checks,(unsigned long long)o->activation_ns,o->qos_checked_mask,o->members[0].state.priority,o->members[1].state.priority,
         (unsigned long long)o->wait_user,(unsigned long long)o->wait_system,(unsigned long long)o->terminal_cpu_ns,(unsigned long long)o->result->helper_job_cpu_ns,
         (unsigned long long)ENGINE_COMMAND_CPU_NS,(unsigned long long)ENGINE_JOB_CPU_NS,(unsigned long long)o->wait_rss,o->helper_cost_retained,o->helper_cost_paid,
-        (unsigned long long)o->helper_debt_target,(unsigned long long)private_cost.debt,(unsigned long long)private_cost.debt_paid,
+        (unsigned long long)o->helper_debt_target,(unsigned long long)o->helper_debt_before,(unsigned long long)o->helper_cost_ns,(unsigned long long)o->helper_debt_delta_ns,(unsigned long long)o->helper_global_paid_after,(unsigned long long)private_cost.debt,(unsigned long long)private_cost.debt_paid,
         o->group_kill_attempted,o->group_kill_result,o->group_kill_pending,o->group_kill_raced_exit,o->direct_reaped,o->result->group_gone,o->settlement_quarantined,o->owner_lost);
     return engine_write_record(o,bytes,n)&&engine_failed_record(o)&&engine_pause_record(o)&&engine_ri_record(o)&&engine_child_record(o)&&engine_census_record(o);
 }
@@ -2972,16 +3006,18 @@ static uint64_t engine_wait4_cpu(const struct rusage *r) {
     if(u==UINT64_MAX||s==UINT64_MAX||!engine_safe_sum(u,1000,&u)||!engine_safe_sum(s,1000,&s)||!engine_safe_sum(u,s,&sum))return UINT64_MAX;
     return sum;
 }
+static uint64_t engine_helper_cpu_cost(uint64_t cpu) {return cpu==UINT64_MAX?3000000:cpu<1000000?1000000:cpu;}
 static int engine_helper_payment(struct engine_owner *o) {
     if(!o->wait_observed)return engine_failure(o,"settlement_unknown","helper CPU debt requires original ownwait4");
     if(!o->helper_cost_retained) {
-        uint64_t cost=o->terminal_cpu_ns==UINT64_MAX?3000000:o->terminal_cpu_ns<1000000?1000000:o->terminal_cpu_ns;
+        uint64_t cost=engine_helper_cpu_cost(o->terminal_cpu_ns);
         o->helper_debt_before=private_cost.debt;
         if(cost>UINT64_MAX/9||!engine_safe_sum(private_cost.debt,9*cost,&o->helper_debt_target)||!private_retain_helper_cost(cost))return engine_failure(o,"clock_unknown","terminal helper CPU debt cannot be retained");
+        o->helper_cost_ns=cost;o->helper_debt_delta_ns=9*cost;
         o->helper_cost_retained=1;
     }
     if(!private_pay_pending()||private_has_retained_cost()||private_cost.retained_overflow||private_cost.debt_paid!=private_cost.debt||private_cost.debt<o->helper_debt_target)return engine_failure(o,"clock_unknown","terminal helper CPU debt remains unpaid");
-    o->helper_cost_paid=1;return 1;
+    o->helper_global_paid_after=private_cost.debt_paid;o->helper_cost_paid=1;return 1;
 }
 static uint64_t engine_rss_value(long raw) {return raw<0?UINT64_MAX:(uint64_t)raw;}
 static int engine_terminal_budget(struct engine_owner *o) {
@@ -3931,13 +3967,15 @@ static void private_finish_diagnostics(const char *phase,unsigned created,unsign
         int n=snprintf(counts+used,sizeof(counts)-used,"%s%llu",i?",":"",(unsigned long long)private_errors[i].count);
         if(n<=0||(size_t)n>=sizeof(counts)-used){private_terminal.diagnostics_ok=0;counts[0]=0;break;}used+=(size_t)n;
     }
-    char final[4096];int final_len=snprintf(final,sizeof(final),"private_candidate_terminal profile=read-helper-native/1 stage=%s metrics_cutoff=pre_result_emission metadata_kind=declared_peak_capacity terminal_cutoff=after_paid_tail_and_error_diagnostics_before_final_receipt runtime_approved=false helper_created=%u helper_reaped=%u result_complete=%s control_verdict=%s persistence_verdict=%s terminal_cost_verdict=%s tail_complete=%s persistence_attempted=%s persistence_open=%s persistence_write=%s persistence_fsync=%s persistence_close=%s persistence_directory_fsync=%s persistence_errno=%d stdout_errno=%d stdout_attempted=%s reporting_only=%u original_entry_ns=%llu original_deadline_ns=%llu deadline_observed_ns=%llu deadline_first_ns=%llu deadline_first_unit_ns=%llu deadline_first_line=%u deadline_last_line=%u reporting_started_ns=%llu closed_unit_count=%llu path_walk_components=%llu path_walk_units=%llu persistence_paid=%s formatter_cpu_start_ns=%llu formatter_cpu_end_ns=%llu formatter_inclusive_ns=%llu write_cpu_start_ns=%llu write_cpu_end_ns=%llu write_inclusive_ns=%llu close_max_cpu_ns=%llu probe_rss_peak_bytes=%llu rss_known=%s ordinary_max_ns=%llu debt_charged_ns=%llu debt_paid_ns=%llu retained_units=%llu retained_overflow=%u format_paid=%s write_paid=%s error_count=%llu error_codes=cancelled,clock_unknown,coverage_unknown,deadline,input_invalid,resource_limit,review_unbound,settlement_unknown,signature_unexpected,source_changed,other error_counts=%s errors_complete=%s diagnostics_complete=%s parent_actual_reap_required=true\n",
+    char final[4096];int final_len=snprintf(final,sizeof(final),"private_candidate_terminal profile=read-helper-native/1 stage=%s metrics_cutoff=pre_result_emission metadata_kind=declared_peak_capacity terminal_cutoff=after_paid_tail_and_error_diagnostics_before_final_receipt runtime_approved=false helper_created=%u helper_reaped=%u result_complete=%s control_verdict=%s persistence_verdict=%s terminal_cost_verdict=%s tail_complete=%s persistence_attempted=%s persistence_open=%s persistence_write=%s persistence_fsync=%s persistence_close=%s persistence_directory_fsync=%s persistence_errno=%d stdout_errno=%d stdout_attempted=%s reporting_only=%u original_entry_ns=%llu original_deadline_ns=%llu deadline_observed_ns=%llu deadline_first_ns=%llu deadline_first_unit_ns=%llu deadline_first_line=%u deadline_last_line=%u reporting_started_ns=%llu closed_unit_count=%llu path_walk_components=%llu path_walk_units=%llu booked_ordinary_units=%llu engine_charge_calls=%llu poll_closure_calls=%llu ordinary_cost_ns=%llu ordinary_raw_cpu_ns=%llu ordinary_raw_complete=%s ordinary_floor_surcharge_ns=%llu helper_cost_total_ns=%llu debt_components_match=%s debt_scope=whole_controller_cumulative persistence_paid=%s formatter_cpu_start_ns=%llu formatter_cpu_end_ns=%llu formatter_inclusive_ns=%llu write_cpu_start_ns=%llu write_cpu_end_ns=%llu write_inclusive_ns=%llu close_max_cpu_ns=%llu probe_rss_peak_bytes=%llu rss_known=%s ordinary_max_ns=%llu debt_charged_ns=%llu debt_paid_ns=%llu retained_units=%llu retained_overflow=%u format_paid=%s write_paid=%s error_count=%llu error_codes=cancelled,clock_unknown,coverage_unknown,deadline,input_invalid,resource_limit,review_unbound,settlement_unknown,signature_unexpected,source_changed,other error_counts=%s errors_complete=%s diagnostics_complete=%s parent_actual_reap_required=true\n",
         phase,created,reaped,private_terminal.stdout_complete?"true":"false",private_terminal.control_known?(private_terminal.control_ok?"passed":"failed"):"unknown",
         private_terminal.persistence_attempted?(private_terminal.persist_unknown?"unknown":private_terminal.persist_ok?"persisted":"not_persisted"):"unknown",private_terminal.cost_unknown?"unknown":private_terminal.cost_ok?"passed":"failed",private_terminal.tail_complete?"true":"false",private_terminal.persistence_attempted?"true":"false",
         private_terminal.persist_open?"true":"false",private_terminal.persist_write?"true":"false",private_terminal.persist_fsync?"true":"false",private_terminal.persist_close?"true":"false",private_terminal.persist_dir_fsync?"true":"false",private_terminal.persistence_errno,private_terminal.stdout_errno,private_terminal.stdout_attempted?"true":"false",private_cost.reporting_only,
         (unsigned long long)private_cost.entry,(unsigned long long)private_cost.deadline,(unsigned long long)private_cost.deadline_observed_ns,
         (unsigned long long)private_cost.deadline_first_ns,(unsigned long long)private_cost.deadline_first_unit_ns,private_cost.deadline_first_line,private_cost.deadline_last_line,(unsigned long long)private_cost.reporting_started_ns,
         (unsigned long long)private_cost.closed_unit_count,(unsigned long long)private_cost.path_walk_components,(unsigned long long)private_cost.path_walk_units,
+        (unsigned long long)private_cost.booked_units,(unsigned long long)private_cost.engine_charge_calls,(unsigned long long)private_cost.poll_closure_calls,
+        (unsigned long long)private_cost.booked_ordinary_cost_ns,(unsigned long long)private_cost.ordinary_raw_total_ns,(!private_errors[1].count&&!private_cost.retained_overflow)?"true":"false",(unsigned long long)private_cost.ordinary_floor_total_ns,(unsigned long long)private_cost.booked_helper_cost_ns,private_debt_components_match()?"true":"false",
         private_terminal.persistence_paid?"true":"false",(unsigned long long)private_terminal.format_start,(unsigned long long)private_terminal.format_end,(unsigned long long)private_terminal.format_inclusive,
         (unsigned long long)private_terminal.write_start,(unsigned long long)private_terminal.write_end,(unsigned long long)private_terminal.write_inclusive,(unsigned long long)private_cost.close_max,
         (unsigned long long)private_cost.rss_peak,private_cost.rss_known?"true":"false",(unsigned long long)private_cost.ordinary_max,(unsigned long long)private_cost.debt,(unsigned long long)private_cost.debt_paid,

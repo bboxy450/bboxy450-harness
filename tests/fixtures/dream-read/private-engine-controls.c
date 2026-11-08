@@ -444,6 +444,13 @@ static void terminal_deadline_controls(int root) {
     require(walked>=0&&private_open_last.components==3&&private_open_last.units<private_open_last.components
         &&private_cost.debt==private_cost.debt_paid,"one bounded path walk pays actual work without a floor per tiny component");
     require(private_close(walked),"original walked FD disposal paid");
+    at=clock_ns(CLOCK_THREAD_CPUTIME_ID);int held=openat(root,"retained-descriptor",O_RDONLY|O_NOFOLLOW|O_CLOEXEC);struct stat stamp;
+    require(held>=0&&fstat(held,&stamp)==0&&private_end_unit(at),"owned currentness guard setup paid");
+    uint64_t units_before=private_cost.closed_units;
+    require(private_named_current(held,root,"retained-descriptor",0,&stamp)
+        &&private_cost.closed_units-units_before==1&&private_cost.debt==private_cost.debt_paid,
+        "same bounded currentness open stat and close share one fully paid unit");
+    require(private_close(held),"original currentness fixture held descriptor disposed");
     private_cost.deadline=clock_ns(CLOCK_MONOTONIC);
     int admitted_more=private_end_unit(private_cost.open_cpu);
     require(!admitted_more&&private_cost.deadline_expired&&private_errors[3].count
@@ -773,7 +780,7 @@ static int total_spawn(struct engine_owner *o,struct private_engine_result *r,co
     char ledger[48];snprintf(ledger,sizeof(ledger),"total-%u.ndjson",mode);o->ledger=openat(dir,ledger,O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,0600);require(o->ledger>=0,"owned total-budget fixture ledger");
     struct engine_prepared p;memset(&p,0,sizeof(p));for(unsigned i=0;i<2;i++)p.input[i]=p.output[i]=p.errors[i]=-1;
     strcpy(p.image,self);strcpy(p.descendant,self);strcpy(p.cwd,root);strcpy(o->image,self);strcpy(o->descendant,self);
-    const char *kind=mode==2?"rollup-child":mode==6?"held-child":mode==7?"exit-child":mode==8?"rss-child":(mode==9||mode==10)?"pause-bypass-child":"burn-child";
+    const char *kind=mode==2?"rollup-child":mode==6?"held-child":mode==7?"exit-child":mode==8?"rss-child":mode==12?"long-wall-cpu-child":(mode==9||mode==10)?"pause-bypass-child":"burn-child";
     char argument[4097];require(fixture_total_argument(mode,root,argument,fixture_release_path),"bounded fixture argument and exact original release path");
     require(engine_put(&p,self,&p.argv[p.argc++])&&engine_put(&p,kind,&p.argv[p.argc++])&&engine_put(&p,argument,&p.argv[p.argc++]),"bounded source-known helper argv");
     if(mode==9||mode==10){char path[4097];snprintf(path,sizeof(path),"%s/pause-%u-done",root,mode);require(engine_put(&p,path,&p.argv[p.argc++]),"bounded actual pause done marker");snprintf(path,sizeof(path),"%s/pause-%u-release",root,mode);require(engine_put(&p,path,&p.argv[p.argc++]),"bounded actual pause release marker");strcpy(fixture_release_path,path);}
@@ -967,8 +974,41 @@ static void total_control(const char *self,const char *root,int dir,unsigned mod
     engine_close_transferred(&owner);require(close(owner.ledger)==0,"owned total fixture ledger close");free(owner.capture);fixture_live_owner=NULL;controls++;
 }
 
+static void helper_cpu_debt_control(const char *self,const char *root,int dir) {
+    struct engine_owner owner;struct private_engine_result result;int status=-1;
+    int born=total_spawn(&owner,&result,self,dir,12,root);
+    if(!born){(void)engine_retire(&owner,&status);require(0,"long-wall CPU witness requires unchanged actual native admission");}
+    for(;;) {
+        int done=0;require(known_exited(owner.ticket.pid,&done),"long-wall original WNOWAIT remains owned");if(done)break;
+        require(engine_sample(&owner),"long-wall live helper keeps actual priority CPU and50ms RI guards");
+    }
+    (void)engine_retire(&owner,&status);
+    uint64_t cpu=engine_wait4_cpu(&owner.retained_wait),wall=engine_interval(owner.activation_ns,owner.wait_read_ns);
+    int settled=owner.wait_observed&&owner.direct_reaped&&result.group_gone&&result.retired_coverage&&!engine_current;
+    if(settled)fixture_live_owner=NULL;
+    require(settled&&owner.native.cpu_known&&owner.native.wall_known&&owner.native.cpu<=2000000&&owner.native.wall<=25000000
+        &&result.inclusive_max_ns.known&&result.inclusive_max_ns.value<=3000000&&private_cost.ordinary_max<=1000000
+        &&owner.max_sample_gap_ns<=ENGINE_SAMPLE_NS&&owner.terminal_budget_passed,
+        "long-wall CPU witness retains every original native ordinary live terminal and actual-reap gate");
+    require(wall!=UINT64_MAX&&cpu!=UINT64_MAX&&wall>=100000000&&wall>2*cpu,
+        "long-wall CPU witness actually separates wall from authoritative original wait4 CPU");
+    printf("private_helper_cpu_debt_source_known original_pid=%d actual_own_wait4=%u group_gone=%u wall_ns=%llu CPU_ns=%llu helper_cost_ns=%llu helper_debt_before_ns=%llu helper_debt_delta_ns=%llu helper_debt_target_ns=%llu global_paid_after_helper_ns=%llu global_debt_ns=%llu global_paid_ns=%llu scope=actual_owned_fixture_not_real_candidate runtime_approved=false\n",
+        owner.ticket.pid,owner.direct_reaped,result.group_gone,(unsigned long long)wall,(unsigned long long)cpu,(unsigned long long)owner.helper_cost_ns,
+        (unsigned long long)owner.helper_debt_before,(unsigned long long)owner.helper_debt_delta_ns,(unsigned long long)owner.helper_debt_target,
+        (unsigned long long)owner.helper_global_paid_after,(unsigned long long)private_cost.debt,(unsigned long long)private_cost.debt_paid);
+    require(fflush(stdout)==0&&private_end_unit(private_cost.open_cpu),"long-wall CPU witness raw formatter and write fully paid");
+    require(owner.helper_debt_before>0&&owner.helper_cost_ns==engine_helper_cpu_cost(cpu)
+        &&owner.helper_debt_delta_ns==9*engine_helper_cpu_cost(cpu)
+        &&owner.helper_debt_target-owner.helper_debt_before==owner.helper_debt_delta_ns
+        &&owner.helper_global_paid_after>=owner.helper_debt_target&&private_cost.debt==private_cost.debt_paid&&private_debt_components_match(),
+        "long wall helper adds only nine times wait4 CPU above its existing global debt baseline");
+    engine_close_transferred(&owner);require(close(owner.ledger)==0,"long-wall original raw ledger close");free(owner.capture);
+    require(private_end_unit(private_cost.open_cpu),"long-wall fixture original disposal cost paid");controls++;reset();
+}
+
 static void total_boundary_api(void) {
     reset();struct rusage r;memset(&r,0,sizeof(r));r.ru_utime.tv_usec=249998;
+    require(engine_helper_cpu_cost(500000)==1000000&&engine_helper_cpu_cost(5000000)==5000000&&engine_helper_cpu_cost(UINT64_MAX)==3000000,"helper CPU debt API preserves one millisecond floor and conservative unknown cost");
     require(private_rest_slice_ns(0)==0&&private_rest_slice_ns(999999)==999999&&private_rest_slice_ns(9000000)==1000000,"absolute-debt rest loop requests at most one millisecond per sleep");
     require(engine_wait4_cpu(&r)==ENGINE_COMMAND_CPU_NS,"authoritative wait4 rounds each microsecond field once at exact cap");
     r.ru_utime.tv_usec=249999;require(engine_wait4_cpu(&r)>ENGINE_COMMAND_CPU_NS,"rounded terminal CPU beyond cap is retained without clipping");
@@ -1011,6 +1051,7 @@ int main(int argc,char **argv) {
     if(argc==5&&!strcmp(argv[1],"pause-bypass-child")){pause_bypass_child(argv[2],argv[3],argv[4]);}
     if(argc==3&&!strcmp(argv[1],"rss-child")){size_t n=20u*1024u*1024u;volatile unsigned char *m=malloc(n);if(!m)_exit(77);for(size_t i=0;i<n;i+=4096)m[i]=1;_exit(0);}
     if(argc==2&&!strcmp(argv[1],"hold-gated-child")){char byte;ssize_t n=read(STDIN_FILENO,&byte,1);_exit(n==1?0:79);}
+    if(argc==3&&!strcmp(argv[1],"long-wall-cpu-child")){uint64_t begin=clock_ns(CLOCK_MONOTONIC);if(begin==UINT64_MAX||begin>UINT64_MAX-100000000)_exit(77);uint64_t until=begin+100000000;while(clock_ns(CLOCK_MONOTONIC)<until)usleep(1000);burn_cpu(strtoull(argv[2],NULL,10));}
     if(argc>=2&&!strcmp(argv[1],"burn-child")){require(argc==3,"burn child arguments");burn_cpu(strtoull(argv[2],NULL,10));}
     if(argc>=2&&!strcmp(argv[1],"rollup-child")){require(argc==3,"rollup child arguments");rollup_child(argv[0],argv[2]);}
     if(argc>=2&&!strcmp(argv[1],"exit-child"))_exit(0);
@@ -1025,7 +1066,8 @@ int main(int argc,char **argv) {
     unsigned diagnostics=argc==2&&!strcmp(argv[1],"terminal-diagnostic-controls");
     unsigned setup=argc==2&&!strcmp(argv[1],"diagnostic-setup-budget-control");
     unsigned deadline=argc==2&&!strcmp(argv[1],"terminal-deadline-controls");
-    require(argc==1||selected<12||diagnostics||setup||deadline||hold||flow||result_only||charge||boundary||retained,"private source-known controls argc");
+    unsigned cpu_debt=argc==2&&!strcmp(argv[1],"helper-cpu-debt-control");
+    require(argc==1||selected<12||diagnostics||setup||deadline||cpu_debt||hold||flow||result_only||charge||boundary||retained,"private source-known controls argc");
     require(atexit(dispose_owned)==0,"owned cleanup registration");
     char root[]="/private/tmp/dream-private-engine-controls.XXXXXX";require(mkdtemp(root)!=NULL,"owned fixture directory");
     int dir=open(root,O_RDONLY|O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC);require(dir>=0,"owned fixture root");
@@ -1056,10 +1098,12 @@ int main(int argc,char **argv) {
     if(retained){total_retained_guard_api();require(close(dir)==0,"owned retained guard API root close");return 0;}
     if(selected<12){total_control(self,root,dir,selected);require(close(dir)==0,"owned narrow fixture root close");return 0;}
     if(diagnostics){terminal_diagnostic_controls(dir);require(close(dir)==0,"owned diagnostic root close");return 0;}
+    if(cpu_debt){helper_cpu_debt_control(self,root,dir);require(close(dir)==0,"owned CPU-debt root close");return 0;}
     if(deadline){terminal_deadline_controls(dir);require(close(dir)==0,"owned terminal-deadline root close");return 0;}
     if(setup){diagnostic_setup_budget_control();require(close(dir)==0,"owned setup root close");return 0;}
     semantic_controls();result_controls();flow_controls(root,dir);terminal_diagnostic_controls(dir);terminal_deadline_controls(dir);charge_diagnostic_control(dir);
     for(unsigned mode=0;mode<12;mode++)total_control(self,root,dir,mode);
+    helper_cpu_debt_control(self,root,dir);
     total_boundary_api();
     total_retained_guard_api();
     quarantine_hold_process_control(self,root,dir);
