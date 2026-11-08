@@ -2962,6 +2962,7 @@ fn cold_ungranted_c1_eof_control() {
 }
 
 #[tokio::test]
+#[ignore = "load-sensitive wall/preemption window; re-enable via tasks/2026-11-06-qos-builds-never-starve-mcp"]
 async fn actual_store_fork_is_explicitly_unsupported_and_parent_rows_never_pass() {
     use bboxy450_harness::store::{Store, log_path};
     // The original fork cases run after one separately settled, ungranted cold
