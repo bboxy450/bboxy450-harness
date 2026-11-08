@@ -940,6 +940,111 @@ static int fixture_live_record(struct engine_owner *o,const struct fixture_live_
     n=snprintf(bytes+used,sizeof(bytes)-used,"},\"runtime_approved\":false}\n");if(n<=0||(size_t)n>=sizeof(bytes)-used)return 0;used+=(size_t)n;
     return engine_write_record(o,bytes,(int)used)&&engine_checkpoint(o);
 }
+// Fixed saved diagnostic only: no additional native helper observation/effect.
+// The capture precedes its own bounded formatter/write/full paid ending guard.
+static void fixture_pause_pre_stimulus_diagnostic(const struct engine_owner *owner,unsigned mode,int sample_return,int guard_result,int sample_errno,
+        uint64_t entry_wall,uint64_t entry_cpu,uint64_t return_wall,uint64_t return_cpu) {
+    const struct engine_owner saved=*owner;const struct private_metrics cost=private_cost;
+    int first_private_failed=private_failed;
+    char owner_code[49],owner_detail[161],first_private_code[49],first_private_detail[161];
+    int a=snprintf(owner_code,sizeof(owner_code),"%s",saved.result&&saved.result->error_code?saved.result->error_code:"none");
+    int b=snprintf(owner_detail,sizeof(owner_detail),"%s",saved.result&&saved.result->error_detail?saved.result->error_detail:"none");
+    int c=snprintf(first_private_code,sizeof(first_private_code),"%s",first_private_failed?private_error:"none");
+    int d=snprintf(first_private_detail,sizeof(first_private_detail),"%s",first_private_failed?private_detail:"none");
+    int truncated=a<0||b<0||c<0||d<0||(size_t)a>=sizeof(owner_code)||(size_t)b>=sizeof(owner_detail)
+        ||(size_t)c>=sizeof(first_private_code)||(size_t)d>=sizeof(first_private_detail);
+    char q_owner_code[300],q_owner_detail[1000],q_private_code[300],q_private_detail[1000];
+    int quoted=private_json_quoted(owner_code,q_owner_code,sizeof(q_owner_code))
+        &&private_json_quoted(owner_detail,q_owner_detail,sizeof(q_owner_detail))
+        &&private_json_quoted(first_private_code,q_private_code,sizeof(q_private_code))
+        &&private_json_quoted(first_private_detail,q_private_detail,sizeof(q_private_detail));
+    struct {const char *name;uint64_t value;} fields[]={
+        {"mode",mode},{"original_pid",(uint64_t)saved.ticket.pid},{"owner_failed",saved.failed},{"private_failed",(uint64_t)first_private_failed},
+        {"pause_ack_mask",saved.pause_ack_mask},{"counter_known_mask",saved.pause_counter_known_mask},{"baseline_known",saved.pause_baseline_known},
+        {"paused",saved.paused},{"STOP_attempted",saved.pause_stop_attempted},{"resume_attempted",saved.pause_resume_attempted},{"resume_admitted",saved.pause_resume_admitted},
+        {"USER_violation",saved.pause_user_violation},{"SYSTEM_violation",saved.pause_system_violation},{"status",saved.members[0].state.status},{"runnable",saved.members[0].state.runnable},
+        {"current_USER_raw",saved.members[0].user},{"current_SYSTEM_raw",saved.members[0].system},{"ACK_USER_raw",saved.pause_user[0]},{"ACK_SYSTEM_raw",saved.pause_system[0]},
+        {"observed_USER_raw",saved.pause_observed_user[0]},{"observed_SYSTEM_raw",saved.pause_observed_system[0]},
+        {"pause_started_ns",saved.pause_started_ns},{"ACK_ns",saved.pause_ack_ns},{"member_ACK_ns",saved.pause_member_ack_ns[0]},
+        {"stopped_RI_ACK_ns",saved.members[0].stopped_ri_ack_ns},{"ACK_RI_begin_ns",saved.pause_ack_ri_begin_ns[0]},{"ACK_RI_return_ns",saved.pause_ack_ri_end_ns[0]},
+        {"validated_RI_return_ns",saved.pause_validated_ri_end_ns[0]},{"resume_RI_begin_ns",saved.pause_resume_ri_begin_ns[0]},
+        {"resume_RI_return_ns",saved.pause_resume_ri_end_ns[0]},{"resume_signal_ns",saved.pause_resume_ns},
+        {"RI_previous_begin_ns",saved.ri_previous_ns[0]},{"RI_begin_ns",saved.ri_begin_ns[0]},{"RI_return_ns",saved.ri_end_ns[0]},
+        {"member_RI_start_ns",saved.members[0].ri_started_ns},{"RI_previous_mask",saved.ri_previous_mask},{"RI_begin_mask",saved.ri_begin_mask},
+        {"RI_return_mask",saved.ri_end_mask},{"RI_sticky_gap_mask",saved.ri_gap_failed_mask},
+        {"raw_gap_ns",saved.sample_gap_ns},{"raw_gap_max_ns",saved.max_sample_gap_ns},{"running_gap_ns",saved.running_gap_ns},
+        {"running_gap_max_ns",saved.running_gap_max_ns},{"stopped_interval_ns",saved.stopped_interval_ns},
+        {"first_failed_check_ns",saved.gap_failed_observed_ns},{"first_failed_previous_ns",saved.gap_failed_previous_ns[0]},
+        {"first_failed_raw_gap_ns",saved.gap_failed_raw_ns[0]},{"first_failed_running_gap_ns",saved.gap_failed_running_ns[0]},
+        {"sample_entry_wall_ns",entry_wall},{"sample_return_wall_ns",return_wall},{"sample_entry_CPU_ns",entry_cpu},{"sample_return_CPU_ns",return_cpu},
+        {"unit_open_CPU_ns",cost.open_cpu},{"debt_ns",cost.debt},{"paid_ns",cost.debt_paid},{"rest_until_ns",cost.rest_until},
+        {"deadline_ns",cost.deadline},{"ordinary_max_ns",cost.ordinary_max},{"retained_units",cost.retained_units},{"retained_cost_ns",cost.retained_cost_ns},
+        {"native_CPU_ns",saved.native.cpu},{"native_wall_ns",saved.native.wall},{"native_inclusive_ns",saved.native_gate_inclusive_ns},
+        {"sample_clocks_known",entry_wall!=UINT64_MAX&&entry_cpu!=UINT64_MAX&&return_wall!=UINT64_MAX&&return_cpu!=UINT64_MAX&&return_wall>=entry_wall&&return_cpu>=entry_cpu}
+    };
+    _Static_assert(sizeof(fields)/sizeof(fields[0])<=64,"bounded pre-stimulus diagnostic scalar count");
+    char bytes[8192];int n=quoted?snprintf(bytes,sizeof(bytes),"private_pause_pre_stimulus_snapshot_source_known {\"kind\":\"fixture_pause_pre_stimulus\",\"member\":0,\"sample_return\":%d,\"guard_result\":%d,\"sample_saved_errno\":%d,\"owner_first_error\":%s,\"owner_first_detail\":%s,\"private_first_error\":%s,\"private_first_detail\":%s,\"first_text_truncated\":%s",sample_return,guard_result,sample_errno,q_owner_code,q_owner_detail,q_private_code,q_private_detail,truncated?"true":"false"):-1;
+    int formatted=n>0&&(size_t)n<sizeof(bytes);size_t used=formatted?(size_t)n:0;
+    for(unsigned i=0;formatted&&i<sizeof(fields)/sizeof(fields[0]);i++) {
+        n=snprintf(bytes+used,sizeof(bytes)-used,",\"%s\":%llu",fields[i].name,(unsigned long long)fields[i].value);
+        if(n<=0||(size_t)n>=sizeof(bytes)-used)formatted=0;else used+=(size_t)n;
+    }
+    if(formatted) {
+        n=snprintf(bytes+used,sizeof(bytes)-used,",\"capture_cutoff\":\"before_own_format_write_ending_guard\",\"native_process\":true,\"installed_tool_qualification\":false,\"runtime_approved\":false}\n");
+        if(n<=0||(size_t)n>=sizeof(bytes)-used)formatted=0;else used+=(size_t)n;
+    }
+    int written=formatted&&fwrite(bytes,1,used,stderr)==used&&fflush(stderr)==0;
+    int paid=private_end_unit(cost.open_cpu);
+    require(written&&paid,"bounded saved pre-stimulus diagnostic formatter write and full ending cost paid");
+}
+// Capture the first post-burn refusal BEFORE release/retirement can replace
+// diagnostics. The direct elapsed bound uses fixture operation clocks, not
+// a stopped-time discount after the immutable USER seal has been violated.
+static void fixture_pause_post_stimulus_diagnostic(const struct engine_owner *owner,int sample_return,int sample_errno,
+        uint64_t cont_begin,uint64_t restop_ack,uint64_t read_entry,uint64_t read_return,int counter_first) {
+    const struct engine_owner saved=*owner;const struct private_metrics cost=private_cost;
+    char code[49],detail[161],owner_code[49],owner_detail[161];
+    int a=snprintf(code,sizeof(code),"%s",private_failed?private_error:"none");
+    int b=snprintf(detail,sizeof(detail),"%s",private_failed?private_detail:"none");
+    int c=snprintf(owner_code,sizeof(owner_code),"%s",saved.result&&saved.result->error_code?saved.result->error_code:"none");
+    int d=snprintf(owner_detail,sizeof(owner_detail),"%s",saved.result&&saved.result->error_detail?saved.result->error_detail:"none");
+    int truncated=a<0||b<0||c<0||d<0||(size_t)a>=sizeof(code)||(size_t)b>=sizeof(detail)
+        ||(size_t)c>=sizeof(owner_code)||(size_t)d>=sizeof(owner_detail);
+    char q_code[300],q_detail[1000],q_owner_code[300],q_owner_detail[1000];
+    int quoted=private_json_quoted(code,q_code,sizeof(q_code))&&private_json_quoted(detail,q_detail,sizeof(q_detail))
+        &&private_json_quoted(owner_code,q_owner_code,sizeof(q_owner_code))&&private_json_quoted(owner_detail,q_owner_detail,sizeof(q_owner_detail));
+    struct {const char *name;uint64_t value;} fields[]={
+        {"original_pid",(uint64_t)saved.ticket.pid},{"owner_failed",saved.failed},{"private_failed",(uint64_t)private_failed},
+        {"external_CONT_begin_ns",cont_begin},{"positive_external_reSTOP_ACK_ns",restop_ack},{"RI_call_entry_ns",read_entry},{"RI_call_return_ns",read_return},
+        {"direct_CONT_to_RI_return_ns",engine_interval(cont_begin,read_return)},{"counter_failure_first",(uint64_t)counter_first},
+        {"ACK_USER_raw",saved.pause_user[0]},{"observed_USER_raw",saved.pause_observed_user[0]},
+        {"ACK_SYSTEM_raw",saved.pause_system[0]},{"observed_SYSTEM_raw",saved.pause_observed_system[0]},
+        {"USER_violation",saved.pause_user_violation},{"SYSTEM_violation",saved.pause_system_violation},
+        {"live_checked",saved.pause_live_checked},{"counter_known_mask",saved.pause_counter_known_mask},
+        {"status",saved.members[0].state.status},{"runnable",saved.members[0].state.runnable},
+        {"raw_gap_ns",saved.sample_gap_ns},{"raw_gap_max_ns",saved.max_sample_gap_ns},
+        {"running_gap_ns",saved.running_gap_ns},{"running_gap_max_ns",saved.running_gap_max_ns},
+        {"RI_previous_begin_ns",saved.ri_previous_ns[0]},{"RI_begin_ns",saved.ri_begin_ns[0]},{"RI_return_ns",saved.ri_end_ns[0]},
+        {"RI_sticky_gap_mask",saved.ri_gap_failed_mask},{"first_failed_check_ns",saved.gap_failed_observed_ns},
+        {"first_failed_previous_ns",saved.gap_failed_previous_ns[0]},{"first_failed_raw_gap_ns",saved.gap_failed_raw_ns[0]},
+        {"first_failed_running_gap_ns",saved.gap_failed_running_ns[0]},
+        {"unit_open_CPU_ns",cost.open_cpu},{"debt_ns",cost.debt},{"paid_ns",cost.debt_paid},{"rest_until_ns",cost.rest_until},{"deadline_ns",cost.deadline}
+    };
+    _Static_assert(sizeof(fields)/sizeof(fields[0])<=64,"bounded post-stimulus diagnostic scalar count");
+    char bytes[8192];int n=quoted?snprintf(bytes,sizeof(bytes),"private_pause_post_stimulus_snapshot_source_known {\"kind\":\"fixture_pause_post_stimulus\",\"member\":0,\"sample_return\":%d,\"sample_saved_errno\":%d,\"private_first_error\":%s,\"private_first_detail\":%s,\"owner_first_error\":%s,\"owner_first_detail\":%s,\"first_text_truncated\":%s",sample_return,sample_errno,q_code,q_detail,q_owner_code,q_owner_detail,truncated?"true":"false"):-1;
+    int formatted=n>0&&(size_t)n<sizeof(bytes);size_t used=formatted?(size_t)n:0;
+    for(unsigned i=0;formatted&&i<sizeof(fields)/sizeof(fields[0]);i++) {
+        n=snprintf(bytes+used,sizeof(bytes)-used,",\"%s\":%llu",fields[i].name,(unsigned long long)fields[i].value);
+        if(n<=0||(size_t)n>=sizeof(bytes)-used)formatted=0;else used+=(size_t)n;
+    }
+    if(formatted) {
+        n=snprintf(bytes+used,sizeof(bytes)-used,",\"capture_cutoff\":\"before_own_format_write_ending_guard\",\"native_process\":true,\"installed_tool_qualification\":false,\"runtime_approved\":false}\n");
+        if(n<=0||(size_t)n>=sizeof(bytes)-used)formatted=0;else used+=(size_t)n;
+    }
+    int written=formatted&&fwrite(bytes,1,used,stderr)==used&&fflush(stderr)==0;
+    int paid=private_end_unit(cost.open_cpu);
+    require(written&&paid,"bounded saved post-stimulus diagnostic formatter write and full ending cost paid");
+}
 static void total_control(const char *self,const char *root,int dir,unsigned mode) {
     require(mode<12,"eight total-budget controls plus RSS and retained paused-user boundaries");
     struct engine_owner owner;struct private_engine_result result;int status=-1;
@@ -950,15 +1055,24 @@ static void total_control(const char *self,const char *root,int dir,unsigned mod
         require(0,"background atomic spawn and unchanged native/application gates before first pipe");
     }
     int observed=1,physical_pending=0,foreground_axis=1,paused_read_return=1;uint64_t child_cpu=0;pid_t child_pid=0;
+    uint64_t external_cont_begin=0,external_restop_ack=0,post_RI_entry=0,post_RI_return=0;
+    int post_counter_first=0,post_gap_clean=0;
     struct fixture_live_pacing pacing;memset(&pacing,0,sizeof(pacing));
     if(mode==11)source_known_terminal_rss_unavailable=1;
     if(mode==9||mode==10) {
         owner.foreground=1;require(engine_pause(&owner)&&owner.paused&&owner.pause_baseline_known,"below-cap external-CONT fixture obtains immutable positive ACK before stimulus");
         char start[4097],done[4097],release[4097];snprintf(start,sizeof(start),"%s/pause-%u-start",root,mode);snprintf(done,sizeof(done),"%s/pause-%u-done",root,mode);snprintf(release,sizeof(release),"%s/pause-%u-release",root,mode);
         fixture_touch(start);
-        require(engine_sample_member(&owner,0,owner.ticket.pid)&&owner.members[0].state.status==SSTOP&&owner.members[0].state.runnable==0,
+        uint64_t sample_entry_wall=clock_ns(CLOCK_MONOTONIC),sample_entry_cpu=clock_ns(CLOCK_THREAD_CPUTIME_ID);
+        int stimulus_sample=engine_sample_member(&owner,0,owner.ticket.pid),stimulus_errno=errno;
+        uint64_t sample_return_cpu=clock_ns(CLOCK_THREAD_CPUTIME_ID),sample_return_wall=clock_ns(CLOCK_MONOTONIC);
+        int stimulus_guard=stimulus_sample&&owner.members[0].state.status==SSTOP&&owner.members[0].state.runnable==0;
+        fixture_pause_pre_stimulus_diagnostic(&owner,mode,stimulus_sample,stimulus_guard,stimulus_errno,
+            sample_entry_wall,sample_entry_cpu,sample_return_wall,sample_return_cpu);
+        require(stimulus_guard,
             "fresh actual stopped RI before external pause stimulus preserves immutable ACK");
         require(engine_checkpoint(&owner),"external pause fixture stimulus preparation is paid");
+        external_cont_begin=clock_ns(CLOCK_MONOTONIC);
         require(kill(-owner.ticket.pgid,SIGCONT)==0,"fixture external CONT deliberately bypasses product resume");
         require(!owner.pause_resume_admitted&&!owner.pause_resume_attempted,"external CONT never fabricates admitted product resume");
         while(access(done,F_OK)!=0){require(clock_ns(CLOCK_MONOTONIC)<outer.deadline,"original external-pause fixture deadline");require(engine_checkpoint(&owner),"bounded external-pause burn observation paid");usleep(1000);}
@@ -967,8 +1081,16 @@ static void total_control(const char *self,const char *root,int dir,unsigned mod
             // a status-only guard cannot substitute for immutable RI equality.
             require(kill(-owner.ticket.pgid,SIGSTOP)==0,"fixture external reSTOP preserves original PID pin");
             uint64_t until=clock_ns(CLOCK_MONOTONIC)+ENGINE_PAUSE_NS;
-            for(;;){struct image state;require(control_observe(owner.ticket.pid,&state)&&state.birth==owner.ticket.birth,"original external reSTOP identity");if(state.status==SSTOP&&state.runnable==0)break;require(clock_ns(CLOCK_MONOTONIC)<until,"external reSTOP finite ACK");require(engine_checkpoint(&owner),"external reSTOP observation paid");usleep(1000);}
+            for(;;){struct image state;require(control_observe(owner.ticket.pid,&state)&&state.birth==owner.ticket.birth,"original external reSTOP identity");if(state.status==SSTOP&&state.runnable==0){external_restop_ack=clock_ns(CLOCK_MONOTONIC);break;}require(clock_ns(CLOCK_MONOTONIC)<until,"external reSTOP finite ACK");require(engine_checkpoint(&owner),"external reSTOP observation paid");usleep(1000);}
+            post_RI_entry=clock_ns(CLOCK_MONOTONIC);
             paused_read_return=engine_sample_member(&owner,0,owner.ticket.pid);
+            int post_sample_errno=errno;post_RI_return=clock_ns(CLOCK_MONOTONIC);
+            post_counter_first=private_failed&&!strcmp(private_error,"resource_limit")
+                &&(!strcmp(private_detail,"user CPU grew after immutable positive pause ACK")
+                    ||!strcmp(private_detail,"system CPU changed across observed stopped interval"));
+            post_gap_clean=!owner.ri_gap_failed_mask&&!owner.gap_failed_observed_ns;
+            fixture_pause_post_stimulus_diagnostic(&owner,paused_read_return,post_sample_errno,
+                external_cont_begin,external_restop_ack,post_RI_entry,post_RI_return,post_counter_first);
         }
         fixture_touch(release);int fixture_cont_ok=1;
         if(mode==10) {
@@ -1071,7 +1193,13 @@ static void total_control(const char *self,const char *root,int dir,unsigned mod
     if(mode==5)require(foreground_axis,"foreground causal fixture reached its intended stopped-ACK or missing-STOP boundary");
     if(mode==8)require(owner.wait_rss>ENGINE_HELPER_RSS,"terminal RSS causal fixture independently crossed actual RSS boundary");
     if(mode==9||mode==10)require(owner.pause_baseline_known&&owner.wait_user>owner.pause_user_baseline_ns+1000&&authoritative<=ENGINE_COMMAND_CPU_NS&&!owner.pause_resume_admitted,"external-CONT causal fixture retained actual below-cap user growth beyond ACK resolution");
-    if(mode==10)require(owner.pause_live_checked&&owner.pause_observed_user[0]>owner.pause_user[0]&&owner.max_sample_gap_ns<=ENGINE_SAMPLE_NS,"live paused-user causal fixture reached actual RI growth without timing refusal");
+    if(mode==10)require(owner.pause_live_checked&&owner.pause_observed_user[0]>owner.pause_user[0]
+        &&external_cont_begin&&external_cont_begin!=UINT64_MAX&&external_restop_ack>=external_cont_begin
+        &&post_RI_entry>=external_restop_ack&&post_RI_return>=post_RI_entry
+        &&engine_interval(external_cont_begin,post_RI_return)<=ENGINE_SAMPLE_NS
+        &&post_counter_first&&post_gap_clean&&owner.running_gap_max_ns<=ENGINE_SAMPLE_NS
+        &&!owner.ri_gap_failed_mask&&!owner.gap_failed_observed_ns,
+        "live paused-user causal fixture reached actual RI growth without timing refusal");
     if(mode==11)require(owner.wait_rss_test_withheld&&owner.wait_rss_native_raw>=0&&authoritative!=UINT64_MAX&&authoritative<=ENGINE_COMMAND_CPU_NS,"unknown RSS causal fixture preserves actual known CPU and native RSS separately");
     printf("private_total_property_axis_source_known mode=%u own_wait4=%u group_gone=%u authoritative_cpu_ns=%llu terminal_cpu_ns=%llu terminal_pass=%u max_ri_gap_ns=%llu own_unit_max_ns=%llu native_cpu_ns=%llu native_wall_ns=%llu runtime_approved=false\n",mode,owner.wait_observed,result.group_gone,(unsigned long long)authoritative,(unsigned long long)owner.terminal_cpu_ns,owner.terminal_budget_passed,(unsigned long long)owner.max_sample_gap_ns,(unsigned long long)private_cost.ordinary_max,(unsigned long long)owner.native.cpu,(unsigned long long)owner.native.wall);
     if(mode==9)require(settled&&owner.pause_terminal_checked&&owner.pause_user_violation&&!owner.pause_user_pass&&!owner.terminal_budget_passed&&private_errors[5].count,"terminal actual below-cap user growth after ACK refuses without any product resume");
