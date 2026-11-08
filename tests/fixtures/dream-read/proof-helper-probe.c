@@ -452,7 +452,10 @@ struct private_metrics {
     uint64_t engine_charge_calls,poll_closure_calls;
     uint64_t process_create_wall_excess_ns,process_create_wall_excess_count;
     unsigned process_create_wall_excess_known;
+    uint64_t currentness_passes_started,currentness_checks_completed,currentness_units_closed,currentness_step_max,currentness_unit_cpu_max_ns;
 };
+struct private_check_batch {unsigned active,steps,checks,path_pending;};
+static struct private_check_batch private_check_batch;
 static const char *private_error="input_invalid",*private_detail="strict private input decoding failed";
 static struct private_metrics private_cost;
 static int private_has_retained_cost(void) {
@@ -644,6 +647,12 @@ static int private_end_unit_at(uint64_t at,unsigned source_line) {
     if(known_clock_ns(CLOCK_THREAD_CPUTIME_ID,&end)&&at!=UINT64_MAX&&end>=at)used=end-at;
     else private_fail("clock_unknown","unavailable or reversed ordinary clock");
     if(private_cost.closed_unit_count!=UINT64_MAX)private_cost.closed_unit_count++;
+    if(private_check_batch.active) {
+        if(private_cost.currentness_units_closed!=UINT64_MAX)private_cost.currentness_units_closed++;else private_fail("clock_unknown","currentness unit diagnostic overflow");
+        if(used>private_cost.currentness_unit_cpu_max_ns)private_cost.currentness_unit_cpu_max_ns=used;
+        if(private_check_batch.path_pending)private_cost.path_walk_units++;
+        private_check_batch.steps=private_check_batch.path_pending=0;
+    }
     private_cost.last_unit=used;
     if(used>private_cost.ordinary_max)private_cost.ordinary_max=used;
     int scheduled=private_schedule_cost(used);
@@ -665,6 +674,27 @@ static int private_end_unit_at(uint64_t at,unsigned source_line) {
     return 1;
 }
 #define private_end_unit(at) private_end_unit_at((at),__LINE__)
+// Only a complete revalidation fence enables this same-owner batch. No epoch
+// or debt is reset: every forced/final cut uses the existing full-cost path.
+// Steps reserve bounded native blocks; all path opens/closes and stats count.
+static int private_check_batch_reserve(unsigned steps) {
+    if(!private_check_batch.active)return 1;
+    if(!steps||steps>64)return private_fail("resource_limit","currentness fixed batch step bound");
+    uint64_t now;if(!known_clock_ns(CLOCK_THREAD_CPUTIME_ID,&now)||now<private_cost.open_cpu)return private_fail("clock_unknown","currentness batch clock unavailable or reversed");
+    if(private_check_batch.steps>64-steps||now-private_cost.open_cpu>=400000)
+        if(!private_end_unit(private_cost.open_cpu))return 0;
+    private_check_batch.steps+=steps;
+    if(private_check_batch.steps>private_cost.currentness_step_max)private_cost.currentness_step_max=private_check_batch.steps;
+    return 1;
+}
+static int private_fixed_check_end(uint64_t at) {
+    if(!private_check_batch.active)return private_end_unit(at);
+    private_check_batch.checks++;
+    if(private_cost.currentness_checks_completed!=UINT64_MAX)private_cost.currentness_checks_completed++;else return private_fail("clock_unknown","currentness check diagnostic overflow");
+    uint64_t now;if(!known_clock_ns(CLOCK_THREAD_CPUTIME_ID,&now)||now<private_cost.open_cpu)return private_fail("clock_unknown","currentness batch ending clock unavailable or reversed");
+    if(private_check_batch.steps>=64||now-private_cost.open_cpu>=400000)return private_end_unit(at);
+    return 1;
+}
 static int private_utf8(const unsigned char *p,size_t n) {
     size_t i=0;
     while(i<n) {
@@ -794,6 +824,8 @@ static int private_open_failure(const char *code,const char *detail) {
 static int private_open_walk_mode(int root,const char *path,int absolute,int final_flags,int leave_final_unpaid) {
     memset(&private_open_last,0,sizeof(private_open_last));
     uint64_t begin=clock_ns(CLOCK_THREAD_CPUTIME_ID);
+    if(!private_check_batch_reserve(1)){private_open_last.budget_refused=1;return -1;}
+    if(private_check_batch.active){private_check_batch.path_pending=1;begin=private_cost.open_cpu;}
     int path_valid=private_path(path,absolute);
     errno=0;
     int dir=path_valid?(absolute?open("/",O_RDONLY|O_DIRECTORY|O_CLOEXEC):dup(root)):-1;
@@ -802,6 +834,14 @@ static int private_open_walk_mode(int root,const char *path,int absolute,int fin
     unsigned steps=0;int final=0;
     while(dir>=0&&*p) {
         const char *end=strchr(p,'/');size_t n=end?(size_t)(end-p):strlen(p);char name[256];memcpy(name,p,n);name[n]=0;
+        uint64_t closed_before=private_cost.closed_unit_count;
+        // Reserve final open/old-parent close + BOTH fstats/current close
+        // together, preserving C14's common final-unpaid observation span.
+        if(!private_check_batch_reserve(!end&&leave_final_unpaid?5:2)){private_open_last.budget_refused=1;private_close(dir);return -1;}
+        if(private_check_batch.active) {
+            if(private_cost.closed_unit_count!=closed_before)private_open_last.units++;
+            if(begin!=private_cost.open_cpu)steps=0;begin=private_cost.open_cpu;private_check_batch.path_pending=1;
+        }
         errno=0;
         int next=openat(dir,name,(end?O_RDONLY|O_DIRECTORY:final_flags)|O_NOFOLLOW|O_CLOEXEC|O_NONBLOCK);
         int open_error=next<0?errno:0;int closed=close(dir);dir=next;
@@ -818,13 +858,13 @@ static int private_open_walk_mode(int root,const char *path,int absolute,int fin
         // One finite pathname operation: bounded 64 components/400us nominal
         // checkpoints, full ending cost and fresh rest before the next batch.
         if(++steps==64||now<begin||now-begin>=400000||final||private_open_last.native_failed) {
-            private_open_last.units++;private_cost.path_walk_units++;
+            private_open_last.units++;if(!private_check_batch.active)private_cost.path_walk_units++;
             if(!private_end_unit(begin)){private_open_last.budget_refused=1;private_close(dir);return -1;}
             if(private_open_last.native_failed){private_close(dir);return -1;}
             if(final)return dir;begin=clock_ns(CLOCK_THREAD_CPUTIME_ID);steps=0;
         }
     }
-    if(!steps&&!final){private_open_last.units++;private_cost.path_walk_units++;if(!private_end_unit(begin))private_open_last.budget_refused=1;}
+    if(!steps&&!final){private_open_last.units++;if(!private_check_batch.active)private_cost.path_walk_units++;if(!private_end_unit(begin))private_open_last.budget_refused=1;}
     private_close(dir);return -1;
 }
 static int private_open_walk(int root,const char *path,int absolute,int final_flags) {
@@ -835,8 +875,9 @@ static int private_current_close(int fd,uint64_t at) {
     uint64_t end=clock_ns(CLOCK_THREAD_CPUTIME_ID);
     if(end<begin)private_fail("clock_unknown","currentness descriptor-close clock reversed");
     else if(end-begin>private_cost.close_max)private_cost.close_max=end-begin;
-    if(private_open_last.final_unpaid){private_open_last.final_unpaid=0;private_open_last.units++;private_cost.path_walk_units++;}
-    int paid=private_end_unit(at);
+    if(private_open_last.final_unpaid){private_open_last.final_unpaid=0;if(!private_check_batch.active){private_open_last.units++;private_cost.path_walk_units++;}}
+    uint64_t closed_before=private_cost.closed_unit_count;int paid=private_fixed_check_end(at);
+    if(private_check_batch.active&&private_cost.closed_unit_count!=closed_before)private_open_last.units++;
     if(result!=0){errno=error;return private_fail("source_changed","currentness descriptor close failed");}
     return paid&&end>=begin;
 }
@@ -901,6 +942,9 @@ static int private_close_observed(int fd,int *actual_closed) {
 static int private_close(int fd) {int actual_closed;int paid=private_close_observed(fd,&actual_closed);return paid&&actual_closed;}
 static int private_root_current(const struct private_dir *root) {
     int current=private_open_walk_mode(-1,root->path,1,O_RDONLY|O_DIRECTORY,1);if(current<0)return private_open_failure("source_changed","exact root path changed");
+    if(private_check_batch.active&&!private_open_last.final_unpaid) {
+        if(!private_check_batch_reserve(3)){private_close(current);return 0;}private_check_batch.path_pending=1;
+    }
     uint64_t at=clock_ns(CLOCK_THREAD_CPUTIME_ID);struct stat held,now;
     int same=fstat(root->fd,&held)==0&&fstat(current,&now)==0&&S_ISDIR(now.st_mode)&&now.st_uid==root->uid&&(now.st_mode&0777)==0700
         &&(uint64_t)now.st_dev==root->dev&&(uint64_t)now.st_ino==root->ino&&held.st_dev==now.st_dev&&held.st_ino==now.st_ino;
@@ -916,6 +960,9 @@ static int private_same_file(const struct stat *a,const struct stat *b) {
 static int private_named_current(int fd,int root,const char *path,int absolute,const struct stat *original) {
     int current=private_open_walk_mode(root,path,absolute,O_RDONLY,1);
     if(current<0)return private_open_failure("source_changed","original descriptor pathname changed");
+    if(private_check_batch.active&&!private_open_last.final_unpaid) {
+        if(!private_check_batch_reserve(3)){private_close(current);return 0;}private_check_batch.path_pending=1;
+    }
     uint64_t at=clock_ns(CLOCK_THREAD_CPUTIME_ID);struct stat held,named;
     int same=fstat(fd,&held)==0&&fstat(current,&named)==0&&private_same_file(original,&held)&&private_same_file(&held,&named);
     int paid=private_current_close(current,at);
@@ -1865,9 +1912,25 @@ static int private_actual_platform(const struct private_platform *platform);
 static int private_revalidate_context(const struct private_engine_context *ctx) {
     if(private_failed)return 0;
     if(!private_context_same(ctx)||private_guards.stage!=2)return private_fail("review_unbound","full private basis currentness is not established");
-    if(!private_root_current(&ctx->outer->prefix)||!private_root_current(&ctx->outer->repo)||!private_root_current(&ctx->outer->output))return 0;
-    for(unsigned i=0;i<private_guards.count;i++)if(!private_guard_fresh(&private_guards.files[i])||!private_inner_checkpoint())return 0;
-    return private_actual_platform(&ctx->basis->platform)&&private_end_unit(clock_ns(CLOCK_THREAD_CPUTIME_ID));
+    if(private_check_batch.active)return private_fail("review_unbound","nested currentness batch refused");
+    memset(&private_check_batch,0,sizeof(private_check_batch));private_check_batch.active=1;
+    uint64_t poll_units_before=private_cost.poll_closure_calls;
+    if(private_cost.currentness_passes_started!=UINT64_MAX)private_cost.currentness_passes_started++;else private_fail("clock_unknown","currentness pass diagnostic overflow");
+    int valid=private_root_current(&ctx->outer->prefix)&&private_root_current(&ctx->outer->repo)&&private_root_current(&ctx->outer->output);
+    for(unsigned i=0;i<private_guards.count&&valid;i++)valid=private_guard_fresh(&private_guards.files[i]);
+    if(valid)valid=private_actual_platform(&ctx->basis->platform);
+    if(valid&&private_check_batch.checks!=private_guards.count+6u)valid=private_fail("coverage_unknown","currentness batch omitted a fixed required check");
+    // Close/pay even a failed check's full actual span before returning it.
+    int paid=private_end_unit(private_cost.open_cpu);
+    // Payment polling also owns full ordinary units. Include them in the
+    // floor projection instead of silently counting only metadata closures.
+    uint64_t poll_units=private_cost.poll_closure_calls-poll_units_before;
+    if(private_cost.poll_closure_calls<poll_units_before||poll_units>UINT64_MAX-private_cost.currentness_units_closed) {
+        private_cost.currentness_units_closed=UINT64_MAX;private_fail("clock_unknown","currentness paid polling-unit count overflow");
+    } else private_cost.currentness_units_closed+=poll_units;
+    if(poll_units&&private_cost.ordinary_max>private_cost.currentness_unit_cpu_max_ns)private_cost.currentness_unit_cpu_max_ns=private_cost.ordinary_max;
+    private_check_batch.active=0;
+    return valid&&paid&&!private_failed;
 }
 // Copyright 2026 Boxy (bboxy450) and contributors.
 // SPDX-License-Identifier: LicenseRef-Respectful-Slop-1.0-Draft
@@ -1971,25 +2034,28 @@ static int private_actual_config(const struct private_engine_context *ctx) {
 // all per-image mappings or the candidate's future runtime loaded closure.
 static int private_actual_platform(const struct private_platform *platform) {
     if(private_failed)return 0;
+    if(!private_check_batch_reserve(2))return 0;
     uint64_t at=clock_ns(CLOCK_THREAD_CPUTIME_ID);struct utsname host;char build[129];size_t length=sizeof(build);
     int known=uname(&host)==0&&sysctlbyname("kern.osversion",build,&length,NULL,0)==0&&length>0&&length<=sizeof(build)&&build[length-1]==0;
     int same=known&&!strcmp(platform->machine,host.machine)&&!strcmp(platform->release,host.release)&&!strcmp(platform->os_build,build);
-    if(!private_end_unit(at))return 0;
+    if(!private_fixed_check_end(at))return 0;
     if(!same)return private_fail("review_unbound","current platform machine release or build differs");
+    if(!private_check_batch_reserve(1))return 0;
     at=clock_ns(CLOCK_THREAD_CPUTIME_ID);task_dyld_info_data_t info;memset(&info,0,sizeof(info));mach_msg_type_number_t count=TASK_DYLD_INFO_COUNT;
     kern_return_t result=task_info(mach_task_self(),TASK_DYLD_INFO,(task_info_t)&info,&count);
     size_t needed=offsetof(struct dyld_all_image_infos,sharedCacheUUID)+16;
     known=result==KERN_SUCCESS&&count==TASK_DYLD_INFO_COUNT&&info.all_image_info_format==TASK_DYLD_ALL_IMAGE_INFO_64
         &&info.all_image_info_addr&&info.all_image_info_size>=needed&&needed<=4096;
-    if(!private_end_unit(at))return 0;
+    if(!private_fixed_check_end(at))return 0;
     if(!known)return private_fail("coverage_unknown","current process shared-cache identity ABI unavailable");
+    if(!private_check_batch_reserve(2))return 0;
     struct dyld_all_image_infos snapshot;memset(&snapshot,0,sizeof(snapshot));mach_vm_size_t copied=0;
     at=clock_ns(CLOCK_THREAD_CPUTIME_ID);
     result=mach_vm_read_overwrite(mach_task_self(),info.all_image_info_addr,(mach_vm_size_t)needed,(mach_vm_address_t)&snapshot,&copied);
     known=result==KERN_SUCCESS&&copied==needed&&snapshot.version>=13&&!snapshot.processDetachedFromSharedRegion;
     char uuid[33];unsigned nonzero=0;for(unsigned i=0;i<16;i++){snprintf(uuid+2*i,3,"%02x",snapshot.sharedCacheUUID[i]);nonzero|=snapshot.sharedCacheUUID[i];}
     same=known&&nonzero&&!strcmp(uuid,platform->cache_uuid);
-    if(!private_end_unit(at))return 0;
+    if(!private_fixed_check_end(at))return 0;
     if(!known)return private_fail("coverage_unknown","current shared-cache bytes unavailable or detached");
     if(!same)return private_fail("review_unbound","current shared-cache UUID differs");return 1;
 }
@@ -2386,6 +2452,7 @@ struct engine_owner {
     unsigned child_discovered_via,fork_seen_child_missed;
     unsigned child_image_admitted,child_cost_unproven,child_rollup_known,child_rollup_mask,child_disappeared;
     uint64_t child_rollup_user,child_rollup_system,child_rollup_read_ns;
+    uint64_t ordinary_loop_epoch;unsigned ordinary_loop_steps;
     unsigned escaped_cleanup_checks,escaped_kill_attempts,escaped_kill_failures,group_kill_not_attempted_terminal;int escaped_kill_errno;
     int child_list_count[2],child_list_errno[2],group_list_count,group_list_errno;
     unsigned child_list_known_mask,child_list_failed_mask,group_list_known,group_list_failed;
@@ -2431,6 +2498,8 @@ static int engine_child_unproven(struct engine_owner *,const char *);
 static int engine_quarantine(struct engine_owner *,const char *);
 static int engine_cpu_ticks(uint64_t,uint64_t *);
 static int engine_record(struct engine_owner *,const char *);
+static int engine_checkpoint_at(struct engine_owner *,const char *,unsigned);
+#define engine_checkpoint(owner) engine_checkpoint_at((owner),__func__,__LINE__)
 static int engine_events_poll(struct engine_owner *,uint64_t);
 static int engine_census(struct engine_owner *,unsigned,int);
 static int engine_events_close(struct engine_owner *);
@@ -2680,11 +2749,31 @@ static int engine_charge_at(struct engine_owner *owner,uint64_t actual,uint64_t 
     return 1;
 }
 #define engine_charge(owner,actual,cost,ordinary) engine_charge_at((owner),(actual),(cost),(ordinary),__func__,__LINE__)
-static int engine_checkpoint(struct engine_owner *owner) {
+static int engine_checkpoint_at(struct engine_owner *owner,const char *site,unsigned line) {
     uint64_t used=engine_interval(private_cost.open_cpu,engine_now(owner,CLOCK_THREAD_CPUTIME_ID));
     engine_max(&owner->result->controller_max_ns,used);engine_sum(&owner->result->C_ns,used);
     if(owner->retiring){engine_max(&owner->result->cleanup_max_ns,used);engine_sum(&owner->result->post_cpu_ns,used);}
-    return engine_charge(owner,used,used,1);
+    owner->ordinary_loop_steps=0;owner->ordinary_loop_epoch=private_cost.open_cpu;
+    return engine_charge_at(owner,used,used,1,site,line);
+}
+enum engine_unit_boundary {ENGINE_QUEUE_CENSUS_MEMBER,ENGINE_MEMBER_GS1};
+static int engine_unit_boundary_enabled(unsigned boundary) {
+    return boundary==ENGINE_QUEUE_CENSUS_MEMBER||boundary==ENGINE_MEMBER_GS1;
+}
+static int engine_unit_cut(struct engine_owner *owner,unsigned boundary) {
+    return !engine_unit_boundary_enabled(boundary)||engine_checkpoint_at(owner,boundary==ENGINE_QUEUE_CENSUS_MEMBER?"queue_census_before_member":"member_before_GS1",__LINE__);
+}
+static int engine_checkpoint_due(struct engine_owner *owner) {
+    uint64_t now=engine_now(owner,CLOCK_THREAD_CPUTIME_ID),used=engine_interval(private_cost.open_cpu,now);
+    if(used==UINT64_MAX)return engine_charge(owner,UINT64_MAX,UINT64_MAX,1);
+    if(owner->ordinary_loop_epoch!=private_cost.open_cpu){owner->ordinary_loop_epoch=private_cost.open_cpu;owner->ordinary_loop_steps=0;}
+    if(++owner->ordinary_loop_steps>=64||used>=400000)return engine_checkpoint(owner);
+    return 1;
+}
+static int engine_observation_finish(struct engine_owner *owner,uint64_t original_epoch) {
+    // GS1 already pays before its existing continuation. Do not add another
+    // almost-empty floor merely because its caller also closes observations.
+    return original_epoch==private_cost.open_cpu?engine_checkpoint(owner):engine_checkpoint_due(owner);
 }
 static int engine_priority(struct engine_owner *owner,unsigned i,const struct image *state) {
     if(state->priority!=ENGINE_BACKGROUND_PRIORITY){(void)engine_kill_group(owner);return engine_failure(owner,"resource_limit","live helper priority differs from observed background band4");}
@@ -2889,8 +2978,17 @@ static int engine_sample_member(struct engine_owner *owner,unsigned i,pid_t pid)
             // it precedes the verifier's first admitted continuation.
             if(!m->attachment_stop) {m->attachment_stop=1;int error=engine_token_signal(&token,SIGSTOP);if(error)return engine_failure(owner,"coverage_unknown","verifier custody STOP unavailable");return 1;}
             if(m->state.status!=SSTOP||m->state.runnable!=0)return 1;
+            if(!engine_unit_cut(owner,ENGINE_MEMBER_GS1))return 0;
+            if(owner->retiring||owner->group_kill_pending||owner->pause_pending||engine_cancel_signal||engine_now(owner,CLOCK_MONOTONIC)>=owner->context->outer->deadline)
+                return engine_failure(owner,"cancelled","verifier GS1 lost admission after its prior paid observation");
             if(!owner->git_signature||!private_git_sig_gs1(owner->context,owner->git_signature,pid,current.birth,&token,owner->signature_buffer,owner->signature_capacity))return engine_failure(owner,private_error,private_detail);
             m->phase=ENGINE_EXPECTED;m->attachment_ready=1;owner->child_image_admitted=1;owner->verified_descendants++;
+            if(!engine_checkpoint(owner))return 0;
+            // Splitting owns extra fresh9x rest. While the verifier remains
+            // stopped, refresh the ORIGINAL leader with the existing full
+            // sampler so those rests never masquerade as a new RI timestamp.
+            if(!engine_sample_member(owner,0,owner->ticket.pid))return 0;
+            if(owner->members[0].phase==ENGINE_EXITED)return engine_failure(owner,"coverage_unknown","leader terminated before verifier activation");
             if(!engine_checkpoint(owner))return 0;
             if(!owner->foreground&&!owner->retiring&&!engine_cancel_signal&&engine_now(owner,CLOCK_MONOTONIC)<owner->context->outer->deadline) {if(engine_token_signal(&token,SIGCONT))return engine_failure(owner,"coverage_unknown","verifier custody continuation unavailable");m->attachment_ready=0;}
         }
@@ -2990,7 +3088,11 @@ static int engine_census(struct engine_owner *owner,unsigned via,int observe) {
             owner->child_discovered_via=via;
         }
         if(!observe)return 1;
-        if(!engine_sample_member(owner,1,ids[0])||!engine_checkpoint(owner))return 0;
+        // First discovery binds birth/full token immediately, before any
+        // new rest. Later waves can close census under that retained identity.
+        if(owner->members[1].token_known&&!engine_unit_cut(owner,ENGINE_QUEUE_CENSUS_MEMBER))return 0;
+        uint64_t member_epoch=private_cost.open_cpu;
+        if(!engine_sample_member(owner,1,ids[0])||!engine_observation_finish(owner,member_epoch))return 0;
         int children[2]={0};int count=engine_list_children(owner,1,ids[0],children,sizeof(children));
         if(!native_pid_list_empty(count,owner->child_list_errno[1]))return engine_child_unproven(owner,"descendant child edge not known empty");
     } else if(via==2&&!owner->child_created) {
@@ -3004,6 +3106,12 @@ static int engine_census(struct engine_owner *owner,unsigned via,int observe) {
     }
     return 1;
 }
+static int engine_observing_census(struct engine_owner *o,int observe,int (*census)(struct engine_owner *,unsigned,int)) {
+    // Consume only the wake delivered BEFORE this census. Its nested terminal
+    // reads may drain a NEW EXEC/EXIT; the following service branch owns it.
+    if(observe)o->child_event_pending=0;
+    return census(o,2,observe);
+}
 static int engine_events_service(struct engine_owner *o,uint64_t wait_ns) {
     if(!engine_events_poll(o,wait_ns))return 0;
     int done=0;
@@ -3011,14 +3119,17 @@ static int engine_events_service(struct engine_owner *o,uint64_t wait_ns) {
         o->fork_census_pending=0;
         if(!known_exited(o->ticket.pid,&done))return engine_failure(o,"settlement_unknown","fork census lacks original WNOWAIT custody");
         // Census in this same ordinary iteration, before the next paid rest.
-        if(!engine_census(o,2,!done&&!o->retiring))return 0;
+        int observe=!done&&!o->retiring;
+        if(!engine_observing_census(o,observe,engine_census))return 0;
     }
     if(o->child_event_pending&&!o->retiring) {
         if(!known_exited(o->ticket.pid,&done))return engine_failure(o,"settlement_unknown","child event lacks original WNOWAIT custody");
         o->child_event_pending=0;if(done)return 1;
         // An EXEC wake invokes the SAME strict incarnation/GS1 sampler,
         // including its existing one-shot custody STOP and continuation.
-        if(!engine_sample_member(o,1,o->members[1].state.pid))return 0;
+        if(!engine_unit_cut(o,ENGINE_QUEUE_CENSUS_MEMBER))return 0;
+        uint64_t member_epoch=private_cost.open_cpu;
+        if(!engine_sample_member(o,1,o->members[1].state.pid)||!engine_observation_finish(o,member_epoch))return 0;
     }
     return 1;
 }
@@ -3627,7 +3738,7 @@ static int engine_command(struct engine_owner *o,struct engine_prepared *p,unsig
         if(o->paused&&!engine_resume(o))break;
         uint64_t now=engine_now(o,CLOCK_MONOTONIC);
         if(!o->sample_known||now==UINT64_MAX||now<o->last_sample_ns||now-o->last_sample_ns>ENGINE_SAMPLE_NS) {engine_failure(o,"coverage_unknown","live helper sample interval exceeded50ms");break;}
-        if(!engine_memory(o)||!engine_pipe_io(o)||!engine_events_service(o,1000000)||!engine_checkpoint(o))break;
+        if(!engine_memory(o)||!engine_pipe_io(o)||!engine_events_service(o,1000000)||!engine_checkpoint_due(o))break;
     }
     if(o->ticket.pid>0)(void)engine_retire(o,status);
     else if(!o->native.attempted||o->native.error){engine_current=NULL;dispose_private_engine=NULL;}

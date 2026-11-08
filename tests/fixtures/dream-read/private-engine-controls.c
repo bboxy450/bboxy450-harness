@@ -25,7 +25,7 @@ static char fixture_release_path[4097];
 static void fixture(int);
 static void fixture_reset_cost(void) {
     require(!engine_current,"previous original owner must be settled before fixture reset");
-    memset(&private_cost,0,sizeof(private_cost));private_reset_diagnostics();private_failed=0;private_error="input_invalid";private_detail="fixture unset";
+    memset(&private_cost,0,sizeof(private_cost));memset(&private_check_batch,0,sizeof(private_check_batch));private_reset_diagnostics();private_failed=0;private_error="input_invalid";private_detail="fixture unset";
     private_cost.entry=clock_ns(CLOCK_MONOTONIC);private_cost.deadline=private_cost.entry+30000000000ULL;
     private_cost.open_cpu=clock_ns(CLOCK_THREAD_CPUTIME_ID);engine_cancel_signal=engine_owner_loss_signal=0;
     source_known_payment_interrupts=source_known_payment_fail_nth=source_known_schedule_interrupts=source_known_schedule_fail_nth=0;
@@ -1401,6 +1401,113 @@ static void child_exit_witness_control(const char *self,const char *root,int dir
     require(private_end_unit(private_cost.open_cpu),"actual child exit witness disposal fully paid");controls++;
 }
 
+static void sample_unit_composition_control(void) {
+    reset();
+    // A deterministic COST INPUT vector, not measured phase attribution. Its
+    // total equals retained row87 including the792ns ending tail. The source
+    // record did not identify individual phase costs or a unique caller.
+    const uint64_t supplied[3]={180000,400000,440958};uint64_t sum=0,open=0,maximum=0,projected_debt=0;unsigned units=0;
+    for(unsigned i=0;i<3;i++) {
+        sum+=supplied[i];open+=supplied[i];
+        if(i==2||engine_unit_boundary_enabled(i)) {
+            if(open>maximum)maximum=open;projected_debt+=9*(open<1000000?1000000:open);units++;open=0;
+        }
+    }
+    require(private_end_unit(private_cost.open_cpu),"unit composition API actual controller cost paid");
+    printf("private_sample_unit_composition_source_known supplied_costs=true native_process=false retained_total_ns=1020958 composed_total_ns=%llu phase_units=%u phase_max_ns=%llu nominal_target_ns=500000 hard_unit_ns=1000000 projected_debt_ns=%llu OS_WCET_claimed=false runtime_approved=false\n",
+        (unsigned long long)sum,units,(unsigned long long)maximum,(unsigned long long)projected_debt);
+    require(fflush(stdout)==0&&private_end_unit(private_cost.open_cpu),"unit composition projection evidence fully paid");
+    require(sum==1020958&&!open&&units==3&&maximum<=500000&&maximum<=1000000&&projected_debt==27000000,
+        "retained-child sample composition closes every full-cost phase before the one millisecond hard bound");
+    controls++;
+}
+static void currentness_fixture_platform(void) {
+    struct utsname host;size_t length=sizeof(basis.platform.os_build);
+    require(uname(&host)==0&&strlen(host.machine)<sizeof(basis.platform.machine)&&strlen(host.release)<sizeof(basis.platform.release)
+        &&sysctlbyname("kern.osversion",basis.platform.os_build,&length,NULL,0)==0&&length&&length<=sizeof(basis.platform.os_build)&&!basis.platform.os_build[length-1],
+        "source-known current platform fixture fields");
+    strcpy(basis.platform.machine,host.machine);strcpy(basis.platform.release,host.release);
+    require(private_end_unit(private_cost.open_cpu),"actual source-known platform fixture strings paid");
+    task_dyld_info_data_t info;memset(&info,0,sizeof(info));mach_msg_type_number_t count=TASK_DYLD_INFO_COUNT;
+    require(task_info(mach_task_self(),TASK_DYLD_INFO,(task_info_t)&info,&count)==KERN_SUCCESS&&count==TASK_DYLD_INFO_COUNT
+        &&info.all_image_info_format==TASK_DYLD_ALL_IMAGE_INFO_64&&info.all_image_info_addr,
+        "source-known current task dyld identity");
+    require(private_end_unit(private_cost.open_cpu),"source-known platform task identity paid");
+    struct dyld_all_image_infos snapshot;memset(&snapshot,0,sizeof(snapshot));mach_vm_size_t copied=0;size_t needed=offsetof(struct dyld_all_image_infos,sharedCacheUUID)+16;
+    require(info.all_image_info_size>=needed&&needed<=4096&&mach_vm_read_overwrite(mach_task_self(),info.all_image_info_addr,needed,(mach_vm_address_t)&snapshot,&copied)==KERN_SUCCESS
+        &&copied==needed&&snapshot.version>=13&&!snapshot.processDetachedFromSharedRegion,"source-known own shared-cache identity bytes");
+    for(unsigned i=0;i<16;i++)snprintf(basis.platform.cache_uuid+2*i,3,"%02x",snapshot.sharedCacheUUID[i]);
+    require(private_end_unit(private_cost.open_cpu),"source-known own cache bytes paid");
+}
+static void currentness_batch_control(const char *root,int dir) {
+    reset();fixture(dir);currentness_fixture_platform();struct stat directory;require(fstat(dir,&directory)==0,"actual currentness fixture directory stamp");
+    struct private_dir *roots[3]={&outer.prefix,&outer.repo,&outer.output};
+    for(unsigned i=0;i<3;i++){strcpy(roots[i]->path,root);roots[i]->fd=dir;roots[i]->dev=directory.st_dev;roots[i]->ino=directory.st_ino;roots[i]->uid=geteuid();}
+    static const char *const names[2]={"currentness-a","currentness-b"};
+    static const char *const tokens[2]={"\"currentness-a\"","\"currentness-b\""};
+    for(unsigned i=0;i<2;i++) {
+        struct private_guard *g=&private_guards.files[i];memset(g,0,sizeof(*g));g->root=1;g->len=1;g->verified=1;
+        g->path=(struct private_slice){(const unsigned char *)tokens[i],strlen(tokens[i])};
+        g->fd=openat(dir,names[i],O_RDWR|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,0600);
+        require(g->fd>=0&&write(g->fd,i?"b":"a",1)==1&&fstat(g->fd,&g->original)==0,"actual retained currentness fixture file");
+        private_hash(i?"b":"a",1,g->sha);require(private_end_unit(private_cost.open_cpu),"actual retained currentness file setup paid");
+    }
+    private_guards.count=2;private_guards.stage=2;uint64_t before=private_cost.currentness_units_closed;
+    int valid=private_revalidate_context(&context);
+    uint64_t units=private_cost.currentness_units_closed-before,checks=private_check_batch.checks;
+    printf("private_currentness_batch_source_known guards=2 expected_fixed_checks=8 completed_checks=%llu units_closed=%llu old_min_units=9 max_reserved_steps=%llu unit_cpu_max_ns=%llu active_after=%u debt_ns=%llu paid_ns=%llu actual_file_checks=true platform_checks=true real_candidate_created=0 runtime_approved=false\n",
+        (unsigned long long)checks,(unsigned long long)units,(unsigned long long)private_cost.currentness_step_max,(unsigned long long)private_cost.currentness_unit_cpu_max_ns,private_check_batch.active,(unsigned long long)private_cost.debt,(unsigned long long)private_cost.debt_paid);
+    require(fflush(stdout)==0&&private_end_unit(private_cost.open_cpu),"actual currentness batch evidence paid");
+    if(!valid) {for(unsigned i=0;i<2;i++){int fd=private_guards.files[i].fd;private_guards.files[i].fd=-1;require(private_close(fd),"failed fixture currentness FD cleanup paid");}}
+    require(valid&&checks==8&&units>0&&units<9&&private_cost.currentness_step_max<=64&&private_cost.currentness_unit_cpu_max_ns<=1000000
+        &&!private_check_batch.active&&private_cost.debt==private_cost.debt_paid,
+        "batched currentness executes all roots retained files and platform checks before returning");
+    require(pwrite(private_guards.files[0].fd,"z",1,0)==1&&private_end_unit(private_cost.open_cpu),"actual same-length retained currentness file change paid");
+    int refused=!private_revalidate_context(&context);
+    int closed=1;for(unsigned i=0;i<2;i++){int fd=private_guards.files[i].fd;private_guards.files[i].fd=-1;closed=private_close(fd)&&closed;}
+    printf("private_currentness_batch_change_source_known actual_in_place_change=true refused=%u original_descriptors_closed=%u source_changed_count=%llu completed_checks=%u active_after=%u debt_ns=%llu paid_ns=%llu native_process=false runtime_approved=false\n",
+        (unsigned)refused,(unsigned)closed,(unsigned long long)private_errors[9].count,private_check_batch.checks,private_check_batch.active,(unsigned long long)private_cost.debt,(unsigned long long)private_cost.debt_paid);
+    require(fflush(stdout)==0&&private_end_unit(private_cost.open_cpu),"actual currentness tamper and cleanup evidence paid");
+    require(refused&&closed&&private_errors[9].count&&!private_check_batch.active&&private_cost.debt==private_cost.debt_paid,
+        "batched currentness still refuses an actual retained-file change with every full cost paid");
+    private_guards.count=0;private_guards.stage=1;controls++;
+}
+
+static unsigned nested_census_fflags,nested_census_old_seen;
+static int nested_census_delivery(struct engine_owner *o,unsigned via,int observe) {
+    require(via==2&&observe,"source-known observing fork census callback");nested_census_old_seen=o->child_event_pending;
+    if(nested_census_fflags) {
+        struct kevent event;EV_SET(&event,200,EVFILT_PROC,0,nested_census_fflags,0,&o->event_watch[1]);
+        return engine_event_note(o,&event,1000);
+    }
+    return 1;
+}
+static void nested_census_delivery_control(void) {
+    const unsigned flags[3]={NOTE_EXEC,NOTE_EXIT,0};
+    for(unsigned which=0;which<3;which++) {
+        reset();struct engine_owner o;struct private_engine_result r;memset(&o,0,sizeof(o));memset(&r,0,sizeof(r));o.context=&context;o.result=&r;
+        o.ticket.pid=o.ticket.pgid=100;o.ticket.birth=10;o.ticket.start=20;o.direct_custody=1;o.slots=2;
+        o.event_fd_live=1;o.event_registered_mask=3;o.child_event_pending=1;
+        struct engine_member *m=&o.members[1];m->state.pid=200;m->state.ppid=m->state.pgid=100;m->state.birth=11;m->state.start_absolute=22;
+        m->token_known=1;m->token.val[5]=200;m->token.val[7]=1;
+        o.retired_count=1;o.retired[0]=(struct engine_incarnation){.pid=200,.birth=11,.start=22,.token=m->token,.current=1};
+        o.event_watch[1]=(struct engine_event_watch){.pid=200,.birth=11,.start=22,.token=m->token,.bound=1};
+        nested_census_fflags=flags[which];nested_census_old_seen=2;
+        int observed=engine_observing_census(&o,1,nested_census_delivery);
+        unsigned expected=flags[which]!=0;
+        require(private_end_unit(private_cost.open_cpu),"nested census API actual controller cost fully paid");
+        printf("private_nested_census_delivery_case_source_known case=%u old_pending_at_census=%u delivered_fflags=%u new_pending_after=%u exit_note_received=%u terminal_observed_ns=%llu actual_own_wait4=0 native_process=false values_supplied=true runtime_approved=false\n",
+            which,nested_census_old_seen,flags[which],o.child_event_pending,m->exit_note_received,(unsigned long long)m->terminal_observed_ns);
+        require(fflush(stdout)==0&&private_end_unit(private_cost.open_cpu),"nested census API numeric evidence paid before verdict");
+        require(observed&&nested_census_old_seen==0&&o.child_event_pending==expected
+            &&m->exit_note_received==(flags[which]==NOTE_EXIT)&&m->terminal_observed_ns==(flags[which]==NOTE_EXIT?1000u:0u)
+            &&!m->exit_note_witness&&!r.created&&!r.reaped,
+            "observing census consumes only old coalesced wake and preserves every nested new delivery");
+    }
+    controls++;printf("private_nested_census_delivery_source_known cases=3 old_coalesced_consumed=true nested_EXEC_EXIT_retained=true native_process=false runtime_approved=false\n");
+    require(fflush(stdout)==0&&private_end_unit(private_cost.open_cpu),"nested census completion evidence fully paid");
+}
+
 static void process_create_policy_api(void) {
     reset();
     require(native_budget_allowed(NATIVE_PROCESS_CREATE,500000,34000000,600000,100000)
@@ -1534,8 +1641,11 @@ int main(int argc,char **argv) {
     unsigned child_exit_api=argc==3&&!strcmp(argv[1],"child-exit-witness-api")?(unsigned)strtoul(argv[2],NULL,10):9;
     unsigned child_exit_process=argc==2&&!strcmp(argv[1],"child-exit-witness-control");
     unsigned leader_refresh_api=argc==3&&!strcmp(argv[1],"leader-rollup-refresh-api")?(unsigned)strtoul(argv[2],NULL,10):5;
+    unsigned composition=argc==2&&!strcmp(argv[1],"sample-unit-composition-control");
+    unsigned batch=argc==2&&!strcmp(argv[1],"currentness-batch-control");
+    unsigned nested_census=argc==2&&!strcmp(argv[1],"nested-census-delivery-control");
     unsigned event_case=argc==3&&!strcmp(argv[1],"verifier-event-control")?(unsigned)strtoul(argv[2],NULL,10):3;
-    require(argc==1||selected<12||diagnostics||setup||deadline||cpu_debt||expand||native_api||native_case<3||race_case<7||event_api||event_case<3||child_exit_api<9||child_exit_process||leader_refresh_api<5||hold||flow||result_only||charge||boundary||retained,"private source-known controls argc");
+    require(argc==1||selected<12||diagnostics||setup||deadline||cpu_debt||expand||native_api||native_case<3||race_case<7||event_api||event_case<3||child_exit_api<9||child_exit_process||leader_refresh_api<5||composition||batch||nested_census||hold||flow||result_only||charge||boundary||retained,"private source-known controls argc");
     require(atexit(dispose_owned)==0,"owned cleanup registration");
     char root[]="/private/tmp/dream-private-engine-controls.XXXXXX";require(mkdtemp(root)!=NULL,"owned fixture directory");
     int dir=open(root,O_RDONLY|O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC);require(dir>=0,"owned fixture root");
@@ -1566,6 +1676,9 @@ int main(int argc,char **argv) {
     if(retained){total_retained_guard_api();require(close(dir)==0,"owned retained guard API root close");return 0;}
     if(selected<12){total_control(self,root,dir,selected);require(close(dir)==0,"owned narrow fixture root close");return 0;}
     if(diagnostics){terminal_diagnostic_controls(dir);require(close(dir)==0,"owned diagnostic root close");return 0;}
+    if(nested_census){nested_census_delivery_control();require(close(dir)==0,"owned nested census API root close");return 0;}
+    if(composition){sample_unit_composition_control();require(close(dir)==0,"owned unit composition root close");return 0;}
+    if(batch){currentness_batch_control(root,dir);require(close(dir)==0,"owned currentness batch root close");return 0;}
     if(leader_refresh_api<5){int code=leader_rollup_refresh_api(leader_refresh_api);require(close(dir)==0,"owned leader refresh API root close");return code;}
     if(child_exit_api<9){int code=child_exit_witness_api(child_exit_api);require(close(dir)==0,"owned child witness API root close");return code;}
     if(child_exit_process){child_exit_witness_control(self,root,dir);require(close(dir)==0,"owned child witness process root close");return 0;}
@@ -1584,6 +1697,8 @@ int main(int argc,char **argv) {
     process_create_policy_api();
     for(unsigned mode=0;mode<3;mode++)(void)process_create_wall_control(self,root,dir,mode);
     for(unsigned mode=0;mode<7;mode++)(void)live_sample_race_control(self,root,dir,mode);
+    nested_census_delivery_control();
+    sample_unit_composition_control();currentness_batch_control(root,dir);
     for(unsigned mode=0;mode<5;mode++)(void)leader_rollup_refresh_api(mode);
     for(unsigned mode=0;mode<9;mode++)(void)child_exit_witness_api(mode);
     child_exit_witness_control(self,root,dir);

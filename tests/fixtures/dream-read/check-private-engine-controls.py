@@ -31,11 +31,14 @@ VALIDATED = (b'if(!engine_owner_priority()||!engine_pretest_current(context)'
 # persistence and original-controller custody controls. No retired graph/control
 # is re-labelled as a current pass.
 LEDGERS = ('hold-ledger.ndjson', 'hold-control-success', 'claim.json', 'charge-diagnostic.ndjson',
-           'admitted-descriptor', 'retained-descriptor', 'deadline-result/stdout', 'deadline-result/result.json',
+           'admitted-descriptor', 'retained-descriptor', 'currentness-a', 'currentness-b', 'deadline-result/stdout', 'deadline-result/result.json',
            *(f'total-{i}.ndjson' for i in range(27)), 'knote-rollup-26', *(f'live-race-{i}' for i in range(16,23)), *(f'event-release-{i}' for i in range(23,26)), 'rollup-2', 'rollup-2-terminal', 'rollup-2-release', 'release-6',
            *(f'pause-{i}-{phase}' for i in (9,10) for phase in ('start','done','release')),
            *('diagnostic-' + str(i) + '/' + name for i in range(4) for name in ('stderr', 'stdout', 'result.json')))
 ASSERTIONS = {
+ 'census-clear-new-delivery': b'observing census consumes only old coalesced wake and preserves every nested new delivery',
+ 'sample-old-combined-unit': b'retained-child sample composition closes every full-cost phase before the one millisecond hard bound',
+ 'batch-dropped-currentness-check': b'batched currentness still refuses an actual retained-file change with every full cost paid',
  'leader-refresh-use-cached': b'cached terminal leader RI predating child receipt cannot satisfy fresh rollup observation',
  'child-exit-ignore-note': b'retained process-bound NOTE_EXIT qualifies RI_ESRCH with unchanged rollup coverage across approved exec',
  'child-exit-unbound-note': b'unbound or incomplete child exit witness retains rollup refusal and sticky child-cost state',
@@ -290,6 +293,12 @@ def variants(source):
     result = {}
     def add(name, anchor, replacement, args):
         result[name] = (changed(source, anchor, replacement), args)
+    add('census-clear-new-delivery', b'if(observe)o->child_event_pending=0;\n    return census(o,2,observe);',
+        b'int observed=census(o,2,observe);if(observe)o->child_event_pending=0;return observed;', ['nested-census-delivery-control'])
+    add('sample-old-combined-unit', b'return boundary==ENGINE_QUEUE_CENSUS_MEMBER||boundary==ENGINE_MEMBER_GS1;',
+        b'(void)boundary;return 0;', ['sample-unit-composition-control'])
+    add('batch-dropped-currentness-check', b'valid=private_guard_fresh(&private_guards.files[i]);',
+        b'valid=i==0?private_fixed_check_end(clock_ns(CLOCK_THREAD_CPUTIME_ID)):private_guard_fresh(&private_guards.files[i]);', ['currentness-batch-control'])
     add('leader-refresh-use-cached', b'return o->members[1].terminal_observed_ns&&o->child_rollup_read_ns!=UINT64_MAX\n        &&o->child_rollup_read_ns>=o->members[1].terminal_observed_ns;',
         b'return o->members[0].phase==ENGINE_EXITED||(o->members[1].terminal_observed_ns&&o->child_rollup_read_ns!=UINT64_MAX\n        &&o->child_rollup_read_ns>=o->members[1].terminal_observed_ns);', ['leader-rollup-refresh-api', '3'])
     add('child-exit-ignore-note', b'if(event->fflags&NOTE_EXIT)', b'if(0&&(event->fflags&NOTE_EXIT))', ['child-exit-witness-api', '0'])
@@ -422,9 +431,9 @@ def child_exit_witness_receipt(stdout):
 
 
 def retain_current(stdout, report):
-    found=re.findall(rb'private_engine_controls=pass cases=98 total_budget_controls=8 synthetic_source_known=true real_candidate_created=0 runtime_approved=false retained=(/private/tmp/dream-private-engine-controls\.[A-Za-z0-9]+)\n',stdout)
+    found=re.findall(rb'private_engine_controls=pass cases=101 total_budget_controls=8 synthetic_source_known=true real_candidate_created=0 runtime_approved=false retained=(/private/tmp/dream-private-engine-controls\.[A-Za-z0-9]+)\n',stdout)
     if len(found)!=1:
-        raise ValueError('current fixture lacks exact98 remaining controls and eight total-budget witnesses')
+        raise ValueError('current fixture lacks exact101 remaining controls and eight total-budget witnesses')
     if os.fsdecode(found[0]) != report['commands'][-1]['fixture_capture']['source_dir']:
         raise ValueError('completed fixture root differs from original command binding')
     modes=re.findall(rb'private_total_budget_control_source_known mode=([0-9]+) original_pid=([0-9]+) actual_own_wait4=1 group_gone=1 terminal_cpu_ns=([0-9]+)',stdout)
@@ -489,7 +498,30 @@ def retain_current(stdout, report):
         'cases':{'0':'genuine fresh post-child terminal observation passes strict raw guards','1':'missing RI refuses',
                  '2':'foreign RI start refuses','3':'cached terminal and RI read before child receipt are stale',
                  '4':'reaped original owner refuses'},'cached_success_not_new_observation':True}
-    report['baseline_cases']=98
+    composition=re.findall(rb'^private_sample_unit_composition_source_known supplied_costs=true native_process=false retained_total_ns=1020958 composed_total_ns=1020958 phase_units=3 phase_max_ns=([0-9]+) nominal_target_ns=500000 hard_unit_ns=1000000 projected_debt_ns=27000000 OS_WCET_claimed=false runtime_approved=false\n',stdout,re.MULTILINE)
+    if len(composition)!=1 or int(composition[0])>500000:
+        raise ValueError('shared source unit-boundary composition control missing or above nominal bound')
+    batches=re.findall(rb'^private_currentness_batch_source_known guards=2 expected_fixed_checks=8 completed_checks=8 units_closed=([0-9]+) old_min_units=9 max_reserved_steps=([0-9]+) unit_cpu_max_ns=([0-9]+) active_after=0 debt_ns=([0-9]+) paid_ns=([0-9]+) actual_file_checks=true platform_checks=true real_candidate_created=0 runtime_approved=false\n',stdout,re.MULTILINE)
+    if len(batches)!=1:raise ValueError('actual bounded currentness batching witness missing or duplicated')
+    units,steps,cpu,debt,paid=map(int,batches[0])
+    if not 0<units<9 or not 0<steps<=64 or cpu>1000000 or debt!=paid:
+        raise ValueError('currentness batch omitted fixed checks, exceeded step/cost bounds or retained unpaid work')
+    if b'private_currentness_batch_change_source_known actual_in_place_change=true refused=1 original_descriptors_closed=1' not in stdout:
+        raise ValueError('actual retained-file mutation refusal and paid descriptor cleanup missing')
+    report['unit_composition_control']={'supplied_stress_total_ns':1020958,'retained_row_phase_attribution_proven':False,
+        'groups':3,'nominal_max_ns':int(composition[0]),'hard_ordinary_ns':1000000,'OS_WCET_claimed':False}
+    report['currentness_batch_control']={'actual_roots':3,'actual_retained_files':2,'actual_platform_checks':3,'fixed_checks':8,
+        'closed_units':units,'old_min_units':9,'max_reserved_steps':steps,'actual_max_unit_CPU_ns':cpu,
+        'all_actual_debt_paid':True,'actual_in_place_change_refused':True,'real_candidate_created':0,
+        'whole_positive_or_corrupt_30s_margin_proven':False}
+    nested=b'private_nested_census_delivery_source_known cases=3 old_coalesced_consumed=true nested_EXEC_EXIT_retained=true native_process=false runtime_approved=false\n'
+    if stdout.count(nested)!=1:
+        raise ValueError('old coalesced/new nested census delivery production-span guard missing')
+    report['nested_census_delivery_control']={'cases':['new NOTE_EXEC','new NOTE_EXIT','no new delivery'],
+        'old_pending_consumed_before_observing_census':True,'new_nested_delivery_retained_after_census':True,
+        'source_scope':'shared observing-census span +production event-note identity guard; supplied identities/notes, no native process',
+        'new_exit_note_not_own_wait4_or_GS1':True}
+    report['baseline_cases']=101
     marker=b'private_total_retained_guard_source_known api=true supplied_clock_and_identity_values=true native_process=false runtime_approved=false\n'
     if stdout.count(marker)!=1:
         raise ValueError('current retained-clock/child production API witness missing or duplicated')
