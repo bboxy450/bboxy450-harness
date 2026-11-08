@@ -46,66 +46,66 @@ VERIFIER_SHA = "21cb9adcad96b7be404014ff6e9fb837160a2135455c217dec9efe196cf0661a
 # Only an explicit live Root amendment can select a FUNCTIONAL immutable input.
 # The old5493 and a386 preflight checkpoints remain historical, not fallbacks.
 # This is an offline ingestion premise, never a runtime approval flag or API.
-# Selected by the task ORACLE FREEZE INPUT58 amendment, decision66280.
+# Selected by the task ORACLE FREEZE INPUT60 amendment, decisions66280/66331.
 # External helpers use background QoS and total budgets; our own units retain
 # the 1ms law. Custody and preparation cross-bindings precede every launch.
-ROOT_Q2_INPUT = {'root': {'path': '/Users/feral/mydev/bboxy450-harness-dream-read-q2/target/dream-read-q2-restart-01M6RZZXSHZT3KHBK1QC7K3XB3/prepared-tree-pin-source58/dream-read-c-preparation/compile-0l7qmwgc',
+ROOT_Q2_INPUT = {'root': {'path': '/Users/feral/mydev/bboxy450-harness-dream-read-q2/target/dream-q2-process-create-wall-ceiling-01M6RZZXSHZT3KHBK1QC7K3XB3/prepared-input60/dream-read-c-preparation/compile-jqefbsuk',
           'dev': 16777234,
-          'ino': 186015917,
+          'ino': 186355023,
           'uid': 501},
- 'source': {'ctime_ns': 1794109883014361427,
+ 'source': {'ctime_ns': 1794122471252536301,
             'dev': 16777234,
-            'ino': 186015918,
-            'len': 320573,
+            'ino': 186355024,
+            'len': 325317,
             'mode': 33024,
-            'mtime_ns': 1794109883014205510,
+            'mtime_ns': 1794122471252441884,
             'nlink': 1,
-            'path': '/Users/feral/mydev/bboxy450-harness-dream-read-q2/target/dream-read-q2-restart-01M6RZZXSHZT3KHBK1QC7K3XB3/prepared-tree-pin-source58/dream-read-c-preparation/compile-0l7qmwgc/proof-helper-probe.c',
-            'sha256': '386cf55eb9b14ff0e77e453d76d8df0edfed30d06593fbcabd4bc0f1ed307d9f',
-            'size': 320573,
+            'path': '/Users/feral/mydev/bboxy450-harness-dream-read-q2/target/dream-q2-process-create-wall-ceiling-01M6RZZXSHZT3KHBK1QC7K3XB3/prepared-input60/dream-read-c-preparation/compile-jqefbsuk/proof-helper-probe.c',
+            'sha256': 'ed71ff1afc65da2fc5ca1161ff16fc6e4b2c03c8f6b2ac947f0d43ad757a552f',
+            'size': 325317,
             'uid': 501},
- 'executable': {'ctime_ns': 1794109883974767394,
+ 'executable': {'ctime_ns': 1794122472365211545,
                 'dev': 16777234,
-                'ino': 186015924,
+                'ino': 186355029,
                 'len': 251016,
                 'mode': 33088,
-                'mtime_ns': 1794109883946909727,
+                'mtime_ns': 1794122472334365376,
                 'nlink': 1,
-                'path': '/Users/feral/mydev/bboxy450-harness-dream-read-q2/target/dream-read-q2-restart-01M6RZZXSHZT3KHBK1QC7K3XB3/prepared-tree-pin-source58/dream-read-c-preparation/compile-0l7qmwgc/probe',
-                'sha256': '0759cc153f74ae23c22eb2e952aa7b0af149dfd7102af595bafaa6765c533bde',
+                'path': '/Users/feral/mydev/bboxy450-harness-dream-read-q2/target/dream-q2-process-create-wall-ceiling-01M6RZZXSHZT3KHBK1QC7K3XB3/prepared-input60/dream-read-c-preparation/compile-jqefbsuk/probe',
+                'sha256': '67060d75347926eb9d4f8a64006d9444b0fa0f71fdeca010fef92f9c4e025e8d',
                 'size': 251016,
                 'uid': 501},
- 'preparation': {'path': '/Users/feral/mydev/bboxy450-harness-dream-read-q2/target/dream-read-q2-restart-01M6RZZXSHZT3KHBK1QC7K3XB3/prepared-tree-pin-source58/dream-read-c-preparation/compile-0l7qmwgc/preparation-e73178e5d779cca4d4ec1b0d6e1afd203746e8a2bad032e243d276f371d64ef3.json',
-                 'sha256': 'e73178e5d779cca4d4ec1b0d6e1afd203746e8a2bad032e243d276f371d64ef3',
-                 'ctime_ns': 1794109884162127915,
+ 'preparation': {'path': '/Users/feral/mydev/bboxy450-harness-dream-read-q2/target/dream-q2-process-create-wall-ceiling-01M6RZZXSHZT3KHBK1QC7K3XB3/prepared-input60/dream-read-c-preparation/compile-jqefbsuk/preparation-6d1b82a8f4fdb67da05b865a1ccddf8203764757d82dda57773d926fd8aa5584.json',
+                 'sha256': '6d1b82a8f4fdb67da05b865a1ccddf8203764757d82dda57773d926fd8aa5584',
+                 'ctime_ns': 1794122472545009069,
                  'dev': 16777234,
-                 'ino': 186016274,
-                 'len': 533552,
+                 'ino': 186355379,
+                 'len': 537042,
                  'mode': 33024,
-                 'mtime_ns': 1794109884161681622,
+                 'mtime_ns': 1794122472544880818,
                  'nlink': 1,
-                 'size': 533552,
+                 'size': 537042,
                  'uid': 501},
- 'source_commit': 'ba22c67c488421f58faff3e5256f7fcfff6a5ab8',
+ 'source_commit': '1602aff72e961e493cca14feb559d6a323733f67',
  'signer_fingerprint': '9B07E849480C68328CA20684844ECC0587DE7AB0',
- 'preparation_commit': 'ba22c67c488421f58faff3e5256f7fcfff6a5ab8',
+ 'preparation_commit': '1602aff72e961e493cca14feb559d6a323733f67',
  'preparation_signer_fingerprint': '9B07E849480C68328CA20684844ECC0587DE7AB0',
- 'bindings': {'build': '90b1c19351d1a5bac9813337e56f0633a2f32d800c91aa83448b89f7a8973daa',
+ 'bindings': {'build': 'c750d260f17f032c25bb8ee288f1d488d8dba0431491a906fc0121bdbbf8c001',
               'compiler': 'a3d577375b2a73419600eee3110f6bb210bbec0c10d5abd48022c9809ff23838',
-              'dependency_discovery': 'c835799a1d33404781551ee60787f54b475e0105fa6d36f1f6c64b8b653cedc8',
-              'executable': 'd4c25fdd0cc9f95337504e23900baa3d5d35a0918c474922fe72deb7fcf4946c',
-              'header_inputs': 'a880b7fdeede58b1cdc0af310caa1ced0b0f76ceb4a9f4c01f82e65802206043',
-              'inputs': '4bdba45c72d668865c87d9284de71658864f6fa09c5fcab8250fc6506cdf5cf9',
+              'dependency_discovery': '539429be274904821a528b4419dca5c85a5e1410f3ab46120b33d65f1bd55e4c',
+              'executable': '28ee46332daca3e3361b38b2303a23cf1b2d962304f0426a96ecadce969d760a',
+              'header_inputs': 'a4461e87278605aab7840cbf38b62cb50ac65a0ef3b7925fae152689114effd5',
+              'inputs': '99037e9dfcfc35028ecf4e90c4bdf0095dbae1bf9d2ecd987c03434d25a08b2b',
               'linker': '7cea27482a67bfa92b546ec35ad5ba71bcedd3910bd3b12df9e618fbcfbdf01c',
               'platform': '994c24fbd511ae90c273cfcd5c5f3e78b99b70a35692800dcb48d289bdaab6e3',
-              'provisioning_source': 'a1cee3eb1db15a92cd2770183b06a4fcae67ead3744f4ea3ad1f3d7ba0ce65e2',
+              'provisioning_source': '010b0e6d9587c529ffe41bcec398328049ba0a882dd9932d3e6a77c8c1dd03cc',
               'sdk': '18544f8f94b14d8ac2da05b462679964250d8885f603422c994201d5e4e483ff',
-              'input_commits': '5808ab7edbd9ded427bcfbeb4f83f337d99c929717d5953458539c1356faa0de',
-              'preparation_commit': '2abb32bc8738d34355a69cb7cd42b08e4ad76976e3f7392e91fa19d8496a5cdc',
+              'input_commits': '7307914b383020733bfa740250a21bd07d42607dcaa7eb0d44e2bbce0f3eac93',
+              'preparation_commit': 'b9b388328e54f783ce82b4b6c7c935c1828317609b212b4a4448ff4d5289be19',
               'preparation_signer_fingerprint': '4e588b4e7396747b3b7b317d37a22c5981401da546e6eadebc4008472c4367e9',
-              'preparation_snapshot': 'd7c12f7d328f083cb5110b40d9fc8530c912022534889276b4ab76472e970678',
-              'retained_outputs': 'ea9c839dcdae8fca6bf7ebb7e22dfa6a11be46243f8edbb0fe5385a05e5fcf47',
-              'retained_root': '3de624e707cd0c27144f0c1ad8e718f5d7413c35bc76ebb9045af338a6a0417c',
+              'preparation_snapshot': '6b2a8df3fc10b2826399510ab3eb458bbb0043d6284c6ae4c467335fbe79da84',
+              'retained_outputs': 'f3bb6f65eddd63be40ec55f3db45f7151cb82039bcb9fa525d979c5b06b5f3ea',
+              'retained_root': 'ca61eac7e8aae9241a553aba0ec09709b7f75871b139d8b5880cdedc46f3ca40',
               'retained_directory_mode': '4962ec3a0b2818a90f5ef116da5f517a840b1071e51fba8ee2bef6af2f531067'},
  'build_closure': [{'path': '/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/lib/darwin/libclang_rt.osx.a',
                     'sha256': '5f20304aa257ed57bcba9f64287497d0be09b8cc7a5a91479b6a274294a22dfe',
@@ -131,7 +131,7 @@ ROOT_Q2_INPUT = {'root': {'path': '/Users/feral/mydev/bboxy450-harness-dream-rea
                     'uid': 0}],
  'macho': {'cpu_type': 16777228,
            'cpu_subtype': 0,
-           'uuid': '0f2c382dadb93ab181b481e0e1187bde',
+           'uuid': '03a41a2822523575b3136ff872a36f7b',
            'fat': False,
            'rpaths': [],
            'loads': [{'mode': 'load', 'name': '/usr/lib/libSystem.B.dylib'}]}}
@@ -2979,9 +2979,11 @@ def component_result(raw, descriptor, actual_exit):
         require(result["settlement"] == {"created": 16, "reaped": 16, "group_gone": True, "retired_coverage": True}, "actual complete component settlement")
         metrics = result["metrics"]
         for key, bound in (("ordinary_max_ns", 1000000), ("controller_max_ns", 1000000), ("cleanup_max_ns", 1000000),
-                           ("native_cpu_max_ns", 2000000), ("native_wall_max_ns", 25000000), ("inclusive_max_ns", 3000000),
+                           ("native_cpu_max_ns", 2000000), ("native_wall_max_ns", 250000000), ("inclusive_max_ns", 3000000),
                            ("A_ns", 3000000000), ("helper_group_rss_peak_bytes", 16 * 1024 * 1024), ("probe_rss_peak_bytes", 96 * 1024 * 1024)):
             checked_int(metrics[key], 0, bound)
+        # Decision66331: this producer's native_wall_max_ns is populated only
+        # by engine_birth/prepared_spawn (process_create), not other classes.
         # Decision66280: A is authoritative rounded leader-wait4 CPU including
         # qualified child roll-up. The exact bound producer checks each command
         # <=250ms, job <=3s, live QoS/CPU/RSS and post-reap helper debt. Retired
@@ -3021,7 +3023,7 @@ def component_terminal(stderr, case, result=None, actual_exit=None):
         return parsed
     row, end = values(lines[terminal[0]]), values(lines[tail[0]])
     fields(end, "output_closed close_max_ns debt_charged_ns debt_paid_ns ordinary_max_ns")
-    fields(row, "profile stage metrics_cutoff metadata_kind terminal_cutoff runtime_approved helper_created helper_reaped result_complete control_verdict persistence_verdict terminal_cost_verdict tail_complete persistence_attempted persistence_open persistence_write persistence_fsync persistence_close persistence_directory_fsync persistence_errno stdout_errno stdout_attempted reporting_only original_entry_ns original_deadline_ns deadline_observed_ns deadline_first_ns deadline_first_unit_ns deadline_first_line deadline_last_line reporting_started_ns closed_unit_count path_walk_components path_walk_units booked_ordinary_units engine_charge_calls poll_closure_calls ordinary_cost_ns ordinary_raw_cpu_ns ordinary_raw_complete ordinary_floor_surcharge_ns helper_cost_total_ns debt_components_match debt_scope persistence_paid formatter_cpu_start_ns formatter_cpu_end_ns formatter_inclusive_ns write_cpu_start_ns write_cpu_end_ns write_inclusive_ns close_max_cpu_ns probe_rss_peak_bytes rss_known ordinary_max_ns debt_charged_ns debt_paid_ns retained_units retained_overflow format_paid write_paid error_count error_codes error_counts errors_complete diagnostics_complete parent_actual_reap_required")
+    fields(row, "profile stage metrics_cutoff metadata_kind terminal_cutoff runtime_approved helper_created helper_reaped result_complete control_verdict persistence_verdict terminal_cost_verdict tail_complete persistence_attempted persistence_open persistence_write persistence_fsync persistence_close persistence_directory_fsync persistence_errno stdout_errno stdout_attempted reporting_only original_entry_ns original_deadline_ns deadline_observed_ns deadline_first_ns deadline_first_unit_ns deadline_first_line deadline_last_line reporting_started_ns closed_unit_count path_walk_components path_walk_units booked_ordinary_units engine_charge_calls poll_closure_calls ordinary_cost_ns ordinary_raw_cpu_ns ordinary_raw_complete ordinary_floor_surcharge_ns helper_cost_total_ns debt_components_match debt_scope process_create_wall_excess_ns process_create_wall_excess_count process_create_wall_excess_known process_create_wall_excess_scope persistence_paid formatter_cpu_start_ns formatter_cpu_end_ns formatter_inclusive_ns write_cpu_start_ns write_cpu_end_ns write_inclusive_ns close_max_cpu_ns probe_rss_peak_bytes rss_known ordinary_max_ns debt_charged_ns debt_paid_ns retained_units retained_overflow format_paid write_paid error_count error_codes error_counts errors_complete diagnostics_complete parent_actual_reap_required")
     # Frozen result-path C:424-426/452/3934-3940: one textual boolean,
     # one terminal reporting flag, two unsigned32 source lines and nine uint64
     # observations. C:610-616 records first-unit CPU only after its 1ms gate.
@@ -3041,6 +3043,12 @@ def component_terminal(stderr, case, result=None, actual_exit=None):
     for name in ("ordinary_raw_complete", "debt_components_match"):
         require(row[name] in ("true", "false"), "canonical terminal INPUT54 boolean")
     require(row["debt_scope"] == "whole_controller_cumulative", "canonical terminal INPUT54 debt scope")
+    # INPUT60's exact four-field observation; unknown remains numeric0.
+    number(row["process_create_wall_excess_ns"])
+    number(row["process_create_wall_excess_count"])
+    require(number(row["process_create_wall_excess_known"]) <= 1, "canonical terminal process-create excess flag")
+    require(row["process_create_wall_excess_scope"] == "invocation_sum_once_per_prepared_spawn",
+            "canonical terminal process-create excess scope")
     require(row["profile"] == "read-helper-native/1" and row["metrics_cutoff"] == "pre_result_emission"
             and row["metadata_kind"] == "declared_peak_capacity"
             and row["terminal_cutoff"] == "after_paid_tail_and_error_diagnostics_before_final_receipt"
@@ -4278,6 +4286,22 @@ class ComponentHandoffTests(unittest.TestCase):
                 result["metrics"]["A_ns"] = value
                 component_result(canonical(result) + b"\n", descriptor, 0)
 
+    def test_component_process_create_wall_66331_limit_preserves_cpu_and_inclusive(self):
+        descriptor, result = self.fixture()
+        for wall in (34000000, 250000000):
+            result["metrics"]["native_wall_max_ns"] = wall
+            component_result(canonical(result) + b"\n", descriptor, 0)
+        result["metrics"]["native_wall_max_ns"] = 251000000
+        with self.assertRaises(Refused):
+            component_result(canonical(result) + b"\n", descriptor, 0)
+        result["metrics"]["native_wall_max_ns"] = 34000000
+        for name, value in (("native_cpu_max_ns", 2000001), ("inclusive_max_ns", 3000001)):
+            previous = result["metrics"][name]
+            result["metrics"][name] = value
+            with self.subTest(metric=name), self.assertRaises(Refused):
+                component_result(canonical(result) + b"\n", descriptor, 0)
+            result["metrics"][name] = previous
+
     def test_component_raw_verdict_keeps_lf_and_private_boundary(self):
         for case in ("positive", "corrupt_proof"):
             descriptor, result = self.fixture(case)
@@ -4387,6 +4411,9 @@ class ComponentHandoffTests(unittest.TestCase):
                "ordinary_cost_ns": "3", "ordinary_raw_cpu_ns": "3", "ordinary_raw_complete": "true",
                "ordinary_floor_surcharge_ns": "0", "helper_cost_total_ns": "0", "debt_components_match": "true",
                "debt_scope": "whole_controller_cumulative",
+               "process_create_wall_excess_ns": "0", "process_create_wall_excess_count": "0",
+               "process_create_wall_excess_known": "1",
+               "process_create_wall_excess_scope": "invocation_sum_once_per_prepared_spawn",
                "persistence_paid": "true", "formatter_cpu_start_ns": "1", "formatter_cpu_end_ns": "2",
                "formatter_inclusive_ns": "1", "write_cpu_start_ns": "3", "write_cpu_end_ns": "4", "write_inclusive_ns": "1",
                "close_max_cpu_ns": "1", "probe_rss_peak_bytes": "4096", "rss_known": "true", "ordinary_max_ns": "1",
@@ -4488,6 +4515,47 @@ class ComponentHandoffTests(unittest.TestCase):
         for value in ("", "whole_helper_cumulative", "whole_controller", "true"):
             with self.subTest(scope=value), self.assertRaisesRegex(Refused, "INPUT54 debt scope"):
                 row["debt_scope"] = value
+                component_terminal(raw(), "positive", actual_exit=0)
+
+    def test_component_input60_wall_excess_u64(self):
+        for name in ("process_create_wall_excess_ns", "process_create_wall_excess_count"):
+            row, _, _, raw = self.terminal_fixture()
+            for value in ("0", str(2**64 - 1)):
+                row[name] = value
+                component_terminal(raw(), "positive", actual_exit=0)
+            for value in ("-1", "-0", "01", "1.0", "1e0", "true", str(2**64)):
+                with self.subTest(field=name, rejected=value), self.assertRaises(Refused):
+                    row[name] = value
+                    component_terminal(raw(), "positive", actual_exit=0)
+
+    def test_component_input60_wall_excess_known_numeric_flag(self):
+        row, _, _, raw = self.terminal_fixture()
+        for value in ("0", "1"):
+            row["process_create_wall_excess_known"] = value
+            component_terminal(raw(), "positive", actual_exit=0)
+        for value in ("2", "true", "false", "01", "-1", "1.0", str(2**32)):
+            with self.subTest(value=value), self.assertRaises(Refused):
+                row["process_create_wall_excess_known"] = value
+                component_terminal(raw(), "positive", actual_exit=0)
+
+    def test_component_input60_wall_excess_scope_and_closed_fields(self):
+        row, _, _, raw = self.terminal_fixture()
+        names = ("process_create_wall_excess_ns", "process_create_wall_excess_count",
+                 "process_create_wall_excess_known", "process_create_wall_excess_scope")
+        for name in names:
+            value = row.pop(name)
+            with self.subTest(missing=name), self.assertRaisesRegex(Refused, "unknown/missing fields"):
+                component_terminal(raw(), "positive", actual_exit=0)
+            row[name] = value
+            with self.subTest(duplicate=name), self.assertRaisesRegex(Refused, "duplicate token"):
+                component_terminal(raw()[:-1] + (" " + name + "=" + value + "\n").encode(), "positive", actual_exit=0)
+        row["input60_future_field"] = "0"
+        with self.assertRaisesRegex(Refused, "unknown/missing fields"):
+            component_terminal(raw(), "positive", actual_exit=0)
+        del row["input60_future_field"]
+        for value in ("", "original_prepared_spawn_snapshot", "whole_controller_cumulative", "true"):
+            with self.subTest(scope=value), self.assertRaisesRegex(Refused, "process-create excess scope"):
+                row["process_create_wall_excess_scope"] = value
                 component_terminal(raw(), "positive", actual_exit=0)
 
     def test_component_terminal_failure_cannot_be_hidden_by_expected_control_exit(self):
