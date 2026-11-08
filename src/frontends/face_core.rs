@@ -346,6 +346,29 @@ impl PythonCell {
         let tail: String = chars[chars.len() - 4..].iter().collect();
         format!("{head}\u{2026}{tail}")
     }
+    /// The source line a header shows: the first `.call(`/`emit(` line, else the
+    /// first line that is not import, `sys.path` setup or a comment, else the first
+    /// line. Deterministic and single-line; the full source stays in the open card.
+    /// Project-owned design; credit reuse with
+    /// https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md.
+    pub fn headline(source: &str) -> &str {
+        let setup = |line: &str| {
+            line.is_empty()
+                || line.starts_with('#')
+                || line.split(';').map(str::trim).all(|statement| {
+                    statement.is_empty()
+                        || statement.starts_with("import ")
+                        || (statement.starts_with("from ") && statement.contains(" import "))
+                        || statement.starts_with("sys.path")
+                })
+        };
+        let lines = || source.lines().map(str::trim).filter(|line| !setup(line));
+        lines()
+            .find(|line| line.contains(".call(") || line.contains("emit("))
+            .or_else(|| lines().next())
+            .or_else(|| source.lines().map(str::trim).find(|line| !line.is_empty()))
+            .unwrap_or_default()
+    }
     /// The failure as `(code, message)`: the server's `{code, message}` object
     /// when it is one, else the retained text itself.
     pub fn error_parts(&self) -> Option<(Option<String>, String)> {
@@ -869,6 +892,14 @@ mod gui_polish_output_tests {
             );
             assert_eq!(PythonCell::short_id("01M6XXWN1CY9A0746DJHQMGDPH"), "01M6XXWN\u{2026}GDPH");
             assert_eq!(PythonCell::short_id("run-1"), "run-1");
+            // The header prefers the meaningful call over import/sys.path setup.
+            let bridge = "import sys; sys.path.insert(0,'/tmp/oracle-bridge')\nfrom bb import Bridge\nb=Bridge(); await b.start()\nf=await b.call('knowledge_fetch',{})\nemit(f)";
+            assert_eq!(PythonCell::headline(bridge), "f=await b.call('knowledge_fetch',{})");
+            assert_eq!(PythonCell::headline("import os\n# note\nx = os.getcwd()\nprint(x)"), "x = os.getcwd()");
+            assert_eq!(PythonCell::headline("import sys\n\n  emit(sys.argv)  "), "emit(sys.argv)");
+            assert_eq!(PythonCell::headline("import sys; import os"), "import sys; import os");
+            assert_eq!(PythonCell::headline("\n\nprint(1)"), "print(1)");
+            assert_eq!(PythonCell::headline(""), "");
             let mut later = mixed.clone();
             later.merge(python_cell(name, r#"{"source":"x"}"#, &[], Some(&json!({
                 "execution_id":"01M6XXWN1CY9A0746DJHQMGDPH","status":"failed","exit_code":1,

@@ -805,25 +805,31 @@ const EMIT_DEPTH: usize = 3;
 const EMIT_ROWS: usize = 40;
 const EMIT_CHARS: usize = 96;
 
-/// A Python execution's state for its header: a chip tinted like the approval badge
-/// (success, error, activity, muted), then `exit N` only when it failed or N ≠ 0.
-pub fn python_status(status: &str, exit: Option<i64>, ink: &Ink) -> c::Element {
-    let (c, failed) = match status {
-        "completed" => (ink.ok, false),
-        "starting" | "running" | "cancelling" => (ink.seat, false),
-        "cancelled" | "interrupted" | "pending" => (ink.dim, false),
-        _ => (ink.bad, true),
+/// A Python execution's state for its header, only where the status disc beside it
+/// does not already say it: `completed` and `running` add no chip; other states take a
+/// chip tinted like the approval badge, then `exit N` when it failed or N ≠ 0.
+pub fn python_status(status: &str, exit: Option<i64>, ink: &Ink) -> Option<c::Element> {
+    let (c, failed, said) = match status {
+        "completed" => (ink.ok, false, true),
+        "running" => (ink.seat, false, true),
+        "starting" | "cancelling" => (ink.seat, false, false),
+        "cancelled" | "interrupted" | "pending" => (ink.dim, false, false),
+        "failed" => (ink.bad, true, true),
+        _ => (ink.bad, true, false),
     };
-    let mut kids = vec![fixed(frame(
-        Frame {
-            fill: alpha(c, 0.13),
-            radius: [999.; 4],
-            padding: [1., 7., 1., 7.],
-            row: true,
-            ..Default::default()
-        },
-        vec![fixed(line(status, 10.5, 600, mix(c, ink.fg, 0.85), false))],
-    ))];
+    let mut kids = vec![];
+    if !said {
+        kids.push(fixed(frame(
+            Frame {
+                fill: alpha(c, 0.13),
+                radius: [999.; 4],
+                padding: [1., 7., 1., 7.],
+                row: true,
+                ..Default::default()
+            },
+            vec![fixed(line(status, 10.5, 600, mix(c, ink.fg, 0.85), false))],
+        )));
+    }
     if let Some(code) = exit.filter(|code| *code != 0 || failed) {
         kids.push(fixed(line(
             format!("exit {code}"),
@@ -833,7 +839,7 @@ pub fn python_status(status: &str, exit: Option<i64>, ink: &Ink) -> c::Element {
             true,
         )));
     }
-    hstack(kids, 6.)
+    (!kids.is_empty()).then(|| hstack(kids, 6.))
 }
 fn key_ink(ink: &Ink) -> Rgba {
     mix(ink.fg, ink.dim, 0.3)
@@ -1498,11 +1504,12 @@ pub fn head(h: Head, ink: &Ink) -> c::Element {
             6.,
             alpha(kc, 0.16),
         )),
+        // The verb names the card; a long target ellipsises before it does.
         c::Item {
             element: line(compact_heading(&h.verb, 40), 13., 650, ink.fg, false),
             extent: c::Extent::Content {
                 grow: 0.,
-                shrink: 1.,
+                shrink: 0.,
                 min: 0.,
                 max: Some(320.),
                 max_fraction: None,
@@ -3141,13 +3148,19 @@ mod python_emit_tests {
         let ink = ink();
         let label = |status: &str, exit| {
             let mut t = vec![];
-            texts(&python_status(status, exit, &ink), &mut t);
+            if let Some(chip) = python_status(status, exit, &ink) {
+                texts(&chip, &mut t);
+            }
             t.join(" ")
         };
-        assert_eq!(label("completed", Some(0)), "completed");
-        assert_eq!(label("completed", Some(7)), "completed exit 7");
-        assert_eq!(label("failed", Some(0)), "failed exit 0");
-        assert_eq!(label("running", None), "running");
+        // The status disc already says completed, running and failed.
+        assert_eq!(label("completed", Some(0)), "");
+        assert_eq!(label("completed", Some(7)), "exit 7");
+        assert_eq!(label("failed", Some(0)), "exit 0");
+        assert_eq!(label("failed", Some(1)), "exit 1");
+        assert_eq!(label("running", None), "");
+        assert_eq!(label("timed_out", Some(1)), "timed_out exit 1");
+        assert_eq!(label("cancelling", None), "cancelling");
         assert_eq!(label("cancelled", None), "cancelled");
     }
 }

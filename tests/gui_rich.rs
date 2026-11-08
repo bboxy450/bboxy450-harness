@@ -2422,9 +2422,9 @@ async fn python_execution_cards_show_source_status_emitted_and_fold_get_pages() 
         let mut view = HarnessView::default();
         let frame = view.render(&state, [900., 2200.]).unwrap();
         let layout = frame.layout.as_ref().unwrap();
-        // A finished small run opens: structured emits, output once, the full id in its footer.
+        // A finished small run opens: structured emits, output once, the short id in its footer.
         let expanded = layout_text(layout);
-        for text in ["Run Python", "python-source-head", "python-source-tail", "completed", "first-emitted", "last-emitted", "output-head", "output-middle", "output-tail", "execution python-parent-17", "python-orphan-23"] {
+        for text in ["Run Python", "python-source-head", "python-source-tail", "first-emitted", "last-emitted", "output-head", "output-middle", "output-tail", "python-p\u{2026}t-17", "python-orphan-23"] {
             assert!(expanded.contains(text), "missing expanded {text}: {expanded}");
         }
         assert!(!expanded.contains("Execution python"), "the execution id is no longer a body line");
@@ -2443,7 +2443,13 @@ async fn python_execution_cards_show_source_status_emitted_and_fold_get_pages() 
         assert!(expanded.contains("execution_context_changed"), "refusal was swallowed: {expanded}");
         assert!(find(layout, &format!("tool/{}", ids[6])).is_some(), "nested recovery page keeps its own card");
         let parent_head = layout_text(find(layout, &format!("toolhead/{}", ids[0])).unwrap());
-        assert!(parent_head.contains("completed"), "stale running poll regressed terminal state: {parent_head}");
+        // The Done disc carries a check glyph; a Running disc is an empty tile.
+        fn glyph(node: &bbt_ui::components::Layout) -> bool {
+            use bbt_ui::components::LayoutKind as K;
+            !matches!(node.kind, K::Box { .. } | K::Named(_) | K::Spacer | K::Stack) || node.children.iter().any(glyph)
+        }
+        assert!(glyph(find(layout, &format!("tool/{}/status", ids[0])).unwrap()), "stale running poll regressed terminal state: {parent_head}");
+        assert!(find(layout, &format!("python/{}/status", ids[0])).is_none(), "the check disc already says completed: {parent_head}");
         assert!(!parent_head.contains("exit"), "exit 0 says nothing the chip did not: {parent_head}");
         // Closed, the card keeps one bounded line and the shortened id.
         let faces: Faces = [ids[0], ids[6]].into_iter().map(|id| (id, Face { output_closed: true, ..Default::default() })).collect();
@@ -2452,11 +2458,11 @@ async fn python_execution_cards_show_source_status_emitted_and_fold_get_pages() 
         let frame = view.render(&state, [900., 2200.]).unwrap();
         let layout = frame.layout.as_ref().unwrap();
         let collapsed = layout_text(find(layout, &format!("tool/{}", ids[0])).unwrap());
-        for text in ["Run Python", "python-source-head", "completed", "first-emitted", "+2 more", "python-p\u{2026}t-17"] {
+        for text in ["Run Python", "emit('python-source-tail')", "first-emitted", "+2 more"] {
             assert!(collapsed.contains(text), "missing {text}: {collapsed}");
         }
         assert!(!collapsed.contains("last-emitted"), "compact emitted preview must be bounded");
-        assert!(!collapsed.contains("python-parent-17"), "closed card shows the short id only");
+        assert!(!collapsed.contains("python-p"), "a closed card spends nothing on the execution id: {collapsed}");
         assert!(layout_text(layout).contains("Ynl0ZXM="), "child result bytes disappeared");
         // Same get item/sequence, changed snapshot: its output still invalidates
         // the parent's prepared-row cache.
@@ -2537,7 +2543,39 @@ fn python_states() -> Vec<(&'static str, Item)> {
                     "emitted":[]}),
             ),
         ),
+        (
+            "long",
+            python_state_call(
+                &[
+                    "import sys; sys.path.insert(0,'/tmp/oracle-bridge')",
+                    "from bb import Bridge",
+                    "b=Bridge(); await b.start()",
+                    "f=await b.call('knowledge_fetch',{'locator':'tasks/2026-11-08-dream-q2-unit-split-and-margin.md'})",
+                    "body=f['content']",
+                    "lines=[l for l in body.splitlines() if l.startswith('- [ ]')]",
+                    "for l in lines:",
+                    "    print(l)",
+                    "emit({'open':len(lines),'path':f['locator']})",
+                ]
+                .join("\n"),
+                json!({"execution_id":"01M6YPAZT1S2QG0NCSSQEVHC9Y","status":"completed","exit_code":0,
+                    "output":[{"stream":"stdout","text":"- [ ] split the unit\n- [ ] record the margin\n"}],
+                    "emitted":[{"open":2,"path":"tasks/2026-11-08-dream-q2-unit-split-and-margin.md"}]}),
+            ),
+        ),
     ]
+}
+
+/// Every text run under `node` with its resolved colour.
+fn paints(node: &bbt_ui::components::Layout) -> Vec<(String, [f32; 4])> {
+    let mut out = vec![];
+    if let bbt_ui::components::LayoutKind::Text { runs, .. } = &node.kind {
+        out.extend(runs.iter().map(|r| (r.text.clone(), r.style.color)));
+    }
+    for child in &node.children {
+        out.extend(paints(child));
+    }
+    out
 }
 
 #[tokio::test]
@@ -2585,15 +2623,21 @@ async fn python_cell_states_render_structured_cards() {
         let (width, height) = (760u32, 1400u32);
         let captures = sources.into_iter().flat_map(|(state, source, ids, temp)| {
             let temp = Arc::new(temp);
-            [false, true].map(|toggled| (state, toggled, source.clone(), ids.clone(), temp.clone()))
+            [bbt_ui::Theme::Dark, bbt_ui::Theme::Light]
+                .into_iter()
+                .flat_map(|theme| [(theme, false, false), (theme, true, false), (theme, false, true)])
+                .filter(move |(_, _, details)| !details || state == "long")
+                .map(|(theme, toggled, details)| (state, theme, toggled, details, source.clone(), ids.clone(), temp.clone()))
+                .collect::<Vec<_>>()
         });
-        for (state, toggled, source, ids, _temp) in captures {
-            let faces: Faces = if toggled {
-                [(ids[1], Face { output_closed: true, ..Default::default() })].into_iter().collect()
+        for (state, theme, toggled, details, source, ids, _temp) in captures {
+            let faces: Faces = if toggled || details {
+                [(ids[1], Face { output_closed: toggled, arguments_closed: details, ..Default::default() })].into_iter().collect()
             } else {
                 Faces::default()
             };
             let mut preparer = Preparer::default();
+            preparer.set_theme(theme);
             let state_frame = FrameState {
                 transcript: source.clone(),
                 ready: true,
@@ -2603,6 +2647,7 @@ async fn python_cell_states_render_structured_cards() {
                 ..Default::default()
             };
             let mut view = HarnessView::default();
+            view.set_theme(theme);
             let frame = view.render(&state_frame, [width as f32, height as f32]).unwrap();
             let layout = frame.layout.as_ref().unwrap();
             let card = find(layout, &format!("tool/{}", ids[1])).unwrap();
@@ -2611,15 +2656,41 @@ async fn python_cell_states_render_structured_cards() {
             let head = text(format!("toolhead/{id}"));
             let chip = text(format!("python/{id}/status"));
             let body = layout_text(card);
-            assert!(!body.contains("Execution "), "{state}: the id is not a body line: {body}");
+            assert!(!body.contains("Execution ") && !body.contains("execution "), "{state}: the id is not a body line: {body}");
             assert!(!body.contains("emit ["), "{state}: no raw one-line emit dump: {body}");
-            match (state, toggled) {
+            assert!(!body.contains("no output"), "{state}: no empty-output placeholder: {body}");
+            // The header names the meaningful line, never the import/sys.path setup.
+            assert!(!head.contains("import sys"), "{state}: boilerplate headline: {head}");
+            let closed = find(layout, &format!("tool/{id}/body")).is_none();
+            if closed {
+                // A closed card spends no row or column on the execution id.
+                assert!(find(layout, &format!("python/{id}/execution")).is_none(), "{state}: {body}");
+            }
+            // Light theme draws with the light palette's tokens (state inks mixed to fg).
+            let ink = bboxy450_harness::frontends::gui::face::ink(bbt_ui::Context::new(theme, bbt_ui::Density::Cozy));
+            if let Some(node) = find(layout, &format!("python/{id}/emit/0")) {
+                let paints = paints(node);
+                let key = paints.iter().find(|(t, _)| t.trim() == "path").map(|p| p.1).unwrap();
+                assert_eq!(key, bboxy450_harness::frontends::gui::face::mix(ink.fg, ink.dim, 0.3), "{state}/{theme:?}: key ink");
+                if state == "failed" {
+                    let err = paints.iter().find(|(t, _)| t.trim() == "err").map(|p| p.1).unwrap();
+                    assert_eq!(err, ink.bad, "{state}/{theme:?}: err ink");
+                }
+            }
+            if details {
+                // Details expanded: the whole source and the full id, still one footer tag.
+                let source = text(format!("codeout/{id}/command"));
+                assert!(source.contains("emit({'open'"), "{source}");
+                assert_eq!(text(format!("python/{id}/execution")), "01M6YPAZT1S2QG0NCSSQEVHC9Y");
+            }
+            match (state, toggled || details) {
                 ("completed", false) => {
-                    assert!(chip.starts_with("completed") && !head.contains("exit"), "{head}");
+                    assert!(chip.is_empty() && !head.contains("exit"), "the check disc says completed: {head}");
+                    assert!(head.contains("emit(bb.task_write(...))"), "{head}");
                     assert!(head.contains("1.5s"), "duration in the header: {head}");
                     let preview = text(format!("python/{id}/preview"));
                     assert!(preview.contains("path") && preview.contains("err null"), "{preview}");
-                    assert!(body.contains("01M6XXWN\u{2026}GDPH") && !body.contains("01M6XXWN1CY9A0746DJHQMGDPH"), "{body}");
+                    assert!(!body.contains("01M6XXWN"), "{body}");
                     assert!(find(layout, &format!("python/{id}/emit/0")).is_none(), "closed card draws no blocks");
                 }
                 ("completed", true) => {
@@ -2630,17 +2701,18 @@ async fn python_cell_states_render_structured_cards() {
                         assert!(second.contains(row), "missing {row}: {second}");
                     }
                     assert!(find(layout, &format!("python/{id}/error")).is_none());
-                    assert_eq!(text(format!("python/{id}/execution")), "execution 01M6XXWN1CY9A0746DJHQMGDPH");
+                    // Expanded, the id is one small footer tag, shortened.
+                    assert_eq!(text(format!("python/{id}/execution")), "01M6XXWN\u{2026}GDPH");
                 }
                 ("failed", false) => {
-                    assert!(chip.contains("failed") && chip.contains("exit 1"), "{chip}");
+                    assert_eq!(chip, "exit 1", "the x disc says failed: {chip}");
                     let error = text(format!("python/{id}/error"));
                     assert!(error.contains("python_failed") && error.contains("Python exited unsuccessfully"), "{error}");
                     assert!(text(format!("python/{id}/emit/0")).contains("permission denied"));
                     assert!(text(format!("term/{id}")).contains("KeyError: 'path'"));
                 }
                 ("running", false) => {
-                    assert!(chip.contains("running") && !chip.contains("exit"), "{chip}");
+                    assert!(chip.is_empty(), "the activity disc says running: {chip}");
                     assert!(!head.contains("1.5s"), "a running call has no duration yet: {head}");
                     assert!(text(format!("python/{id}/preview")).contains("scanning 12 tasks"));
                     assert!(find(layout, &format!("term/{id}")).is_none(), "running stays compact");
@@ -2648,6 +2720,14 @@ async fn python_cell_states_render_structured_cards() {
                 ("output", false) => {
                     let out = text(format!("term/{id}"));
                     assert!(out.contains("tasks/a.md ok") && out.contains("warning: 2 stale tasks skipped"), "{out}");
+                    assert!(head.contains("for t in tasks: print(t)"), "{head}");
+                }
+                ("long", false) => {
+                    assert!(head.contains("f=await b.call('knowledge_fetch'"), "{head}");
+                    // Clamped source: one expand control, no arrow row.
+                    assert!(find(layout, &format!("more/{id}")).is_some());
+                    assert!(find(layout, &format!("codeleft/codeout/{id}/command")).is_none(), "no scroll arrow row");
+                    assert!(text(format!("python/{id}/emit/0")).contains("open"));
                 }
                 _ => {}
             }
@@ -2655,7 +2735,8 @@ async fn python_cell_states_render_structured_cards() {
                 .render_to_rgba(&frame.list, width, height, 1.)
                 .unwrap();
             if let Some(root) = std::env::var_os("PYTHON_CELL_CAPTURE_DIR") {
-                let root = std::path::PathBuf::from(root);
+                let root = std::path::PathBuf::from(root)
+                    .join(if theme == bbt_ui::Theme::Light { "light" } else { "dark" });
                 std::fs::create_dir_all(&root).unwrap();
                 let top = find(layout, &format!("tool/{}", ids[0]))
                     .map_or(0., |n| (n.rect.y - 16.).max(0.)) as u32;
@@ -2665,7 +2746,7 @@ async fn python_cell_states_render_structured_cards() {
                 let mut encoder = png::Encoder::new(
                     std::fs::File::create(root.join(format!(
                         "python-{state}{}.png",
-                        if toggled { "-toggled" } else { "" }
+                        if details { "-details" } else if toggled { "-toggled" } else { "" }
                     )))
                     .unwrap(),
                     width,

@@ -621,7 +621,6 @@ impl Preparer {
                 body.extend(command_panels(
                     &mut self.documents,
                     command,
-                    false,
                     id,
                     panel_width,
                     face,
@@ -1002,9 +1001,12 @@ impl Preparer {
                 "Run Python"
             }
             .into();
+            // The header names what the run does, not its import boilerplate.
             d.target = f::compact_heading(
                 cell.source
                     .as_deref()
+                    .map(crate::frontends::face_core::PythonCell::headline)
+                    .filter(|line| !line.is_empty())
                     .or(cell.execution_id.as_deref())
                     .unwrap_or("Python"),
                 80,
@@ -1104,14 +1106,12 @@ impl Preparer {
                     }
                     .into()
                 });
-                let chip = named(
-                    format!("python/{id}/status"),
-                    f::python_status(&label, cell.exit_code, ink),
-                );
-                Some(match badge {
-                    Some(b) => f::hstack(vec![f::fixed(chip), f::fixed(b)], 6.),
-                    None => chip,
-                })
+                let chip = f::python_status(&label, cell.exit_code, ink)
+                    .map(|chip| named(format!("python/{id}/status"), chip));
+                match (chip, badge) {
+                    (Some(chip), Some(b)) => Some(f::hstack(vec![f::fixed(chip), f::fixed(b)], 6.)),
+                    (chip, b) => chip.or(b),
+                }
             }
             None => badge,
         };
@@ -1185,11 +1185,13 @@ impl Preparer {
             Some(k) => named(format!("item/{}", k.id), e),
             None => e,
         };
-        if open && let Some(command) = &original_command {
+        if open
+            && python.is_none()
+            && let Some(command) = &original_command
+        {
             inside.extend(command_panels(
                 &mut self.documents,
                 command,
-                python.is_some(),
                 id,
                 (content_width - 48.).max(1.),
                 face,
@@ -1208,100 +1210,15 @@ impl Preparer {
                 };
                 inside.push(error_box(&reason, ink).into());
             } else if let Some(cell) = &python {
-                let width = (content_width - 48.).max(1.);
-                if let Some(error) = cell.error_parts() {
-                    inside.push(
-                        named(format!("python/{id}/error"), python_error(&error, ink)).into(),
-                    );
-                }
-                let emits = python_emits(cell);
-                let mut cut = false;
-                for (n, value) in emits.iter().enumerate() {
-                    let (block, shortened) = f::emit_block(value, face.arguments_closed, ink);
-                    cut |= shortened;
-                    inside.push(
-                        named(
-                            format!("python/{id}/emit/{n}"),
-                            code_panel(
-                                block,
-                                &format!("codeout/{id}/emit/{n}"),
-                                width,
-                                320.,
-                                &self.metrics,
-                                ctx,
-                            )?,
-                        )
-                        .into(),
-                    );
-                }
-                if !cell.output.is_empty() {
-                    use crate::frontends::face_core::{Verdict, verdict};
-                    let lines = cell
-                        .output
-                        .iter()
-                        .flat_map(|(index, text)| {
-                            let stderr = cell.stderr.contains(index);
-                            text.trim_end_matches('\n')
-                                .lines()
-                                .map(move |l| (l.to_owned(), stderr))
-                                .collect::<Vec<_>>()
-                        })
-                        .map(|(text, stderr)| {
-                            let color = if stderr {
-                                f::mix(ink.bad, ink.fg, 0.7)
-                            } else {
-                                match verdict(&text) {
-                                    Verdict::Ok => ink.ok,
-                                    Verdict::Bad => ink.bad,
-                                    Verdict::Warn => ink.ask,
-                                    Verdict::Dim => ink.dim,
-                                    Verdict::Plain => ink.fg,
-                                }
-                            };
-                            f::term_line(vec![(text, color, 400, false)], 12., false).into()
-                        })
-                        .collect();
-                    inside.push(
-                        named(
-                            format!("term/{id}"),
-                            code_panel(
-                                f::vstack(lines, 0.),
-                                &format!("codeout/{id}/output"),
-                                width,
-                                320.,
-                                &self.metrics,
-                                ctx,
-                            )?,
-                        )
-                        .into(),
-                    );
-                } else if cell.error.is_none() && emits.is_empty() && !running {
-                    inside.push(f::line("no output", 12., 400, f::hex("#7d8597"), true).into());
-                }
-                if cut && original_command.is_none() {
-                    inside.push(
-                        named(
-                            format!("more/{id}"),
-                            f::disclosure(face.arguments_closed, ink),
-                        )
-                        .into(),
-                    );
-                }
-                if let Some(execution) = &cell.execution_id {
-                    inside.push(
-                        named(
-                            format!("python/{id}/execution"),
-                            f::line(
-                                format!("execution {execution}"),
-                                10.5,
-                                400,
-                                f::alpha(ink.dim, 0.8),
-                                true,
-                            ),
-                        )
-                        .into(),
-                    );
-                }
+                inside.extend(python_body(
+                    &mut self.documents,
+                    cell,
+                    id,
+                    (content_width - 48.).max(1.),
+                    face.arguments_closed,
+                    ink,
+                    &self.metrics,
+                )?);
             } else if d.kind == "execute" {
                 // a finished run without output says so in the terminal's own voice
                 let out = out_text
@@ -1558,7 +1475,7 @@ fn python_emits(cell: &crate::frontends::face_core::PythonCell) -> Vec<serde_jso
     }
 }
 /// A closed Python card's one line: the failure, else the first emitted value, else
-/// the latest output, with the shortened execution id dim at the right.
+/// the latest output. No execution id: it costs no row or column while closed.
 /// Project-owned design; credit reuse with
 /// https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md.
 fn python_preview(
@@ -1584,17 +1501,14 @@ fn python_preview(
             .map(|l| vec![(l.to_owned(), ink.dim, 400, false)])
             .unwrap_or_default()
     };
-    let mut kids = vec![];
-    let any = !parts.is_empty();
-    if any {
-        let mut preview = f::term_line(parts, 12., false);
-        if let c::Element::Text(t) = &mut preview {
-            t.ellipsis = true;
-        }
-        kids.push(f::fill(named(format!("python/{id}/preview"), preview)));
-    } else {
-        kids.push(f::fill(c::Element::Spacer));
+    if parts.is_empty() {
+        return None;
     }
+    let mut preview = f::term_line(parts, 12., false);
+    if let c::Element::Text(t) = &mut preview {
+        t.ellipsis = true;
+    }
+    let mut kids = vec![f::fill(named(format!("python/{id}/preview"), preview))];
     if emits.len() > 1 && cell.error.is_none() {
         kids.push(f::fixed(f::line(
             format!("+{} more", emits.len() - 1),
@@ -1604,19 +1518,190 @@ fn python_preview(
             false,
         )));
     }
-    if let Some(execution) = &cell.execution_id {
-        kids.push(f::fixed(named(
-            format!("python/{id}/execution"),
-            f::line(
-                crate::frontends::face_core::PythonCell::short_id(execution),
-                10.5,
-                400,
-                f::alpha(ink.dim, 0.7),
-                true,
-            ),
-        )));
+    // Inset to the source text's left edge, as the open card's results are.
+    Some(f::frame(
+        f::Frame {
+            padding: [0., 10., 0., 10.],
+            gap: 10.,
+            row: true,
+            ..Default::default()
+        },
+        kids,
+    ))
+}
+/// Source lines an open Python card shows before its expand control; a source only
+/// one line longer is shown whole rather than hiding a single line.
+const PYTHON_SOURCE_LINES: usize = 5;
+/// An open Run Python card inside the one card container: the source on the code
+/// tint (clamped), the failure strip, then emits and output on the card surface,
+/// inset to the source text, and one footer row with the expand control and a small
+/// execution tag (the full id while details are expanded). No empty placeholders.
+/// Project-owned design; credit reuse with
+/// https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md.
+fn python_body(
+    documents: &mut super::super::rich::Documents,
+    cell: &crate::frontends::face_core::PythonCell,
+    id: ItemId,
+    width: f32,
+    full: bool,
+    ink: &f::Ink,
+    metrics: &impl c::Measure,
+) -> Result<Vec<c::Item>, String> {
+    let ctx = documents.context();
+    let mut kids: Vec<c::Item> = vec![];
+    let mut clamped = false;
+    if let Some(source) = cell.source.as_deref().filter(|s| !s.trim().is_empty()) {
+        let mut code = documents.code_element(source.trim_end(), metrics);
+        bare(&mut code);
+        let ([_, height], _) = code.natural(f32::INFINITY, ctx, metrics)?;
+        let lines = source.trim_end().lines().count().max(1);
+        clamped = lines > PYTHON_SOURCE_LINES + 1;
+        let cap = if full {
+            320.
+        } else if clamped {
+            (height / lines as f32 * PYTHON_SOURCE_LINES as f32).round()
+        } else {
+            height
+        };
+        kids.push(
+            panel(
+                code,
+                &format!("codeout/{id}/command"),
+                width,
+                cap,
+                Look::Source,
+                metrics,
+                ctx,
+            )?
+            .into(),
+        );
     }
-    (any || kids.len() > 1).then(|| f::hstack(kids, 10.))
+    if let Some(error) = cell.error_parts() {
+        kids.push(named(format!("python/{id}/error"), python_error(&error, ink)).into());
+    }
+    let emits = python_emits(cell);
+    let mut cut = false;
+    let mut results: Vec<c::Item> = vec![];
+    for (n, value) in emits.iter().enumerate() {
+        let (block, shortened) = f::emit_block(value, full, ink);
+        cut |= shortened || (full && f::emit_block(value, false, ink).1);
+        results.push(named(format!("python/{id}/emit/{n}"), block).into());
+    }
+    if !cell.output.is_empty() {
+        use crate::frontends::face_core::{Verdict, verdict};
+        let lines = cell
+            .output
+            .iter()
+            .flat_map(|(index, text)| {
+                let stderr = cell.stderr.contains(index);
+                text.trim_end_matches('\n')
+                    .lines()
+                    .map(move |l| (l.to_owned(), stderr))
+                    .collect::<Vec<_>>()
+            })
+            .map(|(text, stderr)| {
+                let color = if stderr {
+                    f::mix(ink.bad, ink.fg, 0.7)
+                } else {
+                    match verdict(&text) {
+                        Verdict::Ok => ink.ok,
+                        Verdict::Bad => ink.bad,
+                        Verdict::Warn => ink.ask,
+                        Verdict::Dim => ink.dim,
+                        Verdict::Plain => ink.fg,
+                    }
+                };
+                f::term_line(vec![(text, color, 400, false)], 12., false).into()
+            })
+            .collect();
+        // The emit rows' 4 px inset, so output and values share one left edge.
+        results.push(
+            named(
+                format!("term/{id}"),
+                f::frame(
+                    f::Frame {
+                        padding: [0., 4., 0., 4.],
+                        ..Default::default()
+                    },
+                    vec![f::vstack(lines, 0.).into()],
+                ),
+            )
+            .into(),
+        );
+    }
+    if !results.is_empty() {
+        kids.push(
+            panel(
+                f::vstack(results, 8.),
+                &format!("codeout/{id}/results"),
+                width,
+                if full { 640. } else { 320. },
+                Look::Results,
+                metrics,
+                ctx,
+            )?
+            .into(),
+        );
+    }
+    // One footer row: the centred expand control when something is clamped, and the
+    // execution tag at the right. The row itself toggles details (and the full id).
+    let expandable = clamped || cut;
+    let tag = cell.execution_id.as_deref().map(|e| {
+        if full {
+            e.to_owned()
+        } else {
+            crate::frontends::face_core::PythonCell::short_id(e)
+        }
+    });
+    if expandable || tag.is_some() {
+        let side = |e: c::Element| c::Item {
+            element: e,
+            extent: c::Extent::Fill,
+        };
+        let mut row = vec![side(c::Element::Spacer)];
+        if expandable {
+            row.push(f::fixed(f::icon_turned(
+                "chev",
+                ink.seat,
+                12.,
+                1.8,
+                if full { 270. } else { 90. },
+            )));
+        }
+        row.push(side(match tag {
+            Some(tag) => f::hstack(
+                vec![
+                    side(c::Element::Spacer),
+                    f::fixed(named(
+                        format!("python/{id}/execution"),
+                        f::line(tag, 10., 400, f::alpha(ink.dim, 0.75), true),
+                    )),
+                ],
+                0.,
+            ),
+            None => c::Element::Spacer,
+        }));
+        kids.push(named(format!("more/{id}"), f::hstack(row, 8.)).into());
+    }
+    Ok(kids)
+}
+/// A Markdown code block without its own frame, for a section that supplies the tint.
+fn bare(code: &mut c::Element) {
+    match code {
+        c::Element::Named { content, .. } => bare(content),
+        c::Element::Box(b) => {
+            let o = &mut b.style.overrides;
+            o.fill = Some(f::paint([0.; 4]));
+            o.border = Some(ui::Border {
+                width: ui::Length::Px(0.),
+                paint: f::paint([0.; 4]),
+                outside: false,
+            });
+            o.padding = Some([ui::Length::Px(0.); 4]);
+            o.shadow = None;
+        }
+        _ => {}
+    }
 }
 /// A failed run's own words above its data: the code bold, the message wrapped.
 fn python_error(error: &(Option<String>, String), ink: &f::Ink) -> c::Element {
@@ -1629,12 +1714,12 @@ fn python_error(error: &(Option<String>, String), ink: &f::Ink) -> c::Element {
         }
     }
     parts.push((message.clone(), f::mix(ink.bad, ink.fg, 0.8), 400, false));
+    // A tint, not a box: the card already draws the only border.
     f::frame(
         f::Frame {
             fill: f::alpha(ink.bad, 0.10),
-            border: Some(f::alpha(ink.bad, 0.25)),
             radius: [8.; 4],
-            padding: [7., 10., 7., 10.],
+            padding: [6., 10., 6., 10.],
             ..Default::default()
         },
         vec![f::runs(parts, 12., true, true).into()],
@@ -1689,7 +1774,6 @@ fn plain_box(
 fn command_panels(
     documents: &mut super::super::rich::Documents,
     command: &str,
-    python_source: bool,
     id: ItemId,
     width: f32,
     face: &Face,
@@ -1698,8 +1782,7 @@ fn command_panels(
 ) -> Result<Vec<c::Item>, String> {
     let ctx = documents.context();
     let python = super::super::rich::python_snippet(command);
-    let long = python_source
-        || command.contains('\n')
+    let long = command.contains('\n')
         || command.chars().count() > 80
         || f::line(command, 12., 400, ink.fg, true)
             .natural(f32::INFINITY, ctx, metrics)?
@@ -1709,7 +1792,6 @@ fn command_panels(
         return Ok(vec![]);
     }
     let content = match &python {
-        _ if python_source => documents.code_element(command, metrics),
         Some(p) => documents.code_element(p.source, metrics),
         None => f::term_line(vec![(command.into(), ink.fg, 400, false)], 12., false),
     };
@@ -1768,10 +1850,31 @@ fn command_panels(
 /// Project-owned bboxy450-harness; credit reuse with
 /// https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md.
 fn code_panel(
+    content: c::Element,
+    key: &str,
+    width: f32,
+    cap: f32,
+    metrics: &impl c::Measure,
+    ctx: ui::Context,
+) -> Result<c::Element, String> {
+    panel(content, key, width, cap, Look::Code, metrics, ctx)
+}
+/// How a bounded panel sits in its card.
+#[derive(Clone, Copy, PartialEq)]
+enum Look {
+    /// The code tint with the horizontal-scroll arrow row.
+    Code,
+    /// The code tint without the arrow row (the viewport still scrolls).
+    Source,
+    /// No tint, inset so emit rows and output meet the source text's left edge.
+    Results,
+}
+fn panel(
     mut content: c::Element,
     key: &str,
     width: f32,
     cap: f32,
+    look: Look,
     metrics: &impl c::Measure,
     ctx: ui::Context,
 ) -> Result<c::Element, String> {
@@ -1790,7 +1893,7 @@ fn code_panel(
         )
         .into(),
     ];
-    if natural_width > width {
+    if natural_width > width && look == Look::Code {
         children.push(
             f::hstack(
                 vec![
@@ -1810,9 +1913,17 @@ fn code_panel(
     }
     let mut panel = f::frame(
         f::Frame {
-            fill: f::alpha(ink.bg, 0.55),
+            fill: if look == Look::Results {
+                [0.; 4]
+            } else {
+                f::alpha(ink.bg, 0.55)
+            },
             radius: [8.; 4],
-            padding: [6., 10., 6., 10.],
+            padding: if look == Look::Results {
+                [0., 6., 0., 6.]
+            } else {
+                [6., 10., 6., 10.]
+            },
             ..Default::default()
         },
         children,
