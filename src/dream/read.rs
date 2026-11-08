@@ -1516,17 +1516,26 @@ impl super::resolve::ProofPace for ProofClock {
         } else {
             0
         };
-        if open {
-            let _ = h.account_pipe(&control, pending, pending_wall);
-        }
-        drop(helper);
         let prefix_recorded = if open || previous.is_some() {
+            if open {
+                let _ = h.account_pipe(&control, pending, pending_wall);
+            } else {
+                // The controller can revoke the pipe before this owner returns.
+                // Its pending clock still owns this exact CPU suffix: record
+                // the same raw value that the canonical Budget charges below.
+                h.metrics.pipe_cpu_ns = h.metrics.pipe_cpu_ns.saturating_add(pending);
+                if pending == u64::MAX || pending_wall == u64::MAX {
+                    h.metrics.clock_failures = h.metrics.clock_failures.saturating_add(1);
+                    h.metrics.coverage_known = false;
+                }
+            }
             self.budget
                 .borrow_mut()
                 .read_charge(pending, pending, pending_wall, 1_000_000)
         } else {
             Ok(())
         };
+        drop(helper);
         control.read_pay();
         let signal_at = cpu_ns();
         let signal_wall = Instant::now();
@@ -1577,13 +1586,26 @@ impl super::resolve::ProofPace for ProofClock {
         }
         control.read_pay();
         let failure = *self.failure.borrow();
-        if let Some(code) = failure
-            .or_else(|| control.error())
-            .or(recorded.err())
-            .or(prefix_recorded.err())
+        if let Some((code, predicate)) = failure
+            .map(|code| (code, "helper retirement refused: remembered helper verdict"))
+            .or_else(|| {
+                control
+                    .error()
+                    .map(|code| (code, "helper retirement refused: current control predicate"))
+            })
+            .or_else(|| {
+                recorded
+                    .err()
+                    .map(|code| (code, "helper retirement refused: signal application charge"))
+            })
+            .or_else(|| {
+                prefix_recorded
+                    .err()
+                    .map(|code| (code, "helper retirement refused: pending pipe charge"))
+            })
         {
             self.remember(code);
-            return Err(super::entry::Invalid("helper retirement refused"));
+            return Err(super::entry::Invalid(predicate));
         }
         Ok(())
     }
@@ -3326,7 +3348,26 @@ mod helper_tests {
         std::thread::sleep(Duration::from_millis(25));
         let _pump = ControlPump::start(control.clone());
         begin_fixture_pipe(&mut clock, &control);
-        clock.helper_retire(retirement_ticket(&control)).unwrap();
+        clock
+            .helper_retire(retirement_ticket(&control))
+            .unwrap_or_else(|refusal| {
+                let (metrics, retiring, ready) = {
+                    let helper = control.helper.lock().unwrap();
+                    let helper = helper.as_ref().unwrap();
+                    (helper.metrics, helper.retiring, helper.ready)
+                };
+                let first_failure = *clock.failure.borrow();
+                let control_failure = control.error();
+                let summary = summary.borrow();
+                panic!(
+                    "{refusal:?}; first_failure={first_failure:?} control={control_failure:?} \
+                     pending_cpu_ns={} signal_cpu_ns={} inclusive_max_cpu_ns={} \
+                     retiring={retiring} ready={ready} helper_metrics={metrics:?}",
+                    summary.retirement_pending_cpu,
+                    summary.retirement_cpu,
+                    summary.retirement_inclusive_max_cpu,
+                );
+            });
         let returned = Instant::now();
         let summary = summary.borrow();
         assert_eq!(summary.retirement_count, 1);
@@ -3382,6 +3423,95 @@ mod helper_tests {
             let helper = helper.as_ref().unwrap();
             assert!(helper.metrics.pipe_cpu_ns >= 2_000_000 && helper.retiring);
             assert!(returned >= summary.retirement_last_end.unwrap() + Duration::from_millis(9));
+        }
+    }
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn retirement_pending_metric_matches_bill_in_both_controller_orders() {
+        for controller_first in [true, false] {
+            let (mut clock, summary, control) = owner();
+            let (_child, _pid) = retirement_child(&control);
+            let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel(0);
+            let (start_tx, start_rx) = std::sync::mpsc::sync_channel(0);
+            let (done_tx, done_rx) = std::sync::mpsc::sync_channel(0);
+            let controller = control.clone();
+            let tick = std::thread::spawn(move || {
+                fixture_priority();
+                ready_tx.send(()).unwrap();
+                start_rx.recv().unwrap();
+                controller.helper_controller_rest();
+                let marker = controller.helper_controller_marker();
+                let at = cpu_ns();
+                controller.helper_tick();
+                controller
+                    .helper_account_controller(marker, controller.observe_interval(at, cpu_ns()));
+                done_tx.send(()).unwrap();
+            });
+            ready_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            let billed_before = clock.budget.borrow().counters.cpu;
+            let metric_before = control
+                .helper
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metrics
+                .pipe_cpu_ns;
+            let at = begin_fixture_pipe(&mut clock, &control);
+            while control.observe_interval(at, cpu_ns()) < 100_000 {
+                std::hint::black_box(cpu_ns());
+            }
+            control.cancel.store(1, Ordering::Release);
+            if controller_first {
+                start_tx.send(()).unwrap();
+                done_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+                let helper = control.helper.lock().unwrap();
+                let helper = helper.as_ref().unwrap();
+                assert!(helper.retiring && !helper.pipe_is_open());
+            } else {
+                assert!(
+                    control
+                        .helper
+                        .lock()
+                        .unwrap()
+                        .as_ref()
+                        .unwrap()
+                        .pipe_is_open()
+                );
+            }
+            assert!(clock.helper_retire(retirement_ticket(&control)).is_err());
+            let returned = Instant::now();
+            if !controller_first {
+                start_tx.send(()).unwrap();
+                done_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            }
+            tick.join().unwrap();
+            let summary = summary.borrow();
+            let billed = clock.budget.borrow().counters.cpu - billed_before;
+            let helper = control.helper.lock().unwrap();
+            let helper = helper.as_ref().unwrap();
+            let metric = helper.metrics.pipe_cpu_ns - metric_before;
+            assert!(summary.retirement_pending_cpu >= 100_000);
+            assert_eq!(
+                metric, summary.retirement_pending_cpu,
+                "every pending pipe suffix is recorded even when the controller closed first"
+            );
+            assert_eq!(billed, metric + summary.retirement_cpu);
+            assert_eq!(summary.retirement_unknown, 0);
+            assert_eq!(*clock.failure.borrow(), Some(c::Code::Cancelled));
+            assert_eq!(control.cancel.load(Ordering::Acquire), 1);
+            assert!(helper.retiring && !helper.pipe_is_open());
+            assert!(
+                returned
+                    >= summary.retirement_last_end.unwrap()
+                        + Duration::from_nanos(summary.retirement_cpu.max(1_000_000) * 9)
+            );
+            eprintln!(
+                "retirement_pending_accounting controller_first={controller_first} \
+                 original_pid={} metric_delta_ns={metric} billed_pending_ns={} \
+                 main_billed_ns={billed} signal_cpu_ns={} original_reap_claimed=false",
+                helper.identity.pid, summary.retirement_pending_cpu, summary.retirement_cpu,
+            );
         }
     }
     #[cfg(target_os = "macos")]
