@@ -2415,7 +2415,7 @@ struct engine_ticket {pid_t pid,pgid;uint64_t birth,start;uint16_t sequence;};
 struct engine_incarnation {pid_t pid;uint64_t birth,start;audit_token_t token;unsigned current,cleanup_checked,cleanup_attempted;int cleanup_errno;};
 enum engine_image_phase {ENGINE_UNSEEN,ENGINE_CLONE,ENGINE_EXPECTED,ENGINE_EXITED};
 struct engine_member {
-    struct image state;audit_token_t token;unsigned token_known,phase;
+    struct image state;audit_token_t token;unsigned token_known,phase,live_admitted;
     uint64_t user,system,child_user,child_system,exit_abstime,ri_started_ns,terminal_observed_ns;
     uint32_t exit_status;unsigned exit_status_known,attachment_stop,attachment_ready;
     unsigned exit_note_received,exit_note_witness,terminal_ri_non_esrch;
@@ -2596,6 +2596,22 @@ static int engine_event_current_member(const struct engine_owner *o,unsigned i) 
             &&!memcmp(&r->token,&m->token,sizeof(m->token)))current++;
     }
     return current==1;
+}
+static unsigned engine_retained_live_members(const struct engine_owner *o) {
+    unsigned live=0;if(!o->direct_custody||o->direct_reaped)return 0;
+    for(unsigned i=0;i<2;i++) {
+        const struct engine_member *m=&o->members[i];
+        if(m->live_admitted&&m->state.pid>0&&m->state.birth&&m->state.start_absolute&&m->ri_started_ns
+            &&m->phase!=ENGINE_EXITED&&!m->exit_abstime&&!m->exit_note_received&&engine_event_current_member(o,i))live++;
+    }
+    return live;
+}
+static void engine_member_live_admission(struct engine_owner *o,unsigned i) {
+    // Only a completed current RI/closing identity+approved-path observation
+    // reaches this call. Reservations and event notifications never add one.
+    o->members[i].live_admitted=1;
+    unsigned live=engine_retained_live_members(o);
+    if(live>o->result->members_max)o->result->members_max=(uint8_t)live;
 }
 static int engine_child_watch_matches(const struct engine_owner *o) {
     const struct engine_member *m=&o->members[1];const struct engine_event_watch *w=&o->event_watch[1];unsigned original=0;
@@ -2994,8 +3010,9 @@ static int engine_sample_member(struct engine_owner *owner,unsigned i,pid_t pid)
 #endif
     if(!i) {
         if(strcmp(path,owner->image))return engine_failure(owner,"coverage_unknown","direct image differs from exact approved helper");
-        m->phase=ENGINE_EXPECTED;owner->ticket.birth=current.birth;owner->ticket.start=m->state.start_absolute;
+        m->phase=ENGINE_EXPECTED;owner->ticket.birth=current.birth;owner->ticket.start=m->state.start_absolute;engine_member_live_admission(owner,i);
     } else if(!strcmp(path,owner->descendant)) {
+        engine_member_live_admission(owner,i);
         if(m->phase!=ENGINE_EXPECTED) {
             if(owner->failed)return 0;
             // B's existing one-shot attachment STOP is custody, not a budget
@@ -3020,7 +3037,7 @@ static int engine_sample_member(struct engine_owner *owner,unsigned i,pid_t pid)
             if(!engine_checkpoint(owner))return 0;
             if(!owner->foreground&&!owner->retiring&&!engine_cancel_signal&&engine_now(owner,CLOCK_MONOTONIC)<owner->context->outer->deadline) {if(engine_token_signal(&token,SIGCONT))return engine_failure(owner,"coverage_unknown","verifier custody continuation unavailable");m->attachment_ready=0;}
         }
-    } else if(!strcmp(path,owner->image)&&m->phase!=ENGINE_EXPECTED)m->phase=ENGINE_CLONE;
+    } else if(!strcmp(path,owner->image)&&m->phase!=ENGINE_EXPECTED) {m->phase=ENGINE_CLONE;engine_member_live_admission(owner,i);}
     else return engine_failure(owner,"coverage_unknown","unapproved helper exec path");
     return 1;
 }
@@ -3521,7 +3538,7 @@ static int engine_birth(struct engine_owner *o,struct engine_prepared *p) {
     if(!paid||o->failed)return 0;
     if(!engine_sample_member(o,0,raw.pid)||!engine_events_register(o,0,raw.pid)||!engine_checkpoint(o))return 0;
     if(o->members[0].state.status!=SSTOP)return engine_failure(o,"coverage_unknown","initial custody was not stopped");
-    o->source_admitted=1;o->result->members_max=o->result->members_max?o->result->members_max:1;
+    o->source_admitted=1; // Actual initial live-slot admission recorded its own count above.
     if(!engine_live_budget(o)||!engine_checkpoint(o))return 0;
     if(!strcmp(o->context->outer->case_name,"stale_incarnation"))return engine_failure(o,"coverage_unknown","fixture stale original ticket refused without signalling it");
     if(!strcmp(o->context->outer->case_name,"debt_overlap")){(void)private_retain_closed_cost(1);return engine_failure(o,"coverage_unknown","fixture pending debt forbids initial helper continuation");}
@@ -4111,29 +4128,72 @@ static int engine_fixed_command(struct engine_owner *owner,struct engine_prepare
 static int engine_metric_bound(const struct private_engine_metric *m,uint64_t bound) {
     return m->observed&&m->known&&m->value<=bound;
 }
-static int engine_complete_result(const struct private_engine_context *context,struct private_engine_result *result) {
+enum {ENGINE_FINAL_TERMS=28,ENGINE_FINAL_COVERAGE_TERMS=14};
+struct engine_final_conjunction {unsigned char term[ENGINE_FINAL_TERMS];unsigned coverage_passed,resources_passed;const char *first_failing_term;};
+static const char *const engine_final_term_names[ENGINE_FINAL_TERMS]={
+    "no_prior_failure","engine_entered","semantic_forms_complete","commands_complete","attempts_complete","created_complete","reaped_complete","members_max_complete",
+    "group_gone","retired_coverage","no_live_owner","terminal_CPU_checked_complete","terminal_CPU_passed_complete","proof_matches_case",
+    "ordinary_within_1ms","controller_within_1ms","cleanup_within_1ms","native_CPU_within_2ms","native_wall_within_process_create_limit","inclusive_within_3ms",
+    "helper_job_within_3s","A_within_3s","C_known_finite","helper_RSS_within_16MiB","probe_RSS_within_96MiB","no_retained_cost","debt_fully_paid","ordinary_raw_within_1ms"
+};
+static char engine_final_diagnostic_bytes[4096];
+static void engine_final_conjunction_capture(const struct private_engine_context *context,const struct private_engine_result *result,struct engine_final_conjunction *c) {
     int corrupt=!strcmp(context->outer->case_name,"corrupt_proof");
-    if(private_failed||!result->engine_entered||result->semantic_forms!=32767u||result->commands_completed!=15
-        ||result->attempts!=16||result->created!=16||result->reaped!=16||result->members_max!=2
-        ||!result->group_gone||!result->retired_coverage||engine_current
-        ||result->terminal_cpu_checked!=15||result->terminal_cpu_passed!=15
-        ||strcmp(result->observed_proof,corrupt?"invalid":"valid"))
-        return private_fail("coverage_unknown","complete fixed case lacks actual semantic, verifier or physical settlement coverage");
-    if(!engine_metric_bound(&result->ordinary_max_ns,1000000)||!engine_metric_bound(&result->controller_max_ns,1000000)
-        ||!engine_metric_bound(&result->cleanup_max_ns,1000000)||!engine_metric_bound(&result->native_cpu_max_ns,2000000)
-        ||!engine_metric_bound(&result->native_wall_max_ns,native_wall_limit(NATIVE_PROCESS_CREATE))||!engine_metric_bound(&result->inclusive_max_ns,3000000)
-        ||result->helper_job_cpu_ns>ENGINE_JOB_CPU_NS
-        ||!engine_metric_bound(&result->A_ns,ENGINE_JOB_CPU_NS)||!engine_metric_bound(&result->C_ns,UINT64_MAX-1)
-
-        ||!engine_metric_bound(&result->helper_group_rss_peak_bytes,16u*1024u*1024u)
-        ||!engine_metric_bound(&result->probe_rss_peak_bytes,96u*1024u*1024u)
-        ||private_has_retained_cost()||private_cost.debt!=private_cost.debt_paid||private_cost.ordinary_max>1000000)
-        return private_fail("resource_limit","fixed case resource, clock or paid-debt conjunction is incomplete");
-    result->phase="settled";result->outcome=corrupt?"expected_rejection":"completed";
-    result->error_code=result->error_detail=NULL;return 1;
+    const unsigned char values[ENGINE_FINAL_TERMS]={
+        !private_failed,!!result->engine_entered,result->semantic_forms==32767u,result->commands_completed==15,
+        result->attempts==16,result->created==16,result->reaped==16,result->members_max==2,
+        !!result->group_gone,!!result->retired_coverage,engine_current==NULL,result->terminal_cpu_checked==15,result->terminal_cpu_passed==15,
+        !strcmp(result->observed_proof,corrupt?"invalid":"valid"),
+        engine_metric_bound(&result->ordinary_max_ns,1000000),engine_metric_bound(&result->controller_max_ns,1000000),engine_metric_bound(&result->cleanup_max_ns,1000000),
+        engine_metric_bound(&result->native_cpu_max_ns,2000000),engine_metric_bound(&result->native_wall_max_ns,native_wall_limit(NATIVE_PROCESS_CREATE)),engine_metric_bound(&result->inclusive_max_ns,3000000),
+        result->helper_job_cpu_ns<=ENGINE_JOB_CPU_NS,engine_metric_bound(&result->A_ns,ENGINE_JOB_CPU_NS),engine_metric_bound(&result->C_ns,UINT64_MAX-1),
+        engine_metric_bound(&result->helper_group_rss_peak_bytes,16u*1024u*1024u),engine_metric_bound(&result->probe_rss_peak_bytes,96u*1024u*1024u),
+        !private_has_retained_cost(),private_cost.debt==private_cost.debt_paid,private_cost.ordinary_max<=1000000
+    };
+    memcpy(c->term,values,sizeof(values));c->coverage_passed=c->resources_passed=1;c->first_failing_term="none";
+    for(unsigned i=0;i<ENGINE_FINAL_TERMS;i++)if(!c->term[i]) {
+        if(!strcmp(c->first_failing_term,"none"))c->first_failing_term=engine_final_term_names[i];
+        if(i<ENGINE_FINAL_COVERAGE_TERMS)c->coverage_passed=0;else c->resources_passed=0;
+    }
 }
+static int engine_final_conjunction_verdict(const struct engine_final_conjunction *c) {
+    if(!c->coverage_passed)return private_fail("coverage_unknown",c->first_failing_term);
+    if(!c->resources_passed)return private_fail("resource_limit",c->first_failing_term);
+    return 1;
+}
+static void engine_complete_commit(const struct private_engine_context *context,struct private_engine_result *result) {
+    result->phase="settled";result->outcome=!strcmp(context->outer->case_name,"corrupt_proof")?"expected_rejection":"completed";
+    result->error_code=result->error_detail=NULL;
+}
+static __attribute__((unused)) int engine_complete_result(const struct private_engine_context *context,struct private_engine_result *result) {
+    struct engine_final_conjunction c;engine_final_conjunction_capture(context,result,&c);
+    if(!engine_final_conjunction_verdict(&c))return 0;
+    engine_complete_commit(context,result);return 1;
+}
+static int engine_final_conjunction_record(struct engine_owner *owner,const struct engine_final_conjunction *c) {
+    // This snapshot names EVERY original conjunction term, including terms
+    // after the first failure. Its own format/write/fsync/close are NOT future
+    // facts at this cutoff; their full costs must pass before final commit.
+    char *bytes=engine_final_diagnostic_bytes;size_t capacity=sizeof(engine_final_diagnostic_bytes);
+    int n=snprintf(bytes,capacity,"{\"kind\":\"final_case_conjunction\",\"capture_cutoff\":\"before_this_diagnostic_format_write_fsync_close\",");
+    if(n<=0||(size_t)n>=capacity)return private_fail("resource_limit","final conjunction diagnostic prefix bound");size_t used=(size_t)n;
+    for(unsigned i=0;i<ENGINE_FINAL_TERMS;i++) {
+        n=snprintf(bytes+used,capacity-used,"\"%s\":%s,",engine_final_term_names[i],c->term[i]?"true":"false");
+        if(n<=0||(size_t)n>=capacity-used)return private_fail("resource_limit","final conjunction diagnostic term bound");used+=(size_t)n;
+    }
+    n=snprintf(bytes+used,capacity-used,"\"coverage_passed\":%s,\"resources_passed\":%s,\"first_failing_term\":\"%s\",\"runtime_approved\":false}\n",
+        c->coverage_passed?"true":"false",c->resources_passed?"true":"false",c->first_failing_term);
+    if(n<=0||(size_t)n>=capacity-used)return private_fail("resource_limit","final conjunction diagnostic tail bound");used+=(size_t)n;
+    int written=engine_write_record(owner,bytes,(int)used);
+    int format_write_paid=private_end_unit(private_cost.open_cpu);
+    if(!written||!format_write_paid)return 0;
+    int flushed=fsync(owner->ledger)==0;
+    if(!flushed)private_fail("source_changed","final conjunction ledger fsync failed");
+    int flush_paid=private_end_unit(private_cost.open_cpu);return flushed&&flush_paid;
+}
+
 int private_command_engine(const struct private_engine_context *context,struct private_engine_result *result) {
-    ENGINE_FLOW_STAGE(1);
+    ENGINE_FLOW_STAGE(1);int ledger=-1;
     memset(result,0,sizeof(*result));result->phase="validate";result->outcome="refused";result->observed_proof="not_reached";
     result->engine_entered=1;
     result->group_gone=result->retired_coverage=1;
@@ -4148,7 +4208,7 @@ int private_command_engine(const struct private_engine_context *context,struct p
     ENGINE_FLOW_STAGE(4);if(!engine_original_claim(context,result))goto refused;
     ENGINE_FLOW_STAGE(5);char home[4097],scratch[4097];if(!engine_public_home(context,home,scratch))goto refused;
     ENGINE_FLOW_STAGE(6);
-    uint64_t declared=ENGINE_CAPTURE_MAX+ENGINE_INPUT_MAX+sizeof(engine_storage)+sizeof(struct engine_prepared)+sizeof(engine_signature_storage);
+    uint64_t declared=ENGINE_CAPTURE_MAX+ENGINE_INPUT_MAX+sizeof(engine_storage)+sizeof(struct engine_prepared)+sizeof(engine_signature_storage)+sizeof(engine_final_diagnostic_bytes)+sizeof(struct engine_final_conjunction);
     if(engine_current||declared>ENGINE_WORK_LIMIT||private_cost.metadata>ENGINE_WORK_LIMIT-declared) {
         private_fail("resource_limit","declared engine owner exceeds existing work-credit limit");goto refused;
     }
@@ -4165,7 +4225,7 @@ int private_command_engine(const struct private_engine_context *context,struct p
     ignore.sa_handler=engine_owner_loss_handler;int hup_set=sigaction(SIGHUP,&ignore,&old_hup)==0;engine_owner_loss_signal=0;
     ignore.sa_handler=SIG_DFL;
     int child_set=sigaction(SIGCHLD,&ignore,&old_child)==0;
-    ENGINE_FLOW_STAGE(10);int ledger=openat(context->outer->output.fd,"ledger.ndjson",O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,0600);
+    ENGINE_FLOW_STAGE(10);ledger=openat(context->outer->output.fd,"ledger.ndjson",O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,0600);
     const unsigned order[15]={13,14,0,1,2,3,4,5,6,7,8,9,10,11,12};int all=pipe_set&&term_set&&hup_set&&child_set&&ledger>=0;
     if(!all)private_fail("source_changed","private signal disposition or exclusive raw-ledger setup failed");
     size_t ledger_bytes=0;unsigned record_count=0;
@@ -4198,7 +4258,11 @@ int private_command_engine(const struct private_engine_context *context,struct p
     if(child_set&&sigaction(SIGCHLD,&old_child,NULL)!=0)all=private_fail("settlement_unknown","private child disposition restore unresolved");
     if(term_set&&sigaction(SIGTERM,&old_term,NULL)!=0)all=private_fail("settlement_unknown","private cancel disposition restore unresolved");
     if(pipe_set&&sigaction(SIGPIPE,&old_pipe,NULL)!=0)all=private_fail("settlement_unknown","private pipe disposition restore unresolved");
-    ENGINE_FLOW_STAGE(18);if(ledger>=0){if(fsync(ledger)!=0)all=private_fail("source_changed","raw ledger fsync unresolved");private_close(ledger);}
+    ENGINE_FLOW_STAGE(18);if(ledger>=0) {
+        if(fsync(ledger)!=0)all=private_fail("source_changed","raw ledger fsync unresolved");
+        if(!private_end_unit(private_cost.open_cpu))all=0;
+    } // Retain the ORIGINAL owned FD through the final decision capture.
+
     ENGINE_FLOW_STAGE(19);
     if(!private_git_sig_release(&engine_signature_storage)) {
         result->phase="quarantined";result->outcome="quarantined";goto refused;
@@ -4208,8 +4272,17 @@ int private_command_engine(const struct private_engine_context *context,struct p
     if(!all||!engine_pretest_current(context))goto refused;
     engine_max(&result->ordinary_max_ns,private_cost.ordinary_max);
     engine_max(&result->debt_charged_ns,private_cost.debt);engine_max(&result->debt_paid_ns,private_cost.debt_paid);
-    ENGINE_FLOW_STAGE(22);if(engine_complete_result(context,result))return 1;
+    ENGINE_FLOW_STAGE(22);
+    struct engine_final_conjunction final;engine_final_conjunction_capture(context,result,&final);
+    int decision_ok=engine_final_conjunction_verdict(&final);
+    int diagnostic_ok=engine_final_conjunction_record(&engine_storage,&final);
+    int closed=0,close_paid=private_close_observed(ledger,&closed);engine_storage.ledger=-1;ledger=-1;
+    if(decision_ok&&diagnostic_ok&&closed&&close_paid&&!private_failed) {engine_complete_commit(context,result);return 1;}
 refused:
+    // No pathname reopen and no completed outcome after diagnostic/close/cost
+    // failure. A live quarantined original keeps this same borrowed ledger.
+    if(ledger>=0&&!engine_current) {int closed=0;(void)private_close_observed(ledger,&closed);engine_storage.ledger=-1;ledger=-1;}
+    if(strcmp(result->outcome,"quarantined"))result->outcome="refused";
     result->error_code=private_error;result->error_detail=private_detail;return 0;
 }
 

@@ -30,13 +30,17 @@ VALIDATED = (b'if(!engine_owner_priority()||!engine_pretest_current(context)'
 # Eight decision66280 controls plus independent preserved own-thread, semantic,
 # persistence and original-controller custody controls. No retired graph/control
 # is re-labelled as a current pass.
-LEDGERS = ('hold-ledger.ndjson', 'hold-control-success', 'claim.json', 'charge-diagnostic.ndjson',
+LEDGERS = ('final-conjunction-controls.ndjson', 'member-peak-census/total-6.ndjson',
+           *(f'flow-{i}/ledger.ndjson' for i in range(4)),
+           'hold-ledger.ndjson', 'hold-control-success', 'claim.json', 'charge-diagnostic.ndjson',
            'same-wake/total-27.ndjson', 'same-wake/admission-child', 'same-wake/slow-exec-delay', 'same-wake/execute-fifo.json', 'same-wake/exit',
            'admitted-descriptor', 'retained-descriptor', 'currentness-a', 'currentness-b', 'deadline-result/stdout', 'deadline-result/result.json',
            *(f'total-{i}.ndjson' for i in range(27)), 'knote-rollup-26', *(f'live-race-{i}' for i in range(16,23)), *(f'event-release-{i}' for i in range(23,26)), 'rollup-2', 'rollup-2-terminal', 'rollup-2-release', 'release-6',
            *(f'pause-{i}-{phase}' for i in (9,10) for phase in ('start','done','release')),
            *('diagnostic-' + str(i) + '/' + name for i in range(4) for name in ('stderr', 'stdout', 'result.json')))
 ASSERTIONS = {
+ 'member-peak-drop-admission': b'actual same-wake retained-live peak reaches final conjunction after full original settlement',
+ 'final-conjunction-drop-term': b'final conjunction ledger contains every boolean term and first failing name',
  'custody-stop-ignore-current-RI': b'fresh current RI and sticky admission state gate the one verifier custody STOP',
  'same-wake-nonblocking-only': b'bounded event wait admits slow-exec projection without exhausting the unchanged CPU guard',
  'same-wake-insert-pre-stop-rest': b'same-wake admission API keeps pre-STOP window open until positive custody ACK',
@@ -101,6 +105,36 @@ ASSERTIONS = {
  'engine-drop-inclusive-tail': b'actual ordinary CPU tail is retained charged paid and diagnosed before refusal',
  'ordinary-before-debt': b'diagnostic setup overrun retains full paid cost before refusal',
 }
+
+FINAL_TERMS = ('no_prior_failure','engine_entered','semantic_forms_complete','commands_complete','attempts_complete',
+    'created_complete','reaped_complete','members_max_complete','group_gone','retired_coverage','no_live_owner',
+    'terminal_CPU_checked_complete','terminal_CPU_passed_complete','proof_matches_case','ordinary_within_1ms',
+    'controller_within_1ms','cleanup_within_1ms','native_CPU_within_2ms','native_wall_within_process_create_limit',
+    'inclusive_within_3ms','helper_job_within_3s','A_within_3s','C_known_finite','helper_RSS_within_16MiB',
+    'probe_RSS_within_96MiB','no_retained_cost','debt_fully_paid','ordinary_raw_within_1ms')
+
+
+def final_conjunction_records(path):
+    records=[]
+    for line in read_stable(path, 2*1024*1024).splitlines():
+        pairs=json.loads(line,object_pairs_hook=list)
+        if not isinstance(pairs,list) or len({k for k,v in pairs})!=len(pairs):
+            raise ValueError('final conjunction ledger duplicate key or non-object record')
+        row=dict(pairs)
+        if row.get('kind')!='final_case_conjunction':continue
+        expected=set(FINAL_TERMS)|{'kind','capture_cutoff','coverage_passed','resources_passed','first_failing_term','runtime_approved'}
+        if set(row)!=expected or any(type(row[k]) is not bool for k in FINAL_TERMS):
+            raise ValueError('final conjunction ledger must contain all28 exact independent bool terms')
+        first=next((k for k in FINAL_TERMS if not row[k]),'none')
+        if (row['capture_cutoff']!='before_this_diagnostic_format_write_fsync_close'
+                or type(row['coverage_passed']) is not bool or type(row['resources_passed']) is not bool
+                or row['coverage_passed']!=all(row[k] for k in FINAL_TERMS[:14])
+                or row['resources_passed']!=all(row[k] for k in FINAL_TERMS[14:])
+                or row['first_failing_term']!=first or row['runtime_approved'] is not False):
+            raise ValueError('final conjunction first failure/group results/cutoff differ from independent terms')
+        records.append(row)
+    return records
+
 
 def sha(data):
     return hashlib.sha256(data).hexdigest()
@@ -297,6 +331,10 @@ def variants(source):
     result = {}
     def add(name, anchor, replacement, args):
         result[name] = (changed(source, anchor, replacement), args)
+    add('member-peak-drop-admission', b'o->members[i].live_admitted=1;',
+        b'if(i)return;o->members[i].live_admitted=1;', ['same-wake-admission-control'])
+    add('final-conjunction-drop-term', b'n=snprintf(bytes+used,capacity-used,"\\\"%s\\\":%s,",engine_final_term_names[i],c->term[i]?"true":"false");',
+        b'if(i==7)continue;n=snprintf(bytes+used,capacity-used,"\\\"%s\\\":%s,",engine_final_term_names[i],c->term[i]?"true":"false");', ['final-conjunction-controls'])
     add('custody-stop-ignore-current-RI', b'return !o->failed&&u&&u->ri_proc_start_abstime&&!u->ri_proc_exit_abstime\n        &&u->ri_proc_start_abstime==o->members[1].state.start_absolute\n        &&u->ri_proc_start_abstime==o->event_watch[1].start&&engine_child_watch_matches(o);',
         b'(void)o;(void)u;return 1;', ['custody-stop-identity-api'])
     add('same-wake-nonblocking-only', b'static uint64_t engine_child_handoff_event_wait(unsigned pending,unsigned stop_sent) {return pending||stop_sent?0:1000000;}',
@@ -441,9 +479,9 @@ def child_exit_witness_receipt(stdout):
 
 
 def retain_current(stdout, report):
-    found=re.findall(rb'private_engine_controls=pass cases=106 total_budget_controls=8 synthetic_source_known=true real_candidate_created=0 runtime_approved=false retained=(/private/tmp/dream-private-engine-controls\.[A-Za-z0-9]+)\n',stdout)
+    found=re.findall(rb'private_engine_controls=pass cases=108 total_budget_controls=8 synthetic_source_known=true real_candidate_created=0 runtime_approved=false retained=(/private/tmp/dream-private-engine-controls\.[A-Za-z0-9]+)\n',stdout)
     if len(found)!=1:
-        raise ValueError('current fixture lacks exact106 remaining controls and eight total-budget witnesses')
+        raise ValueError('current fixture lacks exact108 remaining controls and eight total-budget witnesses')
     if os.fsdecode(found[0]) != report['commands'][-1]['fixture_capture']['source_dir']:
         raise ValueError('completed fixture root differs from original command binding')
     modes=re.findall(rb'private_total_budget_control_source_known mode=([0-9]+) original_pid=([0-9]+) actual_own_wait4=1 group_gone=1 terminal_cpu_ns=([0-9]+)',stdout)
@@ -568,7 +606,30 @@ def retain_current(stdout, report):
     report['custody_STOP_identity_API']={'cases':7,'accepted_mask':1,'expected_mask':1,
         'source_scope':'shared production pre-SIGSTOP guard; supplied current/foreign/zero/terminal RI and retained identity rows, no actual signal',
         'old_refusal_passive_settlement_observations':'preserved; newly failed precheck returns before new dispatch'}
-    report['baseline_cases']=106
+    members=b'private_same_wake_members_conjunction_source_known actual_members_max=2 census_peak_path_bypassed=true actual_GS1_GS2_settled=true actual_own_wait4_groupgone=true actual_full_bill_paid=true final_conjunction_passed=true first_failing_term="none" final_error_code=none other_final_terms_supplied=true full15_physical_run_claimed=false runtime_approved=false\n'
+    census=b'private_members_peak_census_source_known actual_group_count=1 members_max=1 actual_own_wait4=1 group_gone=1 all_cost_paid=true native_process=true runtime_approved=false\n'
+    diagnostic=b'private_final_conjunction_API_source_known rows=3 terms=28 actual_owned_FD=true no_path_reopen=true all_cost_paid=true cutoff=before_this_diagnostic_format_write_fsync_close native_process=false runtime_approved=false\n'
+    if stdout.count(members)!=1 or stdout.count(census)!=1 or stdout.count(diagnostic)!=1:
+        raise ValueError('real same-wake/census peaks and owned-FD conjunction serialization witnesses missing')
+    evidence=report['commands'][-1]['fixture_capture']['files']
+    final_path=next((Path(f['path']) for f in evidence if f['path'].endswith('/final-conjunction-controls.ndjson')),None)
+    if final_path is None:raise ValueError('actual owned final-conjunction API ledger not retained')
+    term_rows=final_conjunction_records(final_path)
+    expected_false=[set(),{'members_max_complete','group_gone'},
+        {'inclusive_within_3ms','helper_job_within_3s','helper_RSS_within_16MiB'}]
+    if len(term_rows)!=3 or any({k for k in FINAL_TERMS if not row[k]}!=bad for row,bad in zip(term_rows,expected_false)):
+        raise ValueError('final conjunction API lost later independent failures or changed bool semantics')
+    for variant in (0,3):
+        path=next((Path(f['path']) for f in evidence if f['path'].endswith(f'/flow-{variant}/ledger.ndjson')),None)
+        rows=final_conjunction_records(path) if path else []
+        if len(rows)!=1 or rows[0]['first_failing_term']!='none':
+            raise ValueError('actual functional source-known full15 flow lost original-FD final diagnostics')
+    report['member_peak_and_final_conjunction']={'actual_same_wake_peak':2,'actual_census_only_peak':1,
+        'actual_GS1_GS2_ownwait4_groupgone_full_bill':True,'other_full15_terms_in_single_helper_projection':'supplied, not physical',
+        'ledger_bool_terms':list(FINAL_TERMS),'first_failure_field':'first_failing_term:string',
+        'snapshot_cutoff':'before_this_diagnostic_format_write_fsync_close','writer_tail_all_costs_paid_before_completion':True,
+        'API_rows':3,'source_known_full15_integration_variants':[0,3],'runtime_approved':False}
+    report['baseline_cases']=108
     marker=b'private_total_retained_guard_source_known api=true supplied_clock_and_identity_values=true native_process=false runtime_approved=false\n'
     if stdout.count(marker)!=1:
         raise ValueError('current retained-clock/child production API witness missing or duplicated')
@@ -652,6 +713,11 @@ def verify(directory, inputs, report, total_only=False):
                 raise ValueError('mutant did not reach independent native/unit/physical/causal prerequisites: '+name)
         if ASSERTIONS[name] not in stderr:
             raise ValueError('mutant missed its required causal assertion: '+name)
+        if name=='member-peak-drop-admission':
+            physical=b'private_same_wake_admission_completed_source_known '
+            projection=b'private_same_wake_members_conjunction_source_known actual_members_max=1 census_peak_path_bypassed=true actual_GS1_GS2_settled=true actual_own_wait4_groupgone=true actual_full_bill_paid=true final_conjunction_passed=false first_failing_term="members_max_complete" final_error_code=coverage_unknown other_final_terms_supplied=true full15_physical_run_claimed=false runtime_approved=false\n'
+            if physical not in stdout or projection not in stdout:
+                raise ValueError('missing-admission-peak mutant failed before real GS1/GS2 full settlement or for another conjunction term')
         if name=='custody-stop-ignore-current-RI':
             if b'private_custody_STOP_identity_API_source_known cases=7 accepted_mask=127 expected_mask=1' not in stdout:
                 raise ValueError('custody-STOP identity mutant missed its fresh-RI/failed-admission safety assertion')

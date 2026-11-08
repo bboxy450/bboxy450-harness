@@ -332,6 +332,35 @@ static void result_controls(void) {
     require(!engine_complete_result(&context,&r),"every completed actual command needs its own authoritative terminal CPU verdict");controls++;
     strcpy(outer.case_name,"positive");
 }
+static void final_conjunction_controls(int dir) {
+    reset();struct engine_owner owner;struct private_engine_result result;memset(&owner,0,sizeof(owner));owner.context=&context;owner.result=&result;
+    owner.ledger=openat(dir,"final-conjunction-controls.ndjson",O_RDWR|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,0600);
+    require(owner.ledger>=0&&private_end_unit(private_cost.open_cpu),"owned final conjunction diagnostic FD prepared and paid");
+    for(unsigned variant=0;variant<3;variant++) {
+        reset();nominal_result(&result);strcpy(outer.case_name,"positive");
+        if(variant==1){result.members_max=1;result.group_gone=0;}
+        if(variant==2){result.inclusive_max_ns.known=0;result.helper_job_cpu_ns=ENGINE_JOB_CPU_NS+1;result.helper_group_rss_peak_bytes.known=0;}
+        struct engine_final_conjunction c;engine_final_conjunction_capture(&context,&result,&c);
+        off_t start=lseek(owner.ledger,0,SEEK_END);
+        require(start>=0&&engine_final_conjunction_record(&owner,&c),"all final conjunction fields serialized on the original owned FD with full cost payment");
+        char bytes[4096];ssize_t count=pread(owner.ledger,bytes,sizeof(bytes)-1,start);require(count>0,"read only the just-written owned diagnostic record");bytes[count]=0;
+        int every=1;
+        for(unsigned i=0;i<ENGINE_FINAL_TERMS;i++) {
+            char needle[128];int n=snprintf(needle,sizeof(needle),"\"%s\":%s",engine_final_term_names[i],c.term[i]?"true":"false");
+            if(n<=0||(size_t)n>=sizeof(needle)||!strstr(bytes,needle))every=0;
+        }
+        const char *first=variant==1?"members_max_complete":variant==2?"inclusive_within_3ms":"none";
+        char needle[128];int n=snprintf(needle,sizeof(needle),"\"first_failing_term\":\"%s\"",first);
+        every=every&&n>0&&(size_t)n<sizeof(needle)&&strstr(bytes,needle)&&!strcmp(c.first_failing_term,first)
+            &&c.coverage_passed==(variant!=1)&&c.resources_passed==(variant!=2);
+        require(private_end_unit(private_cost.open_cpu),"all diagnostic fields and later terms inspected with full cost payment");
+        require(every,"final conjunction ledger contains every boolean term and first failing name");
+    }
+    int closed=0;require(private_close_observed(owner.ledger,&closed)&&closed,"original diagnostic FD closed once with full paid cost");owner.ledger=-1;
+    printf("private_final_conjunction_API_source_known rows=3 terms=28 actual_owned_FD=true no_path_reopen=true all_cost_paid=true cutoff=before_this_diagnostic_format_write_fsync_close native_process=false runtime_approved=false\n");
+    require(fflush(stdout)==0&&private_end_unit(private_cost.open_cpu),"conjunction API completion evidence paid");controls++;
+}
+
 // Source-known fixture setup uses the SAME inclusive epoch and additive debt
 // as the frozen probe. Stage clocks label work; they never replace open_cpu.
 struct diagnostic_setup_step {
@@ -864,6 +893,25 @@ static void await_original(struct engine_owner *o) {
         require(engine_checkpoint(o),"bounded paid terminal observation unit");usleep(1000);
     }
 }
+static void member_peak_census_control(const char *self,const char *root,int parent) {
+    require(mkdirat(parent,"member-peak-census",0700)==0,"fresh census-only member peak fixture");
+    int dir=openat(parent,"member-peak-census",O_RDONLY|O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC);require(dir>=0,"owned census-only root");
+    char owned[4097];int n=snprintf(owned,sizeof(owned),"%s/member-peak-census",root);require(n>0&&(size_t)n<sizeof(owned)&&private_end_unit(private_cost.open_cpu),"bounded census-only root setup fully paid before original birth");
+    struct engine_owner o;struct private_engine_result r;int status=-1;
+    require(total_spawn(&o,&r,self,dir,6,owned),"census-only original creation obeys unchanged gates");
+    require(engine_sample(&o)&&o.group_list_known&&o.group_list_count==1&&r.members_max==1,
+        "actual census-only live original keeps unchanged independent member maximum update");
+    fixture_touch(fixture_release_path);await_original(&o);(void)engine_retire(&o,&status);
+    int settled=o.direct_reaped&&o.wait_observed&&r.group_gone&&r.retired_coverage&&!engine_current;
+    if(settled)fixture_live_owner=NULL;
+    require(settled&&status==0&&!o.failed&&!private_failed&&o.helper_cost_retained&&o.helper_cost_paid
+        &&private_cost.debt==private_cost.debt_paid,"actual census-only original fully reaped and billed before control completes");
+    printf("private_members_peak_census_source_known actual_group_count=1 members_max=%u actual_own_wait4=1 group_gone=1 all_cost_paid=true native_process=true runtime_approved=false\n",r.members_max);
+    require(fflush(stdout)==0&&private_end_unit(private_cost.open_cpu),"census-only member peak evidence paid");
+    engine_close_transferred(&o);require(close(o.ledger)==0,"census-only owned ledger closed");free(o.capture);
+    require(close(dir)==0&&private_end_unit(private_cost.open_cpu),"census-only exact original fixture disposal paid");controls++;
+}
+
 // Fixed first/last/worst records distinguish time in the real sample/payment
 // path from the fixture's WNOWAIT and sleep. This is observation, never a
 // promise that the OS schedules a controller within its hard50ms RI gate.
@@ -1533,8 +1581,13 @@ static void same_wake_admission_control(const char *self,const char *root,int pa
     const char *first_code="none",*first_detail="none";
     for(;;) {
         int done=0;require(known_exited(o.ticket.pid,&done),"same-wake original leader WNOWAIT remains owned");if(done)break;
-        if(!engine_events_service(&o,0)||!engine_sample(&o)){first_code=private_error;first_detail=private_detail;break;}
+        if(!engine_events_service(&o,1000000)){first_code=private_error;first_detail=private_detail;break;}
+        if(o.child_image_admitted)break;
+        // Keep the gated leader's actual RI fresh without invoking the group
+        // census whose independent peak update would hide an admission bug.
+        if(!engine_sample_member(&o,0,o.ticket.pid)||!engine_checkpoint(&o)){first_code=private_error;first_detail=private_detail;break;}
     }
+    unsigned actual_peak_at_admission=r.members_max;
     source_known_child_watch_bound=NULL;source_known_child_handoff=NULL;private_rest_control=NULL;
     // Ensure the adversarial gap ends with THIS helper parent consuming its
     // child. Failure assertion uses existing exact fixture cleanup, not a new
@@ -1579,7 +1632,18 @@ static void same_wake_admission_control(const char *self,const char *root,int pa
     for(unsigned i=0;i<private_guards.count;i++)if(private_guards.files[i].fd>=0) {require(close(private_guards.files[i].fd)==0,"same-wake original selected input guard closed");private_guards.files[i].fd=-1;}
     private_guards.count=0;
     printf("private_same_wake_STOP_axis_source_known positive_ACK_before_first_rest=%u actual_full_unit_CPU_ns=%llu hard_unit_ns=1000000 nominal_target_ns=500000 no_OS_WCET_claim=true runtime_approved=false\n",same_wake_ack_seen,(unsigned long long)same_wake_ack_unit_cpu);
-    require(fflush(stdout)==0&&close(dir)==0&&private_end_unit(private_cost.open_cpu),"same-wake exact original fixture disposal fully paid");controls++;
+    require(fflush(stdout)==0&&close(dir)==0&&private_end_unit(private_cost.open_cpu),"same-wake exact original fixture disposal fully paid");
+    // This process witness ran ONE real leader+child. Only its captured live
+    // peak is inserted into the full-case CLASSIFIER projection; the other
+    // fifteen-command terms are explicitly supplied, never physical claims.
+    struct private_engine_result projected;nominal_result(&projected);projected.members_max=(uint8_t)actual_peak_at_admission;
+    struct engine_final_conjunction final;engine_final_conjunction_capture(&context,&projected,&final);
+    int final_accepted=engine_complete_result(&context,&projected);
+    printf("private_same_wake_members_conjunction_source_known actual_members_max=%u census_peak_path_bypassed=true actual_GS1_GS2_settled=true actual_own_wait4_groupgone=true actual_full_bill_paid=true final_conjunction_passed=%s first_failing_term=\"%s\" final_error_code=%s other_final_terms_supplied=true full15_physical_run_claimed=false runtime_approved=false\n",
+        actual_peak_at_admission,final_accepted?"true":"false",final.first_failing_term,final_accepted?"none":private_error);
+    require(fflush(stdout)==0&&private_end_unit(private_cost.open_cpu),"same-wake final peak projection evidence paid after original physical and FD settlement");
+    require(actual_peak_at_admission==2&&final_accepted&&final.coverage_passed&&final.resources_passed&&!strcmp(final.first_failing_term,"none"),
+        "actual same-wake retained-live peak reaches final conjunction after full original settlement");controls++;
 }
 
 static int same_wake_api_capture(struct engine_owner *o,unsigned member,pid_t pid) {
@@ -1897,6 +1961,8 @@ int main(int argc,char **argv) {
     unsigned charge=argc==2&&!strcmp(argv[1],"charge-diagnostic-control");
     unsigned flow=argc==2&&!strcmp(argv[1],"flow-controls");
     unsigned result_only=argc==2&&!strcmp(argv[1],"result-controls");
+    unsigned final_terms=argc==2&&!strcmp(argv[1],"final-conjunction-controls");
+    unsigned member_census=argc==2&&!strcmp(argv[1],"member-peak-census-control");
     unsigned diagnostics=argc==2&&!strcmp(argv[1],"terminal-diagnostic-controls");
     unsigned setup=argc==2&&!strcmp(argv[1],"diagnostic-setup-budget-control");
     unsigned deadline=argc==2&&!strcmp(argv[1],"terminal-deadline-controls");
@@ -1918,7 +1984,7 @@ int main(int argc,char **argv) {
     unsigned custody_identity=argc==2&&!strcmp(argv[1],"custody-stop-identity-api");
     unsigned exit_before_api=argc==2&&!strcmp(argv[1],"same-wake-exit-api");
     unsigned event_case=argc==3&&!strcmp(argv[1],"verifier-event-control")?(unsigned)strtoul(argv[2],NULL,10):3;
-    require(argc==1||selected<12||diagnostics||setup||deadline||cpu_debt||expand||native_api||native_case<3||race_case<7||event_api||event_case<3||child_exit_api<9||child_exit_process||leader_refresh_api<5||composition||batch||nested_census||same_wake||same_wake_api||event_wait_api||custody_identity||exit_before_api||hold||flow||result_only||charge||boundary||retained,"private source-known controls argc");
+    require(argc==1||selected<12||diagnostics||setup||deadline||cpu_debt||expand||native_api||native_case<3||race_case<7||event_api||event_case<3||child_exit_api<9||child_exit_process||leader_refresh_api<5||composition||batch||nested_census||same_wake||same_wake_api||event_wait_api||custody_identity||exit_before_api||hold||flow||result_only||final_terms||member_census||charge||boundary||retained,"private source-known controls argc");
     require(atexit(dispose_owned)==0,"owned cleanup registration");
     char root[]="/private/tmp/dream-private-engine-controls.XXXXXX";require(mkdtemp(root)!=NULL,"owned fixture directory");
     int dir=open(root,O_RDONLY|O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC);require(dir>=0,"owned fixture root");
@@ -1944,6 +2010,8 @@ int main(int argc,char **argv) {
     if(charge){charge_diagnostic_control(dir);require(close(dir)==0,"owned charge root close");return 0;}
     if(hold){quarantine_hold_process_control(self,root,dir);require(close(dir)==0,"owned holder root close");return 0;}
     if(flow){flow_controls(root,dir);require(close(dir)==0,"owned flow root close");return 0;}
+    if(final_terms){final_conjunction_controls(dir);require(close(dir)==0,"owned final conjunction root close");return 0;}
+    if(member_census){member_peak_census_control(self,root,dir);require(close(dir)==0,"owned member census root close");return 0;}
     if(result_only){result_controls();require(close(dir)==0,"owned result root close");return 0;}
     if(boundary){total_boundary_api();require(close(dir)==0,"owned boundary API root close");return 0;}
     if(retained){total_retained_guard_api();require(close(dir)==0,"owned retained guard API root close");return 0;}
@@ -1969,7 +2037,7 @@ int main(int argc,char **argv) {
     if(cpu_debt){helper_cpu_debt_control(self,root,dir);require(close(dir)==0,"owned CPU-debt root close");return 0;}
     if(deadline){terminal_deadline_controls(dir);require(close(dir)==0,"owned terminal-deadline root close");return 0;}
     if(setup){diagnostic_setup_budget_control();require(close(dir)==0,"owned setup root close");return 0;}
-    argv_expansion_controls(dir);semantic_controls();result_controls();flow_controls(root,dir);terminal_diagnostic_controls(dir);terminal_deadline_controls(dir);charge_diagnostic_control(dir);
+    argv_expansion_controls(dir);semantic_controls();result_controls();final_conjunction_controls(dir);flow_controls(root,dir);terminal_diagnostic_controls(dir);terminal_deadline_controls(dir);charge_diagnostic_control(dir);
     for(unsigned mode=0;mode<12;mode++)total_control(self,root,dir,mode);
     helper_cpu_debt_control(self,root,dir);
     process_create_policy_api();
@@ -1979,6 +2047,7 @@ int main(int argc,char **argv) {
     same_wake_event_wait_api();(void)same_wake_exit_api();
     same_wake_admission_api();
     same_wake_admission_control(self,root,dir);
+    member_peak_census_control(self,root,dir);
     nested_census_delivery_control();
     sample_unit_composition_control();currentness_batch_control(root,dir);
     for(unsigned mode=0;mode<5;mode++)(void)leader_rollup_refresh_api(mode);
