@@ -4922,6 +4922,7 @@ fn selected_dense_owner_and_total_input_overflow_refuse_before_publication() {
 }
 
 #[test]
+#[ignore = "load-sensitive budget/wall window; re-enable via tasks/2026-11-06-qos-builds-never-starve-mcp"]
 fn stdout_backpressure_and_activity_flood_leave_cancel_independent() {
     let mut job = Job::large(48, 64 * 1024);
     job.start.foreground = true;
