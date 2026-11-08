@@ -280,6 +280,8 @@ pub struct PythonCell {
     pub exit_code: Option<i64>,
     pub emitted: Option<serde_json::Value>,
     pub output: std::collections::BTreeMap<usize, String>,
+    /// Output indices whose chunk came from stderr (`"stream":"stderr"`).
+    pub stderr: std::collections::BTreeSet<usize>,
     pub error: Option<String>,
     pub continued: bool,
 }
@@ -295,10 +297,14 @@ impl PythonCell {
         };
         let stale = terminal(self.status.as_deref()) && !terminal(next.status.as_deref());
         for (index, text) in next.output {
-            if stale {
-                self.output.entry(index).or_insert(text);
+            if stale && self.output.contains_key(&index) {
+                continue;
+            }
+            self.output.insert(index, text);
+            if next.stderr.contains(&index) {
+                self.stderr.insert(index);
             } else {
-                self.output.insert(index, text);
+                self.stderr.remove(&index);
             }
         }
         if next.status.is_some() && !stale {
@@ -329,6 +335,28 @@ impl PythonCell {
             .chars()
             .take(120)
             .collect()
+    }
+    /// A long execution id as `head…tail`; the full id stays in the open card.
+    pub fn short_id(id: &str) -> String {
+        let chars: Vec<char> = id.chars().collect();
+        if chars.len() <= 14 {
+            return id.to_owned();
+        }
+        let head: String = chars[..8].iter().collect();
+        let tail: String = chars[chars.len() - 4..].iter().collect();
+        format!("{head}\u{2026}{tail}")
+    }
+    /// The failure as `(code, message)`: the server's `{code, message}` object
+    /// when it is one, else the retained text itself.
+    pub fn error_parts(&self) -> Option<(Option<String>, String)> {
+        let raw = self.error.as_ref()?;
+        let value: serde_json::Value = serde_json::from_str(raw).unwrap_or_default();
+        let field = |k: &str| value.get(k).and_then(serde_json::Value::as_str);
+        Some(match (field("code"), field("message")) {
+            (code, Some(message)) => (code.map(str::to_owned), message.to_owned()),
+            (Some(code), None) => (Some(code.to_owned()), String::new()),
+            _ => (None, raw.clone()),
+        })
     }
     pub fn text(&self) -> String {
         let mut parts = Vec::new();
@@ -404,7 +432,14 @@ pub fn python_cell(
         })
         .unwrap_or(Value::Null);
     let offset = cursor.parse::<usize>().unwrap_or(0);
+    let chunks = value["output"].as_array().cloned().unwrap_or_default();
     Some(PythonCell {
+        stderr: chunks
+            .iter()
+            .enumerate()
+            .filter(|(_, chunk)| chunk["stream"] == "stderr")
+            .map(|(i, _)| offset + i)
+            .collect(),
         source: args["source"].as_str().map(str::to_owned),
         execution_id: value["execution_id"]
             .as_str()
@@ -818,6 +853,28 @@ mod gui_polish_output_tests {
             .unwrap();
             assert!(refused.status.is_none());
             assert!(refused.text().contains("execution_context_changed"));
+            assert_eq!(
+                refused.error_parts(),
+                Some((Some("execution_context_changed".into()), String::new()))
+            );
+            let mixed = python_cell(name, r#"{"source":"x"}"#, &[], Some(&json!({
+                "execution_id":"01M6XXWN1CY9A0746DJHQMGDPH","status":"failed","exit_code":1,
+                "output":[{"stream":"stdout","text":"ok\n"},{"stream":"stderr","text":"boom\n"}],
+                "error":{"code":"python_failed","message":"Python exited unsuccessfully"}
+            }))).unwrap();
+            assert_eq!(mixed.stderr.iter().copied().collect::<Vec<_>>(), vec![1]);
+            assert_eq!(
+                mixed.error_parts(),
+                Some((Some("python_failed".into()), "Python exited unsuccessfully".into()))
+            );
+            assert_eq!(PythonCell::short_id("01M6XXWN1CY9A0746DJHQMGDPH"), "01M6XXWN\u{2026}GDPH");
+            assert_eq!(PythonCell::short_id("run-1"), "run-1");
+            let mut later = mixed.clone();
+            later.merge(python_cell(name, r#"{"source":"x"}"#, &[], Some(&json!({
+                "execution_id":"01M6XXWN1CY9A0746DJHQMGDPH","status":"failed","exit_code":1,
+                "output":[{"stream":"stdout","text":"ok\n"},{"stream":"stdout","text":"replaced\n"}]
+            }))).unwrap());
+            assert!(later.stderr.is_empty(), "a replaced chunk takes its new stream");
         }
         assert!(python_cell("mcp__bboxy__unrelated", "{}", &[], None).is_none());
     }

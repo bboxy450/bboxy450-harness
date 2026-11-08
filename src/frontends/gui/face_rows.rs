@@ -1039,19 +1039,8 @@ impl Preparer {
             })
             .or_else(|| (d.kind == "edit" && d.out.starts_with("---")).then(|| d.out.clone()));
         let lines = d.out.lines().filter(|l| !l.is_empty()).count();
-        let meta = if let Some(cell) = &python {
-            let mut label = cell.status.clone().unwrap_or_else(|| {
-                if cell.error.is_some() {
-                    "failed"
-                } else {
-                    "pending"
-                }
-                .into()
-            });
-            if let Some(exit) = cell.exit_code {
-                label.push_str(&format!(" · exit {exit}"));
-            }
-            Some((label, cell.exit_code.map(|exit| exit == 0)))
+        let meta = if python.is_some() {
+            None
         } else {
             match d.kind {
                 // `exit N` only when N ≠ 0: success says nothing, the check mark already did
@@ -1080,10 +1069,22 @@ impl Preparer {
         let out_lines = out_text
             .as_deref()
             .map_or(0, |o| o.lines().filter(|l| !l.is_empty()).count());
+        let running = matches!(status, f::Status::Running);
+        // Python opens when finished and small: its structured rows, not raw JSON lines.
+        let python_small = python.as_ref().is_some_and(|cell| {
+            let rows: usize = python_emits(cell)
+                .iter()
+                .map(|v| f::emit_row_count(v, ink))
+                .sum();
+            let out = cell.output.values().flat_map(|t| t.lines()).count();
+            !running && rows + out <= 8
+        });
         // Running calls keep the compact header; finished edits and small results open.
         let auto = failed
+            || python_small
             || matches!(status, f::Status::Asking)
             || (row.completed.is_some()
+                && python.is_none()
                 && ((d.kind == "execute" && out_lines <= 6)
                     || d.kind == "edit"
                     || (d.verb == "Search" && lines <= 6)));
@@ -1092,6 +1093,41 @@ impl Preparer {
             Some(a) => named(format!("item/{}", a.id), b),
             None => b,
         });
+        // Python's state is a chip beside any approval badge.
+        let badge = match &python {
+            Some(cell) => {
+                let label = cell.status.clone().unwrap_or_else(|| {
+                    if cell.error.is_some() {
+                        "failed"
+                    } else {
+                        "pending"
+                    }
+                    .into()
+                });
+                let chip = named(
+                    format!("python/{id}/status"),
+                    f::python_status(&label, cell.exit_code, ink),
+                );
+                Some(match badge {
+                    Some(b) => f::hstack(vec![f::fixed(chip), f::fixed(b)], 6.),
+                    None => chip,
+                })
+            }
+            None => badge,
+        };
+        // A Python run lasts from its call to its last folded poll.
+        let finished = match &python {
+            Some(_) if running => None,
+            Some(_) => folds
+                .kids
+                .get(&id)
+                .into_iter()
+                .flatten()
+                .filter_map(|k| model.items.get(k).and_then(|r| r.completed_ms))
+                .chain(row.completed_ms)
+                .max(),
+            None => row.completed_ms,
+        };
         let mut kids: Vec<c::Item> = vec![
             f::head(
                 f::Head {
@@ -1105,8 +1141,7 @@ impl Preparer {
                     meta,
                     badge,
                     // the duration only from 1s (harness-spec.md "Tight transcript")
-                    dur: row
-                        .completed_ms
+                    dur: finished
                         .map(|c| c.saturating_sub(row.started_ms))
                         .filter(|ms| *ms >= 1000)
                         .map(f::duration),
@@ -1116,26 +1151,7 @@ impl Preparer {
             )
             .into(),
         ];
-        if let Some(cell) = &python {
-            if let Some(execution) = &cell.execution_id {
-                kids.push(
-                    named(
-                        format!("python/{id}/execution"),
-                        f::line(format!("Execution {execution}"), 10.5, 400, ink.dim, true),
-                    )
-                    .into(),
-                );
-            }
-            let preview = cell.preview();
-            if !preview.is_empty() {
-                kids.push(
-                    named(
-                        format!("python/{id}/emitted"),
-                        f::line(preview, 11.5, 400, ink.fg, true),
-                    )
-                    .into(),
-                );
-            }
+        if python.is_some() {
             // Continuations share the parent card but preserve their addressable
             // item nodes for visibility and replay witnesses.
             for child in folds.kids.get(&id).into_iter().flatten() {
@@ -1154,7 +1170,7 @@ impl Preparer {
                     && *t != name
                     && *t != d.verb
             }),
-            server.as_deref(),
+            server.as_deref().filter(|_| python.is_none()),
         ]
         .into_iter()
         .flatten()
@@ -1191,6 +1207,101 @@ impl Preparer {
                     },
                 };
                 inside.push(error_box(&reason, ink).into());
+            } else if let Some(cell) = &python {
+                let width = (content_width - 48.).max(1.);
+                if let Some(error) = cell.error_parts() {
+                    inside.push(
+                        named(format!("python/{id}/error"), python_error(&error, ink)).into(),
+                    );
+                }
+                let emits = python_emits(cell);
+                let mut cut = false;
+                for (n, value) in emits.iter().enumerate() {
+                    let (block, shortened) = f::emit_block(value, face.arguments_closed, ink);
+                    cut |= shortened;
+                    inside.push(
+                        named(
+                            format!("python/{id}/emit/{n}"),
+                            code_panel(
+                                block,
+                                &format!("codeout/{id}/emit/{n}"),
+                                width,
+                                320.,
+                                &self.metrics,
+                                ctx,
+                            )?,
+                        )
+                        .into(),
+                    );
+                }
+                if !cell.output.is_empty() {
+                    use crate::frontends::face_core::{Verdict, verdict};
+                    let lines = cell
+                        .output
+                        .iter()
+                        .flat_map(|(index, text)| {
+                            let stderr = cell.stderr.contains(index);
+                            text.trim_end_matches('\n')
+                                .lines()
+                                .map(move |l| (l.to_owned(), stderr))
+                                .collect::<Vec<_>>()
+                        })
+                        .map(|(text, stderr)| {
+                            let color = if stderr {
+                                f::mix(ink.bad, ink.fg, 0.7)
+                            } else {
+                                match verdict(&text) {
+                                    Verdict::Ok => ink.ok,
+                                    Verdict::Bad => ink.bad,
+                                    Verdict::Warn => ink.ask,
+                                    Verdict::Dim => ink.dim,
+                                    Verdict::Plain => ink.fg,
+                                }
+                            };
+                            f::term_line(vec![(text, color, 400, false)], 12., false).into()
+                        })
+                        .collect();
+                    inside.push(
+                        named(
+                            format!("term/{id}"),
+                            code_panel(
+                                f::vstack(lines, 0.),
+                                &format!("codeout/{id}/output"),
+                                width,
+                                320.,
+                                &self.metrics,
+                                ctx,
+                            )?,
+                        )
+                        .into(),
+                    );
+                } else if cell.error.is_none() && emits.is_empty() && !running {
+                    inside.push(f::line("no output", 12., 400, f::hex("#7d8597"), true).into());
+                }
+                if cut && original_command.is_none() {
+                    inside.push(
+                        named(
+                            format!("more/{id}"),
+                            f::disclosure(face.arguments_closed, ink),
+                        )
+                        .into(),
+                    );
+                }
+                if let Some(execution) = &cell.execution_id {
+                    inside.push(
+                        named(
+                            format!("python/{id}/execution"),
+                            f::line(
+                                format!("execution {execution}"),
+                                10.5,
+                                400,
+                                f::alpha(ink.dim, 0.8),
+                                true,
+                            ),
+                        )
+                        .into(),
+                    );
+                }
             } else if d.kind == "execute" {
                 // a finished run without output says so in the terminal's own voice
                 let out = out_text
@@ -1355,6 +1466,11 @@ impl Preparer {
                 inside.push(error_box(reason, ink).into());
             }
         } else {
+            if let Some(cell) = &python
+                && let Some(row) = python_preview(cell, id, ink)
+            {
+                inside.push(row.into());
+            }
             // folded children stay addressable while the card is closed
             for k in [&term, &change].into_iter().flatten() {
                 inside.push(named(format!("item/{}", k.id), c::Element::Spacer).into());
@@ -1432,6 +1548,97 @@ fn term_status(row: &ViewItem, exit: Option<i32>) -> f::Status {
         (Some(ItemStatus::Completed), Some(0) | None) => f::Status::Done,
         _ => f::Status::Failed,
     }
+}
+/// The values a Python run emitted, one per `emit()` call.
+fn python_emits(cell: &crate::frontends::face_core::PythonCell) -> Vec<serde_json::Value> {
+    match &cell.emitted {
+        Some(serde_json::Value::Array(values)) => values.clone(),
+        Some(serde_json::Value::Null) | None => vec![],
+        Some(value) => vec![value.clone()],
+    }
+}
+/// A closed Python card's one line: the failure, else the first emitted value, else
+/// the latest output, with the shortened execution id dim at the right.
+/// Project-owned design; credit reuse with
+/// https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md.
+fn python_preview(
+    cell: &crate::frontends::face_core::PythonCell,
+    id: ItemId,
+    ink: &f::Ink,
+) -> Option<c::Element> {
+    let emits = python_emits(cell);
+    let parts = if let Some((code, message)) = cell.error_parts() {
+        let text = [code.unwrap_or_default(), message]
+            .into_iter()
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+            .join(" \u{b7} ");
+        vec![(text, f::mix(ink.bad, ink.fg, 0.8), 400, false)]
+    } else if let Some(first) = emits.first() {
+        f::emit_preview(first, ink)
+    } else {
+        cell.output
+            .values()
+            .flat_map(|t| t.lines())
+            .rfind(|l| !l.trim().is_empty())
+            .map(|l| vec![(l.to_owned(), ink.dim, 400, false)])
+            .unwrap_or_default()
+    };
+    let mut kids = vec![];
+    let any = !parts.is_empty();
+    if any {
+        let mut preview = f::term_line(parts, 12., false);
+        if let c::Element::Text(t) = &mut preview {
+            t.ellipsis = true;
+        }
+        kids.push(f::fill(named(format!("python/{id}/preview"), preview)));
+    } else {
+        kids.push(f::fill(c::Element::Spacer));
+    }
+    if emits.len() > 1 && cell.error.is_none() {
+        kids.push(f::fixed(f::line(
+            format!("+{} more", emits.len() - 1),
+            11.,
+            400,
+            ink.dim,
+            false,
+        )));
+    }
+    if let Some(execution) = &cell.execution_id {
+        kids.push(f::fixed(named(
+            format!("python/{id}/execution"),
+            f::line(
+                crate::frontends::face_core::PythonCell::short_id(execution),
+                10.5,
+                400,
+                f::alpha(ink.dim, 0.7),
+                true,
+            ),
+        )));
+    }
+    (any || kids.len() > 1).then(|| f::hstack(kids, 10.))
+}
+/// A failed run's own words above its data: the code bold, the message wrapped.
+fn python_error(error: &(Option<String>, String), ink: &f::Ink) -> c::Element {
+    let (code, message) = error;
+    let mut parts = vec![];
+    if let Some(code) = code {
+        parts.push((code.clone(), ink.bad, 600, false));
+        if !message.is_empty() {
+            parts.push(("  ".into(), ink.bad, 400, false));
+        }
+    }
+    parts.push((message.clone(), f::mix(ink.bad, ink.fg, 0.8), 400, false));
+    f::frame(
+        f::Frame {
+            fill: f::alpha(ink.bad, 0.10),
+            border: Some(f::alpha(ink.bad, 0.25)),
+            radius: [8.; 4],
+            padding: [7., 10., 7., 10.],
+            ..Default::default()
+        },
+        vec![f::runs(parts, 12., true, true).into()],
+    )
 }
 fn error_box(text: &str, ink: &f::Ink) -> c::Element {
     f::frame(

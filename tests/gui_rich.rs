@@ -2418,35 +2418,42 @@ async fn python_execution_cards_show_source_status_emitted_and_fold_get_pages() 
         let mut view = HarnessView::default();
         let frame = view.render(&state, [900., 2200.]).unwrap();
         let layout = frame.layout.as_ref().unwrap();
-        let collapsed = layout_text(layout);
-        for text in ["Run Python", "python-source-head", "completed", "exit 0", "first-emitted", "python-parent-17", "python-orphan-23"] {
-            assert!(collapsed.contains(text), "missing {text}: {collapsed}");
+        // A finished small run opens: structured emits, output once, the full id in its footer.
+        let expanded = layout_text(layout);
+        for text in ["Run Python", "python-source-head", "python-source-tail", "completed", "first-emitted", "last-emitted", "output-head", "output-middle", "output-tail", "execution python-parent-17", "python-orphan-23"] {
+            assert!(expanded.contains(text), "missing expanded {text}: {expanded}");
         }
-        assert!(!collapsed.contains("last-emitted"), "compact emitted preview must be bounded");
+        assert!(!expanded.contains("Execution python"), "the execution id is no longer a body line");
+        assert!(find(layout, &format!("python/{}/emit/2", ids[0])).is_some(), "each emit() is one block");
+        assert_eq!(expanded.matches("output-head").count(), 1);
+        assert_eq!(expanded.matches("output-middle").count(), 1);
+        assert_eq!(expanded.matches("output-tail").count(), 1);
+        assert!(!expanded.contains("stale-running-output"));
+        assert!(!expanded.contains("stale-running-emit"));
         assert!(find(layout, &format!("tool/{}", ids[0])).is_some());
         assert!(find(layout, &format!("tool/{}", ids[1])).is_none(), "get must fold into its parent");
         assert!(find(layout, &format!("tool/{}", ids[2])).is_none(), "later get must update its parent");
         assert!(find(layout, &format!("tool/{}", ids[3])).is_some(), "orphan get retains its parent id");
         assert!(find(layout, &format!("tool/{}", ids[4])).is_none(), "stale status-bearing poll still belongs to parent");
         assert!(find(layout, &format!("tool/{}", ids[5])).is_some(), "refused reads stay visible");
-        assert!(collapsed.contains("execution_context_changed"), "refusal was swallowed: {collapsed}");
+        assert!(expanded.contains("execution_context_changed"), "refusal was swallowed: {expanded}");
         assert!(find(layout, &format!("tool/{}", ids[6])).is_some(), "nested recovery page keeps its own card");
         let parent_head = layout_text(find(layout, &format!("toolhead/{}", ids[0])).unwrap());
-        assert!(parent_head.contains("completed") && parent_head.contains("exit 0"), "stale running poll regressed terminal state: {parent_head}");
+        assert!(parent_head.contains("completed"), "stale running poll regressed terminal state: {parent_head}");
+        assert!(!parent_head.contains("exit"), "exit 0 says nothing the chip did not: {parent_head}");
+        // Closed, the card keeps one bounded line and the shortened id.
         let faces: Faces = [ids[0], ids[6]].into_iter().map(|id| (id, Face { output_closed: true, ..Default::default() })).collect();
         state.prepared = Some(Arc::new(preparer.prepare_with_faces(source.clone(), 900., &faces).unwrap()));
         state.faces = Arc::new(faces);
         let frame = view.render(&state, [900., 2200.]).unwrap();
-        let expanded = layout_text(frame.layout.as_ref().unwrap());
-        for text in ["python-source-tail", "last-emitted", "output-head", "output-middle", "output-tail"] {
-            assert!(expanded.contains(text), "missing expanded {text}: {expanded}");
+        let layout = frame.layout.as_ref().unwrap();
+        let collapsed = layout_text(find(layout, &format!("tool/{}", ids[0])).unwrap());
+        for text in ["Run Python", "python-source-head", "completed", "first-emitted", "+2 more", "python-p\u{2026}t-17"] {
+            assert!(collapsed.contains(text), "missing {text}: {collapsed}");
         }
-        assert_eq!(expanded.matches("output-head").count(), 1);
-        assert_eq!(expanded.matches("output-middle").count(), 1);
-        assert_eq!(expanded.matches("output-tail").count(), 1);
-        assert!(!expanded.contains("stale-running-output"));
-        assert!(!expanded.contains("stale-running-emit"));
-        assert!(expanded.contains("Ynl0ZXM="), "child result bytes disappeared: {expanded}");
+        assert!(!collapsed.contains("last-emitted"), "compact emitted preview must be bounded");
+        assert!(!collapsed.contains("python-parent-17"), "closed card shows the short id only");
+        assert!(layout_text(layout).contains("Ynl0ZXM="), "child result bytes disappeared");
         // Same get item/sequence, changed snapshot: its output still invalidates
         // the parent's prepared-row cache.
         let mut changed = (*source).clone();
@@ -2456,6 +2463,7 @@ async fn python_execution_cards_show_source_status_emitted_and_fold_get_pages() 
             *output = vec![OutputBlock::Json { value }];
         }
         state.transcript = Arc::new(changed);
+        state.faces = Arc::new(Faces::default());
         state.prepared = Some(Arc::new(preparer.prepare_with_faces(state.transcript.clone(), 900., &state.faces).unwrap()));
         let frame = view.render(&state, [900., 2200.]).unwrap();
         let refreshed = layout_text(frame.layout.as_ref().unwrap());
@@ -2463,4 +2471,211 @@ async fn python_execution_cards_show_source_status_emitted_and_fold_get_pages() 
             assert!(refreshed.contains(text), "stale Python parent card: {refreshed}");
         }
     }).await;
+}
+
+/// Run Python card states, rendered through the production preparer, view and
+/// native renderer next to an ordinary shell card. Project-owned witness; credit
+/// reuse with https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md.
+fn python_state_call(source: &str, value: serde_json::Value) -> Item {
+    Item::ToolCall {
+        call_id: ItemId::new().to_string(),
+        name: "mcp__bboxy__python_execute".into(),
+        tool_kind: ToolKind::Other,
+        title: None,
+        server: Some("bboxy".into()),
+        input_raw: serde_json::json!({ "source": source }).to_string(),
+        output: vec![OutputBlock::Json {
+            value: value.clone(),
+        }],
+        raw_output: Some(serde_json::json!({ "structuredContent": value })),
+        locations: vec![],
+        spill: None,
+    }
+}
+
+fn python_states() -> Vec<(&'static str, Item)> {
+    use serde_json::json;
+    let source = "import sys; sys.path.insert(0,'/tmp/oracle-bridge')\nimport bb\nemit(bb.task_write(...))";
+    vec![
+        (
+            "completed",
+            python_state_call(
+                source,
+                json!({"execution_id":"01M6XXWN1CY9A0746DJHQMGDPH","status":"completed","exit_code":0,"output":[],
+                    "emitted":[{"path":"tasks/2026-11-08-reenable-qos-deferred-dream-tests.md","err":null},
+                        {"written":3,"dry_run":false,"ratio":0.75,"seats":["oracle","executor-2"],
+                         "meta":{"owner":{"name":"boxy","roles":{"primary":"oracle"}}}}]}),
+            ),
+        ),
+        (
+            "failed",
+            python_state_call(
+                source,
+                json!({"execution_id":"01M6XY3QPA4ZK2B9N0C1D7EFGH","status":"failed","exit_code":1,
+                    "output":[{"stream":"stderr","text":"Traceback (most recent call last):\n  File \"<cell>\", line 3, in <module>\nKeyError: 'path'\n"}],
+                    "emitted":[{"path":"tasks/missing.md","err":"permission denied: tasks/missing.md"}],
+                    "error":{"code":"python_failed","message":"Python exited unsuccessfully; inspect retained stderr and original nested receipts before retrying any effect","exit_code":1}}),
+            ),
+        ),
+        (
+            "running",
+            python_state_call(
+                source,
+                json!({"execution_id":"01M6XZ8RKW2M5T7V9Y0A1B3C4D","status":"running","output":[{"stream":"stdout","text":"scanning 12 tasks\n"}],"emitted":[]}),
+            ),
+        ),
+        (
+            "output",
+            python_state_call(
+                "for t in tasks: print(t)\nprint('warning: 2 stale', file=sys.stderr)",
+                json!({"execution_id":"01M6Y0BZ5E6F7G8H9J0K1M2N3P","status":"completed","exit_code":0,
+                    "output":[{"stream":"stdout","text":"tasks/a.md ok\ntasks/b.md ok\n"},{"stream":"stderr","text":"warning: 2 stale tasks skipped\n"}],
+                    "emitted":[]}),
+            ),
+        ),
+    ]
+}
+
+#[tokio::test]
+async fn python_cell_states_render_structured_cards() {
+    use bboxy450_harness::frontends::gui::{
+        assets,
+        bridge::{FrameState, read_replay},
+        rich::{Face, Faces},
+        view::{Preparer, find, layout_text},
+    };
+    let device = bbt_render::device::DeviceContext::new().await.unwrap();
+    let mut sources = vec![];
+    for (state, call) in python_states() {
+        let temp = tempfile::tempdir().unwrap();
+        let neighbour: Item = serde_json::from_value(serde_json::json!({
+            "kind":"tool_call","call_id":"neighbour","name":"bash","title":null,
+            "tool_kind":"execute","input_raw":"{\"command\":\"git status --short\"}","locations":[],"spill":null,
+            "output":[{"type":"text","text":" M src/frontends/gui/face.rs\n?? target/"}]
+        }))
+        .unwrap();
+        let (path, ids) = markdown_replay(
+            temp.path(),
+            vec![
+                (neighbour, Some(ItemStatus::Completed)),
+                (call, Some(ItemStatus::Completed)),
+            ],
+        );
+        let events = std::fs::read_to_string(&path)
+            .unwrap()
+            .lines()
+            .enumerate()
+            .map(|(n, line)| {
+                let mut event: Envelope = serde_json::from_str(line).unwrap();
+                event.ts_ms = n as u64 * 1500;
+                serde_json::to_string(&event).unwrap()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        std::fs::write(&path, events + "\n").unwrap();
+        sources.push((state, Arc::new(read_replay(path).await.unwrap()), ids, temp));
+    }
+    runtime::blocking(move || {
+        let mut renderer =
+            bbt_render::chrome::ChromeRenderer::with_context(device, assets::icons()).unwrap();
+        let (width, height) = (760u32, 1400u32);
+        let captures = sources.into_iter().flat_map(|(state, source, ids, temp)| {
+            let temp = Arc::new(temp);
+            [false, true].map(|toggled| (state, toggled, source.clone(), ids.clone(), temp.clone()))
+        });
+        for (state, toggled, source, ids, _temp) in captures {
+            let faces: Faces = if toggled {
+                [(ids[1], Face { output_closed: true, ..Default::default() })].into_iter().collect()
+            } else {
+                Faces::default()
+            };
+            let mut preparer = Preparer::default();
+            let state_frame = FrameState {
+                transcript: source.clone(),
+                ready: true,
+                replay: true,
+                faces: Arc::new(faces.clone()),
+                prepared: Some(Arc::new(preparer.prepare_with_faces(source.clone(), width as f32, &faces).unwrap())),
+                ..Default::default()
+            };
+            let mut view = HarnessView::default();
+            let frame = view.render(&state_frame, [width as f32, height as f32]).unwrap();
+            let layout = frame.layout.as_ref().unwrap();
+            let card = find(layout, &format!("tool/{}", ids[1])).unwrap();
+            let id = ids[1];
+            let text = |key: String| find(layout, &key).map(layout_text).unwrap_or_default();
+            let head = text(format!("toolhead/{id}"));
+            let chip = text(format!("python/{id}/status"));
+            let body = layout_text(card);
+            assert!(!body.contains("Execution "), "{state}: the id is not a body line: {body}");
+            assert!(!body.contains("emit ["), "{state}: no raw one-line emit dump: {body}");
+            match (state, toggled) {
+                ("completed", false) => {
+                    assert!(chip.starts_with("completed") && !head.contains("exit"), "{head}");
+                    assert!(head.contains("1.5s"), "duration in the header: {head}");
+                    let preview = text(format!("python/{id}/preview"));
+                    assert!(preview.contains("path") && preview.contains("err null"), "{preview}");
+                    assert!(body.contains("01M6XXWN\u{2026}GDPH") && !body.contains("01M6XXWN1CY9A0746DJHQMGDPH"), "{body}");
+                    assert!(find(layout, &format!("python/{id}/emit/0")).is_none(), "closed card draws no blocks");
+                }
+                ("completed", true) => {
+                    let first = text(format!("python/{id}/emit/0"));
+                    assert!(first.contains("path") && first.contains("err") && first.contains("null"), "{first}");
+                    let second = text(format!("python/{id}/emit/1"));
+                    for row in ["written", "dry_run", "false", "0.75", "owner", "name", "primary"] {
+                        assert!(second.contains(row), "missing {row}: {second}");
+                    }
+                    assert!(find(layout, &format!("python/{id}/error")).is_none());
+                    assert_eq!(text(format!("python/{id}/execution")), "execution 01M6XXWN1CY9A0746DJHQMGDPH");
+                }
+                ("failed", false) => {
+                    assert!(chip.contains("failed") && chip.contains("exit 1"), "{chip}");
+                    let error = text(format!("python/{id}/error"));
+                    assert!(error.contains("python_failed") && error.contains("Python exited unsuccessfully"), "{error}");
+                    assert!(text(format!("python/{id}/emit/0")).contains("permission denied"));
+                    assert!(text(format!("term/{id}")).contains("KeyError: 'path'"));
+                }
+                ("running", false) => {
+                    assert!(chip.contains("running") && !chip.contains("exit"), "{chip}");
+                    assert!(!head.contains("1.5s"), "a running call has no duration yet: {head}");
+                    assert!(text(format!("python/{id}/preview")).contains("scanning 12 tasks"));
+                    assert!(find(layout, &format!("term/{id}")).is_none(), "running stays compact");
+                }
+                ("output", false) => {
+                    let out = text(format!("term/{id}"));
+                    assert!(out.contains("tasks/a.md ok") && out.contains("warning: 2 stale tasks skipped"), "{out}");
+                }
+                _ => {}
+            }
+            let pixels = renderer
+                .render_to_rgba(&frame.list, width, height, 1.)
+                .unwrap();
+            if let Some(root) = std::env::var_os("PYTHON_CELL_CAPTURE_DIR") {
+                let root = std::path::PathBuf::from(root);
+                std::fs::create_dir_all(&root).unwrap();
+                let top = find(layout, &format!("tool/{}", ids[0]))
+                    .map_or(0., |n| (n.rect.y - 16.).max(0.)) as u32;
+                let bottom = ((card.rect.y + card.rect.h + 16.).ceil() as u32).min(height);
+                let rows = bottom - top;
+                let crop = &pixels[(top * width * 4) as usize..(bottom * width * 4) as usize];
+                let mut encoder = png::Encoder::new(
+                    std::fs::File::create(root.join(format!(
+                        "python-{state}{}.png",
+                        if toggled { "-toggled" } else { "" }
+                    )))
+                    .unwrap(),
+                    width,
+                    rows,
+                );
+                encoder.set_color(png::ColorType::Rgba);
+                encoder.set_depth(png::BitDepth::Eight);
+                encoder
+                    .write_header()
+                    .unwrap()
+                    .write_image_data(crop)
+                    .unwrap();
+            }
+        }
+    })
+    .await;
 }

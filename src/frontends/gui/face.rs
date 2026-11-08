@@ -536,20 +536,23 @@ pub fn tile(icon_el: c::Element, side: f32, radius: f32, bg: Rgba) -> c::Element
 }
 
 // ---------- syntax: the web highlighter's token classes ----------
-pub fn syntax(line: &str, ink: &Ink) -> Vec<(String, Rgba, u16, bool)> {
+fn tok_color(tok: Tok, ink: &Ink) -> (Rgba, bool) {
     let tint = |h: &str, t: f32| mix(hex(h), ink.fg, t);
+    match tok {
+        Tok::Comment => (ink.dim, true),
+        Tok::Attr => (tint("#D4A017", 0.75), false),
+        Tok::Str => (tint("#2EC46A", 0.7), false),
+        Tok::Num => (tint("#FF8A2B", 0.75), false),
+        Tok::Macro => (tint("#1FA8E0", 0.75), false),
+        Tok::Keyword => (tint("#FF4FA3", 0.72), false),
+        Tok::Type => (tint("#9B5CFF", 0.72), false),
+        Tok::Plain => (ink.fg, false),
+    }
+}
+pub fn syntax(line: &str, ink: &Ink) -> Vec<(String, Rgba, u16, bool)> {
     let mut out: Vec<(String, Rgba, u16, bool)> = vec![];
     for (s, tok) in tokens(line) {
-        let (color, italic) = match tok {
-            Tok::Comment => (ink.dim, true),
-            Tok::Attr => (tint("#D4A017", 0.75), false),
-            Tok::Str => (tint("#2EC46A", 0.7), false),
-            Tok::Num => (tint("#FF8A2B", 0.75), false),
-            Tok::Macro => (tint("#1FA8E0", 0.75), false),
-            Tok::Keyword => (tint("#FF4FA3", 0.72), false),
-            Tok::Type => (tint("#9B5CFF", 0.72), false),
-            Tok::Plain => (ink.fg, false),
-        };
+        let (color, italic) = tok_color(tok, ink);
         match out.last_mut() {
             Some(last) if last.1 == color && last.3 == italic => last.0.push_str(&s),
             _ => out.push((s, color, 400, italic)),
@@ -791,6 +794,323 @@ pub fn source_view(numbered: &str, limit: usize, ink: &Ink) -> (c::Element, usiz
         .collect();
     (code_frame(items, ink), total)
 }
+// ---------- Run Python: status chip and emitted values ----------
+// Project-owned bboxy450-harness design (structured emit() values as aligned key/value
+// rows in the face's token colours). Credit reuse with
+// https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md.
+type Part = (String, Rgba, u16, bool);
+/// Nesting shown as rows; deeper containers collapse to one inline summary.
+const EMIT_DEPTH: usize = 3;
+/// Rows and string characters shown before the card's expand control.
+const EMIT_ROWS: usize = 40;
+const EMIT_CHARS: usize = 96;
+
+/// A Python execution's state for its header: a chip tinted like the approval badge
+/// (success, error, activity, muted), then `exit N` only when it failed or N ≠ 0.
+pub fn python_status(status: &str, exit: Option<i64>, ink: &Ink) -> c::Element {
+    let (c, failed) = match status {
+        "completed" => (ink.ok, false),
+        "starting" | "running" | "cancelling" => (ink.seat, false),
+        "cancelled" | "interrupted" | "pending" => (ink.dim, false),
+        _ => (ink.bad, true),
+    };
+    let mut kids = vec![fixed(frame(
+        Frame {
+            fill: alpha(c, 0.13),
+            radius: [999.; 4],
+            padding: [1., 7., 1., 7.],
+            row: true,
+            ..Default::default()
+        },
+        vec![fixed(line(status, 10.5, 600, mix(c, ink.fg, 0.85), false))],
+    ))];
+    if let Some(code) = exit.filter(|code| *code != 0 || failed) {
+        kids.push(fixed(line(
+            format!("exit {code}"),
+            11.5,
+            500,
+            ink.bad,
+            true,
+        )));
+    }
+    hstack(kids, 6.)
+}
+fn key_ink(ink: &Ink) -> Rgba {
+    mix(ink.fg, ink.dim, 0.3)
+}
+/// `err`/`error` holding anything but null is the failure a person scans for.
+fn failure_key(key: &str, value: &serde_json::Value) -> bool {
+    matches!(
+        key.to_ascii_lowercase().as_str(),
+        "err" | "error" | "errors"
+    ) && !value.is_null()
+        && value != &serde_json::Value::Bool(false)
+}
+fn clip(text: &str, limit: usize, cut: &mut bool) -> String {
+    if text.chars().count() <= limit {
+        return text.to_owned();
+    }
+    *cut = true;
+    let mut out: String = text.chars().take(limit).collect();
+    out.push('\u{2026}');
+    out
+}
+/// One JSON value inline, in the code highlighter's literal colours; `null` dim.
+fn inline(value: &serde_json::Value, ink: &Ink, limit: usize, cut: &mut bool, out: &mut Vec<Part>) {
+    use serde_json::Value;
+    let punct = alpha(ink.dim, 0.9);
+    match value {
+        Value::Null => out.push(("null".into(), alpha(ink.dim, 0.75), 400, true)),
+        Value::Bool(_) | Value::Number(_) => {
+            out.push((value.to_string(), tok_color(Tok::Num, ink).0, 400, false))
+        }
+        Value::String(s) => out.push((
+            serde_json::to_string(&clip(s, limit, cut)).unwrap_or_default(),
+            tok_color(Tok::Str, ink).0,
+            400,
+            false,
+        )),
+        Value::Array(items) => {
+            out.push(("[".into(), punct, 400, false));
+            for (i, item) in items.iter().enumerate() {
+                if i > 0 {
+                    out.push((", ".into(), punct, 400, false));
+                }
+                inline(item, ink, limit, cut, out);
+            }
+            out.push(("]".into(), punct, 400, false));
+        }
+        Value::Object(map) => {
+            out.push(("{".into(), punct, 400, false));
+            for (i, (k, v)) in map.iter().enumerate() {
+                if i > 0 {
+                    out.push((", ".into(), punct, 400, false));
+                }
+                out.push((format!("{k}: "), key_ink(ink), 400, false));
+                inline(v, ink, limit, cut, out);
+            }
+            out.push(("}".into(), punct, 400, false));
+        }
+    }
+}
+fn inline_len(value: &serde_json::Value) -> usize {
+    serde_json::to_string(value).map_or(usize::MAX, |s| s.chars().count())
+}
+fn scalar(value: &serde_json::Value) -> bool {
+    !value.is_array() && !value.is_object()
+}
+fn emit_rows(
+    value: &serde_json::Value,
+    depth: usize,
+    full: bool,
+    ink: &Ink,
+    cut: &mut bool,
+    rows: &mut Vec<(Vec<Part>, bool)>,
+) {
+    use serde_json::Value;
+    let entries: Vec<(String, &Value)> = match value {
+        Value::Object(map) => map.iter().map(|(k, v)| (k.clone(), v)).collect(),
+        Value::Array(items) => items
+            .iter()
+            .enumerate()
+            .map(|(i, v)| (format!("[{i}]"), v))
+            .collect(),
+        _ => {
+            let mut parts = vec![];
+            inline(
+                value,
+                ink,
+                if full { usize::MAX } else { EMIT_CHARS },
+                cut,
+                &mut parts,
+            );
+            rows.push((parts, false));
+            return;
+        }
+    };
+    if entries.is_empty() {
+        rows.push((
+            vec![(
+                if value.is_array() { "[]" } else { "{}" }.into(),
+                ink.dim,
+                400,
+                false,
+            )],
+            false,
+        ));
+        return;
+    }
+    let pad = entries
+        .iter()
+        .map(|(k, _)| k.chars().count())
+        .max()
+        .unwrap_or(0)
+        .min(24);
+    let indent = "  ".repeat(depth);
+    for (key, v) in entries {
+        let bad = failure_key(&key, v);
+        let key_parts = vec![(
+            format!("{indent}{key:<pad$}  "),
+            if bad { ink.bad } else { key_ink(ink) },
+            if bad { 600 } else { 400 },
+            false,
+        )];
+        let short = inline_len(v) <= 56;
+        let flat = v.as_array().is_some_and(|a| a.iter().all(scalar)) && short;
+        if scalar(v)
+            || flat
+            || v.as_array().is_some_and(Vec::is_empty)
+            || v.as_object().is_some_and(|o| o.is_empty())
+            || depth + 1 >= EMIT_DEPTH
+        {
+            let mut parts = key_parts;
+            if !scalar(v) && depth + 1 >= EMIT_DEPTH && !short && !full {
+                // Collapsed beyond the depth cap; the expand control shows it inline.
+                *cut = true;
+                let n = v
+                    .as_array()
+                    .map_or_else(|| v.as_object().map_or(0, |o| o.len()), Vec::len);
+                let label = if v.is_array() {
+                    format!("[\u{2026}] {n} items")
+                } else {
+                    format!("{{\u{2026}}} {n} keys")
+                };
+                parts.push((label, alpha(ink.dim, 0.85), 400, true));
+            } else {
+                let start = parts.len();
+                inline(
+                    v,
+                    ink,
+                    if full { usize::MAX } else { EMIT_CHARS },
+                    cut,
+                    &mut parts,
+                );
+                if bad {
+                    for part in &mut parts[start..] {
+                        part.1 = mix(ink.bad, ink.fg, 0.8);
+                    }
+                }
+            }
+            rows.push((parts, bad));
+        } else {
+            rows.push((key_parts, bad));
+            emit_rows(v, depth + 1, full, ink, cut, rows);
+        }
+    }
+}
+/// One `emit()` value as aligned `key  value` rows (nested values indented, capped at
+/// `EMIT_DEPTH`). Returns the block and whether anything was shortened; `full` shows
+/// every row and character, so no data is reachable only through raw JSON.
+pub fn emit_block(value: &serde_json::Value, full: bool, ink: &Ink) -> (c::Element, bool) {
+    let mut cut = false;
+    let mut rows = vec![];
+    emit_rows(value, 0, full, ink, &mut cut, &mut rows);
+    let more = if full {
+        0
+    } else {
+        rows.len().saturating_sub(EMIT_ROWS)
+    };
+    if more > 0 {
+        cut = true;
+        rows.truncate(EMIT_ROWS);
+    }
+    let mut items: Vec<c::Item> = rows
+        .into_iter()
+        .map(|(parts, bad)| {
+            let row = term_line(parts, 12., false);
+            if bad {
+                frame(
+                    Frame {
+                        fill: alpha(ink.bad, 0.12),
+                        radius: [4.; 4],
+                        padding: [0., 4., 0., 4.],
+                        ..Default::default()
+                    },
+                    vec![row.into()],
+                )
+                .into()
+            } else {
+                frame(
+                    Frame {
+                        padding: [0., 4., 0., 4.],
+                        ..Default::default()
+                    },
+                    vec![row.into()],
+                )
+                .into()
+            }
+        })
+        .collect();
+    if more > 0 {
+        items.push(
+            runs(
+                vec![(
+                    format!("\u{22ef} {more} more rows"),
+                    alpha(ink.dim, 0.8),
+                    400,
+                    true,
+                )],
+                11.5,
+                false,
+                false,
+            )
+            .into(),
+        );
+    }
+    (vstack(items, 0.), cut)
+}
+/// Rows `emit_block` draws for a value before its expand control.
+pub fn emit_row_count(value: &serde_json::Value, ink: &Ink) -> usize {
+    let (mut cut, mut rows) = (false, vec![]);
+    emit_rows(value, 0, false, ink, &mut cut, &mut rows);
+    rows.len().min(EMIT_ROWS + 1)
+}
+/// The first emitted value on one line for a closed card: `key value  key value`.
+pub fn emit_preview(value: &serde_json::Value, ink: &Ink) -> Vec<Part> {
+    let mut cut = false;
+    let mut out = vec![];
+    match value.as_object() {
+        Some(map) => {
+            for (i, (k, v)) in map.iter().enumerate() {
+                if i > 0 {
+                    out.push(("   ".into(), ink.dim, 400, false));
+                }
+                let bad = failure_key(k, v);
+                out.push((
+                    format!("{k} "),
+                    if bad { ink.bad } else { key_ink(ink) },
+                    if bad { 600 } else { 400 },
+                    false,
+                ));
+                let start = out.len();
+                inline(v, ink, 48, &mut cut, &mut out);
+                if bad {
+                    for part in &mut out[start..] {
+                        part.1 = mix(ink.bad, ink.fg, 0.8);
+                    }
+                }
+            }
+        }
+        None => inline(value, ink, 64, &mut cut, &mut out),
+    }
+    // Bound the line itself: a closed card never carries a payload's tail.
+    let mut budget = 160usize;
+    out.retain_mut(|part| {
+        if budget == 0 {
+            return false;
+        }
+        let n = part.0.chars().count();
+        if n > budget {
+            part.0 = part.0.chars().take(budget).collect::<String>() + "\u{2026}";
+            budget = 0;
+        } else {
+            budget -= n;
+        }
+        true
+    });
+    out
+}
+
 /// Test/compiler output coloured by verdict, as a person scans it.
 pub fn term_output(out: &str, ink: &Ink) -> Vec<c::Item> {
     let ok = ink.ok;
@@ -2709,4 +3029,125 @@ pub fn bar(w: f32, color: Rgba) -> c::Element {
         rects: Arc::from([(bbt_ui_model::layout::Rect::new(0., 0., w, 1.), paint(color))]),
         repeat: Some((Axis::Column, 1.)),
     })
+}
+
+#[cfg(test)]
+mod python_emit_tests {
+    use super::*;
+    use serde_json::json;
+    fn ink() -> Ink {
+        let c = [0.5, 0.5, 0.5, 1.];
+        Ink {
+            fg: [1.; 4],
+            dim: c,
+            surface: c,
+            bg: [0., 0., 0., 1.],
+            seat: c,
+            ok: [0., 1., 0., 1.],
+            bad: [1., 0., 0., 1.],
+            ask: c,
+        }
+    }
+    fn texts(e: &c::Element, out: &mut Vec<String>) {
+        match e {
+            c::Element::Text(t) => out.push(t.runs.iter().map(|r| r.value.as_str()).collect()),
+            c::Element::Box(b) => b.children.iter().for_each(|i| texts(&i.element, out)),
+            c::Element::Named { content, .. } => texts(content, out),
+            _ => {}
+        }
+    }
+    /// Rows wrapped in a tinted frame: the failure highlight.
+    fn tinted(e: &c::Element) -> Vec<String> {
+        let c::Element::Box(b) = e else { return vec![] };
+        b.children
+            .iter()
+            .filter(|i| matches!(&i.element, c::Element::Box(r) if r.style.overrides.fill.as_ref().is_some_and(|f| *f != paint([0.; 4]))))
+            .map(|i| {
+                let mut t = vec![];
+                texts(&i.element, &mut t);
+                t.concat()
+            })
+            .collect()
+    }
+    #[test]
+    fn python_emit_rows_align_highlight_failures_and_bound_depth_and_length() {
+        let ink = ink();
+        let (block, cut) = emit_block(&json!({"path":"a.md","err":null}), false, &ink);
+        let mut rows = vec![];
+        texts(&block, &mut rows);
+        assert_eq!(rows, ["path  \"a.md\"", "err   null"]);
+        assert!(
+            !cut && tinted(&block).is_empty(),
+            "a null err is not a failure"
+        );
+        let (block, _) = emit_block(&json!({"path":"a.md","error":"denied"}), false, &ink);
+        assert_eq!(tinted(&block), ["error  \"denied\""]);
+        assert!(
+            failure_key("ERR", &json!({"code":1}))
+                && !failure_key("err", &json!(false))
+                && !failure_key("errand", &json!(1))
+        );
+        // Depth cap: the third level collapses unless the card is expanded.
+        let deep = json!({"a":{"b":{"c":{"d":{"e":"x".repeat(80)}}}}});
+        let (block, cut) = emit_block(&deep, false, &ink);
+        let mut rows = vec![];
+        texts(&block, &mut rows);
+        assert!(
+            cut && rows.last().unwrap().contains("{\u{2026}} 1 keys"),
+            "{rows:?}"
+        );
+        let (block, cut) = emit_block(&deep, true, &ink);
+        let mut rows = vec![];
+        texts(&block, &mut rows);
+        assert!(
+            !cut && rows.concat().contains(&"x".repeat(80)),
+            "expanded keeps every byte"
+        );
+        // Long strings and long blocks shorten; expanded shows them whole.
+        let (_, cut) = emit_block(&json!("y".repeat(200)), false, &ink);
+        assert!(cut);
+        let many = json!((0..60).collect::<Vec<_>>());
+        assert_eq!(emit_row_count(&many, &ink), EMIT_ROWS + 1);
+        let (block, cut) = emit_block(&many, true, &ink);
+        let mut rows = vec![];
+        texts(&block, &mut rows);
+        assert!(!cut && rows.len() == 60);
+        // Literal colours: strings and numbers take the highlighter's tokens, null is dim.
+        let mut parts = vec![];
+        inline(
+            &json!([1, "s", null, true]),
+            &ink,
+            96,
+            &mut false,
+            &mut parts,
+        );
+        let color = |text: &str| parts.iter().find(|p| p.0 == text).unwrap().1;
+        assert_eq!(color("1"), tok_color(Tok::Num, &ink).0);
+        assert_eq!(color("true"), tok_color(Tok::Num, &ink).0);
+        assert_eq!(color("\"s\""), tok_color(Tok::Str, &ink).0);
+        assert_eq!(color("null"), alpha(ink.dim, 0.75));
+        // The closed preview is one bounded line.
+        let preview: String = emit_preview(&json!({"k":"z".repeat(500)}), &ink)
+            .into_iter()
+            .map(|p| p.0)
+            .collect();
+        assert!(
+            preview.chars().count() <= 64 && preview.starts_with("k "),
+            "{preview}"
+        );
+    }
+    #[test]
+    fn python_status_chip_shows_exit_only_when_it_says_something() {
+        let ink = ink();
+        let label = |status: &str, exit| {
+            let mut t = vec![];
+            texts(&python_status(status, exit, &ink), &mut t);
+            t.join(" ")
+        };
+        assert_eq!(label("completed", Some(0)), "completed");
+        assert_eq!(label("completed", Some(7)), "completed exit 7");
+        assert_eq!(label("failed", Some(0)), "failed exit 0");
+        assert_eq!(label("running", None), "running");
+        assert_eq!(label("cancelled", None), "cancelled");
+    }
 }
