@@ -2837,7 +2837,7 @@ fn total_budget_observer(control: u8, full_observer: bool, boundary: bool) -> Mo
     );
     m.name = format!(
         "{}Q2HelperTotalBudget{suffix}",
-        if control == 0 { "" } else { "Broken" }
+        if control == 0 { "" } else { "BrokenHarness" }
     );
     let active = eq(H, 1).or(eq(H, 2));
     let cap = all([
