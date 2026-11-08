@@ -2862,7 +2862,7 @@ fn total_budget_observer(control: u8, full_observer: bool, boundary: bool) -> Mo
         act(
             &mut m,
             &format!("SelectImmutableSameOwnerTrajectory{trajectory}"),
-            all([eq(H, 0), eq(TRAJECTORY, 0)]),
+            all([eq(TRAJECTORY, 0), eq(H, 0)]),
             &[(TRAJECTORY, Int(trajectory))],
         );
     }
@@ -2878,7 +2878,7 @@ fn total_budget_observer(control: u8, full_observer: bool, boundary: bool) -> Mo
             &mut m,
             &format!("SpawnAtomicBackgroundOriginalMembers{slots}"),
             all([
-                eq(H, 0).or(all([eq(SETTLED, 1), eq(NEXT, 1), eq(TRAJECTORY, 3)])),
+                eq(DEBT, 0),
                 Int(0).lt(Var(TRAJECTORY)),
                 if slots == 2 {
                     eq(TRAJECTORY, 2).or(Int(8)
@@ -2892,8 +2892,8 @@ fn total_budget_observer(control: u8, full_observer: bool, boundary: bool) -> Mo
                         .or(eq(TRAJECTORY, 14))
                         .or(Int(15).lt(Var(TRAJECTORY)))
                 },
+                eq(H, 0).or(all([eq(TRAJECTORY, 3), eq(SETTLED, 1), eq(NEXT, 1)])),
                 eq(RES, 0),
-                eq(DEBT, 0),
                 eq(FG, 0),
                 eq(DEADLINE, 0),
                 eq(REFUSED, 0),
@@ -2999,9 +2999,9 @@ fn total_budget_observer(control: u8, full_observer: bool, boundary: bool) -> Mo
         &mut m,
         "ObserveInheritedChildPriority4",
         all([
+            eq(REAP_STAGE, 0),
             active.clone(),
             eq(OWNER, 1),
-            eq(REAP_STAGE, 0),
             eq(CHILD_SEEN, 1),
             eq(CHILD_QCHECK, 0),
             eq(PRI, 4),
@@ -3035,7 +3035,7 @@ fn total_budget_observer(control: u8, full_observer: bool, boundary: bool) -> Mo
                 room.clone(),
                 eq(MONITOR, 0),
                 if child {
-                    all([eq(SLOTS, 2), eq(TRAJECTORY, 2)])
+                    all([eq(TRAJECTORY, 2), eq(SLOTS, 2)])
                 } else {
                     eq(TRAJECTORY, 1)
                         .or(all([
@@ -3073,11 +3073,11 @@ fn total_budget_observer(control: u8, full_observer: bool, boundary: bool) -> Mo
         &mut m,
         "RetainActualKernelCpuWithoutUserGrowth",
         all([
+            eq(TRAJECTORY, 4),
             active.clone().or(eq(H, 3)),
+            eq(H, 2),
             room,
             eq(MONITOR, 0),
-            eq(TRAJECTORY, 4),
-            eq(H, 2),
             eq(CPU, 0),
         ]),
         &[
@@ -3089,10 +3089,10 @@ fn total_budget_observer(control: u8, full_observer: bool, boundary: bool) -> Mo
         &mut m,
         "UnavailableLiveCounterRetainsRefusalAndKills",
         all([
+            eq(TRAJECTORY, 7),
             active.clone(),
             eq(KILL, 0),
             eq(MONITOR, 0),
-            eq(TRAJECTORY, 7),
         ]),
         &[
             (COUNTER_UNKNOWN, Int(1)),
@@ -3130,13 +3130,13 @@ fn total_budget_observer(control: u8, full_observer: bool, boundary: bool) -> Mo
             &mut m,
             &format!("SampleKnownMembersAndKillOverCap{observed}"),
             all([
+                sample_trajectory.clone(),
                 active.clone(),
                 eq(KILL, 0),
                 eq(OVER, 0),
                 exact.clone(),
                 over.clone(),
                 eq(MONITOR, 0),
-                sample_trajectory.clone(),
             ]),
             &u,
         );
@@ -3144,12 +3144,12 @@ fn total_budget_observer(control: u8, full_observer: bool, boundary: bool) -> Mo
             &mut m,
             &format!("SampleKnownMembersWithinCap{observed}"),
             all([
+                sample_trajectory.clone(),
                 active.clone(),
                 eq(KILL, 0),
                 exact,
                 over.negate(),
                 eq(MONITOR, 0),
-                sample_trajectory.clone(),
             ]),
             &[(SAMPLE, Int(sample_class))],
         );
@@ -3158,12 +3158,12 @@ fn total_budget_observer(control: u8, full_observer: bool, boundary: bool) -> Mo
         &mut m,
         "ForegroundRequestsOneGroupStop",
         all([
+            eq(TRAJECTORY, 4).or(eq(TRAJECTORY, 5)),
             eq(REAP_STAGE, 0),
             eq(H, 1),
             eq(FG_USED, 0),
             eq(KILL, 0),
             eq(DEADLINE, 0),
-            eq(TRAJECTORY, 4).or(eq(TRAJECTORY, 5)),
             eq(CPU, 0),
             eq(USER, 0),
         ]),
@@ -3220,6 +3220,7 @@ fn total_budget_observer(control: u8, full_observer: bool, boundary: bool) -> Mo
         &mut m,
         "WithholdPauseMonitorAfterOriginalPositiveAck",
         all([
+            eq(TRAJECTORY, 5),
             eq(H, 2),
             eq(ACK, 1),
             eq(FG, 1),
@@ -3231,7 +3232,6 @@ fn total_budget_observer(control: u8, full_observer: bool, boundary: bool) -> Mo
             eq(JOB, 0),
             eq(PIPE, 1),
             eq(KILL, 0),
-            eq(TRAJECTORY, 5),
         ]),
         &[(MONITOR, Int(1))],
     );
@@ -3282,12 +3282,12 @@ fn total_budget_observer(control: u8, full_observer: bool, boundary: bool) -> Mo
         &mut m,
         "ObserveOriginalLeaderExitAndQualifiedChildRollup",
         all([
-            active.clone().or(eq(H, 3)).or(eq(H, 6)),
-            eq(REAP, 0),
             Var(TRAJECTORY)
                 .lt(Int(9))
                 .or(eq(TRAJECTORY, 14))
                 .or(Int(15).lt(Var(TRAJECTORY))),
+            active.clone().or(eq(H, 3)).or(eq(H, 6)),
+            eq(REAP, 0),
             eq(TRAJECTORY, 3)
                 .negate()
                 .or(job_target)
@@ -3421,10 +3421,10 @@ fn total_budget_observer(control: u8, full_observer: bool, boundary: bool) -> Mo
                 &format!("ObserveOriginalLeaderWnowaitRetainedChild{trajectory}Unknown{unknown}"),
                 all([
                     eq(TRAJECTORY, trajectory),
+                    active.clone().or(eq(H, 3)).or(eq(H, 6)),
                     eq(OWNER, 1),
                     eq(REAP, 0),
                     eq(LEADER_TERMINAL, 0),
-                    active.clone().or(eq(H, 3)).or(eq(H, 6)),
                     Int(0).lt(Var(CPU)).or(eq(DEADLINE, 1)),
                     if trajectory == 10 {
                         Int(0).lt(Var(ROLLUP_CASE))
@@ -3480,9 +3480,9 @@ fn total_budget_observer(control: u8, full_observer: bool, boundary: bool) -> Mo
         &mut m,
         "ObservePositiveExactRetainedChildTerminalWithoutQualifiedRollup",
         all([
+            eq(REAP_STAGE, 0),
             eq(OWNER, 1),
             eq(REAP, 0),
-            eq(REAP_STAGE, 0),
             eq(LEADER_TERMINAL, 1),
             eq(CHILD_STATE, 1)
                 .or(eq(CHILD_STATE, 2))
@@ -3503,8 +3503,8 @@ fn total_budget_observer(control: u8, full_observer: bool, boundary: bool) -> Mo
             &mut m,
             &format!("ActualGroupFinalKillWithTerminalLeaderLiveChildRaw{result}"),
             all([
-                eq(REAP_STAGE, 0),
                 eq(TRAJECTORY, 9).or(eq(TRAJECTORY, 15)),
+                eq(REAP_STAGE, 0),
                 eq(LEADER_TERMINAL, 1),
                 eq(CHILD_STATE, 1).or(eq(CHILD_STATE, 4)),
                 eq(CENSUS_TERMINAL, 0),
@@ -3552,8 +3552,8 @@ fn total_budget_observer(control: u8, full_observer: bool, boundary: bool) -> Mo
             &mut m,
             &format!("ActualEscapedCurrentBirthTokenFinalKillRaw{raw}"),
             all([
-                eq(REAP_STAGE, 0),
                 eq(TRAJECTORY, 11),
+                eq(REAP_STAGE, 0),
                 eq(LEADER_TERMINAL, 1),
                 eq(CHILD_STATE, 3),
                 eq(OWNER, 1),
@@ -3586,7 +3586,7 @@ fn total_budget_observer(control: u8, full_observer: bool, boundary: bool) -> Mo
                 eq(REAP, 0),
                 eq(CLEANUP_CHECKED, 0),
                 if unavailable == 0 {
-                    all([eq(DEADLINE, 1), eq(LEADER_TERMINAL, 0), eq(H, 6).negate()])
+                    all([eq(H, 6).negate(), eq(DEADLINE, 1), eq(LEADER_TERMINAL, 0)])
                 } else if unavailable == 12 {
                     all([eq(TRAJECTORY, 12), eq(LEADER_TERMINAL, 1)])
                 } else {
@@ -3665,23 +3665,23 @@ fn total_budget_observer(control: u8, full_observer: bool, boundary: bool) -> Mo
                 &mut m,
                 &format!("FinalGroupKillRetainsRawResult{result}ExitKnown{already_exited}"),
                 all([
-                    eq(REAP, 0),
-                    eq(OWNER, 1),
-                    eq(KILL, 0),
                     Var(TRAJECTORY)
                         .lt(Int(9))
                         .or(eq(TRAJECTORY, 14))
                         .or(Int(15).lt(Var(TRAJECTORY))),
-                    eq(REAP_STAGE, 0),
-                    eq(TRAJECTORY, 19)
-                        .negate()
-                        .or(eq(END_DRAIN, 2))
-                        .or(eq(DEADLINE, 1)),
                     if result == 1 {
                         Bool(true)
                     } else {
                         eq(TRAJECTORY, 6)
                     },
+                    eq(REAP_STAGE, 0),
+                    eq(REAP, 0),
+                    eq(OWNER, 1),
+                    eq(KILL, 0),
+                    eq(TRAJECTORY, 19)
+                        .negate()
+                        .or(eq(END_DRAIN, 2))
+                        .or(eq(DEADLINE, 1)),
                     if already_exited {
                         eq(H, 4)
                     } else {
@@ -3718,10 +3718,10 @@ fn total_budget_observer(control: u8, full_observer: bool, boundary: bool) -> Mo
         "ObserveOriginalOnlyPositiveTerminalCensusBeforeReapSeal",
         all([
             eq(TRAJECTORY, 16),
+            eq(REAP_STAGE, 0),
             eq(H, 4),
             eq(OWNER, 1),
             eq(REAP, 0),
-            eq(REAP_STAGE, 0),
             eq(LEADER_TERMINAL, 0),
         ]),
         &[
@@ -3737,9 +3737,9 @@ fn total_budget_observer(control: u8, full_observer: bool, boundary: bool) -> Mo
         "ObserveExitedOriginalOutputEofAndIncompleteInput",
         all([
             eq(TRAJECTORY, 19),
+            eq(REAP_STAGE, 0),
             eq(H, 4),
             eq(OWNER, 1),
-            eq(REAP_STAGE, 0),
             eq(END_EOF_READY, 0),
         ]),
         &[(END_EOF_READY, Int(1)), (INPUT_REMAINING, Int(1))],
@@ -3750,9 +3750,9 @@ fn total_budget_observer(control: u8, full_observer: bool, boundary: bool) -> Mo
         "AccountingOnlyExitDrainPollWhilePayloadStaysBlocked",
         all([
             eq(TRAJECTORY, 19),
+            eq(REAP_STAGE, 0),
             eq(H, 4),
             eq(OWNER, 1),
-            eq(REAP_STAGE, 0),
             eq(END_EOF_READY, 1),
             eq(END_DRAIN, 0),
             if control == 18 {
@@ -3860,9 +3860,6 @@ fn total_budget_observer(control: u8, full_observer: bool, boundary: bool) -> Mo
             &mut m,
             &format!("ActualOriginalOwnWait4ReturnsImmutableUsageRss{rss}"),
             all([
-                eq(REAP_STAGE, 1),
-                eq(OWNER, 1),
-                eq(REAP, 0),
                 eq(TRAJECTORY, 17).negate(),
                 eq(TRAJECTORY, 18).negate(),
                 if rss == 1 {
@@ -3870,6 +3867,9 @@ fn total_budget_observer(control: u8, full_observer: bool, boundary: bool) -> Mo
                 } else {
                     eq(TRAJECTORY, 8).negate()
                 },
+                eq(REAP_STAGE, 1),
+                eq(OWNER, 1),
+                eq(REAP, 0),
             ]),
             &[
                 (REAP_STAGE, Int(2)),
@@ -3972,6 +3972,11 @@ fn total_budget_observer(control: u8, full_observer: bool, boundary: bool) -> Mo
                     &mut m,
                     &format!("OwnWait4TerminalCpu{cpu}Rss{rss}Refuse{refuse}"),
                     all([
+                        if rss == 1 {
+                            eq(TRAJECTORY, 8)
+                        } else {
+                            eq(TRAJECTORY, 8).negate()
+                        },
                         eq(REAP_STAGE, 2),
                         eq(REAP, 0),
                         eq(OWNER, 1),
@@ -3979,11 +3984,6 @@ fn total_budget_observer(control: u8, full_observer: bool, boundary: bool) -> Mo
                         eq(CPU, cpu),
                         eq(WAIT, cpu),
                         eq(RSS, rss),
-                        if rss == 1 {
-                            eq(TRAJECTORY, 8)
-                        } else {
-                            eq(TRAJECTORY, 8).negate()
-                        },
                         if refuse {
                             bad.clone()
                         } else {
@@ -4115,10 +4115,10 @@ fn total_budget_observer(control: u8, full_observer: bool, boundary: bool) -> Mo
         &mut m,
         "SettleOnlyActualOwnReapAndGroupGone",
         all([
+            eq(DEBT, 0),
             complete.clone(),
             eq(SETTLED, 0),
             eq(OWNER, 1),
-            eq(DEBT, 0),
             if control == 16 {
                 Bool(true)
             } else {
@@ -4155,9 +4155,9 @@ fn total_budget_observer(control: u8, full_observer: bool, boundary: bool) -> Mo
                 "DeadlineKeepsSameOwnerInQuarantine"
             },
             all([
+                eq(H, 6).negate(),
                 eq(DEADLINE, 1),
                 eq(SETTLED, 0),
-                eq(H, 6).negate(),
                 eq(OWNER, 1),
                 if physical_complete {
                     complete.clone().and(
@@ -4193,7 +4193,7 @@ fn total_budget_observer(control: u8, full_observer: bool, boundary: bool) -> Mo
         act(
             &mut m,
             &format!("PayActualPostReapHelperRest{debt}"),
-            all([eq(REAP, 1), eq(DEBT, debt)]),
+            all([eq(DEBT, debt), eq(REAP, 1)]),
             &[(DEBT, Int(debt - 1)), (PAID, Var(PAID).plus(Int(1)))],
         );
     }
@@ -4201,8 +4201,8 @@ fn total_budget_observer(control: u8, full_observer: bool, boundary: bool) -> Mo
         &mut m,
         "AdmitNextHelperOrMainOnlyAfterSettlementAndCurrentDebt",
         all([
-            eq(SETTLED, 1),
             eq(DEBT, 0),
+            eq(SETTLED, 1),
             eq(NEXT, 0),
             eq(REFUSED, 0),
             eq(DEADLINE, 0),
@@ -4215,10 +4215,10 @@ fn total_budget_observer(control: u8, full_observer: bool, boundary: bool) -> Mo
         &mut m,
         "TrustTerminalAuthoritativeTotalsAfterPaidMainAdmission",
         all([
+            eq(DEBT, 0),
             eq(REAP, 1),
             eq(SETTLED, 1),
             eq(NEXT, 1),
-            eq(DEBT, 0),
             eq(REFUSED, 0),
             cap,
             eq(PIPE, 1),
