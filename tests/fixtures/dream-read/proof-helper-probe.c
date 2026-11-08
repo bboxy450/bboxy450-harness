@@ -2879,17 +2879,22 @@ static int engine_expand(const struct private_engine_context *context,const char
     const char *commit=!strcmp(context->outer->case_name,"corrupt_proof")?f->corrupt:f->valid;size_t used=0;
     while(*text) {
         const char *value=NULL;size_t take=1;
-        if(*text=='{') {
-            const char *end=strchr(text,'}');take=end?(size_t)(end-text)+1:strlen(text);
+        if(*text=='^'&&text[1]=='{') {
+            if(strcmp(text,"^{tree}"))return 0;
+            take=sizeof("^{tree}")-1;
+        }
+        else if(*text=='{') {
+            const char *end=strchr(text,'}');if(!end)return 0;take=(size_t)(end-text)+1;
 #define EXPAND(name,content) if(take==sizeof(name)-1&&!memcmp(text,name,take))value=(content)
             EXPAND("{gpg}",gpg);else EXPAND("{commit}",commit);else EXPAND("{ancestor}",f->ancestor);
             else EXPAND("{record}",record);else EXPAND("{policy_branch}",branch);
             else EXPAND("{home}",home);else EXPAND("{scratch}",scratch);
 #undef EXPAND
-        }
+            if(!value)return 0;
+        } else if(*text=='}')return 0;
         if(value){size_t len=strlen(value);if(len>4096-used)return 0;memcpy(out+used,value,len);used+=len;}
-        // Only the named inputs above are placeholders. Git's own revision
-        // braces, including ^{tree}, remain exact literal argv bytes.
+        // Form10 registers exactly this terminal Git peel, not a generic
+        // brace dialect. Every other unknown brace sequence is refused.
         else {if(take>4096-used)return 0;memcpy(out+used,text,take);used+=take;}
         text+=take;
     }

@@ -102,10 +102,12 @@ static void argv_expansion_controls(int dir) {
     struct engine_prepared forbidden_prepared;
     require(!engine_prepare_argv(&context,15,home,scratch,&forbidden_prepared),"implicit verifier form15 remains forbidden to direct argv preparation");
     strcpy(outer.case_name,"positive");char out[4097];
-    const char *literal[]={"^{tree}","{unknown}","a{tree}b","{}","{open","{outer{commit}}","{{commit}}","}"};
-    for(unsigned i=0;i<sizeof(literal)/sizeof(literal[0]);i++)
-        require(engine_expand(&context,literal[i],home,scratch,out)&&!strcmp(out,literal[i]),"other brace sequences remain exact literal Git bytes");
-    require(engine_expand(&context,"x{record}^{tree}",home,scratch,out)&&!strcmp(out,"xsecond^{tree}"),"only named placeholders expand beside literal Git syntax");
+    require(engine_expand(&context,"^{tree}",home,scratch,out)&&!strcmp(out,"^{tree}"),"only registered terminal tree peel remains literal Git syntax");
+    const char *unknown[]={"{tre}","^{tre}","{tree}","^{commit}","^{blob}","^{tag}","^{}","{unknown}","a{tree}b","{}","{open","{outer{commit}}","{{commit}}","}","^{tree}suffix"};
+    for(unsigned i=0;i<sizeof(unknown)/sizeof(unknown[0]);i++)
+        require(!engine_expand(&context,unknown[i],home,scratch,out),"unregistered or malformed brace syntax refuses instead of copying unknown literals");
+    char selected_record[128];int selected_len=snprintf(selected_record,sizeof(selected_record),"%s:second",basis.fixture.valid);
+    require(selected_len==47&&engine_expand(&context,"{commit}:{record}",home,scratch,out)&&!strcmp(out,selected_record),"registered commit and record placeholders still compose exact colon syntax");
     const char *forbidden[]={"{git_signature_temp}","{signature}","x{signature}y","prefix{git_signature_temp}suffix","{outer{signature}}"};
     for(unsigned i=0;i<sizeof(forbidden)/sizeof(forbidden[0]);i++)
         require(!engine_expand(&context,forbidden[i],home,scratch,out),"B matcher and retired signature token remain banned even when embedded");
@@ -118,7 +120,7 @@ static void argv_expansion_controls(int dir) {
     require(engine_expand(&context,"{home}",bounded,scratch,out)&&strlen(out)==4096
         &&!engine_expand(&context,"{home}x",bounded,scratch,out),"named expansion retains exact4096 bound and refuses combined overflow");
     require(private_end_unit(private_cost.open_cpu),"bounded argv overflow controls fully paid");
-    printf("private_argv_expansion_source_known actual_registry_form=10 prepared_valid=true prepared_corrupt=true selector_literal=true vector_scope=production_prepare_and_expand native_process=false runtime_approved=false\n");
+    printf("private_argv_expansion_source_known actual_registry_form=10 prepared_valid=true prepared_corrupt=true selector_literal=true unknown_braces_refused=true vector_scope=production_prepare_and_expand native_process=false runtime_approved=false\n");
     require(fflush(stdout)==0&&private_end_unit(private_cost.open_cpu),"argv source-known evidence fully paid");controls++;reset();
 }
 

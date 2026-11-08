@@ -35,6 +35,7 @@ LEDGERS = ('hold-ledger.ndjson', 'hold-control-success', 'claim.json', 'charge-d
            *(f'pause-{i}-{phase}' for i in (9,10) for phase in ('start','done','release')),
            *('diagnostic-' + str(i) + '/' + name for i in range(4) for name in ('stderr', 'stdout', 'result.json')))
 ASSERTIONS = {
+ 'argv-unknown-brace-accepted': b'unregistered or malformed brace syntax refuses instead of copying unknown literals',
  'argv-tree-literal-reject': b'actual registry tree_pin argv preparation preserves selected commit and literal tree selector',
  'helper-cpu-not-wall': b'long wall helper adds only nine times wait4 CPU above its existing global debt baseline',
  'total-helper-floor': b'helper CPU debt API preserves one millisecond floor and conservative unknown cost',
@@ -272,8 +273,9 @@ def variants(source):
     result = {}
     def add(name, anchor, replacement, args):
         result[name] = (changed(source, anchor, replacement), args)
-    add('argv-tree-literal-reject', b'else EXPAND("{home}",home);else EXPAND("{scratch}",scratch);',
-        b'else EXPAND("{home}",home);else EXPAND("{scratch}",scratch);else return 0;', ['argv-expansion-controls'])
+    add('argv-tree-literal-reject', b'if(strcmp(text,"^{tree}"))return 0;',
+        b'if(1||strcmp(text,"^{tree}"))return 0;', ['argv-expansion-controls'])
+    add('argv-unknown-brace-accepted', b'if(!value)return 0;', b'(void)0;', ['argv-expansion-controls'])
     add('helper-cpu-not-wall', b'uint64_t cost=engine_helper_cpu_cost(o->terminal_cpu_ns);',
         b'uint64_t cost=engine_interval(o->activation_ns,engine_now(o,CLOCK_MONOTONIC));if(cost<1000000)cost=1000000;', ['helper-cpu-debt-control'])
     add('total-helper-floor', b'static uint64_t engine_helper_cpu_cost(uint64_t cpu) {return cpu==UINT64_MAX?3000000:cpu<1000000?1000000:cpu;}',
@@ -358,7 +360,7 @@ def retain_current(stdout, report):
     if wall<100000000 or wall<=2*cpu or cost!=max(1000000,cpu) or delta!=9*cost or target!=before+delta or not before or paid<target:
         raise ValueError('helper CPU delta is conflated with elapsed wall or the cumulative controller baseline')
     report['helper_cpu_debt_owned_process_witness']={'pid':pid,'wall_ns':wall,'authoritative_CPU_ns':cpu,'helper_delta_ns':delta,'global_debt_before_ns':before,'global_target_ns':target,'global_paid_after_ns':paid,'scope':'actual owned fixture, not installed tool qualification'}
-    argv_marker=b'private_argv_expansion_source_known actual_registry_form=10 prepared_valid=true prepared_corrupt=true selector_literal=true vector_scope=production_prepare_and_expand native_process=false runtime_approved=false\n'
+    argv_marker=b'private_argv_expansion_source_known actual_registry_form=10 prepared_valid=true prepared_corrupt=true selector_literal=true unknown_braces_refused=true vector_scope=production_prepare_and_expand native_process=false runtime_approved=false\n'
     if stdout.count(argv_marker)!=1:
         raise ValueError('production registry/preparation argv tree-selector control missing or duplicated')
     flows=re.findall(rb'private_flow_cost_source_known variant=([0-3]) actual_argv_prepares=15 prepared_forms=32767 entry_ns=([0-9]+) end_ns=([0-9]+) elapsed_ns=([0-9]+) original_deadline_ns=([0-9]+)',stdout)
