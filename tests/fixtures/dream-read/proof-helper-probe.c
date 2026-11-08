@@ -2468,6 +2468,8 @@ struct engine_owner {
     uint64_t pause_validated_ri_end_ns[2],pause_kill_ns,stopped_interval_ns,running_gap_ns,running_gap_max_ns;
     uint64_t gap_failed_previous_ns[2],gap_failed_observed_ns,gap_failed_raw_ns[2],gap_failed_running_ns[2];
     unsigned pause_counter_known_mask,pause_system_violation;
+    uint32_t pause_timebase_numer,pause_timebase_denom;
+    uint64_t pause_system_ns[2],stopped_system_ns;
     uint64_t pause_observed_user[2],pause_user_baseline_ns,pause_terminal_user_ns,pause_user_excess_ns;
     unsigned pause_ack_mask,pause_baseline_known,pause_live_checked,pause_terminal_checked,pause_user_pass,pause_user_violation,pause_resume_admitted;
     unsigned pause_stop_attempted,pause_resume_attempted,pause_pending;
@@ -2821,13 +2823,30 @@ static int engine_pause_live_user(struct engine_owner *o,unsigned i,uint64_t use
     }
     o->pause_user_pass=!o->pause_user_violation;return !o->pause_user_violation;
 }
-// A stopped interval is usable only after a fresh RI inside an observed
-// stopped epoch. USER and SYSTEM are exact raw counters, never rounded debt.
-static int engine_pause_system_allowed(uint64_t before,uint64_t after) {return before!=UINT64_MAX&&after==before;}
+// A stopped interval needs fresh same-incarnation RI at both ends. USER is
+// exact; aggregate <=50us SYSTEM accrual uses the retained raw timebase.
+// It is DIAGNOSTIC, never a subtraction: own leader wait4 bills it once.
+static int engine_pause_system_allowed(uint64_t before,uint64_t after) {return before!=UINT64_MAX&&after!=UINT64_MAX&&after>=before;}
+static int engine_pause_system_ns_allowed(uint64_t ns) {return ns!=UINT64_MAX&&ns<=50000;}
+static int engine_pause_system_delta(uint64_t before,uint64_t after,uint32_t numer,uint32_t denom,uint64_t *ns) {
+    *ns=UINT64_MAX;if(!engine_pause_system_allowed(before,after)||!numer||!denom)return 0;
+    __uint128_t scaled=(__uint128_t)(after-before)*numer,rounded=scaled/denom+(scaled%denom!=0);
+    if(rounded>=UINT64_MAX)return 0;*ns=(uint64_t)rounded;return 1;
+}
 static int engine_pause_live_system(struct engine_owner *o,unsigned i,uint64_t system) {
     if(!(o->pause_ack_mask&(1u<<i))||o->pause_resume_attempted||o->group_kill_attempted)return 1;
-    o->pause_observed_system[i]=system;
-    if(!engine_pause_system_allowed(o->pause_system[i],system)) {
+    o->pause_observed_system[i]=system;uint64_t ns=UINT64_MAX;
+    int known=engine_pause_system_delta(o->pause_system[i],system,o->pause_timebase_numer,o->pause_timebase_denom,&ns);
+    if(ns>o->pause_system_ns[i])o->pause_system_ns[i]=ns;
+    // Recompute the nonduplicated maxima from immutable ACK baselines. Repeat
+    // reads do not add the same SYSTEM ticks again; leader child-rollup CPU is
+    // not added alongside the child's own counter.
+    if(!engine_safe_sum(o->pause_system_ns[0],o->pause_system_ns[1],&o->stopped_system_ns))known=0;
+    if(!known) {
+        o->stopped_system_ns=UINT64_MAX;o->pause_system_violation=1;o->pause_counter_known_mask&=~(1u<<i);
+        return engine_failure(o,"clock_unknown","stopped SYSTEM raw timebase or conversion unavailable");
+    }
+    if(!engine_pause_system_ns_allowed(o->stopped_system_ns)) {
         o->pause_system_violation=1;o->pause_counter_known_mask&=~(1u<<i);
         return engine_failure(o,"resource_limit","system CPU changed across observed stopped interval");
     }
@@ -3113,8 +3132,15 @@ static uint64_t engine_running_interval(const struct engine_owner *o,unsigned i,
         ||o->pause_user_violation||o->pause_system_violation)return raw;
     uint64_t ack=o->pause_member_ack_ns[i],begin=o->pause_ack_ri_begin_ns[i],returned=o->pause_ack_ri_end_ns[i];
     if(!ack||ack==UINT64_MAX||begin<ack||returned<begin||returned==UINT64_MAX
-        ||o->pause_user[i]==UINT64_MAX||o->pause_observed_user[i]!=o->pause_user[i]
-        ||o->pause_system[i]==UINT64_MAX||o->pause_observed_system[i]!=o->pause_system[i])return raw;
+        ||o->pause_user[i]==UINT64_MAX||o->pause_observed_user[i]!=o->pause_user[i])return raw;
+    uint64_t stopped_system=0;
+    for(unsigned j=0;j<2;j++)if(o->pause_ack_mask&(1u<<j)) {
+        uint64_t system_ns;
+        if(!engine_pause_system_delta(o->pause_system[j],o->pause_observed_system[j],o->pause_timebase_numer,o->pause_timebase_denom,&system_ns))return raw;
+        if(system_ns<o->pause_system_ns[j])system_ns=o->pause_system_ns[j];
+        if(!engine_safe_sum(stopped_system,system_ns,&stopped_system))return raw;
+    }
+    if(!engine_pause_system_ns_allowed(stopped_system))return raw;
     uint64_t stopped_end=end;
     if(o->pause_resume_attempted) {
         uint64_t resume_begin=o->pause_resume_ri_begin_ns[i],resume_end=o->pause_resume_ri_end_ns[i];
@@ -3403,7 +3429,7 @@ static int engine_failed_record(struct engine_owner *o) {
     return engine_write_record(o,line,n);
 }
 static int engine_pause_record(struct engine_owner *o) {
-    char line[2304];int n=snprintf(line,sizeof(line),"{\"kind\":\"pause_user_and_terminal_rss\",\"ack_mask\":%u,\"baseline_known\":%u,\"ack_ns\":%llu,\"member_ack_ns\":[%llu,%llu],\"ack_RI_begin_ns\":[%llu,%llu],\"ack_RI_return_ns\":[%llu,%llu],\"resume_RI_begin_ns\":[%llu,%llu],\"resume_RI_return_ns\":[%llu,%llu],\"resume_signal_ns\":%llu,\"final_kill_signal_ns\":%llu,\"counter_known_mask\":%u,\"ack_system_raw\":[%llu,%llu],\"observed_system_raw\":[%llu,%llu],\"system_violation\":%u,\"ack_user_raw\":[%llu,%llu],\"observed_user_raw\":[%llu,%llu],\"baseline_user_ns\":%llu,\"terminal_user_ns\":%llu,\"user_excess_ns\":%llu,\"wait4_user_resolution_ns\":1000,\"live_checked\":%u,\"terminal_checked\":%u,\"pause_user_pass\":%u,\"sticky_violation\":%u,\"resume_admitted\":%u,\"rss_native_raw\":%lld,\"rss_known\":%u,\"rss_test_withheld\":%u,\"runtime_approved\":false}\n",o->pause_ack_mask,o->pause_baseline_known,(unsigned long long)o->pause_ack_ns,(unsigned long long)o->pause_member_ack_ns[0],(unsigned long long)o->pause_member_ack_ns[1],(unsigned long long)o->pause_ack_ri_begin_ns[0],(unsigned long long)o->pause_ack_ri_begin_ns[1],(unsigned long long)o->pause_ack_ri_end_ns[0],(unsigned long long)o->pause_ack_ri_end_ns[1],(unsigned long long)o->pause_resume_ri_begin_ns[0],(unsigned long long)o->pause_resume_ri_begin_ns[1],(unsigned long long)o->pause_resume_ri_end_ns[0],(unsigned long long)o->pause_resume_ri_end_ns[1],(unsigned long long)o->pause_resume_ns,(unsigned long long)o->pause_kill_ns,o->pause_counter_known_mask,(unsigned long long)o->pause_system[0],(unsigned long long)o->pause_system[1],(unsigned long long)o->pause_observed_system[0],(unsigned long long)o->pause_observed_system[1],o->pause_system_violation,(unsigned long long)o->pause_user[0],(unsigned long long)o->pause_user[1],(unsigned long long)o->pause_observed_user[0],(unsigned long long)o->pause_observed_user[1],(unsigned long long)o->pause_user_baseline_ns,(unsigned long long)o->pause_terminal_user_ns,(unsigned long long)o->pause_user_excess_ns,o->pause_live_checked,o->pause_terminal_checked,o->pause_user_pass,o->pause_user_violation,o->pause_resume_admitted,(long long)o->wait_rss_native_raw,o->wait_rss_known,o->wait_rss_test_withheld);
+    char line[2304];int n=snprintf(line,sizeof(line),"{\"kind\":\"pause_user_and_terminal_rss\",\"ack_mask\":%u,\"baseline_known\":%u,\"ack_ns\":%llu,\"member_ack_ns\":[%llu,%llu],\"ack_RI_begin_ns\":[%llu,%llu],\"ack_RI_return_ns\":[%llu,%llu],\"resume_RI_begin_ns\":[%llu,%llu],\"resume_RI_return_ns\":[%llu,%llu],\"resume_signal_ns\":%llu,\"final_kill_signal_ns\":%llu,\"counter_known_mask\":%u,\"ack_system_raw\":[%llu,%llu],\"observed_system_raw\":[%llu,%llu],\"system_growth_ns\":[%llu,%llu],\"system_timebase_numer\":%u,\"system_timebase_denom\":%u,\"system_growth_limit_ns\":50000,\"system_violation\":%u,\"ack_user_raw\":[%llu,%llu],\"observed_user_raw\":[%llu,%llu],\"baseline_user_ns\":%llu,\"terminal_user_ns\":%llu,\"user_excess_ns\":%llu,\"wait4_user_resolution_ns\":1000,\"live_checked\":%u,\"terminal_checked\":%u,\"pause_user_pass\":%u,\"sticky_violation\":%u,\"resume_admitted\":%u,\"rss_native_raw\":%lld,\"rss_known\":%u,\"rss_test_withheld\":%u,\"runtime_approved\":false}\n",o->pause_ack_mask,o->pause_baseline_known,(unsigned long long)o->pause_ack_ns,(unsigned long long)o->pause_member_ack_ns[0],(unsigned long long)o->pause_member_ack_ns[1],(unsigned long long)o->pause_ack_ri_begin_ns[0],(unsigned long long)o->pause_ack_ri_begin_ns[1],(unsigned long long)o->pause_ack_ri_end_ns[0],(unsigned long long)o->pause_ack_ri_end_ns[1],(unsigned long long)o->pause_resume_ri_begin_ns[0],(unsigned long long)o->pause_resume_ri_begin_ns[1],(unsigned long long)o->pause_resume_ri_end_ns[0],(unsigned long long)o->pause_resume_ri_end_ns[1],(unsigned long long)o->pause_resume_ns,(unsigned long long)o->pause_kill_ns,o->pause_counter_known_mask,(unsigned long long)o->pause_system[0],(unsigned long long)o->pause_system[1],(unsigned long long)o->pause_observed_system[0],(unsigned long long)o->pause_observed_system[1],(unsigned long long)o->pause_system_ns[0],(unsigned long long)o->pause_system_ns[1],o->pause_timebase_numer,o->pause_timebase_denom,o->pause_system_violation,(unsigned long long)o->pause_user[0],(unsigned long long)o->pause_user[1],(unsigned long long)o->pause_observed_user[0],(unsigned long long)o->pause_observed_user[1],(unsigned long long)o->pause_user_baseline_ns,(unsigned long long)o->pause_terminal_user_ns,(unsigned long long)o->pause_user_excess_ns,o->pause_live_checked,o->pause_terminal_checked,o->pause_user_pass,o->pause_user_violation,o->pause_resume_admitted,(long long)o->wait_rss_native_raw,o->wait_rss_known,o->wait_rss_test_withheld);
     return engine_write_record(o,line,n);
 }
 static int engine_ri_record(struct engine_owner *o) {
@@ -3426,9 +3452,9 @@ static int engine_event_record(struct engine_owner *o) {
     return engine_write_record(o,line,n);
 }
 static int engine_record(struct engine_owner *o,const char *phase) {
-    char bytes[3072];int n=snprintf(bytes,sizeof(bytes),"{\"kind\":\"helper_total_budget\",\"decision\":66280,\"phase\":\"%s\",\"sequence\":%u,\"pid\":%d,\"birth\":%llu,\"start\":%llu,\"live_cpu_ns\":%llu,\"last_sample_ns\":%llu,\"sample_gap_ns\":%llu,\"max_sample_gap_ns\":%llu,\"stopped_interval_ns\":%llu,\"running_gap_max_ns\":%llu,\"sample_gap_checks\":%llu,\"activation_ns\":%llu,\"qos_checked_mask\":%u,\"priority\":[%d,%d],\"wait4_user_ns\":%llu,\"wait4_system_ns\":%llu,\"terminal_cpu_ns\":%llu,\"job_cpu_ns\":%llu,\"command_cap_ns\":%llu,\"job_cap_ns\":%llu,\"terminal_rss_bytes\":%llu,\"process_create_wall_excess_ns\":%llu,\"process_create_wall_excess_count\":%llu,\"process_create_wall_excess_known\":%u,\"process_create_wall_excess_scope\":\"original_prepared_spawn_snapshot\",\"native_budget_projection_case\":%u,\"native_actual_cpu_ns\":%llu,\"native_actual_wall_ns\":%llu,\"native_gate_cpu_ns\":%llu,\"native_gate_wall_ns\":%llu,\"native_gate_inclusive_ns\":%llu,\"helper_cost_retained\":%u,\"helper_cost_paid\":%u,\"helper_debt_target\":%llu,\"helper_debt_before_ns\":%llu,\"helper_cost_ns\":%llu,\"helper_debt_delta_ns\":%llu,\"helper_global_paid_after_ns\":%llu,\"debt_scope\":\"whole_controller_cumulative\",\"helper_debt_target_scope\":\"global_watermark\",\"debt_charged_ns\":%llu,\"debt_paid_ns\":%llu,\"group_kill_attempted\":%u,\"group_kill_errno\":%d,\"group_kill_pending\":%u,\"group_kill_raced_exit\":%u,\"actual_own_wait4\":%u,\"group_gone\":%u,\"quarantined\":%u,\"owner_lost\":%u,\"runtime_approved\":false}\n",
+    char bytes[3072];int n=snprintf(bytes,sizeof(bytes),"{\"kind\":\"helper_total_budget\",\"decision\":66280,\"phase\":\"%s\",\"sequence\":%u,\"pid\":%d,\"birth\":%llu,\"start\":%llu,\"live_cpu_ns\":%llu,\"last_sample_ns\":%llu,\"sample_gap_ns\":%llu,\"max_sample_gap_ns\":%llu,\"stopped_interval_ns\":%llu,\"stopped_system_ns\":%llu,\"running_gap_max_ns\":%llu,\"sample_gap_checks\":%llu,\"activation_ns\":%llu,\"qos_checked_mask\":%u,\"priority\":[%d,%d],\"wait4_user_ns\":%llu,\"wait4_system_ns\":%llu,\"terminal_cpu_ns\":%llu,\"job_cpu_ns\":%llu,\"command_cap_ns\":%llu,\"job_cap_ns\":%llu,\"terminal_rss_bytes\":%llu,\"process_create_wall_excess_ns\":%llu,\"process_create_wall_excess_count\":%llu,\"process_create_wall_excess_known\":%u,\"process_create_wall_excess_scope\":\"original_prepared_spawn_snapshot\",\"native_budget_projection_case\":%u,\"native_actual_cpu_ns\":%llu,\"native_actual_wall_ns\":%llu,\"native_gate_cpu_ns\":%llu,\"native_gate_wall_ns\":%llu,\"native_gate_inclusive_ns\":%llu,\"helper_cost_retained\":%u,\"helper_cost_paid\":%u,\"helper_debt_target\":%llu,\"helper_debt_before_ns\":%llu,\"helper_cost_ns\":%llu,\"helper_debt_delta_ns\":%llu,\"helper_global_paid_after_ns\":%llu,\"debt_scope\":\"whole_controller_cumulative\",\"helper_debt_target_scope\":\"global_watermark\",\"debt_charged_ns\":%llu,\"debt_paid_ns\":%llu,\"group_kill_attempted\":%u,\"group_kill_errno\":%d,\"group_kill_pending\":%u,\"group_kill_raced_exit\":%u,\"actual_own_wait4\":%u,\"group_gone\":%u,\"quarantined\":%u,\"owner_lost\":%u,\"runtime_approved\":false}\n",
         phase,o->ticket.sequence,o->ticket.pid,(unsigned long long)o->ticket.birth,(unsigned long long)o->ticket.start,
-        (unsigned long long)o->live_cpu_ns,(unsigned long long)o->last_sample_ns,(unsigned long long)o->sample_gap_ns,(unsigned long long)o->max_sample_gap_ns,(unsigned long long)o->stopped_interval_ns,(unsigned long long)o->running_gap_max_ns,(unsigned long long)o->sample_gap_checks,(unsigned long long)o->activation_ns,o->qos_checked_mask,o->members[0].state.priority,o->members[1].state.priority,
+        (unsigned long long)o->live_cpu_ns,(unsigned long long)o->last_sample_ns,(unsigned long long)o->sample_gap_ns,(unsigned long long)o->max_sample_gap_ns,(unsigned long long)o->stopped_interval_ns,(unsigned long long)o->stopped_system_ns,(unsigned long long)o->running_gap_max_ns,(unsigned long long)o->sample_gap_checks,(unsigned long long)o->activation_ns,o->qos_checked_mask,o->members[0].state.priority,o->members[1].state.priority,
         (unsigned long long)o->wait_user,(unsigned long long)o->wait_system,(unsigned long long)o->terminal_cpu_ns,(unsigned long long)o->result->helper_job_cpu_ns,
         (unsigned long long)ENGINE_COMMAND_CPU_NS,(unsigned long long)ENGINE_JOB_CPU_NS,(unsigned long long)o->wait_rss,
         (unsigned long long)o->process_create_wall_excess_ns,(unsigned long long)o->process_create_wall_excess_count,o->process_create_wall_excess_known,o->native_budget_projection_case,
@@ -3441,6 +3467,10 @@ static int engine_pause(struct engine_owner *o) {
     if(o->paused)return 1;if(o->pause_stop_attempted||o->retiring||o->group_kill_pending)return engine_failure(o,"coverage_unknown","consumed foreground STOP cannot be retried");
     o->pause_started_ns=engine_now(o,CLOCK_MONOTONIC);
     if(!engine_sample_gap(o,o->pause_started_ns))return 0;
+    mach_timebase_info_data_t timebase;
+    if(mach_timebase_info(&timebase)!=KERN_SUCCESS||!timebase.numer||!timebase.denom)
+        return engine_failure(o,"clock_unknown","pause ACK raw timebase unavailable before STOP");
+    o->pause_timebase_numer=timebase.numer;o->pause_timebase_denom=timebase.denom;
     o->pause_stop_attempted=1;
     errno=0;int sent=kill(-o->ticket.pgid,SIGSTOP);o->pause_stop_errno=sent?errno:0;
     if(sent) {o->pause_pending=1;return engine_failure(o,"coverage_unknown","foreground STOP pending independent terminal settlement");}
@@ -3477,8 +3507,11 @@ static int engine_resume(struct engine_owner *o) {
     if(!engine_pretest_current(o->context)||!engine_checkpoint(o)||o->foreground||!private_context_same(o->context))return engine_failure(o,"coverage_unknown","foreground authority changed before resume");
     if(!engine_live_budget(o))return 0;
     for(unsigned i=0;i<2;i++)if(o->members[i].state.pid&&o->members[i].phase!=ENGINE_EXITED) {
+        uint64_t stopped_system;
         if(!(o->pause_counter_known_mask&(1u<<i))||!engine_sample_member(o,i,o->members[i].state.pid)
-            ||!o->members[i].stopped_ri_ack_ns||o->members[i].user!=o->pause_user[i]||o->members[i].system!=o->pause_system[i])
+            ||!o->members[i].stopped_ri_ack_ns||o->members[i].user!=o->pause_user[i]
+            ||!engine_pause_system_delta(o->pause_system[i],o->members[i].system,o->pause_timebase_numer,o->pause_timebase_denom,&stopped_system)
+            ||!engine_pause_system_ns_allowed(stopped_system))
             return engine_failure(o,"coverage_unknown","fresh resume RI lost stopped USER or SYSTEM identity");
         o->pause_resume_ri_begin_ns[i]=o->ri_begin_ns[i];o->pause_resume_ri_end_ns[i]=o->ri_end_ns[i];
     }

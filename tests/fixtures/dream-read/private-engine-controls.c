@@ -51,12 +51,15 @@ static void fixture_cleanup(void) {
     fprintf(stderr,"private_total_fixture_failure_cleanup_source_known original_pid=%d own_wait4=%d wait_errno=%d raw_status=%d group_count=%d group_errno=%d retained_numeric_pid=%d actual_usage_ns=%llu runtime_approved=false\n",o->ticket.pid,got==o->ticket.pid,wait_error,status,count,group_error,retained_group,(unsigned long long)(got==o->ticket.pid?ru_cpu(&usage):UINT64_MAX));
     if((got==o->ticket.pid||(got<0&&wait_error==ECHILD&&o->wait_observed))&&native_pid_list_empty(count,group_error)) {engine_current=NULL;dispose_private_engine=NULL;}
 }
+static void fixture_failure_snapshot(const char *,const struct engine_owner *);
 static void fixture_check(int ok,const char *label) {
     if(ok)return;
     struct engine_owner *o=fixture_live_owner;
+    fixture_failure_snapshot(label,o);
     if(o)fprintf(stderr,"private_total_fixture_guard label=%s native_cpu_ns=%llu native_wall_ns=%llu inclusive_ns=%llu ordinary_max_ns=%llu last_unit_ns=%llu debt_ns=%llu paid_ns=%llu original_pid=%d kill_errno=%d retained=%llu runtime_approved=false\n",label,
         (unsigned long long)o->native.cpu,(unsigned long long)o->native.wall,(unsigned long long)o->result->inclusive_max_ns.value,
         (unsigned long long)private_cost.ordinary_max,(unsigned long long)private_cost.last_unit,(unsigned long long)private_cost.debt,(unsigned long long)private_cost.debt_paid,o->ticket.pid,o->group_kill_result,(unsigned long long)private_cost.retained_units);
+    (void)private_end_unit(private_cost.open_cpu);
     fixture_cleanup();fprintf(stderr,"probe refused: %s errno=%d\n",label,errno);exit(81);
 }
 #define reset fixture_reset_cost
@@ -1218,22 +1221,26 @@ static void total_control(const char *self,const char *root,int dir,unsigned mod
     printf("private_total_budget_control_source_known mode=%u original_pid=%d actual_own_wait4=%u group_gone=%u terminal_cpu_ns=%llu child_cpu_ns=%llu job_cpu_ns=%llu command_cap_ns=%llu helper_cost_retained=%u helper_cost_paid=%u kill_errno=%d raced_exit=%u pause_ack_ns=%llu debt_ns=%llu paid_ns=%llu runtime_approved=false\n",mode,owner.ticket.pid,owner.direct_reaped,result.group_gone,(unsigned long long)owner.terminal_cpu_ns,(unsigned long long)child_cpu,(unsigned long long)result.helper_job_cpu_ns,(unsigned long long)ENGINE_COMMAND_CPU_NS,owner.helper_cost_retained,owner.helper_cost_paid,owner.group_kill_result,owner.group_kill_raced_exit,(unsigned long long)owner.pause_ack_ns,(unsigned long long)private_cost.debt,(unsigned long long)private_cost.debt_paid);
     engine_close_transferred(&owner);require(close(owner.ledger)==0,"owned total fixture ledger close");free(owner.capture);fixture_live_owner=NULL;
     if(mode==5) {
+        uint64_t stopped_system=UINT64_MAX;
         require(owner.pause_resume_admitted&&owner.pause_ack_mask==1&&owner.pause_counter_known_mask==1
             &&owner.pause_member_ack_ns[0]==owner.pause_ack_ns&&owner.pause_ack_ri_begin_ns[0]>=owner.pause_ack_ns
             &&owner.pause_ack_ri_end_ns[0]>=owner.pause_ack_ri_begin_ns[0]
             &&owner.pause_resume_ri_begin_ns[0]>=owner.pause_ack_ri_end_ns[0]
             &&owner.pause_resume_ri_end_ns[0]>=owner.pause_resume_ri_begin_ns[0]
             &&owner.pause_resume_ns>=owner.pause_resume_ri_end_ns[0]
-            &&owner.pause_user[0]==owner.pause_observed_user[0]&&owner.pause_system[0]==owner.pause_observed_system[0]
+            &&owner.pause_user[0]==owner.pause_observed_user[0]
+            &&engine_pause_system_delta(owner.pause_system[0],owner.pause_observed_system[0],owner.pause_timebase_numer,owner.pause_timebase_denom,&stopped_system)
+            &&engine_pause_system_ns_allowed(stopped_system)&&owner.pause_system_ns[0]==stopped_system&&owner.stopped_system_ns==stopped_system
             &&!owner.pause_user_violation&&!owner.pause_system_violation
             &&owner.stopped_interval_ns==owner.pause_resume_ns-owner.pause_ack_ns
             &&owner.stopped_interval_ns>ENGINE_SAMPLE_NS&&owner.max_sample_gap_ns>ENGINE_SAMPLE_NS
             &&owner.running_gap_max_ns<=ENGINE_SAMPLE_NS&&private_cost.debt==private_cost.debt_paid,
-            "actual ACKed stable USER and SYSTEM stop beyond50ms preserves bounded running sides and full settlement");
-        printf("private_stopped_gap_process_source_known original_pid=%d ack_ns=%llu ack_RI_begin_ns=%llu ack_RI_return_ns=%llu resume_RI_begin_ns=%llu resume_RI_return_ns=%llu resume_signal_ns=%llu ACK_USER_raw=%llu end_USER_raw=%llu ACK_SYSTEM_raw=%llu end_SYSTEM_raw=%llu stopped_interval_ns=%llu raw_gap_max_ns=%llu running_gap_max_ns=%llu helper_CPU_ns=%llu helper_debt_delta_ns=%llu debt_ns=%llu paid_ns=%llu actual_own_wait4=1 group_gone=1 original_FD_closed=true native_process=true installed_tool_qualification=false runtime_approved=false\n",
+            "actual ACKed exact USER and bounded SYSTEM stop beyond50ms preserves running sides and full settlement");
+        printf("private_stopped_gap_process_source_known original_pid=%d ack_ns=%llu ack_RI_begin_ns=%llu ack_RI_return_ns=%llu resume_RI_begin_ns=%llu resume_RI_return_ns=%llu resume_signal_ns=%llu ACK_USER_raw=%llu end_USER_raw=%llu ACK_SYSTEM_raw=%llu end_SYSTEM_raw=%llu stopped_system_ns=%llu system_timebase_numer=%llu system_timebase_denom=%llu stopped_interval_ns=%llu raw_gap_max_ns=%llu running_gap_max_ns=%llu helper_CPU_ns=%llu helper_debt_delta_ns=%llu debt_ns=%llu paid_ns=%llu actual_own_wait4=1 group_gone=1 original_FD_closed=true native_process=true installed_tool_qualification=false runtime_approved=false\n",
             owner.ticket.pid,(unsigned long long)owner.pause_ack_ns,(unsigned long long)owner.pause_ack_ri_begin_ns[0],(unsigned long long)owner.pause_ack_ri_end_ns[0],
             (unsigned long long)owner.pause_resume_ri_begin_ns[0],(unsigned long long)owner.pause_resume_ri_end_ns[0],(unsigned long long)owner.pause_resume_ns,
             (unsigned long long)owner.pause_user[0],(unsigned long long)owner.pause_observed_user[0],(unsigned long long)owner.pause_system[0],(unsigned long long)owner.pause_observed_system[0],
+            (unsigned long long)owner.stopped_system_ns,(unsigned long long)owner.pause_timebase_numer,(unsigned long long)owner.pause_timebase_denom,
             (unsigned long long)owner.stopped_interval_ns,(unsigned long long)owner.max_sample_gap_ns,(unsigned long long)owner.running_gap_max_ns,
             (unsigned long long)owner.terminal_cpu_ns,(unsigned long long)owner.helper_debt_delta_ns,(unsigned long long)private_cost.debt,(unsigned long long)private_cost.debt_paid);
         require(fflush(stdout)==0&&private_end_unit(private_cost.open_cpu),"stopped interval actual process receipt fully paid after original FD disposal");
@@ -1241,18 +1248,107 @@ static void total_control(const char *self,const char *root,int dir,unsigned mod
     controls++;
 }
 
+// Fixed first/last/failed snapshots: no formatting or helper observation is
+// added to the existing sample loop. Copies retain only this owned fixture.
+struct fixture_debt_sample_row {
+    struct engine_owner owner;struct private_metrics before_cost,after_cost;
+    uint64_t wall_begin,wall_return,cpu_begin,cpu_return,previous_start[2],attempt;
+    int result,saved_errno,wnowait_done;unsigned owner_present,sample_present,private_failed_at_capture;
+};
+struct fixture_debt_sample_trace {
+    uint64_t attempts,error_attempt;unsigned first_known,last_known,failed_known,errors_known,truncated,terminal_done,saturated;
+    char owner_code[49],owner_detail[161],private_code[49],private_detail[161];
+    struct fixture_debt_sample_row first,last,failed;
+};
+static void fixture_debt_text(char *out,size_t cap,const char *text,unsigned *truncated) {
+    if(!text)text="none";size_t n=strnlen(text,cap);if(n>=cap){n=cap-1;*truncated=1;}memcpy(out,text,n);out[n]=0;
+}
+static void fixture_debt_error(struct fixture_debt_sample_trace *t,const struct engine_owner *o,uint64_t attempt) {
+    if(t->errors_known)return;t->errors_known=1;t->error_attempt=attempt;
+    fixture_debt_text(t->owner_code,sizeof(t->owner_code),o&&o->result?o->result->error_code:NULL,&t->truncated);
+    fixture_debt_text(t->owner_detail,sizeof(t->owner_detail),o&&o->result?o->result->error_detail:NULL,&t->truncated);
+    fixture_debt_text(t->private_code,sizeof(t->private_code),private_failed?private_error:NULL,&t->truncated);
+    fixture_debt_text(t->private_detail,sizeof(t->private_detail),private_failed?private_detail:NULL,&t->truncated);
+}
+static void fixture_debt_before(struct fixture_debt_sample_row *r,const struct engine_owner *o,int done) {
+    memset(r,0,sizeof(*r));r->before_cost=private_cost;r->wnowait_done=done;r->owner_present=r->sample_present=1;
+    for(unsigned i=0;i<2;i++)r->previous_start[i]=o->members[i].ri_started_ns;
+    r->wall_begin=clock_ns(CLOCK_MONOTONIC);r->cpu_begin=clock_ns(CLOCK_THREAD_CPUTIME_ID);
+}
+static void fixture_debt_after(struct fixture_debt_sample_trace *t,struct fixture_debt_sample_row *r,const struct engine_owner *o,
+        int result,int saved_errno,uint64_t wall,uint64_t cpu) {
+    r->result=result;r->saved_errno=saved_errno;r->wall_return=wall;r->cpu_return=cpu;r->owner=*o;r->after_cost=private_cost;r->private_failed_at_capture=(unsigned)private_failed;
+    if(t->attempts!=UINT64_MAX)t->attempts++;else t->saturated=1;r->attempt=t->attempts;
+    if(!t->first_known){t->first=*r;t->first_known=1;}t->last=*r;t->last_known=1;
+    if(!result&&!t->failed_known){t->failed=*r;t->failed_known=1;}
+    if(!result||o->failed||private_failed)fixture_debt_error(t,o,r->attempt);
+}
+static void fixture_debt_emit(const struct fixture_debt_sample_trace *t,const struct engine_owner *ending,int settled,const char *label,int checked) {
+    uint64_t at=private_cost.open_cpu;char oc[300],od[1000],pc[300],pd[1000],label_text[241],qlabel[1500];unsigned clipped=t->truncated;
+    fixture_debt_text(label_text,sizeof(label_text),label,&clipped);
+    int quoted=private_json_quoted(t->errors_known?t->owner_code:"none",oc,sizeof(oc))&&private_json_quoted(t->errors_known?t->owner_detail:"none",od,sizeof(od))
+        &&private_json_quoted(t->errors_known?t->private_code:"none",pc,sizeof(pc))&&private_json_quoted(t->errors_known?t->private_detail:"none",pd,sizeof(pd))&&private_json_quoted(label_text,qlabel,sizeof(qlabel));
+    char bytes[16384];size_t used=0;int formatted=quoted,n=0;
+#define FIXTURE_DEBT_APPEND(...) do {if(formatted){n=snprintf(bytes+used,sizeof(bytes)-used,__VA_ARGS__);if(n<=0||(size_t)n>=sizeof(bytes)-used)formatted=0;else used+=(size_t)n;}}while(0)
+    FIXTURE_DEBT_APPEND("%s {\"kind\":\"%s\",\"label\":%s,\"attempts\":%llu,\"attempts_saturated\":%s,\"terminal_WNOWAIT_done\":%u,\"actual_settled\":%s,\"ending_owner_present\":%s,\"ending_own_wait4\":%u,\"ending_group_gone\":%u,\"first_error_attempt\":%llu,\"owner_first_error\":%s,\"owner_first_detail\":%s,\"private_first_error\":%s,\"private_first_detail\":%s,\"first_text_truncated\":%s,\"rows\":{",
+        checked?"private_long_wall_sample_diagnostic_source_known":"private_fixture_failure_snapshot_source_known",checked?"fixture_long_wall_samples":"fixture_failure_snapshot",qlabel,
+        (unsigned long long)t->attempts,t->saturated?"true":"false",t->terminal_done,settled?"true":"false",ending?"true":"false",ending?ending->wait_observed:0,ending&&ending->result?ending->result->group_gone:0,
+        (unsigned long long)t->error_attempt,oc,od,pc,pd,clipped?"true":"false");
+    const char *const names[]={"first","last","failed"};const struct fixture_debt_sample_row *const rows[]={&t->first,&t->last,&t->failed};
+    const unsigned known[]={t->first_known,t->last_known,t->failed_known};
+    for(unsigned i=0;i<3;i++) {
+        FIXTURE_DEBT_APPEND("%s\"%s\":",i?",":"",names[i]);if(!known[i]){FIXTURE_DEBT_APPEND("null");continue;}
+        const struct fixture_debt_sample_row *r=rows[i];const struct engine_owner *o=&r->owner;
+        FIXTURE_DEBT_APPEND("{\"attempt\":%llu,\"sample_present\":%s,\"owner_present\":%s,\"sample_return\":%d,\"sample_saved_errno\":%d,\"WNOWAIT_done\":%d,\"owner_failed\":%u,\"private_failed\":%u,\"activation_ns\":%llu,\"sample_wall_begin_ns\":%llu,\"sample_wall_return_ns\":%llu,\"sample_CPU_begin_ns\":%llu,\"sample_CPU_return_ns\":%llu,\"unit_open_before_ns\":%llu,\"unit_open_after_ns\":%llu,\"debt_before_ns\":%llu,\"debt_after_ns\":%llu,\"paid_before_ns\":%llu,\"paid_after_ns\":%llu,\"rest_until_before_ns\":%llu,\"rest_until_after_ns\":%llu,\"ordinary_max_ns\":%llu,\"raw_gap_ns\":%llu,\"raw_gap_max_ns\":%llu,\"running_gap_ns\":%llu,\"running_gap_max_ns\":%llu,\"sample_gap_checks\":%llu,\"RI_previous_mask\":%u,\"RI_begin_mask\":%u,\"RI_return_mask\":%u,\"RI_sticky_gap_mask\":%u,\"first_failed_check_ns\":%llu,\"members\":[",
+            (unsigned long long)r->attempt,r->sample_present?"true":"false",r->owner_present?"true":"false",r->result,r->saved_errno,r->wnowait_done,o->failed,r->private_failed_at_capture,(unsigned long long)o->activation_ns,
+            (unsigned long long)r->wall_begin,(unsigned long long)r->wall_return,(unsigned long long)r->cpu_begin,(unsigned long long)r->cpu_return,
+            (unsigned long long)r->before_cost.open_cpu,(unsigned long long)r->after_cost.open_cpu,(unsigned long long)r->before_cost.debt,(unsigned long long)r->after_cost.debt,
+            (unsigned long long)r->before_cost.debt_paid,(unsigned long long)r->after_cost.debt_paid,(unsigned long long)r->before_cost.rest_until,(unsigned long long)r->after_cost.rest_until,
+            (unsigned long long)r->after_cost.ordinary_max,(unsigned long long)o->sample_gap_ns,(unsigned long long)o->max_sample_gap_ns,(unsigned long long)o->running_gap_ns,(unsigned long long)o->running_gap_max_ns,
+            (unsigned long long)o->sample_gap_checks,o->ri_previous_mask,o->ri_begin_mask,o->ri_end_mask,o->ri_gap_failed_mask,(unsigned long long)o->gap_failed_observed_ns);
+        for(unsigned j=0;j<2;j++) {
+            const struct engine_member *m=&o->members[j];
+            FIXTURE_DEBT_APPEND("%s{\"index\":%u,\"pid\":%d,\"phase\":%u,\"status\":%u,\"priority\":%d,\"RI_start_before_ns\":%llu,\"RI_start_after_ns\":%llu,\"RI_previous_begin_ns\":%llu,\"RI_begin_ns\":%llu,\"RI_return_ns\":%llu,\"first_failed_previous_ns\":%llu,\"first_failed_raw_gap_ns\":%llu,\"first_failed_running_gap_ns\":%llu,\"original_start\":%llu,\"original_birth\":%llu,\"USER_raw\":%llu,\"SYSTEM_raw\":%llu}",j?",":"",j,m->state.pid,m->phase,m->state.status,m->state.priority,
+                (unsigned long long)r->previous_start[j],(unsigned long long)m->ri_started_ns,(unsigned long long)o->ri_previous_ns[j],(unsigned long long)o->ri_begin_ns[j],(unsigned long long)o->ri_end_ns[j],
+                (unsigned long long)o->gap_failed_previous_ns[j],(unsigned long long)o->gap_failed_raw_ns[j],(unsigned long long)o->gap_failed_running_ns[j],(unsigned long long)m->state.start_absolute,(unsigned long long)m->state.birth,(unsigned long long)m->user,(unsigned long long)m->system);
+        }
+        FIXTURE_DEBT_APPEND("]}");
+    }
+    FIXTURE_DEBT_APPEND("},\"capture_cutoff\":\"before_own_format_write_ending_guard\",\"native_process\":true,\"installed_tool_qualification\":false,\"runtime_approved\":false}\n");
+#undef FIXTURE_DEBT_APPEND
+    int written=formatted&&fwrite(bytes,1,used,stderr)==used&&fflush(stderr)==0;
+    int paid=private_end_unit(at);
+    // A failed sample keeps its unchanged original false verdict even if the
+    // diagnostic ending also refuses; its raw cost/debt is still retained.
+    if(checked==1)require(written&&paid,"bounded saved long-wall first last failed sample diagnostic fully paid");
+}
+static void fixture_failure_snapshot(const char *label,const struct engine_owner *owner) {
+    struct fixture_debt_sample_trace trace;memset(&trace,0,sizeof(trace));struct fixture_debt_sample_row *r=&trace.first;
+    trace.first_known=1;r->owner_present=owner!=NULL;if(owner)r->owner=*owner;r->before_cost=r->after_cost=private_cost;r->private_failed_at_capture=(unsigned)private_failed;
+    r->wall_begin=r->wall_return=r->cpu_begin=r->cpu_return=UINT64_MAX;
+    for(unsigned i=0;i<2;i++)r->previous_start[i]=r->owner.members[i].ri_started_ns;
+    fixture_debt_error(&trace,owner,0);fixture_debt_emit(&trace,owner,0,label,0);
+}
+
 static void helper_cpu_debt_control(const char *self,const char *root,int dir) {
     struct engine_owner owner;struct private_engine_result result;int status=-1;
     int born=total_spawn(&owner,&result,self,dir,12,root);
     if(!born){(void)engine_retire(&owner,&status);require(0,"long-wall CPU witness requires unchanged actual native admission");}
+    struct fixture_debt_sample_trace sample_trace;memset(&sample_trace,0,sizeof(sample_trace));
     for(;;) {
-        int done=0;require(known_exited(owner.ticket.pid,&done),"long-wall original WNOWAIT remains owned");if(done)break;
-        require(engine_sample(&owner),"long-wall live helper keeps actual priority CPU and50ms RI guards");
+        int done=0;require(known_exited(owner.ticket.pid,&done),"long-wall original WNOWAIT remains owned");if(done){sample_trace.terminal_done=1;break;}
+        struct fixture_debt_sample_row sample_row;fixture_debt_before(&sample_row,&owner,done);
+        int sample_result=engine_sample(&owner),sample_errno=errno;
+        uint64_t sample_return_cpu=clock_ns(CLOCK_THREAD_CPUTIME_ID),sample_return_wall=clock_ns(CLOCK_MONOTONIC);
+        fixture_debt_after(&sample_trace,&sample_row,&owner,sample_result,sample_errno,sample_return_wall,sample_return_cpu);
+        if(!sample_result)fixture_debt_emit(&sample_trace,&owner,0,"before original live-sample guard verdict",2);
+        require(sample_result,"long-wall live helper keeps actual priority CPU and50ms RI guards");
     }
     (void)engine_retire(&owner,&status);
     uint64_t cpu=engine_wait4_cpu(&owner.retained_wait),wall=engine_interval(owner.activation_ns,owner.wait_read_ns);
     int settled=owner.wait_observed&&owner.direct_reaped&&result.group_gone&&result.retired_coverage&&!engine_current;
     if(settled)fixture_live_owner=NULL;
+    fixture_debt_emit(&sample_trace,&owner,settled,"after original retirement",1);
     require(settled&&owner.native.cpu_known&&owner.native.wall_known&&owner.native.cpu<=2000000&&owner.native.wall<=250000000
         &&result.inclusive_max_ns.known&&result.inclusive_max_ns.value<=3000000&&private_cost.ordinary_max<=1000000
         &&owner.max_sample_gap_ns<=ENGINE_SAMPLE_NS&&owner.terminal_budget_passed,
@@ -1714,6 +1810,14 @@ static void same_wake_copy(int from,const char *source,int to,const char *target
     }
     require(close(input)==0&&close(output)==0&&private_end_unit(private_cost.open_cpu),"same-wake fixture copy final cost and original descriptors paid");
 }
+static void same_wake_handoff_diagnostic(const char *first_code,const char *first_detail) {
+    const struct same_wake_handoff_row *first=&same_wake_handoff.first,*last=&same_wake_handoff.last;
+    printf("private_same_wake_handoff_diagnostic_source_known first_error=%s first_detail=\"%s\" rows=%llu zero_timeout_poll_calls=%llu max_open_CPU_ns=%llu first_stage=%u first_phase=%u first_open_CPU_ns=%llu first_CPU_ns=%llu first_wall_ns=%llu last_stage=%u last_guard_steps=%u last_phase=%u last_pending=%u last_STOP=%u registered_mask=%u exec_gate_released=%u watch_release_ns=%llu last_open_CPU_ns=%llu last_CPU_ns=%llu last_used_CPU_ns=%llu last_wall_ns=%llu last_result=%u no_timing_cause_inferred=true runtime_approved=false\n",
+        first_code,first_detail,(unsigned long long)same_wake_handoff.rows,(unsigned long long)same_wake_handoff.polls,(unsigned long long)same_wake_handoff.max_used,
+        first->stage,first->phase,(unsigned long long)first->open_cpu,(unsigned long long)first->cpu_now,(unsigned long long)first->wall_ns,
+        last->stage,last->steps,last->phase,last->pending,last->attachment_stop,last->registered,last->exec_released,(unsigned long long)same_wake_watch_release_ns,
+        (unsigned long long)last->open_cpu,(unsigned long long)last->cpu_now,(unsigned long long)last->used,(unsigned long long)last->wall_ns,last->result);
+}
 static void same_wake_admission_control(const char *self,const char *root,int parent) {
     reset();require(mkdirat(parent,"same-wake",0700)==0,"fresh same-wake fixture directory");
     int dir=openat(parent,"same-wake",O_RDONLY|O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC);require(dir>=0&&mkdirat(dir,"t",0700)==0,"owned same-wake scratch");
@@ -1731,26 +1835,29 @@ static void same_wake_admission_control(const char *self,const char *root,int pa
     struct engine_owner o;struct private_engine_result r;int status=-1;require(total_spawn(&o,&r,self,dir,27,owned),"same-wake original prepared leader obeys unchanged native and QoS gates");
     source_known_child_watch_bound=same_wake_watch_ready;source_known_child_handoff=same_wake_handoff_retain;private_rest_control=same_wake_rest_observer;
     const char *first_code="none",*first_detail="none";
+    unsigned handoff_failed=0;
     for(;;) {
         int done=0;require(known_exited(o.ticket.pid,&done),"same-wake original leader WNOWAIT remains owned");if(done)break;
-        if(!engine_events_service(&o,1000000)){first_code=private_error;first_detail=private_detail;break;}
+        if(!engine_events_service(&o,1000000)){first_code=private_error;first_detail=private_detail;handoff_failed=1;break;}
         if(o.child_image_admitted)break;
         // Keep the gated leader's actual RI fresh without invoking the group
         // census whose independent peak update would hide an admission bug.
-        if(!engine_sample_member(&o,0,o.ticket.pid)||!engine_checkpoint(&o)){first_code=private_error;first_detail=private_detail;break;}
+        if(!engine_sample_member(&o,0,o.ticket.pid)||!engine_checkpoint(&o)){first_code=private_error;first_detail=private_detail;handoff_failed=1;break;}
     }
     unsigned actual_peak_at_admission=r.members_max;
     source_known_child_watch_bound=NULL;source_known_child_handoff=NULL;private_rest_control=NULL;
     // Ensure the adversarial gap ends with THIS helper parent consuming its
     // child. Failure assertion uses existing exact fixture cleanup, not a new
     // product quarantine-exit or any fabricated child own-wait4.
-    same_wake_release_execute();same_wake_create_gate("exit");await_original(&o);
-    const struct same_wake_handoff_row *first=&same_wake_handoff.first,*last=&same_wake_handoff.last;
-    printf("private_same_wake_handoff_diagnostic_source_known first_error=%s first_detail=\"%s\" rows=%llu zero_timeout_poll_calls=%llu max_open_CPU_ns=%llu first_stage=%u first_phase=%u first_open_CPU_ns=%llu first_CPU_ns=%llu first_wall_ns=%llu last_stage=%u last_guard_steps=%u last_phase=%u last_pending=%u last_STOP=%u registered_mask=%u exec_gate_released=%u watch_release_ns=%llu last_open_CPU_ns=%llu last_CPU_ns=%llu last_used_CPU_ns=%llu last_wall_ns=%llu last_result=%u no_timing_cause_inferred=true runtime_approved=false\n",
-        first_code,first_detail,(unsigned long long)same_wake_handoff.rows,(unsigned long long)same_wake_handoff.polls,(unsigned long long)same_wake_handoff.max_used,
-        first->stage,first->phase,(unsigned long long)first->open_cpu,(unsigned long long)first->cpu_now,(unsigned long long)first->wall_ns,
-        last->stage,last->steps,last->phase,last->pending,last->attachment_stop,last->registered,last->exec_released,(unsigned long long)same_wake_watch_release_ns,
-        (unsigned long long)last->open_cpu,(unsigned long long)last->cpu_now,(unsigned long long)last->used,(unsigned long long)last->wall_ns,last->result);
+    same_wake_release_execute();same_wake_create_gate("exit");
+    // Emit only the already-retained failed handoff before the unchanged
+    // original wait can reach its deadline. No new process observation occurs.
+    if(handoff_failed) {
+        same_wake_handoff_diagnostic(first_code,first_detail);
+        require(fflush(stdout)==0&&private_end_unit(private_cost.open_cpu),"same-wake first failed handoff diagnostic fully paid before original await");
+    }
+    await_original(&o);
+    if(!handoff_failed)same_wake_handoff_diagnostic(first_code,first_detail);
     printf("private_same_wake_execute_wakeup_source_known prepared_before_birth=true original_FIFO_dev=%llu original_FIFO_ino=%llu write_result=%d write_errno=%d write_begin_CPU_ns=%llu write_end_CPU_ns=%llu child_uses_blocking_read=true child_execute_timer_poll=false controller_write_nonblocking=true runtime_approved=false\n",
         (unsigned long long)same_wake_execute_stat.st_dev,(unsigned long long)same_wake_execute_stat.st_ino,same_wake_write_result,same_wake_write_errno,
         (unsigned long long)same_wake_write_begin_CPU,(unsigned long long)same_wake_write_end_CPU);
@@ -2062,6 +2169,7 @@ static void stopped_gap_api_owner(struct engine_owner *o,struct private_engine_r
     o->pause_ack_ri_begin_ns[0]=111000000;o->pause_ack_ri_end_ns[0]=112000000;
     o->pause_user[0]=o->pause_observed_user[0]=o->members[0].user=100;
     o->pause_system[0]=o->pause_observed_system[0]=o->members[0].system=200;
+    o->pause_timebase_numer=o->pause_timebase_denom=1;
     o->pause_resume_ri_begin_ns[0]=208000000;o->pause_resume_ri_end_ns[0]=209000000;
     o->pause_validated_ri_end_ns[0]=209000000;o->pause_resume_ns=210000000;
     o->pause_resume_attempted=o->pause_resume_admitted=1;
@@ -2082,8 +2190,12 @@ static void stopped_gap_api(void) {
     require(!engine_sample_gap(&o,150000001)&&o.running_gap_max_ns==50000001&&o.members[0].ri_started_ns==100000000,
         "running RI gap over50ms refuses without resetting previous begin");
     stopped_gap_api_owner(&o,&r);o.pause_resume_attempted=o.pause_resume_admitted=0;
-    require(!engine_pause_live_system(&o,0,201)&&o.pause_system_violation&&!(o.pause_counter_known_mask&1),
-        "SYSTEM growth invalidates the immutable ACK counter seal");
+    require(engine_pause_live_system(&o,0,50200)&&o.pause_system_ns[0]==50000&&o.stopped_system_ns==50000
+        &&engine_sample_gap(&o,230000000)&&!o.pause_system_violation,
+        "aggregate stopped SYSTEM at exactly50us preserves stopped-gap admission");
+    require(!engine_pause_live_system(&o,0,50201)&&o.pause_system_violation&&!(o.pause_counter_known_mask&1)
+        &&o.pause_observed_system[0]==50201,
+        "SYSTEM beyond50us invalidates the immutable ACK counter seal");
     require(!engine_sample_gap(&o,230000000)&&o.running_gap_max_ns==130000000,
         "changed SYSTEM cannot retain a stopped-gap exclusion");
     stopped_gap_api_owner(&o,&r);o.pause_resume_attempted=o.pause_resume_admitted=0;
@@ -2117,9 +2229,72 @@ static void stopped_gap_api(void) {
         "provisional stopped accounting observation does not publish an unvalidated future interval");
     o.pause_validated_ri_end_ns[0]=230000000;engine_stopped_interval_record(&o);engine_stopped_interval_record(&o);
     require(o.stopped_interval_ns==120000000,"repeated validated stopped observations never double-count interval credit");
+    stopped_gap_api_owner(&o,&r);o.pause_resume_attempted=o.pause_resume_admitted=0;o.pause_ack_mask=o.pause_counter_known_mask=3;
+    o.pause_user[1]=o.pause_observed_user[1]=100;o.pause_system[1]=o.pause_observed_system[1]=300;
+    require(engine_pause_live_system(&o,0,30200)&&engine_pause_live_system(&o,1,20300)
+        &&o.pause_system_ns[0]==30000&&o.pause_system_ns[1]==20000&&o.stopped_system_ns==50000,
+        "two-member aggregate SYSTEM30000 plus20000ns preserves exact50us bound");
+    // A supplied terminal receipt/known CPU drives the REAL payment function.
+    // It is not an actual native wait4 or a new per-member CPU allocation.
+    o.wait_observed=1;o.terminal_cpu_ns=2000000;
+    require(engine_helper_payment(&o)&&o.helper_cost_ns==2000000&&o.helper_debt_delta_ns==18000000
+        &&o.helper_cost_retained&&o.helper_cost_paid&&private_cost.debt==private_cost.debt_paid&&o.stopped_system_ns==50000,
+        "stopped SYSTEM remains inside full supplied terminal CPU bill without subtraction or duplicate debit");
+    require(!engine_pause_live_system(&o,1,20301)&&o.pause_system_violation&&o.stopped_system_ns==50001,
+        "aggregate SYSTEM30000 plus20001ns refuses despite each member below50us");
+    uint64_t converted=UINT64_MAX;
+    require(engine_pause_system_delta(42377,42483,125,3,&converted)&&converted==4417
+        &&engine_pause_system_ns_allowed(converted)&&engine_pause_system_allowed(200,201)
+        &&!engine_pause_system_delta(201,200,1,1,&converted)
+        &&!engine_pause_system_delta(200,201,0,1,&converted)&&!engine_pause_system_delta(200,201,1,0,&converted)
+        &&!engine_pause_system_delta(UINT64_MAX,UINT64_MAX,1,1,&converted)&&!engine_pause_system_ns_allowed(UINT64_MAX),
+        "stopped SYSTEM conversion uses checked ceil retained timebase and preserves unknown or reversed inputs");
     reset();controls++;
-    printf("private_stopped_gap_API_source_known cases=14 stopped_raw_gap_ns=130000000 stopped_running_gap_ns=20000000 exact_each_side_ns=50000000 no_ACK_refused=true running_over50_refused=true USER_SYSTEM_growth_refused=true query_return_overshoot_refused=true raw_endpoints_retained=true native_process=false values_supplied=true OS_timing_claimed=false runtime_approved=false\n");
+    printf("private_stopped_gap_API_source_known cases=16 stopped_raw_gap_ns=130000000 stopped_running_gap_ns=20000000 exact_each_side_ns=50000000 no_ACK_refused=true running_over50_refused=true USER_growth_refused=true SYSTEM_limit_ns=50000 SYSTEM_overlimit_refused=true aggregate_SYSTEM_bound=true checked_timebase=true full_known_cost_supplied=true actual_own_wait4=false query_return_overshoot_refused=true raw_endpoints_retained=true native_process=false values_supplied=true OS_timing_claimed=false runtime_approved=false\n");
     require(fflush(stdout)==0&&private_end_unit(private_cost.open_cpu),"bounded stopped-gap API evidence fully paid");
+}
+// Supplied USER-only production API witnesses. No PID, native RI, ownwait4,
+// OS CPU measurement or helper bill is fabricated. Actual physical modes9/10
+// remain independently mandatory with their original cost/custody assertions.
+static void pause_user_only_api(unsigned mode) {
+    require(mode<2,"two USER-only supplied production API scopes");reset();
+    struct engine_owner o;struct private_engine_result r;memset(&o,0,sizeof(o));memset(&r,0,sizeof(r));o.context=&context;o.result=&r;
+    o.pause_ack_mask=o.pause_counter_known_mask=1;o.pause_user[0]=o.pause_observed_user[0]=100;
+    o.pause_system[0]=o.pause_observed_system[0]=200;o.members[0].user=100;o.members[0].system=200;o.members[0].state.start_absolute=77;
+    o.pause_timebase_numer=o.pause_timebase_denom=1;
+    int accepted,refused;const char *assertion;
+    if(mode==0) {
+        struct rusage_info_v1 u;memset(&u,0,sizeof(u));u.ri_proc_start_abstime=77;u.ri_user_time=100;u.ri_system_time=200;
+        require(engine_usage(&o,0,&u)&&!o.failed&&!private_failed&&!o.pause_user_violation&&!o.pause_system_violation,
+            "USER-only live API unchanged counters are accepted by actual usage path");
+        u.ri_user_time=101;accepted=engine_usage(&o,0,&u);
+        refused=!accepted&&o.pause_live_checked&&o.pause_user_violation&&!o.pause_user_pass
+            &&o.members[0].user==101&&o.pause_observed_user[0]==101&&o.pause_system[0]==200&&o.pause_observed_system[0]==200
+            &&!o.pause_system_violation&&o.pause_counter_known_mask==1&&o.failed&&private_failed
+            &&!strcmp(private_error,"resource_limit")&&!strcmp(private_detail,"user CPU grew after immutable positive pause ACK");
+        assertion="USER-only live production API refuses growth with unchanged SYSTEM";
+    } else {
+        o.pause_user[0]=o.pause_observed_user[0]=o.members[0].user=5000000;
+        o.pause_baseline_known=1;o.pause_user_baseline_ns=5000000;o.wait_user=5001000;
+        require(engine_pause_live_system(&o,0,200)&&engine_terminal_pause_user(&o)&&!o.failed&&!private_failed,
+            "USER-only terminal API preserves exact one microsecond observer boundary");
+        o.wait_user=5001001;accepted=engine_terminal_pause_user(&o);
+        refused=!accepted&&o.pause_terminal_checked&&o.pause_user_violation&&!o.pause_user_pass
+            &&o.pause_terminal_user_ns==5001001&&o.pause_user_excess_ns==1001
+            &&o.pause_system[0]==200&&o.pause_observed_system[0]==200&&!o.pause_system_violation
+            &&o.failed&&private_failed&&!strcmp(private_error,"resource_limit")
+            &&!strcmp(private_detail,"terminal user CPU exceeds immutable pause ACK plus exact1us wait4 resolution");
+        assertion="USER-only terminal production API refuses excess with unchanged SYSTEM";
+    }
+    o.wait_observed=1;o.terminal_cpu_ns=10000000;
+    require(engine_helper_payment(&o)&&o.helper_cost_ns==10000000&&o.helper_debt_delta_ns==90000000
+        &&o.helper_cost_retained&&o.helper_cost_paid&&private_cost.debt==private_cost.debt_paid,
+        "USER-only API retains and pays full supplied known terminal CPU through actual payment function");
+    uint64_t paid_target=private_cost.debt;
+    require(engine_helper_payment(&o)&&private_cost.debt==paid_target,"USER-only API same supplied receipt never duplicates its CPU bill");
+    printf("private_pause_USER_only_API_source_known mode=%u observed_accepted=%d expected_refused=true SYSTEM_before_raw=200 SYSTEM_after_raw=%llu SYSTEM_violation=%u USER_violation=%u full_known_cost_supplied_ns=10000000 helper_debt_delta_ns=90000000 helper_cost_retained=1 helper_cost_paid=1 helper_births=0 actual_own_wait4=false native_process=false values_supplied=true OS_CPU_claimed=false runtime_approved=false\n",mode,accepted,(unsigned long long)o.pause_observed_system[0],o.pause_system_violation,o.pause_user_violation);
+    require(fflush(stdout)==0&&private_end_unit(private_cost.open_cpu),"USER-only API raw formatter and ordinary cost fully paid");
+    require(refused,assertion);controls++;reset();
 }
 static void total_boundary_api(void) {
     reset();struct rusage r;memset(&r,0,sizeof(r));r.ru_utime.tv_usec=249998;
@@ -2176,6 +2351,7 @@ int main(int argc,char **argv) {
     if(argc>=2&&!strcmp(argv[1],"exit-child"))_exit(0);
     if(argc>=2&&!strcmp(argv[1],"held-child")){require(argc==3,"held child arguments");while(access(argv[2],F_OK)!=0)usleep(1000);_exit(0);}
     unsigned boundary=argc==2&&!strcmp(argv[1],"total-boundary-api");
+    unsigned pause_user_case=argc==3&&!strcmp(argv[1],"pause-user-api")?(unsigned)strtoul(argv[2],NULL,10):2;
     unsigned stopped_api=argc==2&&!strcmp(argv[1],"stopped-gap-api");
     unsigned stopped_process=argc==2&&!strcmp(argv[1],"stopped-gap-control");
     unsigned retained=argc==2&&!strcmp(argv[1],"total-retained-guard-api");
@@ -2207,7 +2383,7 @@ int main(int argc,char **argv) {
     unsigned custody_identity=argc==2&&!strcmp(argv[1],"custody-stop-identity-api");
     unsigned exit_before_api=argc==2&&!strcmp(argv[1],"same-wake-exit-api");
     unsigned event_case=argc==3&&!strcmp(argv[1],"verifier-event-control")?(unsigned)strtoul(argv[2],NULL,10):3;
-    require(argc==1||selected<12||diagnostics||setup||deadline||cpu_debt||expand||native_api||native_case<3||race_case<7||event_api||event_case<3||child_exit_api<9||child_exit_process||leader_refresh_api<5||composition||batch||nested_census||same_wake||same_wake_api||event_wait_api||custody_identity||exit_before_api||hold||flow||result_only||final_terms||member_census||charge||boundary||stopped_api||stopped_process||retained,"private source-known controls argc");
+    require(argc==1||selected<12||diagnostics||setup||deadline||cpu_debt||expand||native_api||native_case<3||race_case<7||event_api||event_case<3||child_exit_api<9||child_exit_process||leader_refresh_api<5||composition||batch||nested_census||same_wake||same_wake_api||event_wait_api||custody_identity||exit_before_api||hold||flow||result_only||final_terms||member_census||charge||boundary||stopped_api||stopped_process||pause_user_case<2||retained,"private source-known controls argc");
     require(atexit(dispose_owned)==0,"owned cleanup registration");
     char root[]="/private/tmp/dream-private-engine-controls.XXXXXX";require(mkdtemp(root)!=NULL,"owned fixture directory");
     int dir=open(root,O_RDONLY|O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC);require(dir>=0,"owned fixture root");
@@ -2237,6 +2413,7 @@ int main(int argc,char **argv) {
     if(member_census){member_peak_census_control(self,root,dir);require(close(dir)==0,"owned member census root close");return 0;}
     if(result_only){result_controls();require(close(dir)==0,"owned result root close");return 0;}
     if(boundary){total_boundary_api();require(close(dir)==0,"owned boundary API root close");return 0;}
+    if(pause_user_case<2){pause_user_only_api(pause_user_case);require(close(dir)==0,"owned USER-only API root close");return 0;}
     if(stopped_api){stopped_gap_api();require(close(dir)==0,"owned stopped-gap API root close");return 0;}
     if(stopped_process){total_control(self,root,dir,5);require(close(dir)==0,"owned stopped-gap process root close");return 0;}
     if(retained){total_retained_guard_api();require(close(dir)==0,"owned retained guard API root close");return 0;}
@@ -2280,6 +2457,7 @@ int main(int argc,char **argv) {
     child_exit_witness_control(self,root,dir);
     verifier_event_api();
     for(unsigned mode=0;mode<3;mode++)(void)verifier_event_control(self,root,dir,mode);
+    for(unsigned i=0;i<2;i++)pause_user_only_api(i);
     stopped_gap_api();total_boundary_api();
     total_retained_guard_api();
     quarantine_hold_process_control(self,root,dir);

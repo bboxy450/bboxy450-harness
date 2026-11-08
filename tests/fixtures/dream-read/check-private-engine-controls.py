@@ -41,7 +41,8 @@ LEDGERS = ('final-conjunction-controls.ndjson', 'member-peak-census/total-6.ndjs
 ASSERTIONS = {
  'total-stopped-old-raw-gap': b'stable ACKed stop over50ms retains raw gap and admits both bounded running sides',
  'total-stopped-no-ACK': b'unACKed STOP earns no cadence exclusion even with supplied stable counters',
- 'total-stopped-ignore-SYSTEM': b'SYSTEM growth invalidates the immutable ACK counter seal',
+ 'total-stopped-ignore-SYSTEM': b'SYSTEM beyond50us invalidates the immutable ACK counter seal',
+ 'total-stopped-per-member-only': b'aggregate SYSTEM30000 plus20001ns refuses despite each member below50us',
  'total-stopped-return-gap': b'post-resume RI query-return overshoot refuses and preserves every raw endpoint',
  'total-stopped-no-fresh-end': b'resume without a fresh stopped RI endpoint cannot supply stopped credit',
  'member-peak-drop-admission': b'actual same-wake retained-live peak reaches final conjunction after full original settlement',
@@ -84,8 +85,8 @@ ASSERTIONS = {
  'total-skip-helper-debt': b'actual terminal helper debt precedes next expensive work',
  'total-no-foreground-stop': b'foreground one STOP positive ACK no user growth and admitted single resume',
  'total-false-eperm-settlement': b'EPERM with live original retains same-owner quarantine until actual ownreap and groupgone',
- 'total-pause-terminal-user': b'terminal actual below-cap user growth after ACK refuses without any product resume',
- 'total-pause-live-user': b'live actual below-cap user growth after ACK remains sticky through ownwait4',
+ 'total-pause-terminal-user': b'USER-only terminal production API refuses excess with unchanged SYSTEM',
+ 'total-pause-live-user': b'USER-only live production API refuses growth with unchanged SYSTEM',
  'total-unknown-rss': b'unknown terminal RSS stays unavailable while full known wait4 CPU debt is paid',
  'total-negative-rss-as-zero': b'negative terminal RSS API remains unknown rather than zero or a finite breach',
  'total-terminal-rss': b'actual terminal wait4 RSS above16MiB refuses after ownreap and full CPU payment',
@@ -339,8 +340,10 @@ def variants(source):
     add('total-stopped-old-raw-gap', b'if(running_gap==UINT64_MAX||running_gap>ENGINE_SAMPLE_NS)',
         b'if(gap==UINT64_MAX||gap>ENGINE_SAMPLE_NS)', ['stopped-gap-api'])
     add('total-stopped-no-ACK', b'!(o->pause_ack_mask&bit)', b'0', ['stopped-gap-api'])
-    add('total-stopped-ignore-SYSTEM', b'return before!=UINT64_MAX&&after==before;',
-        b'(void)before;(void)after;return 1;', ['stopped-gap-api'])
+    add('total-stopped-ignore-SYSTEM', b'return ns!=UINT64_MAX&&ns<=50000;',
+        b'(void)ns;return 1;', ['stopped-gap-api'])
+    add('total-stopped-per-member-only', b'if(!engine_pause_system_ns_allowed(o->stopped_system_ns)) {',
+        b'if(!engine_pause_system_ns_allowed(ns)) {', ['stopped-gap-api'])
     add('total-stopped-return-gap', b'int pass=engine_sample_gap(o,ended);if(!pass)o->ri_gap_failed_mask|=bit;return pass;',
         b'int pass=1;if(!pass)o->ri_gap_failed_mask|=bit;return pass;', ['stopped-gap-api'])
     add('total-stopped-no-fresh-end', b'||resume_end<resume_begin', b'||0', ['stopped-gap-api'])
@@ -429,8 +432,8 @@ def variants(source):
     add('total-native-false-empty', b'static int native_pid_list_empty(int count,int error) {return count==0&&error==0;}', b'static int native_pid_list_empty(int count,int error) {(void)error;return count==0;}', ['total-retained-guard-api'])
     pause_anchor=b'static int engine_pause_user_allowed(uint64_t before,uint64_t after,uint64_t resolution) {'
     pause_mutant=pause_anchor+b'(void)before;(void)after;(void)resolution;return 1;'
-    add('total-pause-terminal-user', pause_anchor, pause_mutant, ['total-control', '9'])
-    add('total-pause-live-user', pause_anchor, pause_mutant, ['total-control', '10'])
+    add('total-pause-terminal-user', pause_anchor, pause_mutant, ['pause-user-api', '1'])
+    add('total-pause-live-user', pause_anchor, pause_mutant, ['pause-user-api', '0'])
     add('total-unknown-rss', b'int pause_pass=engine_terminal_pause_user(o),rss_known=o->wait_rss!=UINT64_MAX;', b'int pause_pass=engine_terminal_pause_user(o),rss_known=1;', ['total-control', '11'])
     add('total-negative-rss-as-zero', b'static uint64_t engine_rss_value(long raw) {return raw<0?UINT64_MAX:(uint64_t)raw;}', b'static uint64_t engine_rss_value(long raw) {return raw<0?0:(uint64_t)raw;}', ['total-boundary-api'])
     add('skipped-engine', DISPATCH, b'(void)context;(void)result;return 0;', ['result-controls'])
@@ -499,7 +502,8 @@ def stopped_cadence_receipt(stdout):
         raise ValueError('stopped cadence receipt has malformed or duplicate fields')
     row=dict(pairs)
     names=('original_pid','ack_ns','ack_RI_begin_ns','ack_RI_return_ns','resume_RI_begin_ns','resume_RI_return_ns',
-        'resume_signal_ns','ACK_USER_raw','end_USER_raw','ACK_SYSTEM_raw','end_SYSTEM_raw','stopped_interval_ns',
+        'resume_signal_ns','ACK_USER_raw','end_USER_raw','ACK_SYSTEM_raw','end_SYSTEM_raw','stopped_system_ns',
+        'system_timebase_numer','system_timebase_denom','stopped_interval_ns',
         'raw_gap_max_ns','running_gap_max_ns','helper_CPU_ns','helper_debt_delta_ns','debt_ns','paid_ns')
     if any(not re.fullmatch(rb'[0-9]+',row.get(k.encode(),b'')) for k in names):
         raise ValueError('stopped cadence numeric endpoints/counters unavailable')
@@ -508,19 +512,23 @@ def stopped_cadence_receipt(stdout):
         b'native_process':b'true',b'installed_tool_qualification':b'false',b'runtime_approved':b'false'}
     if (any(row.get(k)!=v for k,v in required.items()) or not n['original_pid']
             or not 0<n['ack_ns']<=n['ack_RI_begin_ns']<=n['ack_RI_return_ns']<=n['resume_RI_begin_ns']<=n['resume_RI_return_ns']<=n['resume_signal_ns']
-            or n['ACK_USER_raw']!=n['end_USER_raw'] or n['ACK_SYSTEM_raw']!=n['end_SYSTEM_raw']
+            or n['ACK_USER_raw']!=n['end_USER_raw'] or n['end_SYSTEM_raw']<n['ACK_SYSTEM_raw']
+            or not n['system_timebase_numer'] or not n['system_timebase_denom']
+            or n['stopped_system_ns']!=((n['end_SYSTEM_raw']-n['ACK_SYSTEM_raw'])*n['system_timebase_numer']+n['system_timebase_denom']-1)//n['system_timebase_denom']
+            or n['stopped_system_ns']>50000 or n['helper_CPU_ns']<n['stopped_system_ns']
             or n['stopped_interval_ns']!=n['resume_signal_ns']-n['ack_ns'] or n['stopped_interval_ns']<=50000000
             or n['raw_gap_max_ns']<=50000000 or n['running_gap_max_ns']>50000000
             or n['helper_debt_delta_ns']!=9*max(1000000,n['helper_CPU_ns']) or n['debt_ns']!=n['paid_ns']):
-        raise ValueError('actual stopped cadence lacks stable USER/SYSTEM, exact ACK/resume cut, bounded running sides or full paid settlement')
+        raise ValueError('actual stopped cadence lacks exact USER/bounded aggregate SYSTEM, exact ACK/resume cut, bounded running sides or full paid settlement')
     return dict(n,scope='actual owned STOP/RI/resume/ownwait4/groupgone; no installed tool qualification',
-        ledger_fields={'stopped_interval_ns':'u64','running_gap_max_ns':'u64'},runtime_approved=False)
+        ledger_fields={'stopped_interval_ns':'u64','running_gap_max_ns':'u64','stopped_system_ns':'u64'},
+        nonzero_stopped_SYSTEM_observed=n['stopped_system_ns']>0,SYSTEM_inside_full_wait4_CPU_not_subtracted=True,runtime_approved=False)
 
 
 def retain_current(stdout, report):
-    found=re.findall(rb'private_engine_controls=pass cases=109 total_budget_controls=8 synthetic_source_known=true real_candidate_created=0 runtime_approved=false retained=(/private/tmp/dream-private-engine-controls\.[A-Za-z0-9]+)\n',stdout)
+    found=re.findall(rb'private_engine_controls=pass cases=111 total_budget_controls=8 synthetic_source_known=true real_candidate_created=0 runtime_approved=false retained=(/private/tmp/dream-private-engine-controls\.[A-Za-z0-9]+)\n',stdout)
     if len(found)!=1:
-        raise ValueError('current fixture lacks exact109 remaining controls and eight total-budget witnesses')
+        raise ValueError('current fixture lacks exact111 remaining controls and eight total-budget witnesses')
     if os.fsdecode(found[0]) != report['commands'][-1]['fixture_capture']['source_dir']:
         raise ValueError('completed fixture root differs from original command binding')
     modes=re.findall(rb'private_total_budget_control_source_known mode=([0-9]+) original_pid=([0-9]+) actual_own_wait4=1 group_gone=1 terminal_cpu_ns=([0-9]+)',stdout)
@@ -668,11 +676,49 @@ def retain_current(stdout, report):
         'ledger_bool_terms':list(FINAL_TERMS),'first_failure_field':'first_failing_term:string',
         'snapshot_cutoff':'before_this_diagnostic_format_write_fsync_close','writer_tail_all_costs_paid_before_completion':True,
         'API_rows':3,'source_known_full15_integration_variants':[0,3],'runtime_approved':False}
-    report['baseline_cases']=109
+    report['baseline_cases']=111
     report['stopped_cadence_actual_process']=stopped_cadence_receipt(stdout)
-    stopped_api=b'private_stopped_gap_API_source_known cases=14 stopped_raw_gap_ns=130000000 stopped_running_gap_ns=20000000 exact_each_side_ns=50000000 no_ACK_refused=true running_over50_refused=true USER_SYSTEM_growth_refused=true query_return_overshoot_refused=true raw_endpoints_retained=true native_process=false values_supplied=true OS_timing_claimed=false runtime_approved=false\n'
-    if stdout.count(stopped_api)!=1:raise ValueError('fourteen supplied stopped/running cadence API guards missing or duplicated')
-    report['stopped_cadence_API']={'cases':14,'scope':'supplied clocks/ACK state/USER/SYSTEM and actual production interval predicates; no native signal or OS timing claim',
+    USER_rows=re.findall(rb'private_pause_USER_only_API_source_known mode=([01]) observed_accepted=0 expected_refused=true SYSTEM_before_raw=200 SYSTEM_after_raw=200 SYSTEM_violation=0 USER_violation=1 full_known_cost_supplied_ns=10000000 helper_debt_delta_ns=90000000 helper_cost_retained=1 helper_cost_paid=1 helper_births=0 actual_own_wait4=false native_process=false values_supplied=true OS_CPU_claimed=false runtime_approved=false',stdout)
+    if sorted(map(int,USER_rows))!=[0,1]:raise ValueError('USER-only production API live/terminal refusals lack isolated SYSTEM-stable supplied vectors')
+    report['pause_USER_only_causal_API']={'modes':{'0':'actual engine_usage path, supplied raw USER100->101/SYSTEM200 unchanged','1':'actual terminal guard, supplied5ms+1000ns boundary accepted/+1001ns refused'},'scope':'supplied production guard/known10ms CPU/receipt-ready inputs; actual production payment retains/pays90ms debt once; no native process/RI/ownwait4/OS CPU proof; physical modes9/10 remain mandatory','native_process':False,'runtime_approved':False}
+    # These are genuine pre-stimulus observations from unchanged physical
+    # modes9/10. Never substitute the API's supplied counters for these bytes.
+    command=report['commands'][-1]
+    pause_snapshots=[]
+    prefix=b'private_pause_pre_stimulus_snapshot_source_known '
+    for line in read_stable(command['stderr']['path'],2*1024*1024).splitlines():
+        if line.startswith(prefix):pause_snapshots.append(json.loads(line[len(prefix):]))
+    if sorted(x.get('mode') for x in pause_snapshots)!=[9,10]:raise ValueError('both unchanged physical pause baselines require one actual pre-stimulus snapshot')
+    physical_system=[]
+    for x in pause_snapshots:
+        suffix=f'/total-{x["mode"]}.ndjson'
+        files=[f for f in command['fixture_capture']['files'] if f['path'].endswith(suffix)]
+        if len(files)!=1:raise ValueError('physical pause snapshot lacks exact retained original ledger')
+        rows=[json.loads(line) for line in read_stable(files[0]['path'],2*1024*1024).splitlines()]
+        h=next(v for v in rows if v.get('kind')=='helper_total_budget')
+        p=next(v for v in rows if v.get('kind')=='pause_user_and_terminal_rss')
+        numer,denom=p['system_timebase_numer'],p['system_timebase_denom']
+        before,after=x['ACK_SYSTEM_raw'],x['current_SYSTEM_raw']
+        if (not numer or not denom or before>after or x['original_pid']!=h['pid']
+                or x['ACK_SYSTEM_raw']!=p['ack_system_raw'][0]
+                or x['ACK_USER_raw']!=x['current_USER_raw'] or x['ACK_USER_raw']!=p['ack_user_raw'][0]
+                or x['sample_return']!=1 or x['guard_result']!=1 or x['owner_failed'] or x['private_failed']
+                or x['SYSTEM_violation'] or x['USER_violation'] or x['private_first_error']!='none'):
+            raise ValueError('actual pre-stimulus pause lacks exact USER and admitted retained SYSTEM/source premises')
+        ns=((after-before)*numer+denom-1)//denom
+        if (ns>50000 or h['stopped_system_ns']<ns or h['terminal_cpu_ns']<ns
+                or h['helper_debt_delta_ns']!=9*max(1000000,h['terminal_cpu_ns'])
+                or not h['helper_cost_retained'] or not h['helper_cost_paid'] or not h['actual_own_wait4'] or not h['group_gone']):
+            raise ValueError('actual bounded SYSTEM accrual lacks unchanged full original CPU bill and settlement')
+        physical_system.append({'mode':x['mode'],'original_pid':x['original_pid'],'ACK_SYSTEM_raw':before,
+            'observed_SYSTEM_raw':after,'retained_timebase_numer':numer,'retained_timebase_denom':denom,
+            'stopped_SYSTEM_at_pre_stimulus_ns':ns,'nonzero_actual_SYSTEM_observed':ns>0,
+            'USER_exact':True,'original_ownwait4_groupgone_full_CPU_debt_paid':True,'runtime_approved':False})
+    report['physical_pause_bounded_SYSTEM_admissions']=physical_system
+    stopped_api=b'private_stopped_gap_API_source_known cases=16 stopped_raw_gap_ns=130000000 stopped_running_gap_ns=20000000 exact_each_side_ns=50000000 no_ACK_refused=true running_over50_refused=true USER_growth_refused=true SYSTEM_limit_ns=50000 SYSTEM_overlimit_refused=true aggregate_SYSTEM_bound=true checked_timebase=true full_known_cost_supplied=true actual_own_wait4=false query_return_overshoot_refused=true raw_endpoints_retained=true native_process=false values_supplied=true OS_timing_claimed=false runtime_approved=false\n'
+    if stdout.count(stopped_api)!=1:raise ValueError('sixteen supplied stopped/running cadence API guards missing or duplicated')
+    report['stopped_cadence_API']={'cases':16,'scope':'supplied clocks/ACK/rawUSER/SYSTEM/timebase/receipt and actual production interval/payment predicates; no native signal or OS timing claim',
+        'aggregate_SYSTEM_bound_ns':50000,'SYSTEM_ns_boundary':[50000,50001],'two_member_SYSTEM_ns':[[30000,20000],[30000,20001]],
         'old_raw_gap_over_refusal_control':True,'no_ACK_running_USER_SYSTEM_fresh_end_and_query_return_guards':True,'native_process':False,'runtime_approved':False}
     marker=b'private_total_retained_guard_source_known api=true supplied_clock_and_identity_values=true native_process=false runtime_approved=false\n'
     if stdout.count(marker)!=1:
@@ -760,6 +806,10 @@ def verify(directory, inputs, report, total_only=False):
                 raise ValueError('mutant did not reach independent native/unit/physical/causal prerequisites: '+name)
         if ASSERTIONS[name] not in stderr:
             raise ValueError('mutant missed its required causal assertion: '+name)
+        if name in ('total-pause-live-user','total-pause-terminal-user'):
+            mode=0 if name=='total-pause-live-user' else 1
+            marker=(f'private_pause_USER_only_API_source_known mode={mode} observed_accepted=1 expected_refused=true SYSTEM_before_raw=200 SYSTEM_after_raw=200 SYSTEM_violation=0 USER_violation=0 full_known_cost_supplied_ns=10000000 helper_debt_delta_ns=90000000 helper_cost_retained=1 helper_cost_paid=1 helper_births=0 actual_own_wait4=false native_process=false values_supplied=true OS_CPU_claimed=false runtime_approved=false').encode()
+            if marker not in stdout:raise ValueError('USER mutant did not reach isolated wrong acceptance with unchanged SYSTEM')
         if name=='member-peak-drop-admission':
             physical=b'private_same_wake_admission_completed_source_known '
             projection=b'private_same_wake_members_conjunction_source_known actual_members_max=1 census_peak_path_bypassed=true actual_GS1_GS2_settled=true actual_own_wait4_groupgone=true actual_full_bill_paid=true final_conjunction_passed=false first_failing_term="members_max_complete" final_error_code=coverage_unknown other_final_terms_supplied=true full15_physical_run_claimed=false runtime_approved=false\n'
@@ -785,7 +835,12 @@ def verify(directory, inputs, report, total_only=False):
             verify_lifetime_mutant_cleanup(stderr,report['commands'][-1])
         if name=='quarantine-exit':
             verify_controller_liveness_mutant(stderr,report['commands'][-1])
-        report.setdefault('causal_mutants',[]).append({'name':name,'exit_code':code,'required_assertion':ASSERTIONS[name].decode(),'scope':'source-known API/owned fixture, never installed Git/GPG qualification'})
+        scope='source-known API/owned fixture, never installed Git/GPG qualification'
+        if name in ('total-pause-live-user','total-pause-terminal-user'):
+            scope='supplied USER-only production API; SYSTEM fixed; no native process/RI/ownwait4/OS CPU claim'
+        item={'name':name,'exit_code':code,'required_assertion':ASSERTIONS[name].decode(),'scope':scope}
+        if name in ('total-pause-live-user','total-pause-terminal-user'):item.update(native_process=False,values_supplied=True,actual_own_wait4=False)
+        report.setdefault('causal_mutants',[]).append(item)
     if not total_only:
         production=directory/'production';production.mkdir(mode=0o700)
         report['snapshots'].append(retain(production/SOURCE.name,source))
