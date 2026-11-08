@@ -109,7 +109,22 @@ def preserve_dream_observer_outputs():
     print(f"land: retained five Dream observer outputs at {manifest}", flush=True)
 
 
+def test_features(name):
+    """Features an integration-test file gates itself on with `#![cfg(feature = "...")]`."""
+    head = (ROOT / "tests" / f"{name}.rs").read_text().split("\nfn ", 1)[0]
+    gates = re.findall(r"^#!\[cfg\((.*)\)\]", head, re.M)
+    return tuple(sorted({f for gate in gates for f in re.findall(r'feature\s*=\s*"([^"]+)"', gate)}))
+
+
+def self_test():
+    """The gate must compile GUI tests with `embedded`, or they report zero tests."""
+    for name in ("gui_rich", "gui_render", "gui_card_bounds"):
+        assert test_features(name) == ("embedded",), (name, test_features(name))
+    assert test_features("mcp_client") == ("test-fixtures",), test_features("mcp_client")
+
+
 def gate(base):
+    self_test()
     changed = git("diff", "--name-only", f"{base}...HEAD").splitlines()
     # Native controller deadlines include process birth/Hello. Keep their
     # canonical ordinary scheduling precondition; background only rustc below.
@@ -165,12 +180,16 @@ def gate(base):
             integrations.remove("dream_read")
         if any(p.startswith(("src/mcp", "src/python_execute", "src/backend/acp_agent", "src/engine")) for p in changed):
             integrations.update(["mcp_client", "acp_launch_context"])
-        if integrations:
-            args = ["cargo", "nextest", "run", "--offline", "--locked", "--jobs", "2", "-p", "bboxy450-harness", "--features", "acp-agent,test-fixtures", "--target-dir", TARGET]
-            for test in sorted(integrations - {"formal_models", "formal_nonvacuity", "reactor_projection"}):
+        # Each test file runs with the features its crate-level cfg requires; a
+        # binary that still reports zero tests remains nextest's error (exit 4).
+        groups = {}
+        for test in sorted(integrations - {"formal_models", "formal_nonvacuity", "reactor_projection"}):
+            groups.setdefault(test_features(test), []).append(test)
+        for features, tests in sorted(groups.items()):
+            args = ["cargo", "nextest", "run", "--offline", "--locked", "--jobs", "2", "-p", "bboxy450-harness", "--features", ",".join(sorted({"acp-agent", "test-fixtures", *features})), "--target-dir", TARGET]
+            for test in tests:
                 args.extend(["--test", test])
-            if "--test" in args:
-                run(args, env=env)
+            run(args, env=env)
         enclosing = ROOT.parent.parent
         embedded = (enclosing / "scripts/formal.py").is_file()
         if embedded:
@@ -216,7 +235,10 @@ def main():
         temporary.replace(path)
 
 
-if __name__ == "__main__":
+if __name__ == "__main__" and sys.argv[1:] == ["--self-test"]:
+    self_test()
+    print("land: self-test ok")
+elif __name__ == "__main__":
     try:
         main()
     except (RuntimeError, subprocess.SubprocessError) as error:
