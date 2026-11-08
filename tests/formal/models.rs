@@ -7034,6 +7034,8 @@ pub fn corpus() -> Vec<(Model, &'static str)> {
         (dream_read::verifier_event_discovery(3), "safety"),
         (dream_read::verifier_event_discovery(4), "safety"),
         (dream_read::verifier_event_discovery(5), "safety"),
+        (dream_read::verifier_event_discovery(6), "safety"),
+        (dream_read::verifier_event_discovery(7), "safety"),
         (dream_read::helper_exec(0), "pass"),
         (dream_read::helper_exec(1), "safety"),
         (dream_read::helper_exec(2), "safety"),

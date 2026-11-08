@@ -825,6 +825,7 @@ static int fixture_total_argument(unsigned mode,const char *root,char argument[4
     else if(mode==2||mode==6)n=snprintf(argument,4097,"%s/%s-%u",root,mode==2?"rollup":"release",mode);
     else if(mode>=16&&mode<=22)n=snprintf(argument,4097,"%s/live-race-%u",root,mode);
     else if(mode>=23&&mode<=25)n=snprintf(argument,4097,"%s/event-release-%u",root,mode);
+    else if(mode==26)n=snprintf(argument,4097,"%s/knote-rollup-%u",root,mode);
     else n=snprintf(argument,4097,"%llu",(unsigned long long)(mode==1?260000000:mode==3?500000000:mode==5?500000000:3000000));
     if(n<=0||n>=4097)return 0;
     if(mode==2)n=snprintf(release,4097,"%s-release",argument);
@@ -836,13 +837,13 @@ static int total_spawn(struct engine_owner *o,struct private_engine_result *r,co
     memset(o,0,sizeof(*o));memset(r,0,sizeof(*r));reset();fixture(dir);
     source_known_process_create_case=mode>=13&&mode<=15?mode-12:0;
     source_known_event_registration_failure=mode==25;
-    o->context=&context;o->result=r;o->slots=(mode==2||mode==23||mode==24)?2:1;o->source_admitted=1;o->controller_parent=getppid();
+    o->context=&context;o->result=r;o->slots=(mode==2||mode==23||mode==24||mode==26)?2:1;o->source_admitted=1;o->controller_parent=getppid();
     o->input=o->output=o->errors=-1;o->ledger=-1;o->capture=malloc(ENGINE_CAPTURE_MAX);require(o->capture!=NULL,"bounded total-budget fixture capture");
     fixture_live_owner=o;fixture_release_path[0]=0;
     char ledger[48];snprintf(ledger,sizeof(ledger),"total-%u.ndjson",mode);o->ledger=openat(dir,ledger,O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,0600);require(o->ledger>=0,"owned total-budget fixture ledger");
     struct engine_prepared p;memset(&p,0,sizeof(p));for(unsigned i=0;i<2;i++)p.input[i]=p.output[i]=p.errors[i]=-1;
     strcpy(p.image,self);strcpy(p.descendant,self);strcpy(p.cwd,root);strcpy(o->image,self);strcpy(o->descendant,self);
-    const char *kind=(mode==23||mode==24)?"event-gated-leader":mode==2?"rollup-child":(mode==6||(mode>=16&&mode<=22)||mode==25)?"held-child":mode==7?"exit-child":mode==8?"rss-child":mode==12?"long-wall-cpu-child":(mode==9||mode==10)?"pause-bypass-child":"burn-child";
+    const char *kind=mode==26?"knote-rollup-child":(mode==23||mode==24)?"event-gated-leader":mode==2?"rollup-child":(mode==6||(mode>=16&&mode<=22)||mode==25)?"held-child":mode==7?"exit-child":mode==8?"rss-child":mode==12?"long-wall-cpu-child":(mode==9||mode==10)?"pause-bypass-child":"burn-child";
     char argument[4097];require(fixture_total_argument(mode,root,argument,fixture_release_path),"bounded fixture argument and exact original release path");
     require(engine_put(&p,self,&p.argv[p.argc++])&&engine_put(&p,kind,&p.argv[p.argc++])&&engine_put(&p,argument,&p.argv[p.argc++]),"bounded source-known helper argv");
     if(mode==23||mode==24)require(engine_put(&p,mode==23?"fork":"none",&p.argv[p.argc++]),"bounded source-known event leader choice");
@@ -1159,7 +1160,7 @@ static void verifier_event_api(void) {
     const uint64_t previous_poll=1000000,fork_at=1100000,exit_at=1200000,next_poll=10000000;
     require(previous_poll<fork_at&&fork_at<exit_at&&exit_at<next_poll&&exit_at-fork_at<1000000,"scripted fast verifier is absent at both finite poll instants");
     struct kevent event;EV_SET(&event,(uintptr_t)o.ticket.pid,EVFILT_PROC,0,NOTE_FORK|NOTE_EXEC|NOTE_EXIT,999999,NULL);
-    require(engine_event_note(&o,&event),"coalesced original leader proc notification is accepted without child PID inference");
+    require(engine_event_note(&o,&event,10000000),"coalesced original leader proc notification is accepted without child PID inference");
     unsigned via=o.fork_census_pending?2:1;o.fork_census_pending=0;
     int census=engine_census(&o,via,0);
     require(!census&&o.leader_fork_events==1&&o.leader_exec_events==1&&o.fork_seen_child_missed
@@ -1172,8 +1173,8 @@ static void verifier_event_api(void) {
     // FIRST cause is retained; a later fork event cannot relabel an already
     // admitted polling discovery. The notification alone creates no member.
     o.ticket.pid=getpid();o.members[1].state.pid=123;o.child_discovered_via=1;
-    require(engine_event_note(&o,&event)&&o.child_discovered_via==1&&!o.child_created,"later fork notification never relabels first polling discovery or invents a birth");
-    require(!engine_event_note(&o,&(struct kevent){.ident=999999,.filter=EVFILT_PROC,.fflags=NOTE_EXIT}),"foreign process notification is not retained identity or settlement evidence");
+    require(engine_event_note(&o,&event,10000000)&&o.child_discovered_via==1&&!o.child_created,"later fork notification never relabels first polling discovery or invents a birth");
+    require(!engine_event_note(&o,&(struct kevent){.ident=999999,.filter=EVFILT_PROC,.fflags=NOTE_EXIT},10000000),"foreign process notification is not retained identity or settlement evidence");
     require(private_end_unit(private_cost.open_cpu),"event API independent predicates fully paid");
     reset();memset(&o,0,sizeof(o));memset(&r,0,sizeof(r));o.context=&context;o.result=&r;
     int queue=kqueue();require(queue>=0&&fcntl(queue,F_SETFD,FD_CLOEXEC)==0,"event lifetime API owns one actual close-on-exec queue");
@@ -1272,6 +1273,132 @@ static int verifier_event_control(const char *self,const char *root,int dir,unsi
     require(private_end_unit(private_cost.open_cpu),"event refusal original disposal fully paid");controls++;
     printf("private_verifier_event_completed_source_known mode=%u actual_own_wait4=1 group_gone=1 expected_exit=81 runtime_approved=false\n",mode);
     require(fflush(stdout)==0&&private_end_unit(private_cost.open_cpu),"event refusal completion fully paid");return 81;
+}
+
+static int child_exit_witness_api(unsigned mode) {
+    require(mode<9,"nine supplied child exit witness API cases");reset();
+    struct engine_owner o;struct private_engine_result r;memset(&o,0,sizeof(o));memset(&r,0,sizeof(r));o.context=&context;o.result=&r;
+    o.ticket.pid=o.ticket.pgid=100;o.ticket.birth=10;o.ticket.start=20;o.direct_custody=1;o.slots=2;o.source_admitted=1;
+    o.event_fd_live=1;o.event_registered_mask=3;o.child_created=1;o.child_image_admitted=1;
+    struct engine_member *m=&o.members[1];m->state.pid=200;m->state.ppid=m->state.pgid=100;m->state.birth=11;m->state.start_absolute=22;m->token_known=1;m->phase=ENGINE_EXPECTED;
+    m->token.val[5]=200;m->token.val[7]=1;m->user=4000;m->system=3000;
+    o.retired_count=1;o.retired[0]=(struct engine_incarnation){.pid=200,.birth=11,.start=22,.token=m->token,.current=1};
+    o.event_watch[1]=(struct engine_event_watch){.pid=200,.birth=11,.start=22,.token=m->token,.bound=1};
+    // Same process, approved exec changes full audit-token version. The old
+    // watch row remains retained; exactly one CURRENT row matches the new token.
+    o.retired[0].current=0;m->token.val[7]=2;o.retired[1]=o.retired[0];o.retired[1].current=1;o.retired[1].token=m->token;o.retired_count=2;
+    if(mode==2)o.event_registered_mask&=~2u;
+    if(mode==3)o.event_watch[1].birth++;
+    if(mode==7)o.child_cost_unproven=1;
+    struct kevent event;EV_SET(&event,200,EVFILT_PROC,0,mode==1?NOTE_EXEC:NOTE_EXIT,12345,mode==4?NULL:&o.event_watch[1]);
+    int note=engine_event_note(&o,&event,1000),first_receipt_retained=1;
+    if(note&&mode!=1)first_receipt_retained=engine_event_note(&o,&event,2000)&&m->terminal_observed_ns==1000;
+    int terminal=engine_child_note_terminal(&o,mode==5?EIO:ESRCH,mode!=8);
+    unsigned mask=27u|(engine_child_terminal_bit(m,terminal,mode!=8)?4u:0u);
+    uint64_t leader_user=mode==6?3999:5000,leader_system=4000;
+    int qualified=!o.child_cost_unproven&&engine_child_rollup_covers(mask,leader_user,leader_system,m->user,m->system);
+    if(!qualified)(void)engine_child_unproven(&o,"retired child lacks qualified nonduplicated same-leader rollup");
+    require(private_end_unit(private_cost.open_cpu),"child exit witness API all actual controller CPU fully charged and paid");
+    printf("private_child_exit_witness_API_source_known mode=%u note_accepted=%d RI_error_supplied=%d token_gone_supplied=%u received=%u witness=%u exit_abstime=%llu terminal_observed_ns=%llu mask=%u child_cost_unproven=%u qualified=%u native_process=false values_supplied=true actual_child_wait4=false runtime_approved=false\n",
+        mode,note,mode==5?EIO:ESRCH,(unsigned)(mode!=8),m->exit_note_received,m->exit_note_witness,(unsigned long long)m->exit_abstime,(unsigned long long)m->terminal_observed_ns,mask,o.child_cost_unproven,(unsigned)qualified);
+    require(fflush(stdout)==0&&private_end_unit(private_cost.open_cpu),"child exit witness API raw evidence fully paid before verdict");
+    if(!mode)require(qualified&&note&&first_receipt_retained&&m->exit_note_witness&&!m->exit_abstime&&m->terminal_observed_ns==1000&&mask==31&&!o.child_cost_unproven,
+        "retained process-bound NOTE_EXIT qualifies RI_ESRCH with unchanged rollup coverage across approved exec");
+    else require(!qualified&&o.child_cost_unproven&&!strcmp(private_errors[2].last,"retired child lacks qualified nonduplicated same-leader rollup"),
+        "unbound or incomplete child exit witness retains rollup refusal and sticky child-cost state");
+    controls++;printf("private_child_exit_witness_API_completed_source_known mode=%u expected_exit=%u native_process=false runtime_approved=false\n",mode,mode?81:0);
+    require(fflush(stdout)==0&&private_end_unit(private_cost.open_cpu),"child exit witness API completion fully paid");return mode?81:0;
+}
+static int leader_rollup_refresh_api(unsigned mode) {
+    require(mode<5,"five supplied fresh terminal leader RI API cases");reset();
+    struct engine_owner o;struct private_engine_result r;memset(&o,0,sizeof(o));memset(&r,0,sizeof(r));o.context=&context;o.result=&r;
+    o.ticket.pid=o.ticket.pgid=100;o.ticket.birth=10;o.ticket.start=20;o.direct_custody=1;
+    struct engine_member *m=&o.members[0];m->state.pid=100;m->state.birth=10;m->state.start_absolute=20;m->token_known=1;
+    m->token.val[5]=100;m->token.val[7]=1;m->phase=ENGINE_EXITED;m->exit_abstime=333;m->terminal_observed_ns=1000;
+    m->user=100;m->system=200;m->child_user=300;m->child_system=400;o.child_rollup_read_ns=1000;o.members[1].terminal_observed_ns=2000;
+    o.retired_count=1;o.retired[0]=(struct engine_incarnation){.pid=100,.birth=10,.start=20,.token=m->token,.current=1};
+    struct rusage_info_v1 u;memset(&u,0,sizeof(u));u.ri_proc_start_abstime=20;u.ri_proc_exit_abstime=333;
+    u.ri_user_time=100;u.ri_system_time=201;u.ri_child_user_time=300;u.ri_child_system_time=401;
+    uint64_t begin=2100,end=2200;int result=mode==1?-1:0;
+    if(mode==2)u.ri_proc_start_abstime=21;
+    if(mode==3){begin=1500;end=1600;}
+    if(mode==4)o.direct_reaped=1;
+    int cached_current=engine_leader_rollup_after_terminal(&o);
+    int valid=engine_fresh_leader_ri_valid(&o,mode==1?NULL:&u,result,begin,end);
+    require(private_end_unit(private_cost.open_cpu),"fresh leader RI API supplied identity and clock guards fully paid");
+    printf("private_leader_rollup_refresh_API_source_known mode=%u cached_leader_terminal=true cached_RI_ns=%llu child_receipt_ns=%llu supplied_RI_begin_ns=%llu supplied_RI_return_ns=%llu cached_current=%u fresh_RI_valid=%u native_process=false values_supplied=true runtime_approved=false\n",
+        mode,(unsigned long long)o.child_rollup_read_ns,(unsigned long long)o.members[1].terminal_observed_ns,(unsigned long long)begin,(unsigned long long)end,(unsigned)cached_current,(unsigned)valid);
+    require(fflush(stdout)==0&&private_end_unit(private_cost.open_cpu),"fresh leader RI API raw evidence paid before verdict");
+    require(!cached_current,"cached terminal leader RI predating child receipt cannot satisfy fresh rollup observation");
+    if(!mode)require(valid,"fresh original terminal leader RI after child receipt satisfies unchanged raw identity and counter guards");
+    else require(!valid,"missing foreign stale or unowned fresh leader RI remains unproven");
+    controls++;printf("private_leader_rollup_refresh_API_completed_source_known mode=%u expected_exit=%u native_process=false runtime_approved=false\n",mode,mode?81:0);
+    require(fflush(stdout)==0&&private_end_unit(private_cost.open_cpu),"fresh leader RI API completion fully paid");return mode?81:0;
+}
+static void knote_rollup_child(const char *report) {
+    pid_t child=fork();if(child<0)_exit(77);if(!child){raise(SIGSTOP);burn_cpu(3000000);}
+    FILE *out=fopen(report,"wx");
+    if(!out||fprintf(out,"%d\n",child)<0||fflush(out)) {
+        (void)kill(child,SIGKILL);while(waitpid(child,NULL,0)<0&&errno==EINTR){};_exit(77);
+    }
+    raise(SIGSTOP);int status=0;struct rusage usage;pid_t got;
+    do{got=wait4(child,&status,0,&usage);}while(got<0&&errno==EINTR);
+    if(got!=child||!WIFEXITED(status)||WEXITSTATUS(status))_exit(77);
+    if(fprintf(out,"%llu\n",(unsigned long long)ru_cpu(&usage))<0||fclose(out))_exit(77);_exit(0);
+}
+static void child_exit_witness_control(const char *self,const char *root,int dir) {
+    struct engine_owner o;struct private_engine_result r;int status=-1;pid_t child_pid=0;
+    require(total_spawn(&o,&r,self,dir,26,root),"original child exit witness leader passes unchanged native and QoS gates");
+    char report[4097];snprintf(report,sizeof(report),"%s/knote-rollup-26",root);
+    for(;;) {
+        FILE *f=fopen(report,"r");if(f){(void)fscanf(f,"%d",&child_pid);fclose(f);}
+        struct image leader;if(child_pid&&control_observe(o.ticket.pid,&leader)&&leader.status==SSTOP)break;
+        require(clock_ns(CLOCK_MONOTONIC)<outer.deadline&&engine_checkpoint(&o),"bounded original child exit witness discovery");usleep(1000);
+    }
+    struct image child;require(observe(child_pid,&child)&&child.ppid==o.ticket.pid&&child.pgid==o.ticket.pgid&&child.status==SSTOP&&child.priority==4,
+        "actual stopped child belongs to original leader before process-bound watch");
+    o.members[1].state=child;o.members[1].phase=ENGINE_EXPECTED;o.child_image_admitted=1;
+    require(known_control_token(child_pid,child.birth,&o.members[1].token),"actual child full token precedes its immutable knote binding");o.members[1].token_known=1;
+    require(engine_owned_token(&o,child_pid,child.birth,child.start_absolute,&o.members[1].token),"retain original stopped child identity and sampled counters");
+    struct rusage_info_v1 initial;require(proc_pid_rusage(child_pid,RUSAGE_INFO_V1,(rusage_info_t *)&initial)==0&&engine_usage(&o,1,&initial),"actual child RI start and last live counters precede its watch");
+    o.child_created=1;r.created++;r.members_max=2;o.child_discovered_via=1;
+    require(engine_events_register(&o,1,child_pid)&&o.event_watch[1].bound&&(o.event_registered_mask&2),"actual child NOTE_EXIT watch is registered under retained current full identity");
+    require(engine_checkpoint(&o),"actual child identity and watch setup fully paid before fixture continuation");
+    require(kill(-o.ticket.pgid,SIGCONT)==0,"one fixture continuation releases only original stopped leader and child");
+    await_original(&o);
+    struct rusage_info_v1 unavailable;errno=0;int child_ri=proc_pid_rusage(child_pid,RUSAGE_INFO_V1,(rusage_info_t *)&unavailable);int child_error=child_ri?errno:0;
+    // Cache a GENUINE terminal leader RI before draining the child queue.
+    // This regression must exercise qualification's late-receipt refresh,
+    // rather than the ordinary terminal path that already reads leader RI.
+    require(engine_member_terminal(&o,0)&&o.members[0].phase==ENGINE_EXITED&&o.members[0].exit_abstime&&o.child_rollup_read_ns,
+        "actual terminal leader RI is cached before late child NOTE_EXIT receipt");
+    uint64_t cached_leader_read=o.child_rollup_read_ns,first_leader_terminal=o.members[0].terminal_observed_ns;
+    require(engine_checkpoint(&o),"genuine cached leader RI observation fully paid before child event drain");
+    require(engine_events_poll(&o,0)&&o.members[1].exit_note_received&&o.members[1].terminal_observed_ns>cached_leader_read,
+        "actual child NOTE_EXIT is first received after cached leader terminal RI");
+    int child_terminal=engine_member_terminal(&o,1),children[3]={0};int count=engine_list_children(&o,0,o.ticket.pid,children,sizeof(children));
+    int qualified=engine_qualify_child_rollup(&o,child_terminal,native_pid_list_empty(count,o.child_list_errno[0]),1);
+    require(qualified&&o.child_rollup_read_ns>cached_leader_read&&o.child_rollup_read_ns>=o.members[1].terminal_observed_ns
+        &&o.members[0].terminal_observed_ns==first_leader_terminal,
+        "late child NOTE_EXIT refresh bypasses cached leader terminal RI before rollup qualification");
+    require(child_ri!=0&&child_error==ESRCH&&o.child_rollup_known&&o.child_rollup_mask==31
+        &&o.members[1].exit_note_witness&&!o.members[1].exit_abstime&&o.members[1].terminal_observed_ns
+        &&o.child_rollup_read_ns>=o.members[1].terminal_observed_ns&&!o.child_cost_unproven,
+        "actual leader-reaped child uses retained NOTE_EXIT RI_ESRCH and later covered leader rollup");
+    (void)engine_retire(&o,&status);
+    int settled=o.direct_reaped&&o.wait_observed&&r.group_gone&&r.retired_coverage&&!engine_current;
+    if(settled)fixture_live_owner=NULL;
+    unsigned long long child_cpu=0;pid_t reported=0;FILE *f=fopen(report,"r");
+    require(f&&fscanf(f,"%d\n%llu",&reported,&child_cpu)==2&&reported==child_pid&&fclose(f)==0,"same scripted leader actually consumed its own child wait4 once");
+    require(settled&&status==0&&!o.failed&&!private_failed&&r.created==2&&r.reaped==2&&r.helper_job_cpu_ns==o.terminal_cpu_ns
+        &&o.terminal_cpu_ns>=child_cpu&&o.helper_cost_retained&&o.helper_cost_paid
+        &&o.helper_debt_delta_ns==9*engine_helper_cpu_cost(o.terminal_cpu_ns)&&private_cost.debt==private_cost.debt_paid,
+        "actual child exit witness qualifies with one authoritative subtree bill full9x debt and original group settlement");
+    printf("private_child_exit_witness_process_source_known original_pid=%d child_pid=%d RI_result=%d RI_errno=%d child_exit_witness=kqueue_note_exit child_exit_abstime=0 terminal_observed_ns=%llu cached_leader_RI_ns=%llu first_leader_terminal_ns=%llu later_leader_RI_ns=%llu rollup_mask=%u child_cost_unproven=%u actual_leader_own_wait4=1 original_group_gone=1 controller_reaps_child=false leader_child_wait4_CPU_ns=%llu authoritative_subtree_CPU_ns=%llu helper_debt_delta_ns=%llu helper_debt_before_ns=%llu helper_debt_target_ns=%llu global_paid_ns=%llu GS1_fixture_projection=true installed_tool_qualification=false runtime_approved=false\n",
+        o.ticket.pid,child_pid,child_ri,child_error,(unsigned long long)o.members[1].terminal_observed_ns,(unsigned long long)cached_leader_read,(unsigned long long)first_leader_terminal,(unsigned long long)o.child_rollup_read_ns,o.child_rollup_mask,o.child_cost_unproven,child_cpu,(unsigned long long)o.terminal_cpu_ns,(unsigned long long)o.helper_debt_delta_ns,(unsigned long long)o.helper_debt_before,(unsigned long long)o.helper_debt_target,(unsigned long long)private_cost.debt_paid);
+    require(fflush(stdout)==0&&private_end_unit(private_cost.open_cpu),"actual child exit witness numeric evidence fully paid");
+    engine_close_transferred(&o);require(close(o.ledger)==0,"actual child exit witness ledger close");free(o.capture);
+    require(private_end_unit(private_cost.open_cpu),"actual child exit witness disposal fully paid");controls++;
 }
 
 static void process_create_policy_api(void) {
@@ -1378,6 +1505,7 @@ static void total_retained_guard_api(void) {
     reset();controls++;printf("private_total_retained_guard_source_known api=true supplied_clock_and_identity_values=true native_process=false runtime_approved=false\n");
 }
 int main(int argc,char **argv) {
+    if(argc==3&&!strcmp(argv[1],"knote-rollup-child"))knote_rollup_child(argv[2]);
     if(argc==4&&!strcmp(argv[1],"event-gated-leader"))verifier_event_leader(argv[2],!strcmp(argv[3],"fork"));
     if(argc==5&&!strcmp(argv[1],"pause-bypass-child")){pause_bypass_child(argv[2],argv[3],argv[4]);}
     if(argc==3&&!strcmp(argv[1],"rss-child")){size_t n=20u*1024u*1024u;volatile unsigned char *m=malloc(n);if(!m)_exit(77);for(size_t i=0;i<n;i+=4096)m[i]=1;_exit(0);}
@@ -1403,8 +1531,11 @@ int main(int argc,char **argv) {
     unsigned native_case=argc==3&&!strcmp(argv[1],"process-create-wall-control")?(unsigned)strtoul(argv[2],NULL,10):3;
     unsigned race_case=argc==3&&!strcmp(argv[1],"live-sample-race-control")?(unsigned)strtoul(argv[2],NULL,10):7;
     unsigned event_api=argc==2&&!strcmp(argv[1],"verifier-event-api");
+    unsigned child_exit_api=argc==3&&!strcmp(argv[1],"child-exit-witness-api")?(unsigned)strtoul(argv[2],NULL,10):9;
+    unsigned child_exit_process=argc==2&&!strcmp(argv[1],"child-exit-witness-control");
+    unsigned leader_refresh_api=argc==3&&!strcmp(argv[1],"leader-rollup-refresh-api")?(unsigned)strtoul(argv[2],NULL,10):5;
     unsigned event_case=argc==3&&!strcmp(argv[1],"verifier-event-control")?(unsigned)strtoul(argv[2],NULL,10):3;
-    require(argc==1||selected<12||diagnostics||setup||deadline||cpu_debt||expand||native_api||native_case<3||race_case<7||event_api||event_case<3||hold||flow||result_only||charge||boundary||retained,"private source-known controls argc");
+    require(argc==1||selected<12||diagnostics||setup||deadline||cpu_debt||expand||native_api||native_case<3||race_case<7||event_api||event_case<3||child_exit_api<9||child_exit_process||leader_refresh_api<5||hold||flow||result_only||charge||boundary||retained,"private source-known controls argc");
     require(atexit(dispose_owned)==0,"owned cleanup registration");
     char root[]="/private/tmp/dream-private-engine-controls.XXXXXX";require(mkdtemp(root)!=NULL,"owned fixture directory");
     int dir=open(root,O_RDONLY|O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC);require(dir>=0,"owned fixture root");
@@ -1435,6 +1566,9 @@ int main(int argc,char **argv) {
     if(retained){total_retained_guard_api();require(close(dir)==0,"owned retained guard API root close");return 0;}
     if(selected<12){total_control(self,root,dir,selected);require(close(dir)==0,"owned narrow fixture root close");return 0;}
     if(diagnostics){terminal_diagnostic_controls(dir);require(close(dir)==0,"owned diagnostic root close");return 0;}
+    if(leader_refresh_api<5){int code=leader_rollup_refresh_api(leader_refresh_api);require(close(dir)==0,"owned leader refresh API root close");return code;}
+    if(child_exit_api<9){int code=child_exit_witness_api(child_exit_api);require(close(dir)==0,"owned child witness API root close");return code;}
+    if(child_exit_process){child_exit_witness_control(self,root,dir);require(close(dir)==0,"owned child witness process root close");return 0;}
     if(event_api){verifier_event_api();require(close(dir)==0,"owned event API root close");return 0;}
     if(event_case<3){int code=verifier_event_control(self,root,dir,event_case);require(close(dir)==0,"owned event control root close");return code;}
     if(race_case<7){int code=live_sample_race_control(self,root,dir,race_case);require(close(dir)==0,"owned live race root close");return code;}
@@ -1450,6 +1584,9 @@ int main(int argc,char **argv) {
     process_create_policy_api();
     for(unsigned mode=0;mode<3;mode++)(void)process_create_wall_control(self,root,dir,mode);
     for(unsigned mode=0;mode<7;mode++)(void)live_sample_race_control(self,root,dir,mode);
+    for(unsigned mode=0;mode<5;mode++)(void)leader_rollup_refresh_api(mode);
+    for(unsigned mode=0;mode<9;mode++)(void)child_exit_witness_api(mode);
+    child_exit_witness_control(self,root,dir);
     verifier_event_api();
     for(unsigned mode=0;mode<3;mode++)(void)verifier_event_control(self,root,dir,mode);
     total_boundary_api();

@@ -2352,6 +2352,7 @@ struct engine_member {
     struct image state;audit_token_t token;unsigned token_known,phase;
     uint64_t user,system,child_user,child_system,exit_abstime,ri_started_ns,terminal_observed_ns;
     uint32_t exit_status;unsigned exit_status_known,attachment_stop,attachment_ready;
+    unsigned exit_note_received,exit_note_witness,terminal_ri_non_esrch;
 };
 struct engine_prepared {
     char bytes[ENGINE_ARGS_MAX],*argv[65],*env[12];size_t used;
@@ -2361,6 +2362,9 @@ struct engine_prepared {
 };
 struct engine_unit_observation {
     const char *site;unsigned line,ordinary;uint64_t open,end,supplied_actual,supplied_cost,inclusive,actual,cost,poll_before,poll_cpu;
+};
+struct engine_event_watch {
+    pid_t pid;uint64_t birth,start;audit_token_t token;unsigned bound;
 };
 struct engine_owner {
     const struct private_engine_context *context;struct private_engine_result *result;
@@ -2376,6 +2380,7 @@ struct engine_owner {
     // The live bit makes zero-initialized API/fixture owners safe: FD0 is never
     // an owned queue. Notifications are coalesced observations, not births.
     int event_fd,event_register_errno[2],event_wait_errno,event_close_errno;
+    struct engine_event_watch event_watch[2];
     unsigned event_fd_live,event_registered_mask,event_close_attempted,fork_census_pending,child_event_pending;
     uint64_t leader_fork_events,leader_exec_events;
     unsigned child_discovered_via,fork_seen_child_missed;
@@ -2513,6 +2518,33 @@ static int engine_list_group(struct engine_owner *o,void *buffer,int size) {
 #ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
 static unsigned source_known_event_registration_failure;
 #endif
+static int engine_event_current_member(const struct engine_owner *o,unsigned i) {
+    const struct engine_member *m=&o->members[i];unsigned current=0;
+    if(!m->token_known||!m->state.pid||!m->state.birth||!m->state.start_absolute)return 0;
+    for(unsigned j=0;j<o->retired_count;j++) {
+        const struct engine_incarnation *r=&o->retired[j];
+        if(r->current&&r->pid==m->state.pid&&r->birth==m->state.birth&&r->start==m->state.start_absolute
+            &&!memcmp(&r->token,&m->token,sizeof(m->token)))current++;
+    }
+    return current==1;
+}
+static int engine_child_watch_matches(const struct engine_owner *o) {
+    const struct engine_member *m=&o->members[1];const struct engine_event_watch *w=&o->event_watch[1];unsigned original=0;
+    if(!o->event_fd_live||!(o->event_registered_mask&2)||!o->direct_custody||o->direct_reaped||o->wait_observed
+        ||o->ticket.pid<=0||!o->ticket.birth||!o->ticket.start||m->state.pid==o->ticket.pid
+        ||m->state.ppid!=o->ticket.pid||m->state.pgid!=o->ticket.pgid
+        ||m->token.val[5]!=(unsigned)m->state.pid||!m->token.val[7]||w->token.val[5]!=(unsigned)w->pid||!w->token.val[7]
+        ||!w->bound||w->pid!=m->state.pid||w->birth!=m->state.birth||w->start!=m->state.start_absolute
+        ||!engine_event_current_member(o,1))return 0;
+    // A knote stays bound to this process across its approved exec. The
+    // original full token remains in the retained chain, while the separate
+    // CURRENT row must match the member's later validated full token.
+    for(unsigned j=0;j<o->retired_count;j++) {
+        const struct engine_incarnation *r=&o->retired[j];
+        if(r->pid==w->pid&&r->birth==w->birth&&r->start==w->start&&!memcmp(&r->token,&w->token,sizeof(w->token)))original++;
+    }
+    return original==1;
+}
 static int engine_events_register(struct engine_owner *o,unsigned i,pid_t pid) {
     if(i>=2||pid<=0||!o->direct_custody||o->direct_reaped)return engine_failure(o,"coverage_unknown","process event registration lacks original unreaped owner");
     if(o->event_registered_mask&(1u<<i))return 1;
@@ -2521,7 +2553,9 @@ static int engine_events_register(struct engine_owner *o,unsigned i,pid_t pid) {
         o->event_fd=fd;o->event_fd_live=1;
         if(fcntl(fd,F_SETFD,FD_CLOEXEC)<0)return engine_failure(o,"coverage_unknown","process event queue close-on-exec unavailable");
     }
-    struct kevent change;EV_SET(&change,(uintptr_t)pid,EVFILT_PROC,EV_ADD|EV_ENABLE|EV_CLEAR,NOTE_EXEC|NOTE_EXIT|(i?0:NOTE_FORK),0,NULL);
+    if(o->members[i].state.pid!=pid||!engine_event_current_member(o,i))return engine_failure(o,"coverage_unknown","process event watch lacks retained current birth start and full token");
+    struct engine_event_watch *watch=&o->event_watch[i];watch->pid=pid;watch->birth=o->members[i].state.birth;watch->start=o->members[i].state.start_absolute;watch->token=o->members[i].token;
+    struct kevent change;EV_SET(&change,(uintptr_t)pid,EVFILT_PROC,EV_ADD|EV_ENABLE|EV_CLEAR,NOTE_EXEC|NOTE_EXIT|(i?0:NOTE_FORK),0,watch);
     errno=0;int result;
 #ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
     if(source_known_event_registration_failure){result=-1;errno=EIO;}else
@@ -2529,9 +2563,9 @@ static int engine_events_register(struct engine_owner *o,unsigned i,pid_t pid) {
     result=kevent(o->event_fd,&change,1,NULL,0,NULL);
     int error=result<0?errno:0;o->event_register_errno[i]=error;
     if(result!=0)return engine_failure(o,"coverage_unknown","process event registration failed");
-    o->event_registered_mask|=1u<<i;return 1;
+    watch->bound=1;o->event_registered_mask|=1u<<i;return 1;
 }
-static int engine_event_note(struct engine_owner *o,const struct kevent *event) {
+static int engine_event_note(struct engine_owner *o,const struct kevent *event,uint64_t receipt_ns) {
     if(event->filter!=EVFILT_PROC||(event->flags&EV_ERROR))return engine_failure(o,"coverage_unknown","process event delivery error or unexpected filter");
     if(event->ident==(uintptr_t)o->ticket.pid) {
         if(event->fflags&NOTE_FORK) {
@@ -2544,9 +2578,18 @@ static int engine_event_note(struct engine_owner *o,const struct kevent *event) 
         }
     } else if(!o->members[1].state.pid||event->ident!=(uintptr_t)o->members[1].state.pid)
         return engine_failure(o,"coverage_unknown","process event recipient not in original retained roster");
-    else if(event->fflags&(NOTE_EXEC|NOTE_EXIT))o->child_event_pending=1;
-    // NOTE_EXEC/EXIT wake the ordinary sampler. Neither is identity, GS1,
-    // CPU, own-wait4, or retired-group evidence by itself.
+    else {
+        if(event->udata!=&o->event_watch[1]||!engine_child_watch_matches(o))return engine_failure(o,"coverage_unknown","child process note lacks original process-bound watch identity");
+        if(event->fflags&NOTE_EXIT) {
+            if(!receipt_ns||receipt_ns==UINT64_MAX)return engine_failure(o,"clock_unknown","child exit note receipt clock unavailable");
+            o->members[1].exit_note_received=1;
+            if(!o->members[1].terminal_observed_ns)o->members[1].terminal_observed_ns=receipt_ns;
+        }
+        if(event->fflags&(NOTE_EXEC|NOTE_EXIT))o->child_event_pending=1;
+    }
+    // EXIT is only a process-bound terminal observation; GS1/currentness,
+    // tokenGone, later leader rollup, ownwait4 and full CPU billing remain separate.
+    // NOTE_EXITSTATUS is not requested, so event.data is never an exit status.
     return 1;
 }
 static int engine_events_poll(struct engine_owner *o,uint64_t wait_ns) {
@@ -2568,9 +2611,11 @@ static int engine_events_poll(struct engine_owner *o,uint64_t wait_ns) {
         }
     }
     struct timespec timeout={0,(long)wait_ns};struct kevent events[4];errno=0;
-    int n=kevent(o->event_fd,NULL,0,events,4,&timeout);int error=n<0?errno:0;o->event_wait_errno=error;
+    int n=kevent(o->event_fd,NULL,0,events,4,&timeout);int error=n<0?errno:0;
+    uint64_t receipt_ns=n>0?engine_now(o,CLOCK_MONOTONIC):0;o->event_wait_errno=error;
     if(n<0){if(error==EINTR)return 1;return engine_failure(o,"coverage_unknown","owned process event wait unavailable");}
-    for(int i=0;i<n;i++)if(!engine_event_note(o,&events[i]))return 0;
+    if(n>0&&receipt_ns==UINT64_MAX)return 0;
+    for(int i=0;i<n;i++)if(!engine_event_note(o,&events[i],receipt_ns))return 0;
     return 1;
 }
 static const char *engine_missing_verifier_detail(const struct engine_owner *o) {
@@ -2692,11 +2737,53 @@ static int engine_usage(struct engine_owner *owner,unsigned i,const struct rusag
     for(unsigned j=0;j<owner->retired_count;j++)if(owner->retired[j].pid==m->state.pid&&owner->retired[j].current&&owner->retired[j].token.val[7]==m->token.val[7])owner->retired[j].start=m->state.start_absolute;
     return engine_pause_live_user(owner,i,m->user);
 }
-static int engine_member_terminal(struct engine_owner *owner,unsigned i) {
-    struct engine_member *m=&owner->members[i];if(m->phase==ENGINE_EXITED&&m->exit_abstime)return 1;
+static int engine_child_note_terminal(struct engine_owner *owner,int ri_error,int token_gone) {
+    struct engine_member *m=&owner->members[1];
+    if(ri_error!=ESRCH||m->terminal_ri_non_esrch||!m->exit_note_received||!m->terminal_observed_ns
+        ||!engine_child_watch_matches(owner)||!token_gone)return 0;
+    m->exit_note_witness=1;m->phase=ENGINE_EXITED;return 1;
+}
+static int engine_child_terminal_bit(const struct engine_member *m,int terminal_known,int token_gone) {
+    return terminal_known&&(m->exit_abstime||m->exit_note_witness)&&m->terminal_observed_ns&&token_gone;
+}
+static int engine_leader_refresh_bound(const struct engine_owner *o) {
+    const struct engine_member *m=&o->members[0];
+    return o->direct_custody&&!o->direct_reaped&&!o->wait_observed&&o->ticket.pid>0&&o->ticket.birth&&o->ticket.start
+        &&m->state.pid==o->ticket.pid&&m->state.birth==o->ticket.birth&&m->state.start_absolute==o->ticket.start
+        &&m->token_known&&m->token.val[5]==(unsigned)o->ticket.pid&&m->token.val[7]&&engine_event_current_member(o,0);
+}
+static int engine_leader_rollup_after_terminal(const struct engine_owner *o) {
+    return o->members[1].terminal_observed_ns&&o->child_rollup_read_ns!=UINT64_MAX
+        &&o->child_rollup_read_ns>=o->members[1].terminal_observed_ns;
+}
+static int engine_fresh_leader_ri_valid(const struct engine_owner *o,const struct rusage_info_v1 *u,int result,uint64_t begin,uint64_t end) {
+    const struct engine_member *m=&o->members[0];uint64_t terminal=o->members[1].terminal_observed_ns;
+    if(!engine_leader_refresh_bound(o)||result!=0||!u||!terminal||!begin||begin==UINT64_MAX||end==UINT64_MAX
+        ||begin<terminal||end<begin)return 0;
+    return u->ri_proc_start_abstime==o->ticket.start&&u->ri_proc_exit_abstime
+        &&u->ri_user_time>=m->user&&u->ri_system_time>=m->system
+        &&u->ri_child_user_time>=m->child_user&&u->ri_child_system_time>=m->child_system;
+}
+static int engine_member_terminal_observe(struct engine_owner *owner,unsigned i,int fresh) {
+    struct engine_member *m=&owner->members[i];
+    if(i&&!engine_events_poll(owner,0))return 0;
+    if(!fresh&&m->phase==ENGINE_EXITED&&m->exit_abstime)return 1;
     struct rusage_info_v1 u;if(!m->token_known||!engine_token_gone(&m->token))return 0;
-    int usage_result=proc_pid_rusage(m->state.pid,RUSAGE_INFO_V1,(rusage_info_t *)&u);uint64_t observed=engine_now(owner,CLOCK_MONOTONIC);
-    if(usage_result!=0||observed==UINT64_MAX||!u.ri_proc_exit_abstime||!engine_usage(owner,i,&u))return 0;
+    if(i&&m->exit_note_witness&&engine_child_watch_matches(owner)&&m->terminal_observed_ns)return 1;
+    uint64_t begin=fresh?engine_now(owner,CLOCK_MONOTONIC):0;
+    if(fresh&&begin==UINT64_MAX)return 0;
+    errno=0;int usage_result=proc_pid_rusage(m->state.pid,RUSAGE_INFO_V1,(rusage_info_t *)&u);int usage_error=usage_result?errno:0;
+    uint64_t observed=engine_now(owner,CLOCK_MONOTONIC);
+    if(usage_result!=0) {
+        // A child can exit and be reaped BETWEEN the loop drain/census and
+        // this RI call. Drain its original knote again before any bit4 refusal.
+        if(i&&usage_error==ESRCH&&!m->terminal_ri_non_esrch&&!engine_events_poll(owner,0))return 0;
+        if(i&&usage_error==ESRCH&&engine_child_note_terminal(owner,usage_error,engine_token_gone(&m->token)))return 1;
+        if(i&&usage_error!=ESRCH){m->terminal_ri_non_esrch=1;return engine_failure(owner,"coverage_unknown","child terminal RI failure is not ESRCH");}
+        return 0;
+    }
+    if(fresh&&(i||!engine_fresh_leader_ri_valid(owner,&u,usage_result,begin,observed)))return engine_failure(owner,"coverage_unknown","fresh original leader terminal RI identity counter or receipt interval differs");
+    if(observed==UINT64_MAX||!u.ri_proc_exit_abstime||!engine_usage(owner,i,&u))return 0;
     struct proc_bsdinfo b;int n=proc_pidinfo(m->state.pid,PROC_PIDTBSDINFO,0,&b,sizeof(b));
     if(n==(int)sizeof(b)) {
         uint64_t birth=(uint64_t)b.pbi_start_tvsec*1000000+b.pbi_start_tvusec;
@@ -2704,8 +2791,9 @@ static int engine_member_terminal(struct engine_owner *owner,unsigned i) {
         if(m->exit_status_known&&m->exit_status!=b.pbi_xstatus)return engine_failure(owner,"coverage_unknown","contradictory retained verifier status");
         m->exit_status=b.pbi_xstatus;m->exit_status_known=1;
     }
-    m->phase=ENGINE_EXITED;m->terminal_observed_ns=observed;if(!i)owner->child_rollup_read_ns=observed;return 1;
+    m->phase=ENGINE_EXITED;if(!m->terminal_observed_ns)m->terminal_observed_ns=observed;if(!i)owner->child_rollup_read_ns=observed;return 1;
 }
+static int engine_member_terminal(struct engine_owner *owner,unsigned i) {return engine_member_terminal_observe(owner,i,0);}
 static int engine_sample_owned_member(const struct engine_owner *owner,unsigned i,pid_t pid) {
     if(i>=2||!owner->direct_custody||owner->direct_reaped||owner->wait_observed||owner->ticket.pid<=0
         ||!owner->ticket.birth||!owner->ticket.start)return 0;
@@ -2765,7 +2853,6 @@ static int engine_sample_member(struct engine_owner *owner,unsigned i,pid_t pid)
     uint64_t original_start=m->state.start_absolute;m->state=current;m->state.start_absolute=original_start;m->token=token;m->token_known=1;
     // A watch never admits a numeric child. Existing lineage/birth/current
     // full-token checks above bind its recipient before registration.
-    if(i&&!engine_events_register(owner,i,pid))return 0;
     if(!engine_priority(owner,i,&current))return 0;
     uint64_t ri_started=engine_now(owner,CLOCK_MONOTONIC);if(!engine_ri_begin(owner,i,ri_started))return 0;
     struct rusage_info_v1 u;int usage_result=proc_pid_rusage(pid,RUSAGE_INFO_V1,(rusage_info_t *)&u);
@@ -2791,6 +2878,7 @@ static int engine_sample_member(struct engine_owner *owner,unsigned i,pid_t pid)
     // Retain the prior actual begin through BOTH bounds. A40ms inter-start
     // interval plus20ms inside this query must not become two passing checks.
     m->ri_started_ns=ri_started;
+    if(i&&!engine_events_register(owner,i,pid))return 0;
     if(!i) {
         if(strcmp(path,owner->image))return engine_failure(owner,"coverage_unknown","direct image differs from exact approved helper");
         m->phase=ENGINE_EXPECTED;owner->ticket.birth=current.birth;owner->ticket.start=m->state.start_absolute;
@@ -3020,7 +3108,7 @@ static int engine_ri_record(struct engine_owner *o) {
     return engine_write_record(o,line,n);
 }
 static int engine_child_record(struct engine_owner *o) {
-    char line[1024];int n=snprintf(line,sizeof(line),"{\"kind\":\"retained_child_accounting\",\"child_created\":%u,\"child_pid\":%d,\"child_birth\":%llu,\"child_start\":%llu,\"child_token_version\":%u,\"child_image_admitted\":%u,\"terminal_observed_ns\":%llu,\"child_terminal_user_raw\":%llu,\"child_terminal_system_raw\":%llu,\"child_exit_abstime\":%llu,\"leader_rollup_read_ns\":%llu,\"leader_rollup_user_raw\":%llu,\"leader_rollup_system_raw\":%llu,\"rollup_mask\":%u,\"rollup_proven\":%u,\"child_cost_unproven\":%u,\"escaped_cleanup_checks\":%u,\"escaped_kill_attempts\":%u,\"escaped_kill_failures\":%u,\"escaped_kill_errno\":%d,\"group_kill_not_attempted_terminal\":%u,\"unproven_child_billed_as_leader\":false,\"runtime_approved\":false}\n",o->child_created,o->members[1].state.pid,(unsigned long long)o->members[1].state.birth,(unsigned long long)o->members[1].state.start_absolute,o->members[1].token.val[7],o->child_image_admitted,(unsigned long long)o->members[1].terminal_observed_ns,(unsigned long long)o->members[1].user,(unsigned long long)o->members[1].system,(unsigned long long)o->members[1].exit_abstime,(unsigned long long)o->child_rollup_read_ns,(unsigned long long)o->child_rollup_user,(unsigned long long)o->child_rollup_system,o->child_rollup_mask,o->child_rollup_known,o->child_cost_unproven,o->escaped_cleanup_checks,o->escaped_kill_attempts,o->escaped_kill_failures,o->escaped_kill_errno,o->group_kill_not_attempted_terminal);
+    char line[1536];int n=snprintf(line,sizeof(line),"{\"kind\":\"retained_child_accounting\",\"child_created\":%u,\"child_pid\":%d,\"child_birth\":%llu,\"child_start\":%llu,\"child_token_version\":%u,\"child_image_admitted\":%u,\"terminal_observed_ns\":%llu,\"child_terminal_user_raw\":%llu,\"child_terminal_system_raw\":%llu,\"child_exit_abstime\":%llu,\"child_exit_witness\":\"%s\",\"leader_rollup_read_ns\":%llu,\"leader_rollup_user_raw\":%llu,\"leader_rollup_system_raw\":%llu,\"rollup_mask\":%u,\"rollup_proven\":%u,\"child_cost_unproven\":%u,\"escaped_cleanup_checks\":%u,\"escaped_kill_attempts\":%u,\"escaped_kill_failures\":%u,\"escaped_kill_errno\":%d,\"group_kill_not_attempted_terminal\":%u,\"unproven_child_billed_as_leader\":false,\"runtime_approved\":false}\n",o->child_created,o->members[1].state.pid,(unsigned long long)o->members[1].state.birth,(unsigned long long)o->members[1].state.start_absolute,o->members[1].token.val[7],o->child_image_admitted,(unsigned long long)o->members[1].terminal_observed_ns,(unsigned long long)o->members[1].user,(unsigned long long)o->members[1].system,(unsigned long long)o->members[1].exit_abstime,o->members[1].exit_abstime?"ri":o->members[1].exit_note_witness?"kqueue_note_exit":"none",(unsigned long long)o->child_rollup_read_ns,(unsigned long long)o->child_rollup_user,(unsigned long long)o->child_rollup_system,o->child_rollup_mask,o->child_rollup_known,o->child_cost_unproven,o->escaped_cleanup_checks,o->escaped_kill_attempts,o->escaped_kill_failures,o->escaped_kill_errno,o->group_kill_not_attempted_terminal);
     return engine_write_record(o,line,n);
 }
 static int engine_census_record(struct engine_owner *o) {
@@ -3316,13 +3404,31 @@ static int engine_physical_exit(const struct engine_incarnation *member) {
         return member->start&&usage.ri_proc_start_abstime==member->start&&usage.ri_proc_exit_abstime!=0;
     return result!=size&&errno==ESRCH;
 }
+static int engine_refresh_leader_rollup(struct engine_owner *o) {
+    if(!engine_leader_refresh_bound(o))return engine_failure(o,"coverage_unknown","fresh leader rollup lacks original unreaped current identity");
+    if(o->members[0].phase==ENGINE_EXITED&&o->members[0].exit_abstime) {
+        int done=0;if(!known_exited(o->ticket.pid,&done)||!done)return engine_failure(o,"coverage_unknown","cached terminal leader lacks positive original WNOWAIT for refresh");
+        // Cached terminal success does NOT observe new child rollup counters.
+        // This actual RI read starts after the new child receipt and retains
+        // every original RI/BSD/raw monotonic predicate and first exit stamp.
+        return engine_member_terminal_observe(o,0,1);
+    }
+    return engine_sample_member(o,0,o->ticket.pid);
+}
 static int engine_qualify_child_rollup(struct engine_owner *o,int terminal_known,int empty_child_edge,int leader_known) {
     if(!o->child_created)return 1;if(o->child_rollup_known)return !o->child_cost_unproven;
     struct engine_member *m=&o->members[1];unsigned mask=0,current=0;
+    if(!engine_events_poll(o,0))return engine_child_unproven(o,"child terminal event drain unavailable before rollup");
+    if(m->exit_note_received&&!m->exit_note_witness&&!m->exit_abstime)terminal_known=engine_member_terminal(o,1);
+    if(terminal_known&&leader_known&&o->child_rollup_read_ns!=UINT64_MAX&&m->terminal_observed_ns&&!engine_leader_rollup_after_terminal(o)) {
+        // A newly drained terminal receipt must precede the leader RI, too.
+        // Reuse the strict original sampler; never backdate either endpoint.
+        leader_known=engine_refresh_leader_rollup(o);
+    }
     for(unsigned i=0;i<o->retired_count;i++)if(o->retired[i].current&&o->retired[i].pid==m->state.pid&&o->retired[i].birth==m->state.birth&&o->retired[i].start==m->state.start_absolute&&!memcmp(&o->retired[i].token,&m->token,sizeof(m->token)))current++;
     if(o->source_admitted&&o->slots==2&&o->child_image_admitted&&!o->coverage_lost)mask|=1;
     if(current==1&&m->token_known&&m->state.birth&&m->state.start_absolute)mask|=2;
-    if(terminal_known&&m->exit_abstime&&m->terminal_observed_ns&&engine_token_gone(&m->token))mask|=4;
+    if(engine_child_terminal_bit(m,terminal_known,1)&&engine_token_gone(&m->token))mask|=4;
     if(empty_child_edge)mask|=8;
     if(leader_known&&o->members[0].state.start_absolute==o->ticket.start&&o->ticket.start&&o->child_rollup_read_ns!=UINT64_MAX&&o->child_rollup_read_ns>=m->terminal_observed_ns)mask|=16;
     o->child_rollup_mask=mask;o->child_rollup_user=o->members[0].child_user;o->child_rollup_system=o->members[0].child_system;
@@ -3331,6 +3437,7 @@ static int engine_qualify_child_rollup(struct engine_owner *o,int terminal_known
 }
 static void engine_terminal_child_rollup(struct engine_owner *o) {
     if(!o->child_created||o->child_rollup_known||o->child_cost_unproven)return;
+    if(!engine_events_poll(o,0)){(void)engine_child_unproven(o,"terminal child event drain unavailable");return;}
     int terminal=engine_member_terminal(o,1);int ids[3]={0};int count=engine_list_children(o,0,o->ticket.pid,ids,sizeof(ids));
     struct rusage_info_v1 u;int result=proc_pid_rusage(o->ticket.pid,RUSAGE_INFO_V1,(rusage_info_t *)&u);uint64_t read=engine_now(o,CLOCK_MONOTONIC);
     int known=result==0&&u.ri_proc_start_abstime==o->ticket.start&&u.ri_proc_exit_abstime&&engine_token_gone(&o->members[0].token)&&engine_usage(o,0,&u);

@@ -6,6 +6,7 @@
 # Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
 """Run canonical synthetic private-engine controls; never run a real candidate."""
 import argparse
+import errno
 import hashlib
 import json
 import os
@@ -31,10 +32,13 @@ VALIDATED = (b'if(!engine_owner_priority()||!engine_pretest_current(context)'
 # is re-labelled as a current pass.
 LEDGERS = ('hold-ledger.ndjson', 'hold-control-success', 'claim.json', 'charge-diagnostic.ndjson',
            'admitted-descriptor', 'retained-descriptor', 'deadline-result/stdout', 'deadline-result/result.json',
-           *(f'total-{i}.ndjson' for i in range(26)), *(f'live-race-{i}' for i in range(16,23)), *(f'event-release-{i}' for i in range(23,26)), 'rollup-2', 'rollup-2-terminal', 'rollup-2-release', 'release-6',
+           *(f'total-{i}.ndjson' for i in range(27)), 'knote-rollup-26', *(f'live-race-{i}' for i in range(16,23)), *(f'event-release-{i}' for i in range(23,26)), 'rollup-2', 'rollup-2-terminal', 'rollup-2-release', 'release-6',
            *(f'pause-{i}-{phase}' for i in (9,10) for phase in ('start','done','release')),
            *('diagnostic-' + str(i) + '/' + name for i in range(4) for name in ('stderr', 'stdout', 'result.json')))
 ASSERTIONS = {
+ 'leader-refresh-use-cached': b'cached terminal leader RI predating child receipt cannot satisfy fresh rollup observation',
+ 'child-exit-ignore-note': b'retained process-bound NOTE_EXIT qualifies RI_ESRCH with unchanged rollup coverage across approved exec',
+ 'child-exit-unbound-note': b'unbound or incomplete child exit witness retains rollup refusal and sticky child-cost state',
  'verifier-pre-registration-run': b'actual leader registration and owned close-on-exec queue precede first controlled continuation',
  'verifier-event-as-proof': b'fast scripted between-poll fork notification produces distinct honest missed-verifier refusal',
  'verifier-skip-terminal-drain': b'actual queued leader fork survives child reap and terminal precheck before census',
@@ -286,6 +290,11 @@ def variants(source):
     result = {}
     def add(name, anchor, replacement, args):
         result[name] = (changed(source, anchor, replacement), args)
+    add('leader-refresh-use-cached', b'return o->members[1].terminal_observed_ns&&o->child_rollup_read_ns!=UINT64_MAX\n        &&o->child_rollup_read_ns>=o->members[1].terminal_observed_ns;',
+        b'return o->members[0].phase==ENGINE_EXITED||(o->members[1].terminal_observed_ns&&o->child_rollup_read_ns!=UINT64_MAX\n        &&o->child_rollup_read_ns>=o->members[1].terminal_observed_ns);', ['leader-rollup-refresh-api', '3'])
+    add('child-exit-ignore-note', b'if(event->fflags&NOTE_EXIT)', b'if(0&&(event->fflags&NOTE_EXIT))', ['child-exit-witness-api', '0'])
+    add('child-exit-unbound-note', b'if(event->udata!=&o->event_watch[1]||!engine_child_watch_matches(o))',
+        b'if(0&&(event->udata!=&o->event_watch[1]||!engine_child_watch_matches(o)))', ['child-exit-witness-api', '4'])
     add('verifier-pre-registration-run', b'!engine_events_register(o,0,raw.pid)', b'0', ['verifier-event-control', '0'])
     add('verifier-event-as-proof', b'o->leader_fork_events++;o->fork_census_pending=1;',
         b'o->leader_fork_events++;o->fork_census_pending=1;o->verified_descendants++;', ['verifier-event-api'])
@@ -397,10 +406,25 @@ def verifier_event_lifetime(stdout):
             'scope':'source-known actual fork lifetime; not installed Git/GPG qualification'}
 
 
+def child_exit_witness_receipt(stdout):
+    rows=re.findall(rb'^private_child_exit_witness_process_source_known original_pid=([0-9]+) child_pid=([0-9]+) RI_result=(-?[0-9]+) RI_errno=([0-9]+) child_exit_witness=kqueue_note_exit child_exit_abstime=0 terminal_observed_ns=([0-9]+) cached_leader_RI_ns=([0-9]+) first_leader_terminal_ns=([0-9]+) later_leader_RI_ns=([0-9]+) rollup_mask=31 child_cost_unproven=0 actual_leader_own_wait4=1 original_group_gone=1 controller_reaps_child=false leader_child_wait4_CPU_ns=([0-9]+) authoritative_subtree_CPU_ns=([0-9]+) helper_debt_delta_ns=([0-9]+) helper_debt_before_ns=([0-9]+) helper_debt_target_ns=([0-9]+) global_paid_ns=([0-9]+) GS1_fixture_projection=true installed_tool_qualification=false runtime_approved=false\n',stdout,re.MULTILINE)
+    if len(rows)!=1:raise ValueError('actual leader-reaped child knote witness receipt missing or duplicated')
+    leader,child,result,error,terminal,cached,first,read,child_CPU,CPU,delta,before,target,paid=map(int,rows[0])
+    if (not leader or not child or leader==child or result==0 or error!=errno.ESRCH or not 0<first<=cached<terminal<=read
+            or CPU<child_CPU or delta!=9*max(1000000,CPU) or target!=before+delta or paid<target):
+        raise ValueError('child knote witness lacks RI_ESRCH, post-terminal rollup, single subtree bill or full9x payment')
+    return {'original_pid':leader,'child_pid':child,'RI_error':error,'child_exit_witness':'kqueue_note_exit',
+            'exit_abstime':0,'terminal_observed_ns':terminal,'cached_leader_RI_ns':cached,'first_leader_terminal_ns':first,'later_leader_RI_ns':read,'rollup_mask':31,
+            'child_wait4_done_by_original_leader':True,'controller_child_wait4':False,
+            'raw_child_CPU_ns':child_CPU,'authoritative_subtree_CPU_ns':CPU,'helper_debt_delta_ns':delta,
+            'helper_global_debt_before_ns':before,'helper_global_target_ns':target,'global_paid_ns':paid,
+            'scope':'actual source-known process/knote/rollup/accounting; GS1 admission supplied, no installed tool qualification'}
+
+
 def retain_current(stdout, report):
-    found=re.findall(rb'private_engine_controls=pass cases=83 total_budget_controls=8 synthetic_source_known=true real_candidate_created=0 runtime_approved=false retained=(/private/tmp/dream-private-engine-controls\.[A-Za-z0-9]+)\n',stdout)
+    found=re.findall(rb'private_engine_controls=pass cases=98 total_budget_controls=8 synthetic_source_known=true real_candidate_created=0 runtime_approved=false retained=(/private/tmp/dream-private-engine-controls\.[A-Za-z0-9]+)\n',stdout)
     if len(found)!=1:
-        raise ValueError('current fixture lacks exact83 remaining controls and eight total-budget witnesses')
+        raise ValueError('current fixture lacks exact98 remaining controls and eight total-budget witnesses')
     if os.fsdecode(found[0]) != report['commands'][-1]['fixture_capture']['source_dir']:
         raise ValueError('completed fixture root differs from original command binding')
     modes=re.findall(rb'private_total_budget_control_source_known mode=([0-9]+) original_pid=([0-9]+) actual_own_wait4=1 group_gone=1 terminal_cpu_ns=([0-9]+)',stdout)
@@ -447,7 +471,25 @@ def retain_current(stdout, report):
         'notifications_are_birth_counts':False,'GS1_or_whole_lifetime_proof_from_events':False,
         'queue':'actual CLOEXEC fd retained until original ownwait4/groupgone and charged close',
         'terminal_fields_changed':False,'ledger_fields':{'leader_fork_events':'u64','leader_exec_events':'u64','child_discovered_via':'none|poll|fork_event','fork_seen_child_missed':'bool'}}
-    report['baseline_cases']=83
+    child_api=re.findall(rb'private_child_exit_witness_API_completed_source_known mode=([0-8]) expected_exit=([0-9]+) native_process=false',stdout)
+    if sorted((int(m),int(code)) for m,code in child_api)!=[(i,81 if i else 0) for i in range(9)]:
+        raise ValueError('child exit witness production API positive and guard negatives incomplete')
+    report['child_exit_witness_actual_process']=child_exit_witness_receipt(stdout)
+    report['child_exit_witness_API']={'scope':'supplied process/watch/errno/counter state; no child birth or physical child reap claim',
+        'cases':{'0':'process-bound watch spans approved exec; first receipt stable; NOTE_EXIT plus ESRCH qualifies',
+                 '1':'NOTE_EXEC alone refuses','2':'failed registration/no registered child watch refuses',
+                 '3':'foreign watch birth refuses','4':'forged userdata refuses','5':'nonESRCH RI refuses',
+                 '6':'rollup less than sampled child CPU refuses','7':'prior sticky child-cost-unproven remains refused',
+                 '8':'token not gone refuses'},'exit_abstime_not_fabricated':True,'new_terminal_fields':{},
+        'new_ledger_field':{'child_exit_witness':'ri|kqueue_note_exit|none'}}
+    refresh_api=re.findall(rb'private_leader_rollup_refresh_API_completed_source_known mode=([0-4]) expected_exit=([0-9]+) native_process=false',stdout)
+    if sorted((int(m),int(code)) for m,code in refresh_api)!=[(i,81 if i else 0) for i in range(5)]:
+        raise ValueError('fresh original leader RI validity/cache guard API cases incomplete')
+    report['leader_rollup_refresh_API']={'scope':'supplied cached terminal owner, current-token identity, RI status/payload and timestamps; no native process',
+        'cases':{'0':'genuine fresh post-child terminal observation passes strict raw guards','1':'missing RI refuses',
+                 '2':'foreign RI start refuses','3':'cached terminal and RI read before child receipt are stale',
+                 '4':'reaped original owner refuses'},'cached_success_not_new_observation':True}
+    report['baseline_cases']=98
     marker=b'private_total_retained_guard_source_known api=true supplied_clock_and_identity_values=true native_process=false runtime_approved=false\n'
     if stdout.count(marker)!=1:
         raise ValueError('current retained-clock/child production API witness missing or duplicated')
@@ -503,6 +545,20 @@ def verify(directory, inputs, report, total_only=False):
             if marker not in stdout or b'probe refused:' in stderr:
                 raise ValueError('event refusal lacks its intended diagnostic and original owner cleanup')
             if mode==0:report['commands'][-1]['actual_kernel_child_lifetime']=verifier_event_lifetime(stdout)
+    if not total_only:
+        for mode in range(1,9):
+            code,stdout,stderr=run([str(program),'child-exit-witness-api',str(mode)],current,'child-exit-witness-refusal-'+str(mode),report,fixture=True)
+            expect(code,81,'child exit witness API refusal '+str(mode))
+            marker=(f'private_child_exit_witness_API_completed_source_known mode={mode} expected_exit=81 native_process=false').encode()
+            if marker not in stdout or b'probe refused:' in stderr:
+                raise ValueError('child exit witness API negative did not complete exact intended refusal/latch assertions')
+    if not total_only:
+        for mode in range(1,5):
+            code,stdout,stderr=run([str(program),'leader-rollup-refresh-api',str(mode)],current,'leader-rollup-refresh-refusal-'+str(mode),report,fixture=True)
+            expect(code,81,'fresh leader RI API refusal '+str(mode))
+            marker=(f'private_leader_rollup_refresh_API_completed_source_known mode={mode} expected_exit=81 native_process=false').encode()
+            if marker not in stdout or b'probe refused:' in stderr:
+                raise ValueError('fresh leader RI API negative lacks exact intended cache/identity/clock refusal')
     all_variants=variants(source)
     selected={k:v for k,v in all_variants.items() if not total_only or k.startswith('total-')}
     for name,(changed_source,args) in selected.items():

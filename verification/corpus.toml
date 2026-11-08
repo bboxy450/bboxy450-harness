@@ -2182,3 +2182,13 @@ frontend = "project"
 name = "BrokenHarnessDreamReadVerifierEventsSkipTerminalDrain"
 expected = "safety"
 frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadVerifierEventsIgnoreChildExit"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadVerifierEventsUnboundChildExit"
+expected = "safety"
+frontend = "project"

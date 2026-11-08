@@ -2341,6 +2341,491 @@ fn helper_observer(control: u8, full_observer: bool) -> Model {
 
 
 
+/// Task66364 adds a DISJOINT retained-child terminal/rollup projection to
+/// VerifierEvents. The registered knote denotes one process, not a PID lookup;
+/// an approved clone-to-GPG exec changes its token chain, not that process.
+/// RI-only TotalBudget trajectories remain the unchanged legacy source slice.
+/// This projection checks the alternate bit4 source and unchanged other bits,
+/// source-bound read ordering/coverage, sticky refusal and one subtree bill.
+fn extend_verifier_child_exit(m: &mut Model, control: u8) {
+    const CASE: usize = 32;
+    const P: usize = 33;
+    const WATCH: usize = 34;
+    const NOTE: usize = 35;
+    const RI_EXIT: usize = 36;
+    const RI_ERROR: usize = 37;
+    const CURRENT: usize = 38;
+    const GONE: usize = 39;
+    const RECEIPT: usize = 40;
+    const FIRST: usize = 41;
+    const READ: usize = 42;
+    const COVER: usize = 43;
+    const OTHER: usize = 44;
+    const VERDICT: usize = 45;
+    const WAIT: usize = 46;
+    const CPU: usize = 47;
+    const DUE: usize = 48;
+    const PAID: usize = 49;
+    const RELEASE: usize = 50;
+    const UNPROVEN: usize = 51;
+    const EXTRA: usize = 52;
+    const WITNESS: usize = 53;
+    const PENDING: usize = 54;
+    const DRAINED: usize = 55;
+    const OWNER: usize = 56;
+    const PRIOR: usize = 57;
+    const BILLS: usize = 58;
+    const EXEC: usize = 59;
+    for (name, max) in [
+        ("childExitCorrelatedCase", 16),
+        ("childExitProtocolPhase", 10),
+        ("registeredChildKnoteNoneSameProcessForeign", 2),
+        ("childEventNoneExecExit", 2),
+        ("childRiExitAbstimePositive", 1),
+        ("childRiFailureNoneEsrchOtherUnknown", 3),
+        ("currentValidatedChildTokenChain", 1),
+        ("childCurrentTokenGone", 1),
+        ("childTerminalObservedReceipt", 1),
+        ("firstChildTerminalReceipt", 1),
+        ("sameLeaderRollupReadTime", 2),
+        ("componentwiseChildRollupCovers", 1),
+        ("unchangedRollupOtherBitsSourceSoleKnownEdge", 1),
+        ("childRollupPendingAcceptedRefused", 2),
+        ("actualLeaderOwnWait4AndGroupGone", 1),
+        ("authoritativeWholeSubtreeWait4Cpu", 2),
+        ("fullWholeSubtreeFreshDebt", 18),
+        ("wholeSubtreeDebtActuallyPaid", 18),
+        ("coveredChildCostRelease", 1),
+        ("stickyChildCostUnproven", 1),
+        ("extraChildWait4OrDuplicateDebit", 1),
+        ("child_exit_witnessNoneRiKqueueNoteExit", 2),
+        ("queuedChildExitNotification", 1),
+        ("childEventsDrainedBeforeRollupVerdict", 1),
+        ("retainedOriginalLeaderOwner", 1),
+        ("priorChildCostAlreadyUnproven", 1),
+        ("originalLeaderTerminalBillCount", 1),
+        ("approvedChildExecWithinWatchedProcess", 1),
+    ] {
+        m.variables.push(Variable::new(name, 0, max, 0));
+    }
+    // No independent cross-product: existing discovery actions stay in CASE0;
+    // every appended profile leaves all32 existing fields at their initial0.
+    for action in &mut m.actions {
+        action.guard = eq(CASE, 0).and(action.guard.clone());
+    }
+    for profile in 1..=16 {
+        act(
+            m,
+            &format!("RetainOriginalWatchedVerifierProfile{profile}"),
+            all([eq(0, 0), eq(CASE, 0)]),
+            &[
+                (CASE, Int(profile)),
+                (P, Int(1)),
+                (OWNER, Int(1)),
+                (
+                    WATCH,
+                    Int(if profile == 4 {
+                        0
+                    } else if profile == 5 {
+                        2
+                    } else {
+                        1
+                    }),
+                ),
+                (CURRENT, Int(i64::from(profile != 16))),
+                (PRIOR, Int(i64::from(profile == 13))),
+                (UNPROVEN, Int(i64::from(profile == 13))),
+                (EXEC, Int(i64::from(profile == 15))),
+            ],
+        );
+        // Profiles:1 RI exit,2 knote+RI_ESRCH,3 absent event,4 registration
+        // failed,5 foreign/reused process watch,6 EXEC-only,7 RI_EIO,
+        // 8 token not gone,9 unknown receipt clock,10 stale leader read,
+        // 11 componentwise undercoverage,12 other mask premise missing,
+        // 13 already-sticky unknown,14 RI result unknown,15 approved exec
+        // on SAME watched process,16 invalid current token/exec chain.
+        act(
+            m,
+            &format!("QueueChildRecordWithoutInventingTerminalOrCpu{profile}"),
+            all([eq(CASE, profile), eq(P, 1)]),
+            &[
+                (P, Int(2)),
+                (
+                    NOTE,
+                    Int(if profile == 1 || profile == 3 || profile == 4 {
+                        0
+                    } else if profile == 6 {
+                        1
+                    } else {
+                        2
+                    }),
+                ),
+                (PENDING, Int(i64::from(!matches!(profile, 1 | 3 | 4)))),
+            ],
+        );
+        act(
+            m,
+            &format!("DrainRetainedChildRecordsBeforeAnyUnprovenLatch{profile}"),
+            all([eq(CASE, profile), eq(P, 2)]),
+            &[
+                (P, Int(3)),
+                (PENDING, Int(0)),
+                (DRAINED, Int(1)),
+                (
+                    RECEIPT,
+                    Int(i64::from(!matches!(profile, 1 | 3 | 4 | 6 | 9))),
+                ),
+                (FIRST, Int(i64::from(!matches!(profile, 1 | 3 | 4 | 6 | 9)))),
+            ],
+        );
+        act(
+            m,
+            &format!("ReadChildRiAndRetainExactOutcomeWithoutResidualCredit{profile}"),
+            all([eq(CASE, profile), eq(P, 3)]),
+            &[
+                (P, Int(4)),
+                (RI_EXIT, Int(i64::from(profile == 1))),
+                (
+                    RI_ERROR,
+                    Int(if profile == 1 {
+                        0
+                    } else if profile == 7 {
+                        2
+                    } else if profile == 14 {
+                        3
+                    } else {
+                        1
+                    }),
+                ),
+                (GONE, Int(i64::from(profile != 8))),
+                (RECEIPT, if profile == 1 { Int(1) } else { Var(RECEIPT) }),
+                (FIRST, if profile == 1 { Int(1) } else { Var(FIRST) }),
+            ],
+        );
+        act(
+            m,
+            &format!("FreshSameLeaderRollupRetainsOtherBitsAndLastChildSample{profile}"),
+            all([eq(CASE, profile), eq(P, 5)]),
+            &[
+                (P, Int(6)),
+                (READ, Int(if profile == 10 { 0 } else { 2 })),
+                (COVER, Int(i64::from(profile != 11))),
+                (OTHER, Int(i64::from(profile != 12))),
+            ],
+        );
+    }
+    // A repeat notification is observed but never moves the receipt beyond a
+    // previously covering same-leader read. No native-delivery fairness.
+    act(
+        m,
+        "DuplicateChildExitKeepsFirstPositiveReceiptStable",
+        all([
+            eq(CASE, 0).negate(),
+            eq(NOTE, 2),
+            eq(RECEIPT, 1),
+            eq(RELEASE, 0),
+        ]),
+        &[(RECEIPT, Var(FIRST))],
+    );
+    let ri = all([eq(RI_EXIT, 1), eq(CURRENT, 1), eq(GONE, 1), eq(RECEIPT, 1)]);
+    let note = all([
+        eq(WATCH, 1),
+        eq(CURRENT, 1),
+        eq(NOTE, 2),
+        eq(RI_EXIT, 0),
+        eq(RI_ERROR, 1),
+        eq(GONE, 1),
+        eq(RECEIPT, 1),
+        eq(DRAINED, 1),
+    ]);
+    let accepted_note = if control == 6 {
+        Bool(false)
+    } else {
+        all([
+            if control == 7 {
+                Bool(true)
+            } else {
+                eq(WATCH, 1)
+            },
+            eq(CURRENT, 1),
+            eq(NOTE, 2),
+            eq(RI_EXIT, 0),
+            eq(RI_ERROR, 1),
+            eq(GONE, 1),
+            eq(RECEIPT, 1),
+            eq(DRAINED, 1),
+        ])
+    };
+    for (kind, guard) in [
+        (1, ri.clone()),
+        (2, ri.clone().negate().and(accepted_note.clone())),
+        (0, ri.clone().negate().and(accepted_note.negate())),
+    ] {
+        act(
+            m,
+            &format!("ClassifyRetainedChildExitWitness{kind}"),
+            all([eq(CASE, 0).negate(), eq(P, 4), eq(DRAINED, 1), guard]),
+            &[(P, Int(5)), (WITNESS, Int(kind))],
+        );
+    }
+    let correct = all([
+        ri.clone().or(note.clone()),
+        eq(OTHER, 1),
+        eq(COVER, 1),
+        Var(READ).lt(Var(RECEIPT)).negate(),
+        eq(PRIOR, 0),
+    ]);
+    let admitted = all([
+        eq(WITNESS, 0).negate(),
+        eq(OTHER, 1),
+        eq(COVER, 1),
+        Var(READ).lt(Var(RECEIPT)).negate(),
+        eq(PRIOR, 0),
+    ]);
+    for verdict in 1..=2 {
+        act(
+            m,
+            &format!("DecideChildRollupWithoutClearingEarlierUnknown{verdict}"),
+            all([
+                eq(CASE, 0).negate(),
+                eq(P, 6),
+                eq(DRAINED, 1),
+                if verdict == 1 {
+                    admitted.clone()
+                } else {
+                    admitted.clone().negate()
+                },
+            ]),
+            &[
+                (P, Int(7)),
+                (VERDICT, Int(verdict)),
+                (UNPROVEN, if verdict == 2 { Int(1) } else { Var(UNPROVEN) }),
+            ],
+        );
+    }
+    act(
+        m,
+        "ActualOriginalLeaderWait4BooksWholeSubtreeExactlyOnce",
+        all([eq(CASE, 0).negate(), eq(P, 7), eq(WAIT, 0), eq(BILLS, 0)]),
+        &[
+            (P, Int(8)),
+            (WAIT, Int(1)),
+            (BILLS, Int(1)),
+            (CPU, Int(2)),
+            (DUE, Int(18)),
+            (PAID, Int(0)),
+        ],
+    );
+    act(
+        m,
+        "ObserveFullFreshSubtreeRestEndpoint",
+        all([eq(CASE, 0).negate(), eq(P, 8), eq(WAIT, 1), eq(PAID, 0)]),
+        &[(P, Int(9)), (PAID, Var(DUE))],
+    );
+    act(
+        m,
+        "KnownCoveredChildCostAfterWholeLeaderBillPaid",
+        all([eq(CASE, 0).negate(), eq(P, 9), eq(VERDICT, 1), eq(PAID, 18)]),
+        &[(P, Int(10)), (RELEASE, Int(1)), (OWNER, Int(0))],
+    );
+    act(
+        m,
+        "UnprovenChildKeepsSameOwnerAfterKnownLeaderCostPaid",
+        all([eq(CASE, 0).negate(), eq(P, 9), eq(VERDICT, 2), eq(PAID, 18)]),
+        &[(P, Int(10))],
+    );
+    safe(
+        m,
+        "ChildKnoteExitNeedsRetainedSameProcessCurrentChainAndEsrch",
+        eq(CASE, 0).or(all([
+            eq(WITNESS, 1).negate().or(ri),
+            eq(WITNESS, 2).negate().or(note),
+        ])),
+    );
+    safe(
+        m,
+        "ChildRollupVerdictMatchesActualTaggedTerminalWitness",
+        eq(CASE, 0).or(eq(VERDICT, 0)
+            .or(eq(VERDICT, 1).and(correct.clone()))
+            .or(eq(VERDICT, 2).and(correct.negate()))),
+    );
+    safe(
+        m,
+        "FirstChildExitReceiptNeverMovesOnDuplicate",
+        eq(CASE, 0).or(Var(RECEIPT).eq(Var(FIRST))),
+    );
+    safe(
+        m,
+        "Bit4KnoteSourcePreservesUnknownAndRollupCoverage",
+        eq(CASE, 0).or(all([
+            eq(PRIOR, 0).or(eq(UNPROVEN, 1)),
+            eq(VERDICT, 2)
+                .negate()
+                .or(all([eq(UNPROVEN, 1), eq(OWNER, 1), eq(RELEASE, 0)])),
+            eq(VERDICT, 1).negate().or(all([
+                eq(OTHER, 1),
+                eq(COVER, 1),
+                eq(RECEIPT, 1),
+                Var(READ).lt(Var(RECEIPT)).negate(),
+            ])),
+        ])),
+    );
+    safe(
+        m,
+        "ChildExitEventNeverBecomesCpuReapOrDuplicateChildBill",
+        eq(CASE, 0).or(all([
+            eq(EXTRA, 0),
+            eq(BILLS, 0).or(all([eq(WAIT, 1), eq(CPU, 2), eq(DUE, 18)])),
+            eq(WAIT, 1).or(all([eq(CPU, 0), eq(DUE, 0), eq(PAID, 0), eq(BILLS, 0)])),
+        ])),
+    );
+    safe(
+        m,
+        "CoveredChildReleaseNeedsActualWholeLeaderBillAndFullDebt",
+        eq(CASE, 0).or(eq(RELEASE, 0).or(all([
+            eq(VERDICT, 1),
+            eq(WAIT, 1),
+            eq(BILLS, 1),
+            eq(CPU, 2),
+            eq(DUE, 18),
+            eq(PAID, 18),
+            eq(UNPROVEN, 0),
+        ]))),
+    );
+    // All native completion/delivery/clock observations remain unfair.
+}
+
+#[cfg(test)]
+mod verifier_child_exit_tests {
+    use super::*;
+
+    #[test]
+    fn retained_child_knote_exit_covers_esrch_without_invented_cost_or_reap() {
+        let model = verifier_event_discovery(0);
+        let good = model.check(100_000).unwrap();
+        println!(
+            "{} child-exit projection: {} states",
+            model.name,
+            good.states.len()
+        );
+        assert!(good.violations.is_empty(), "{:?}", good.violations);
+        for (profile, witness) in [(1, 1), (2, 2), (15, 2)] {
+            assert!(
+                good.states.iter().any(|s| s[32] == profile
+                    && s[45] == 1
+                    && s[53] == witness
+                    && s[46] == 0
+                    && s[47] == 0
+                    && s[58] == 0),
+                "RI or retained same-process knote permits bit4; neither observation is wait4/CPU"
+            );
+            assert!(
+                good.states.iter().any(|s| s[32] == profile
+                    && s[50] == 1
+                    && s[46] == 1
+                    && s[47] == 2
+                    && s[48] == 18
+                    && s[49] == 18
+                    && s[52] == 0
+                    && s[58] == 1),
+                "whole leader subtree wait4 is billed once and full9x paid before cost release"
+            );
+        }
+        assert!(
+            good.states.iter().any(|s| s[32] == 15
+                && s[59] == 1
+                && s[34] == 1
+                && s[38] == 1
+                && s[53] == 2
+                && s[50] == 1),
+            "approved exec advances validated token chain within the same process-bound watch"
+        );
+        for profile in [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 16] {
+            assert!(
+                good.states.iter().any(|s| s[32] == profile
+                    && s[33] == 10
+                    && s[45] == 2
+                    && s[50] == 0
+                    && s[51] == 1
+                    && s[56] == 1
+                    && s[46] == 1
+                    && s[47] == 2
+                    && s[48] == 18
+                    && s[49] == 18),
+                "invalid source/outcome/time/rollup premise{profile} retains full leader cost/debt and same-owner refusal"
+            );
+        }
+        assert!(
+            good.states.iter().any(|s| s[32] == 2
+                && s[54] == 1
+                && s[55] == 0
+                && s[40] == 0
+                && s[45] == 0
+                && s[51] == 0),
+            "pending exit record must drain before an irreversible unproven verdict"
+        );
+        assert!(
+            good.states.iter().any(|s| s[32] == 13
+                && s[53] == 2
+                && s[57] == 1
+                && s[51] == 1
+                && s[45] == 2),
+            "later valid event evidence never clears already-sticky child_cost_unproven"
+        );
+        let duplicate = model
+            .actions
+            .iter()
+            .position(|a| a.name == "DuplicateChildExitKeepsFirstPositiveReceiptStable")
+            .unwrap();
+        assert!(
+            good.edges
+                .iter()
+                .enumerate()
+                .any(|(from, edges)| good.states[from][32] == 2
+                    && good.states[from][42] == 2
+                    && edges
+                        .iter()
+                        .any(|edge| edge.action == duplicate && edge.to == from)),
+            "duplicate child NOTE_EXIT preserves the earlier receipt covered by leader rollup"
+        );
+        for (control, property) in [
+            (6, "ChildRollupVerdictMatchesActualTaggedTerminalWitness"),
+            (
+                7,
+                "ChildKnoteExitNeedsRetainedSameProcessCurrentChainAndEsrch",
+            ),
+        ] {
+            let model = verifier_event_discovery(control);
+            let checked = model.check(100_000).unwrap();
+            println!("{}: {} states", model.name, checked.states.len());
+            assert!(
+                checked.violations.iter().any(|v| v.property == property),
+                "{} must causally fail {property}",
+                model.name
+            );
+            if control == 6 {
+                assert!(
+                    checked.states.iter().any(|s| s[32] == 2
+                        && s[37] == 1
+                        && s[35] == 2
+                        && s[34] == 1
+                        && s[45] == 2
+                        && s[53] == 0),
+                    "old ignored-NOTE_EXIT refuses the otherwise valid leader-reaped child"
+                );
+            } else {
+                assert!(
+                    checked
+                        .states
+                        .iter()
+                        .any(|s| s[32] == 5 && s[34] == 2 && s[53] == 2 && s[45] == 1),
+                    "foreign/reused watch cannot certify a retained child's exit"
+                );
+            }
+        }
+    }
+}
+
 /// Task66356: a disjoint finite protocol projection of the SAME helper owner.
 /// Profiles correlate a queued Darwin notification with a subsequent census;
 /// NOTE_FORK carries no child PID and notification counts are not birth counts.
@@ -2356,6 +2841,8 @@ pub fn verifier_event_discovery(control: u8) -> Model {
         "EventAsProof",
         "EarlyClose",
         "SkipTerminalDrain",
+        "IgnoreChildExit",
+        "UnboundChildExit",
     ][control as usize];
     let mut m = base(
         &format!("DreamReadVerifierEvents{suffix}"),
@@ -2812,6 +3299,7 @@ pub fn verifier_event_discovery(control: u8) -> Model {
             eq(QUAR, 0),
         ])),
     );
+    extend_verifier_child_exit(&mut m, control);
     m
 }
 
