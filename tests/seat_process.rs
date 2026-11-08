@@ -329,40 +329,78 @@ fn hangup_stops_without_an_operator() {
     writer.write_all(b"start a tool\n").unwrap();
     writer.flush().unwrap();
     let mut reader = master.try_clone_reader().unwrap();
+    let terminal_fd = master.as_raw_fd().unwrap();
+    let reader_done = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let reader_stop = reader_done.clone();
     let (tx, rx) = std::sync::mpsc::channel();
     let reader_thread = std::thread::spawn(move || {
         let mut b = [0; 4096];
         let mut all = vec![];
-        while let Ok(n) = reader.read(&mut b) {
+        let mut announced = false;
+        let reader_deadline = Instant::now() + Duration::from_secs(7);
+        while !reader_stop.load(std::sync::atomic::Ordering::Acquire)
+            && Instant::now() < reader_deadline
+        {
+            let mut poll = libc::pollfd {
+                fd: terminal_fd,
+                events: libc::POLLIN,
+                revents: 0,
+            };
+            let ready = unsafe { libc::poll(&mut poll, 1, 5) };
+            if ready <= 0 {
+                if ready < 0 && std::io::Error::last_os_error().raw_os_error() != Some(libc::EINTR)
+                {
+                    break;
+                }
+                continue;
+            }
+            let Ok(n) = reader.read(&mut b) else {
+                break;
+            };
             if n == 0 {
                 break;
             }
-            all.extend_from_slice(&b[..n]);
-            if String::from_utf8_lossy(&all).contains("sleep 600") {
-                let _ = tx.send(());
-                break;
+            let retained = n.min(65536_usize.saturating_sub(all.len()));
+            all.extend_from_slice(&b[..retained]);
+            if !announced && String::from_utf8_lossy(&all).contains("sleep 600") {
+                let _ = tx.send(all.clone());
+                announced = true;
             }
         }
+        all
     });
-    rx.recv_timeout(Duration::from_secs(5)).unwrap();
-    reader_thread.join().unwrap();
+    let observed = rx.recv_timeout(Duration::from_secs(5)).unwrap();
     let start = Instant::now();
     // Explicit hangup avoids racing PTY foreground-group signal delivery.
-    assert_eq!(
-        unsafe { libc::kill(child.process_id().unwrap() as i32, libc::SIGHUP) },
-        0
-    );
-    drop(writer);
-    drop(master);
-    loop {
+    let original_pid = child.process_id().unwrap();
+    assert_eq!(unsafe { libc::kill(original_pid as i32, libc::SIGHUP) }, 0);
+    // Retain the terminal until this explicit SIGHUP has settled. Closing the
+    // master earlier adds a second physical hangup during the same teardown.
+    let status = loop {
         if let Some(status) = child.try_wait().unwrap() {
-            assert!(status.success());
-            break;
+            break status;
         }
         assert!(start.elapsed() < Duration::from_secs(2));
         std::thread::sleep(Duration::from_millis(5));
-    }
+    };
+    reader_done.store(true, std::sync::atomic::Ordering::Release);
+    // The retained master keeps this poll fd valid until the bounded reader
+    // observes its stop flag; no descendant-held slave can block this join.
+    let output = reader_thread.join().unwrap();
+    drop(writer);
+    drop(master);
+    eprintln!(
+        "hangup original_pid={original_pid} actual_exit={status:?} captured_terminal_bytes={} original_reaped_before_pty_close=true",
+        output.len()
+    );
+    assert!(
+        status.success(),
+        "hangup original_pid={original_pid} status={status:?} pre_hangup_output={:?} terminal_output={:?}",
+        String::from_utf8_lossy(&observed),
+        String::from_utf8_lossy(&output)
+    );
 }
+
 #[test]
 fn no_bboxy_sock_still_finishes_a_turn() {
     let (_temp, master, mut child) = launch("text");
