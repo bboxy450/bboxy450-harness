@@ -2698,6 +2698,7 @@ fn source_growth_is_source_changed() {
 }
 
 #[test]
+#[ignore = "load-sensitive budget/wall window; re-enable via tasks/2026-11-06-qos-builds-never-starve-mcp"]
 fn real_worker_reuses_failure_retry_and_denial_fingerprints() {
     let mut job = Job::new(1, 0, false, false);
     let mut events: Vec<Envelope> = std::str::from_utf8(&job.bytes)

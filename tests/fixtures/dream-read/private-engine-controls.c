@@ -22,6 +22,7 @@ static struct private_engine_context context={&outer,&basis,input_hash};
 static unsigned char capture[8192];
 static struct engine_owner *fixture_live_owner;
 static char fixture_release_path[4097];
+static void same_wake_prepare(struct engine_owner *,const char *,int);
 static void fixture(int);
 static void fixture_reset_cost(void) {
     require(!engine_current,"previous original owner must be settled before fixture reset");
@@ -31,7 +32,7 @@ static void fixture_reset_cost(void) {
     source_known_payment_interrupts=source_known_payment_fail_nth=source_known_schedule_interrupts=source_known_schedule_fail_nth=0;
     source_known_tail_over_cpu=source_known_final_kill_eperm=source_known_terminal_rss_unavailable=0;
     source_known_taskall_pid=0;source_known_taskall_error=source_known_taskall_clock_failure=0;
-    source_known_taskall_native_result=source_known_taskall_native_errno=0;source_known_before_live_read=NULL;source_known_live_rechecks=0;source_known_live_read_error=0;
+    source_known_taskall_native_result=source_known_taskall_native_errno=0;source_known_before_live_read=NULL;source_known_live_rechecks=0;source_known_live_read_error=0;source_known_child_watch_bound=NULL;source_known_child_handoff=NULL;
     source_known_event_registration_failure=0;source_known_process_create_case=0;source_known_flow_stage=source_known_flow_failure_stage=0;memset(&source_known_flow_failure_cost,0,sizeof(source_known_flow_failure_cost));
 }
 static void fixture_cleanup(void) {
@@ -826,6 +827,7 @@ static int fixture_total_argument(unsigned mode,const char *root,char argument[4
     else if(mode>=16&&mode<=22)n=snprintf(argument,4097,"%s/live-race-%u",root,mode);
     else if(mode>=23&&mode<=25)n=snprintf(argument,4097,"%s/event-release-%u",root,mode);
     else if(mode==26)n=snprintf(argument,4097,"%s/knote-rollup-%u",root,mode);
+    else if(mode==27)n=snprintf(argument,4097,"%s",root);
     else n=snprintf(argument,4097,"%llu",(unsigned long long)(mode==1?260000000:mode==3?500000000:mode==5?500000000:3000000));
     if(n<=0||n>=4097)return 0;
     if(mode==2)n=snprintf(release,4097,"%s-release",argument);
@@ -837,18 +839,19 @@ static int total_spawn(struct engine_owner *o,struct private_engine_result *r,co
     memset(o,0,sizeof(*o));memset(r,0,sizeof(*r));reset();fixture(dir);
     source_known_process_create_case=mode>=13&&mode<=15?mode-12:0;
     source_known_event_registration_failure=mode==25;
-    o->context=&context;o->result=r;o->slots=(mode==2||mode==23||mode==24||mode==26)?2:1;o->source_admitted=1;o->controller_parent=getppid();
+    o->context=&context;o->result=r;o->slots=(mode==2||mode==23||mode==24||mode==26||mode==27)?2:1;o->source_admitted=1;o->controller_parent=getppid();
     o->input=o->output=o->errors=-1;o->ledger=-1;o->capture=malloc(ENGINE_CAPTURE_MAX);require(o->capture!=NULL,"bounded total-budget fixture capture");
     fixture_live_owner=o;fixture_release_path[0]=0;
     char ledger[48];snprintf(ledger,sizeof(ledger),"total-%u.ndjson",mode);o->ledger=openat(dir,ledger,O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,0600);require(o->ledger>=0,"owned total-budget fixture ledger");
     struct engine_prepared p;memset(&p,0,sizeof(p));for(unsigned i=0;i<2;i++)p.input[i]=p.output[i]=p.errors[i]=-1;
     strcpy(p.image,self);strcpy(p.descendant,self);strcpy(p.cwd,root);strcpy(o->image,self);strcpy(o->descendant,self);
-    const char *kind=mode==26?"knote-rollup-child":(mode==23||mode==24)?"event-gated-leader":mode==2?"rollup-child":(mode==6||(mode>=16&&mode<=22)||mode==25)?"held-child":mode==7?"exit-child":mode==8?"rss-child":mode==12?"long-wall-cpu-child":(mode==9||mode==10)?"pause-bypass-child":"burn-child";
+    const char *kind=mode==27?"same-wake-leader":mode==26?"knote-rollup-child":(mode==23||mode==24)?"event-gated-leader":mode==2?"rollup-child":(mode==6||(mode>=16&&mode<=22)||mode==25)?"held-child":mode==7?"exit-child":mode==8?"rss-child":mode==12?"long-wall-cpu-child":(mode==9||mode==10)?"pause-bypass-child":"burn-child";
     char argument[4097];require(fixture_total_argument(mode,root,argument,fixture_release_path),"bounded fixture argument and exact original release path");
     require(engine_put(&p,self,&p.argv[p.argc++])&&engine_put(&p,kind,&p.argv[p.argc++])&&engine_put(&p,argument,&p.argv[p.argc++]),"bounded source-known helper argv");
     if(mode==23||mode==24)require(engine_put(&p,mode==23?"fork":"none",&p.argv[p.argc++]),"bounded source-known event leader choice");
     if(mode==9||mode==10){char path[4097];snprintf(path,sizeof(path),"%s/pause-%u-done",root,mode);require(engine_put(&p,path,&p.argv[p.argc++]),"bounded actual pause done marker");snprintf(path,sizeof(path),"%s/pause-%u-release",root,mode);require(engine_put(&p,path,&p.argv[p.argc++]),"bounded actual pause release marker");strcpy(fixture_release_path,path);}
     p.argv[p.argc]=NULL;
+    if(mode==27){same_wake_prepare(o,root,dir);strcpy(p.descendant,o->descendant);}
     require(engine_put(&p,"PATH=/usr/bin:/bin",&p.env[p.envc++])&&engine_put(&p,"LANG=C",&p.env[p.envc++]),"bounded source-known helper environment");p.env[p.envc]=NULL;
     require(engine_prepare_effect(o,&p,0)&&private_end_unit(private_cost.open_cpu),"total-budget original preparation unit paid");
     o->ticket.sequence=1;r->attempts=(uint16_t)o->slots;engine_current=o;dispose_private_engine=engine_emergency_dispose;
@@ -1401,6 +1404,269 @@ static void child_exit_witness_control(const char *self,const char *root,int dir
     require(private_end_unit(private_cost.open_cpu),"actual child exit witness disposal fully paid");controls++;
 }
 
+// Source-known scripted verifier, never an installed Git/GPG qualification.
+static struct private_git_sig_temp same_wake_sig;
+static unsigned char same_wake_signature_buffer[4096];
+static char same_wake_gpg_json[8194],same_wake_root[4097];
+static unsigned same_wake_exec_released,same_wake_unstopped_rest,same_wake_ack_seen,same_wake_exit_released;
+static uint64_t same_wake_ack_unit_cpu;
+struct same_wake_handoff_row {unsigned stage,steps,phase,pending,attachment_stop,registered,exec_released,result;uint64_t open_cpu,cpu_now,used,wall_ns;};
+static struct {uint64_t rows,polls,max_used;struct same_wake_handoff_row first,last;} same_wake_handoff;
+static uint64_t same_wake_watch_release_ns;
+static int same_wake_execute_fd=-1,same_wake_write_result=-2,same_wake_write_errno;
+static struct stat same_wake_execute_stat;
+static uint64_t same_wake_write_begin_CPU,same_wake_write_end_CPU;
+static void same_wake_release_execute(void) {
+    if(same_wake_exec_released)return;
+    same_wake_write_begin_CPU=clock_ns(CLOCK_THREAD_CPUTIME_ID);errno=0;
+    same_wake_write_result=(int)write(same_wake_execute_fd,"x",1);same_wake_write_errno=same_wake_write_result<0?errno:0;
+    same_wake_write_end_CPU=clock_ns(CLOCK_THREAD_CPUTIME_ID);same_wake_watch_release_ns=clock_ns(CLOCK_MONOTONIC);
+    require(same_wake_execute_fd>=0&&same_wake_write_result==1,"prepared original execute FIFO accepts one nonblocking byte");same_wake_exec_released=1;
+}
+
+static void same_wake_handoff_retain(struct engine_owner *o,unsigned stage,unsigned steps,uint64_t used,int result) {
+    struct same_wake_handoff_row row={.stage=stage,.steps=steps,.phase=o->members[1].phase,.pending=o->child_event_pending,
+        .attachment_stop=o->members[1].attachment_stop,.registered=o->event_registered_mask,.exec_released=same_wake_exec_released,
+        .result=(unsigned)result,.open_cpu=private_cost.open_cpu,.cpu_now=clock_ns(CLOCK_THREAD_CPUTIME_ID),.used=used,.wall_ns=clock_ns(CLOCK_MONOTONIC)};
+    if(!same_wake_handoff.rows)same_wake_handoff.first=row;
+    same_wake_handoff.last=row;same_wake_handoff.rows++;if(stage==5)same_wake_handoff.polls++;
+    if(used!=UINT64_MAX&&used>same_wake_handoff.max_used)same_wake_handoff.max_used=used;
+}
+
+static void same_wake_path(char out[4097],const char *root,const char *name) {
+    int n=snprintf(out,4097,"%s/%s",root,name);require(n>0&&n<4097,"bounded same-wake owned path");
+}
+static void same_wake_create_gate(const char *name) {
+    char path[4097];same_wake_path(path,same_wake_root,name);
+    int fd=open(path,O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,0600);
+    require((fd>=0&&close(fd)==0)||(fd<0&&errno==EEXIST),"same-wake fixture creates only its original gate");
+}
+static void same_wake_watch_ready(struct engine_owner *o) {
+    if(same_wake_exec_released||!engine_child_watch_matches(o))return;
+    same_wake_release_execute();
+}
+static void same_wake_rest_observer(void) {
+    struct engine_owner *o=fixture_live_owner;
+    if(!o||!same_wake_exec_released||same_wake_exit_released)return;
+    if(o->child_image_admitted){same_wake_create_gate("exit");same_wake_exit_released=1;return;}
+    if(same_wake_ack_seen)return;
+    struct image current;
+    if(control_observe(o->members[1].state.pid,&current)&&current.birth==o->members[1].state.birth
+        &&current.pgid==o->ticket.pgid&&current.status==SSTOP&&!current.runnable) {
+        same_wake_ack_seen=1;same_wake_ack_unit_cpu=private_cost.last_unit;return;
+    }
+    // The adversarial scripted verifier exits during an erroneously inserted
+    // pre-ACK rest. The real STOP/ACK path leaves it retained across full9x.
+    same_wake_unstopped_rest=1;same_wake_create_gate("exit");same_wake_exit_released=1;
+}
+static void same_wake_prepare(struct engine_owner *o,const char *root,int dir) {
+    strcpy(same_wake_root,root);same_wake_exec_released=same_wake_unstopped_rest=same_wake_ack_seen=same_wake_exit_released=0;same_wake_ack_unit_cpu=0;same_wake_watch_release_ns=0;memset(&same_wake_handoff,0,sizeof(same_wake_handoff));same_wake_write_result=-2;same_wake_write_errno=0;same_wake_write_begin_CPU=same_wake_write_end_CPU=0;
+    strcpy(outer.output.path,root);outer.output.fd=dir;
+    basis.fixture.valid_signature.path=(struct private_slice){(const unsigned char *)"\"valid-signature\"",17};
+    same_wake_path(o->descendant,root,"verifier");
+    int n=snprintf(same_wake_gpg_json,sizeof(same_wake_gpg_json),"\"%s\"",o->descendant);
+    require(n>0&&(size_t)n<sizeof(same_wake_gpg_json),"actual copied verifier JSON path");
+    basis.build.tools[1].ref.path=(struct private_slice){(const unsigned char *)same_wake_gpg_json,(size_t)n};
+    memset(&same_wake_sig,0,sizeof(same_wake_sig));char scratch[4097];same_wake_path(scratch,root,"t");
+    require(private_git_sig_prepare(&context,&same_wake_sig,scratch)&&private_end_unit(private_cost.open_cpu),"real same-wake GS1 scratch and selected bytes prepared and paid before helper birth");
+    o->command=12;o->git_signature=&same_wake_sig;o->signature_buffer=same_wake_signature_buffer;o->signature_capacity=sizeof(same_wake_signature_buffer);
+}
+static void same_wake_verifier(const char *signature) {
+    char root[4097],gate[4097];size_t n=strlen(signature);
+    if(n<22||n>=sizeof(root))_exit(77);memcpy(root,signature,n+1);char *t=strstr(root,"/t/.git_vtag_tmp");if(!t)_exit(77);*t=0;
+    int length=snprintf(gate,sizeof(gate),"%s/exit",root);if(length<=0||(size_t)length>=sizeof(gate))_exit(77);
+    while(access(gate,F_OK)!=0)usleep(100);
+    _exit(0);
+}
+static void same_wake_leader(const char *root) {
+    char verifier[4097],signature[4097],execute[4097],source[4097],report[4097];
+    int a=snprintf(verifier,sizeof(verifier),"%s/verifier",root),b=snprintf(signature,sizeof(signature),"%s/t/.git_vtag_tmpAa1Bb2",root);
+    int c=snprintf(execute,sizeof(execute),"%s/execute",root),d=snprintf(source,sizeof(source),"%s/valid-signature",root),e=snprintf(report,sizeof(report),"%s/admission-child",root);
+    if(a<=0||(size_t)a>=sizeof(verifier)||b<=0||(size_t)b>=sizeof(signature)||c<=0||(size_t)c>=sizeof(execute)||d<=0||(size_t)d>=sizeof(source)||e<=0||(size_t)e>=sizeof(report))_exit(77);
+    unsigned char bytes[512];int in=open(source,O_RDONLY|O_NOFOLLOW|O_CLOEXEC),out=open(signature,O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,0600);
+    ssize_t count=in<0?-1:read(in,bytes,sizeof(bytes));
+    if(count!=228||out<0||write(out,bytes,(size_t)count)!=count||close(in)||close(out))_exit(77);
+    pid_t child=fork();if(child<0)_exit(77);
+    if(!child){int gate=open(execute,O_RDONLY|O_NOFOLLOW|O_CLOEXEC);char byte;ssize_t read_count;
+        if(gate<0)_exit(77);do{read_count=read(gate,&byte,1);}while(read_count<0&&errno==EINTR);
+        if(read_count!=1||byte!='x'||close(gate))_exit(77);
+        // Actual source-known slow EXEC: remain this CLONE for at least750us
+        // AFTER the retained child watch releases its original FIFO gate.
+        uint64_t begin=clock_ns(CLOCK_MONOTONIC),now=begin;
+        if(begin==UINT64_MAX||begin>UINT64_MAX-750000)_exit(77);
+        while(now-begin<750000){usleep(100);now=clock_ns(CLOCK_MONOTONIC);if(now==UINT64_MAX||now<begin)_exit(77);}
+        char delay_path[4097];int length=snprintf(delay_path,sizeof(delay_path),"%s/slow-exec-delay",root);
+        if(length<=0||(size_t)length>=sizeof(delay_path))_exit(77);
+        FILE *delay=fopen(delay_path,"wx");if(!delay||fprintf(delay,"%d %llu %llu\n",getpid(),(unsigned long long)begin,(unsigned long long)now)<0||fclose(delay))_exit(77);
+        char *args[]={verifier,"--keyid-format=long","--status-fd=1","--verify",signature,"-",NULL};execv(verifier,args);_exit(77);}
+    int status=0;struct rusage usage;pid_t got;do{got=wait4(child,&status,0,&usage);}while(got<0&&errno==EINTR);
+    if(got!=child||!WIFEXITED(status)||WEXITSTATUS(status)||unlink(signature))_exit(77);
+    FILE *f=fopen(report,"wx");if(!f||fprintf(f,"%d %llu\n",child,(unsigned long long)ru_cpu(&usage))<0||fclose(f))_exit(77);_exit(0);
+}
+static void same_wake_copy(int from,const char *source,int to,const char *target,mode_t mode) {
+    int input=openat(from,source,O_RDONLY|O_NOFOLLOW|O_CLOEXEC),output=openat(to,target,O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,mode);
+    require(input>=0&&output>=0,"retain exact same-wake fixture copy descriptors");unsigned steps=0;unsigned char bytes[4096];
+    for(;;) {
+        ssize_t n=read(input,bytes,sizeof(bytes));require(n>=0,"same-wake fixture copy read");if(!n)break;
+        require(write(output,bytes,(size_t)n)==n,"same-wake fixture copy write");
+        uint64_t used=engine_interval(private_cost.open_cpu,clock_ns(CLOCK_THREAD_CPUTIME_ID));
+        if(++steps>=64||used>=400000){require(private_end_unit(private_cost.open_cpu),"bounded same-wake fixture copy fully paid");steps=0;}
+    }
+    require(close(input)==0&&close(output)==0&&private_end_unit(private_cost.open_cpu),"same-wake fixture copy final cost and original descriptors paid");
+}
+static void same_wake_admission_control(const char *self,const char *root,int parent) {
+    reset();require(mkdirat(parent,"same-wake",0700)==0,"fresh same-wake fixture directory");
+    int dir=openat(parent,"same-wake",O_RDONLY|O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC);require(dir>=0&&mkdirat(dir,"t",0700)==0,"owned same-wake scratch");
+    char owned[4097];same_wake_path(owned,root,"same-wake");
+    same_wake_copy(AT_FDCWD,self,dir,"verifier",0500);same_wake_copy(parent,"valid-signature",dir,"valid-signature",0600);
+    // Fixture setup is fully paid BEFORE birth. The critical watch callback
+    // only writes one nonblocking byte; no pathname creation/timer wake is
+    // manufactured inside the product's bounded capture/EXEC span.
+    require(same_wake_execute_fd<0&&mkfifoat(dir,"execute",0600)==0,"create only original owned execute FIFO before birth");
+    same_wake_execute_fd=openat(dir,"execute",O_RDWR|O_NONBLOCK|O_NOFOLLOW|O_CLOEXEC);
+    require(same_wake_execute_fd>=0&&fstat(same_wake_execute_fd,&same_wake_execute_stat)==0
+        &&S_ISFIFO(same_wake_execute_stat.st_mode)&&same_wake_execute_stat.st_uid==geteuid()
+        &&same_wake_execute_stat.st_nlink==1&&(same_wake_execute_stat.st_mode&0777)==0600
+        &&private_end_unit(private_cost.open_cpu),"prepared original execute FIFO retained and fully paid before helper birth");
+    struct engine_owner o;struct private_engine_result r;int status=-1;require(total_spawn(&o,&r,self,dir,27,owned),"same-wake original prepared leader obeys unchanged native and QoS gates");
+    source_known_child_watch_bound=same_wake_watch_ready;source_known_child_handoff=same_wake_handoff_retain;private_rest_control=same_wake_rest_observer;
+    const char *first_code="none",*first_detail="none";
+    for(;;) {
+        int done=0;require(known_exited(o.ticket.pid,&done),"same-wake original leader WNOWAIT remains owned");if(done)break;
+        if(!engine_events_service(&o,0)||!engine_sample(&o)){first_code=private_error;first_detail=private_detail;break;}
+    }
+    source_known_child_watch_bound=NULL;source_known_child_handoff=NULL;private_rest_control=NULL;
+    // Ensure the adversarial gap ends with THIS helper parent consuming its
+    // child. Failure assertion uses existing exact fixture cleanup, not a new
+    // product quarantine-exit or any fabricated child own-wait4.
+    same_wake_release_execute();same_wake_create_gate("exit");await_original(&o);
+    const struct same_wake_handoff_row *first=&same_wake_handoff.first,*last=&same_wake_handoff.last;
+    printf("private_same_wake_handoff_diagnostic_source_known first_error=%s first_detail=\"%s\" rows=%llu zero_timeout_poll_calls=%llu max_open_CPU_ns=%llu first_stage=%u first_phase=%u first_open_CPU_ns=%llu first_CPU_ns=%llu first_wall_ns=%llu last_stage=%u last_guard_steps=%u last_phase=%u last_pending=%u last_STOP=%u registered_mask=%u exec_gate_released=%u watch_release_ns=%llu last_open_CPU_ns=%llu last_CPU_ns=%llu last_used_CPU_ns=%llu last_wall_ns=%llu last_result=%u no_timing_cause_inferred=true runtime_approved=false\n",
+        first_code,first_detail,(unsigned long long)same_wake_handoff.rows,(unsigned long long)same_wake_handoff.polls,(unsigned long long)same_wake_handoff.max_used,
+        first->stage,first->phase,(unsigned long long)first->open_cpu,(unsigned long long)first->cpu_now,(unsigned long long)first->wall_ns,
+        last->stage,last->steps,last->phase,last->pending,last->attachment_stop,last->registered,last->exec_released,(unsigned long long)same_wake_watch_release_ns,
+        (unsigned long long)last->open_cpu,(unsigned long long)last->cpu_now,(unsigned long long)last->used,(unsigned long long)last->wall_ns,last->result);
+    printf("private_same_wake_execute_wakeup_source_known prepared_before_birth=true original_FIFO_dev=%llu original_FIFO_ino=%llu write_result=%d write_errno=%d write_begin_CPU_ns=%llu write_end_CPU_ns=%llu child_uses_blocking_read=true child_execute_timer_poll=false controller_write_nonblocking=true runtime_approved=false\n",
+        (unsigned long long)same_wake_execute_stat.st_dev,(unsigned long long)same_wake_execute_stat.st_ino,same_wake_write_result,same_wake_write_errno,
+        (unsigned long long)same_wake_write_begin_CPU,(unsigned long long)same_wake_write_end_CPU);
+    printf("private_same_wake_admission_axis_source_known original_pid=%d child_pid=%d fork_events=%llu child_image_admitted=%u GS1_bound=%u attachment_STOP=%u unstopped_rest=%u own_wait4_pending=true native_process=true actual_GS1=true installed_tool_qualification=false runtime_approved=false\n",
+        o.ticket.pid,o.members[1].state.pid,(unsigned long long)o.leader_fork_events,o.child_image_admitted,same_wake_sig.bound,o.members[1].attachment_stop,same_wake_unstopped_rest);
+    require(fflush(stdout)==0&&private_end_unit(private_cost.open_cpu),"same-wake actual admission and failed-gap evidence fully paid before verdict");
+    require(o.child_image_admitted&&same_wake_sig.bound&&o.verified_descendants==1&&!same_wake_unstopped_rest&&same_wake_ack_seen&&same_wake_ack_unit_cpu<=1000000,
+        "actual fast verifier keeps same-wake image admission and GS1 before any unstopped rest");
+    (void)engine_retire(&o,&status);int settled=o.direct_reaped&&o.wait_observed&&r.group_gone&&r.retired_coverage&&!engine_current;
+    if(settled)fixture_live_owner=NULL;
+    require(settled&&status==0&&!o.failed&&!private_failed&&same_wake_sig.settled&&o.child_rollup_mask==31
+        &&o.helper_cost_retained&&o.helper_cost_paid&&private_cost.debt==private_cost.debt_paid&&!o.event_fd_live,
+        "same-wake actual GS1 verifier reaches unchanged GS2 subtree bill full debt ownreap groupgone and queue close");
+    unsigned long long clone_begin=0,clone_end=0;int delay_pid=0;char delay_path[4097];same_wake_path(delay_path,owned,"slow-exec-delay");
+    FILE *delay=fopen(delay_path,"r");require(delay&&fscanf(delay,"%d %llu %llu",&delay_pid,&clone_begin,&clone_end)==3&&fclose(delay)==0
+        &&delay_pid==o.members[1].state.pid&&clone_begin&&clone_end>=clone_begin&&clone_end-clone_begin>=750000,
+        "actual same-original child remains CLONE for at least750us before its observed verifier EXEC");
+    printf("private_same_wake_slow_exec_source_known child_pid=%d clone_begin_ns=%llu clone_end_ns=%llu clone_delay_ns=%llu minimum_delay_ns=750000 actual_clock_reads=true actual_GS1=true native_process=true installed_tool_qualification=false runtime_approved=false\n",delay_pid,clone_begin,clone_end,clone_end-clone_begin);
+    require(fflush(stdout)==0&&private_end_unit(private_cost.open_cpu),"actual slow-EXEC clock evidence fully paid after original settlement");
+    printf("private_same_wake_admission_completed_source_known original_pid=%d child_pid=%d child_image_admitted=1 GS1_bound=1 GS2_settled=1 rollup_mask=31 actual_own_wait4=1 group_gone=1 helper_CPU_ns=%llu helper_debt_delta_ns=%llu debt_ns=%llu paid_ns=%llu native_process=true installed_tool_qualification=false runtime_approved=false\n",
+        o.ticket.pid,o.members[1].state.pid,(unsigned long long)o.terminal_cpu_ns,(unsigned long long)o.helper_debt_delta_ns,(unsigned long long)private_cost.debt,(unsigned long long)private_cost.debt_paid);
+    require(fflush(stdout)==0&&private_end_unit(private_cost.open_cpu),"same-wake completed raw evidence paid");
+    engine_close_transferred(&o);require(close(o.ledger)==0&&private_git_sig_release(&same_wake_sig),"same-wake original ledger and settled signature custody closed");free(o.capture);
+    int execute_fd=same_wake_execute_fd;same_wake_execute_fd=-1;
+    require(execute_fd>=0&&close(execute_fd)==0&&private_end_unit(private_cost.open_cpu),"original execute FIFO writer held through actual ownreap and groupgone then paid close");
+    char fifo_receipt[512];int fifo_len=snprintf(fifo_receipt,sizeof(fifo_receipt),"{\"fixture_only\":true,\"original_FIFO_dev\":%llu,\"original_FIFO_ino\":%llu,\"writer_closed_after_ownwait4_groupgone\":true,\"nonblocking_write_result\":%d,\"nonblocking_write_errno\":%d}\n",
+        (unsigned long long)same_wake_execute_stat.st_dev,(unsigned long long)same_wake_execute_stat.st_ino,same_wake_write_result,same_wake_write_errno);
+    int receipt_fd=openat(dir,"execute-fifo.json",O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,0600);
+    require(fifo_len>0&&(size_t)fifo_len<sizeof(fifo_receipt)&&receipt_fd>=0&&write(receipt_fd,fifo_receipt,(size_t)fifo_len)==fifo_len
+        &&close(receipt_fd)==0&&private_end_unit(private_cost.open_cpu),"original FIFO scalar receipt separately paid after physical settlement");
+    for(unsigned i=0;i<private_guards.count;i++)if(private_guards.files[i].fd>=0) {require(close(private_guards.files[i].fd)==0,"same-wake original selected input guard closed");private_guards.files[i].fd=-1;}
+    private_guards.count=0;
+    printf("private_same_wake_STOP_axis_source_known positive_ACK_before_first_rest=%u actual_full_unit_CPU_ns=%llu hard_unit_ns=1000000 nominal_target_ns=500000 no_OS_WCET_claim=true runtime_approved=false\n",same_wake_ack_seen,(unsigned long long)same_wake_ack_unit_cpu);
+    require(fflush(stdout)==0&&close(dir)==0&&private_end_unit(private_cost.open_cpu),"same-wake exact original fixture disposal fully paid");controls++;
+}
+
+static int same_wake_api_capture(struct engine_owner *o,unsigned member,pid_t pid) {
+    require(member==1&&pid==200,"same-wake API supplied child capture recipient");
+    o->child_created=1;o->members[1].phase=ENGINE_CLONE;return 1;
+}
+static void same_wake_admission_api(void) {
+    reset();struct engine_owner o;struct private_engine_result r;memset(&o,0,sizeof(o));memset(&r,0,sizeof(r));o.context=&context;o.result=&r;
+    uint64_t original_epoch=private_cost.open_cpu,before=private_cost.debt;
+    int capture=engine_child_capture_same_unit(&o,200,same_wake_api_capture);
+    int waited=private_cost.open_cpu!=original_epoch||private_cost.debt!=before;
+    // A supplied scripted transition closes the only pre-ACK window if a
+    // closed/paid unit is inserted. No OS timing/GS1/reap is invented here.
+    unsigned supplied_stopped_ACK=!waited,supplied_GS1=!waited,mask=30u|(supplied_GS1?1u:0u);
+    int qualified=engine_child_rollup_covers(mask,5000,4000,4000,3000);
+    if(!qualified)(void)engine_child_unproven(&o,"retired child lacks qualified nonduplicated same-leader rollup");
+    require(private_end_unit(private_cost.open_cpu),"same-wake API actual controller full cost paid");
+    printf("private_same_wake_admission_API_source_known captured=%u closed_paid_unit_before_ACK=%u supplied_stopped_ACK=%u supplied_GS1=%u supplied_rollup_mask=%u sticky_child_cost_unproven=%u native_process=false values_supplied=true actual_GS1=false actual_own_wait4=false runtime_approved=false\n",
+        (unsigned)capture,(unsigned)waited,supplied_stopped_ACK,supplied_GS1,mask,o.child_cost_unproven);
+    require(fflush(stdout)==0&&private_end_unit(private_cost.open_cpu),"same-wake API supplied transition evidence fully paid");
+    require(capture&&!waited&&supplied_stopped_ACK&&supplied_GS1&&qualified&&mask==31&&!o.child_cost_unproven,
+        "same-wake admission API keeps pre-STOP window open until positive custody ACK");
+    controls++;
+}
+
+static void custody_stop_identity_api(void) {
+    reset();struct engine_owner o;struct private_engine_result r;memset(&o,0,sizeof(o));memset(&r,0,sizeof(r));o.context=&context;o.result=&r;
+    o.ticket.pid=o.ticket.pgid=100;o.ticket.birth=10;o.ticket.start=20;o.direct_custody=1;o.slots=2;o.child_created=1;
+    o.event_fd_live=1;o.event_registered_mask=3;struct engine_member *m=&o.members[1];m->phase=ENGINE_CLONE;
+    m->state.pid=200;m->state.ppid=m->state.pgid=100;m->state.birth=11;m->state.start_absolute=22;m->token_known=1;m->token.val[5]=200;m->token.val[7]=1;
+    o.retired_count=1;o.retired[0]=(struct engine_incarnation){.pid=200,.birth=11,.start=22,.token=m->token,.current=1};
+    o.event_watch[1]=(struct engine_event_watch){.pid=200,.birth=11,.start=22,.token=m->token,.bound=1};
+    unsigned accepted=0;const unsigned order[]={1,0,2,3,4,5,6};
+    for(unsigned j=0;j<7;j++) {
+        unsigned which=order[j];struct rusage_info_v1 u;memset(&u,0,sizeof(u));u.ri_proc_start_abstime=22;
+        o.failed=0;o.retired[0].current=1;o.event_watch[1].start=22;
+        if(which==1)u.ri_proc_start_abstime=23; // Fresh foreign RI despite cached matching birth/watch/token.
+        if(which==2)u.ri_proc_start_abstime=0;
+        if(which==3)u.ri_proc_exit_abstime=33;
+        if(which==4)o.failed=1;
+        if(which==5)o.retired[0].current=0;
+        if(which==6)o.event_watch[1].start=23;
+        if(engine_custody_stop_identity(&o,&u))accepted|=1u<<which;
+    }
+    require(private_end_unit(private_cost.open_cpu),"custody STOP identity API actual full controller CPU paid");
+    printf("private_custody_STOP_identity_API_source_known cases=7 accepted_mask=%u expected_mask=1 foreign_RI_zero_RI_terminal_RI_failed_admission_noncurrent_row_wrong_watch_refused=true native_process=false values_supplied=true actual_SIGSTOP=false runtime_approved=false\n",accepted);
+    require(fflush(stdout)==0&&private_end_unit(private_cost.open_cpu),"custody STOP identity API exact supplied evidence paid before verdict");
+    require(accepted==1,"fresh current RI and sticky admission state gate the one verifier custody STOP");controls++;
+}
+
+static void same_wake_event_wait_api(void) {
+    reset();struct engine_owner o;struct private_engine_result r;memset(&o,0,sizeof(o));memset(&r,0,sizeof(r));o.context=&context;o.result=&r;
+    uint64_t supplied_CPU=200000,supplied_wall=0;unsigned steps=0,admitted=0;
+    while(engine_child_handoff_headroom(supplied_CPU)&&steps<64) {
+        uint64_t event_wait=engine_child_handoff_event_wait(0,0);
+        supplied_CPU+=20000;supplied_wall+=event_wait?750000:10000;steps++;
+        if(supplied_wall>=750000){admitted=1;break;}
+    }
+    unsigned mask=30u|(admitted?1u:0u);if(!admitted)(void)engine_child_unproven(&o,"verifier image admission not retained in bounded same-wake unit");
+    require(private_end_unit(private_cost.open_cpu),"event-wait API actual scalar-control CPU fully paid");
+    printf("private_same_wake_event_wait_API_source_known admitted=%u supplied_CPU_ns=%llu supplied_elapsed_ns=%llu supplied_steps=%u supplied_rollup_mask=%u sticky_child_cost_unproven=%u native_process=false values_supplied=true OS_CPU_claimed=false runtime_approved=false\n",
+        admitted,(unsigned long long)supplied_CPU,(unsigned long long)supplied_wall,steps,mask,o.child_cost_unproven);
+    require(fflush(stdout)==0&&private_end_unit(private_cost.open_cpu),"event-wait API supplied causal evidence fully paid before verdict");
+    require(admitted&&engine_child_handoff_headroom(supplied_CPU)&&supplied_wall>=750000&&steps<=64&&mask==31&&!o.child_cost_unproven
+        &&engine_child_handoff_event_wait(1,0)==0&&engine_child_handoff_event_wait(0,1)==0&&engine_child_handoff_event_wait(0,0)<=1000000,
+        "bounded event wait admits slow-exec projection without exhausting the unchanged CPU guard");controls++;
+}
+static int same_wake_exit_api(void) {
+    reset();struct engine_owner o;struct private_engine_result r;memset(&o,0,sizeof(o));memset(&r,0,sizeof(r));o.context=&context;o.result=&r;
+    o.ticket.pid=o.ticket.pgid=100;o.ticket.birth=10;o.ticket.start=20;o.direct_custody=1;o.slots=2;o.child_created=1;
+    o.event_fd_live=1;o.event_registered_mask=3;struct engine_member *m=&o.members[1];m->phase=ENGINE_CLONE;
+    m->state.pid=200;m->state.ppid=m->state.pgid=100;m->state.birth=11;m->state.start_absolute=22;m->token_known=1;m->token.val[5]=200;m->token.val[7]=1;
+    o.retired_count=1;o.retired[0]=(struct engine_incarnation){.pid=200,.birth=11,.start=22,.token=m->token,.current=1};
+    o.event_watch[1]=(struct engine_event_watch){.pid=200,.birth=11,.start=22,.token=m->token,.bound=1};
+    struct kevent note;EV_SET(&note,200,EVFILT_PROC,0,NOTE_EXEC,0,&o.event_watch[1]);
+    int exec_note=engine_event_note(&o,&note,500),exec_only_open=engine_child_admission_terminal_guard(&o)&&!m->terminal_observed_ns;
+    EV_SET(&note,200,EVFILT_PROC,0,NOTE_EXIT,0,&o.event_watch[1]);int exit_note=engine_event_note(&o,&note,1000);
+    int admitted=engine_child_admission_terminal_guard(&o);
+    int exact=exec_note&&exec_only_open&&exit_note&&!admitted&&o.child_cost_unproven&&!o.child_image_admitted&&!m->attachment_stop
+        &&!strcmp(private_error,"coverage_unknown")&&!strcmp(private_detail,"verifier exited before admission");
+    require(private_end_unit(private_cost.open_cpu),"pre-admission EXIT API actual full controller CPU paid");
+    printf("private_same_wake_exit_API_source_known EXEC_only_not_terminal=%u retained_EXIT_received=%u image_admitted=%u custody_STOP=%u sticky_child_cost_unproven=%u distinct_detail=\"%s\" native_process=false values_supplied=true actual_GS1=false actual_own_wait4=false runtime_approved=false\n",
+        (unsigned)exec_only_open,m->exit_note_received,o.child_image_admitted,m->attachment_stop,o.child_cost_unproven,private_detail);
+    require(fflush(stdout)==0&&private_end_unit(private_cost.open_cpu),"pre-admission EXIT API exact refusal evidence paid before verdict");
+    require(exact,"retained child NOTE_EXIT before image STOP ACK refuses with exact pre-admission detail");controls++;return 81;
+}
+
 static void sample_unit_composition_control(void) {
     reset();
     // A deterministic COST INPUT vector, not measured phase attribution. Its
@@ -1612,6 +1878,8 @@ static void total_retained_guard_api(void) {
     reset();controls++;printf("private_total_retained_guard_source_known api=true supplied_clock_and_identity_values=true native_process=false runtime_approved=false\n");
 }
 int main(int argc,char **argv) {
+    if(argc==6&&!strcmp(argv[1],"--keyid-format=long")&&!strcmp(argv[2],"--status-fd=1")&&!strcmp(argv[3],"--verify")&&!strcmp(argv[5],"-"))same_wake_verifier(argv[4]);
+    if(argc==3&&!strcmp(argv[1],"same-wake-leader"))same_wake_leader(argv[2]);
     if(argc==3&&!strcmp(argv[1],"knote-rollup-child"))knote_rollup_child(argv[2]);
     if(argc==4&&!strcmp(argv[1],"event-gated-leader"))verifier_event_leader(argv[2],!strcmp(argv[3],"fork"));
     if(argc==5&&!strcmp(argv[1],"pause-bypass-child")){pause_bypass_child(argv[2],argv[3],argv[4]);}
@@ -1644,8 +1912,13 @@ int main(int argc,char **argv) {
     unsigned composition=argc==2&&!strcmp(argv[1],"sample-unit-composition-control");
     unsigned batch=argc==2&&!strcmp(argv[1],"currentness-batch-control");
     unsigned nested_census=argc==2&&!strcmp(argv[1],"nested-census-delivery-control");
+    unsigned same_wake=argc==2&&!strcmp(argv[1],"same-wake-admission-control");
+    unsigned same_wake_api=argc==2&&!strcmp(argv[1],"same-wake-admission-api");
+    unsigned event_wait_api=argc==2&&!strcmp(argv[1],"same-wake-event-wait-api");
+    unsigned custody_identity=argc==2&&!strcmp(argv[1],"custody-stop-identity-api");
+    unsigned exit_before_api=argc==2&&!strcmp(argv[1],"same-wake-exit-api");
     unsigned event_case=argc==3&&!strcmp(argv[1],"verifier-event-control")?(unsigned)strtoul(argv[2],NULL,10):3;
-    require(argc==1||selected<12||diagnostics||setup||deadline||cpu_debt||expand||native_api||native_case<3||race_case<7||event_api||event_case<3||child_exit_api<9||child_exit_process||leader_refresh_api<5||composition||batch||nested_census||hold||flow||result_only||charge||boundary||retained,"private source-known controls argc");
+    require(argc==1||selected<12||diagnostics||setup||deadline||cpu_debt||expand||native_api||native_case<3||race_case<7||event_api||event_case<3||child_exit_api<9||child_exit_process||leader_refresh_api<5||composition||batch||nested_census||same_wake||same_wake_api||event_wait_api||custody_identity||exit_before_api||hold||flow||result_only||charge||boundary||retained,"private source-known controls argc");
     require(atexit(dispose_owned)==0,"owned cleanup registration");
     char root[]="/private/tmp/dream-private-engine-controls.XXXXXX";require(mkdtemp(root)!=NULL,"owned fixture directory");
     int dir=open(root,O_RDONLY|O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC);require(dir>=0,"owned fixture root");
@@ -1676,6 +1949,11 @@ int main(int argc,char **argv) {
     if(retained){total_retained_guard_api();require(close(dir)==0,"owned retained guard API root close");return 0;}
     if(selected<12){total_control(self,root,dir,selected);require(close(dir)==0,"owned narrow fixture root close");return 0;}
     if(diagnostics){terminal_diagnostic_controls(dir);require(close(dir)==0,"owned diagnostic root close");return 0;}
+    if(custody_identity){custody_stop_identity_api();require(close(dir)==0,"owned custody STOP identity API root close");return 0;}
+    if(event_wait_api){same_wake_event_wait_api();require(close(dir)==0,"owned event-wait API root close");return 0;}
+    if(exit_before_api){int code=same_wake_exit_api();require(close(dir)==0,"owned pre-admission EXIT API root close");return code;}
+    if(same_wake_api){same_wake_admission_api();require(close(dir)==0,"owned same-wake API root close");return 0;}
+    if(same_wake){same_wake_admission_control(self,root,dir);require(close(dir)==0,"owned same-wake root close");return 0;}
     if(nested_census){nested_census_delivery_control();require(close(dir)==0,"owned nested census API root close");return 0;}
     if(composition){sample_unit_composition_control();require(close(dir)==0,"owned unit composition root close");return 0;}
     if(batch){currentness_batch_control(root,dir);require(close(dir)==0,"owned currentness batch root close");return 0;}
@@ -1697,6 +1975,10 @@ int main(int argc,char **argv) {
     process_create_policy_api();
     for(unsigned mode=0;mode<3;mode++)(void)process_create_wall_control(self,root,dir,mode);
     for(unsigned mode=0;mode<7;mode++)(void)live_sample_race_control(self,root,dir,mode);
+    custody_stop_identity_api();
+    same_wake_event_wait_api();(void)same_wake_exit_api();
+    same_wake_admission_api();
+    same_wake_admission_control(self,root,dir);
     nested_census_delivery_control();
     sample_unit_composition_control();currentness_batch_control(root,dir);
     for(unsigned mode=0;mode<5;mode++)(void)leader_rollup_refresh_api(mode);

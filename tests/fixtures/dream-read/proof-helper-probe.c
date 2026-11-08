@@ -2898,10 +2898,20 @@ static int engine_sample_owned_member(const struct engine_owner *owner,unsigned 
     }
     return matches==1;
 }
+static int engine_custody_stop_identity(const struct engine_owner *o,const struct rusage_info_v1 *u) {
+    return !o->failed&&u&&u->ri_proc_start_abstime&&!u->ri_proc_exit_abstime
+        &&u->ri_proc_start_abstime==o->members[1].state.start_absolute
+        &&u->ri_proc_start_abstime==o->event_watch[1].start&&engine_child_watch_matches(o);
+}
 #ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
 static void (*source_known_before_live_read)(struct engine_owner *,unsigned,pid_t,unsigned);
 static unsigned source_known_live_rechecks;
 static int source_known_live_read_error;
+static void (*source_known_child_watch_bound)(struct engine_owner *);
+static void (*source_known_child_handoff)(struct engine_owner *,unsigned,unsigned,uint64_t,int);
+#define engine_child_handoff_diag(o,stage,steps,used,result) do {if(source_known_child_handoff)source_known_child_handoff((o),(stage),(steps),(used),(result));}while(0)
+#else
+#define engine_child_handoff_diag(o,stage,steps,used,result) ((void)0)
 #endif
 static int engine_sample_terminal_after_error(struct engine_owner *owner,unsigned i,pid_t pid,int read_error) {
 #ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
@@ -2917,7 +2927,11 @@ static int engine_sample_terminal_after_error(struct engine_owner *owner,unsigne
 }
 static int engine_sample_member(struct engine_owner *owner,unsigned i,pid_t pid) {
     struct engine_member *m=&owner->members[i];struct image current;
+    unsigned failed_before_precheck=owner->failed;
     if(m->token_known&&engine_member_terminal(owner,i))return 1;
+    if(owner->failed&&!failed_before_precheck)return 0;
+    // An earlier refusal may still need passive same-original settlement
+    // reads. It never admits a new custody STOP or GS1 dispatch below.
 #ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
     if(source_known_before_live_read)source_known_before_live_read(owner,i,pid,1);
 #endif
@@ -2948,6 +2962,13 @@ static int engine_sample_member(struct engine_owner *owner,unsigned i,pid_t pid)
     if(!engine_ri_end(owner,i,engine_now(owner,CLOCK_MONOTONIC)))return 0;
     if(usage_result!=0)return engine_failure(owner,"coverage_unknown","current helper resource snapshot unavailable");
     if(!engine_usage(owner,i,&u))return 0;
+    // Only a SUCCESSFUL fresh RI with the original retained start permits
+    // the existing one-shot custody STOP. Cached watch/start plus a fresh
+    // audit token is not that observation. The closing read supplies ACK.
+    if(i&&m->phase!=ENGINE_EXPECTED&&!m->attachment_stop&&!strcmp(path,owner->descendant)&&engine_custody_stop_identity(owner,&u)) {
+        m->attachment_stop=1;int error=engine_token_signal(&token,SIGSTOP);
+        if(error)return engine_failure(owner,"coverage_unknown","verifier custody STOP unavailable");
+    }
     if(!i)owner->child_rollup_read_ns=owner->ri_end_ns[i];
     struct image closing;
 #ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
@@ -2968,15 +2989,22 @@ static int engine_sample_member(struct engine_owner *owner,unsigned i,pid_t pid)
     // interval plus20ms inside this query must not become two passing checks.
     m->ri_started_ns=ri_started;
     if(i&&!engine_events_register(owner,i,pid))return 0;
+#ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
+    if(i&&source_known_child_watch_bound)source_known_child_watch_bound(owner);
+#endif
     if(!i) {
         if(strcmp(path,owner->image))return engine_failure(owner,"coverage_unknown","direct image differs from exact approved helper");
         m->phase=ENGINE_EXPECTED;owner->ticket.birth=current.birth;owner->ticket.start=m->state.start_absolute;
     } else if(!strcmp(path,owner->descendant)) {
         if(m->phase!=ENGINE_EXPECTED) {
+            if(owner->failed)return 0;
             // B's existing one-shot attachment STOP is custody, not a budget
             // grant. Bind actual argv/temp only after a positive stopped ACK;
             // it precedes the verifier's first admitted continuation.
-            if(!m->attachment_stop) {m->attachment_stop=1;int error=engine_token_signal(&token,SIGSTOP);if(error)return engine_failure(owner,"coverage_unknown","verifier custody STOP unavailable");return 1;}
+            if(!m->attachment_stop) {
+                if(!engine_custody_stop_identity(owner,&u))return engine_failure(owner,"coverage_unknown","verifier custody STOP lacks fresh original live RI identity");
+                m->attachment_stop=1;int error=engine_token_signal(&token,SIGSTOP);if(error)return engine_failure(owner,"coverage_unknown","verifier custody STOP unavailable");return 1;
+            }
             if(m->state.status!=SSTOP||m->state.runnable!=0)return 1;
             if(!engine_unit_cut(owner,ENGINE_MEMBER_GS1))return 0;
             if(owner->retiring||owner->group_kill_pending||owner->pause_pending||engine_cancel_signal||engine_now(owner,CLOCK_MONOTONIC)>=owner->context->outer->deadline)
@@ -3078,6 +3106,69 @@ static int engine_live_budget(struct engine_owner *owner) {
     }
     return owner->last_sample_ns!=UINT64_MAX;
 }
+// A captured CLONE is not admission of its later verifier image. Keep its
+// first exec/one-shot custody STOP/positive ACK in this SAME open ordinary
+// unit: paying a floor while that unadmitted process runs can lose all GS1.
+// Only the existing positive stopped ACK permits the member->GS1 paid cut.
+static int engine_child_admission_open(const struct engine_owner *o) {
+    return o->child_created&&!o->child_image_admitted&&o->members[1].phase!=ENGINE_EXPECTED;
+}
+static uint64_t engine_child_handoff_event_wait(unsigned pending,unsigned stop_sent) {return pending||stop_sent?0:1000000;}
+static int engine_child_handoff_headroom(uint64_t used) {return used!=UINT64_MAX&&used<400000;}
+static int engine_child_admission_terminal_guard(struct engine_owner *o) {
+    if(engine_child_admission_open(o)&&(o->members[1].exit_note_received||o->members[1].phase==ENGINE_EXITED))
+        return engine_child_unproven(o,"verifier exited before admission");
+    return 1;
+}
+static int engine_child_capture_same_unit(struct engine_owner *o,pid_t pid,int (*sample)(struct engine_owner *,unsigned,pid_t)) {
+    // The first capture and the following EXEC/STOP handoff share ONE open
+    // epoch. No ending cost or debt has been discarded or deferred here.
+    return sample(o,1,pid);
+}
+static int engine_sample_child_same_wake(struct engine_owner *o,pid_t pid) {
+    unsigned steps=0;
+    engine_child_handoff_diag(o,1,steps,UINT64_MAX,1);
+    int captured=engine_child_capture_same_unit(o,pid,engine_sample_member);
+    engine_child_handoff_diag(o,2,steps,UINT64_MAX,captured);if(!captured)return 0;
+    if(!engine_child_admission_terminal_guard(o))return 0;
+    while(engine_child_admission_open(o)) {
+        uint64_t used=engine_interval(private_cost.open_cpu,engine_now(o,CLOCK_THREAD_CPUTIME_ID));
+        engine_child_handoff_diag(o,3,steps,used,1);
+        if(!engine_child_handoff_headroom(used)||steps++>=64) {
+            engine_child_handoff_diag(o,4,steps,used,0);
+            return engine_failure(o,"coverage_unknown","verifier image admission not retained in bounded same-wake unit");
+        }
+        if(o->retiring||o->group_kill_pending||o->pause_pending||engine_cancel_signal||engine_now(o,CLOCK_MONOTONIC)>=o->context->outer->deadline) {
+            engine_child_handoff_diag(o,7,steps,used,0);
+            return engine_failure(o,"cancelled","verifier same-wake image admission lost original authority");
+        }
+        // This native wait observes the original retained child knote in
+        // the SAME open CPU span. It is never paid rest or a blind sleep.
+        // events_poll clamps each <=1ms request to original deadline/RI age.
+        int polled=engine_events_poll(o,engine_child_handoff_event_wait(o->child_event_pending,o->members[1].attachment_stop));
+        engine_child_handoff_diag(o,5,steps,used,polled);if(!polled)return 0;
+        // A wait return does not prove timeliness or refresh an RI timestamp.
+        // Returned notes are retained raw; no new image/STOP/ACK admission
+        // follows an actual deadline or retained-RI interval overshoot.
+        uint64_t after_wait=engine_now(o,CLOCK_MONOTONIC);
+        if(!engine_sample_gap(o,after_wait))return 0;
+        if(after_wait>=o->context->outer->deadline)return engine_failure(o,"deadline","original deadline expired during verifier event wait");
+        if(!engine_child_admission_terminal_guard(o)) {
+            engine_child_handoff_diag(o,8,steps,used,0);return 0;
+        }
+        if(!o->child_event_pending&&!o->members[1].attachment_stop)continue;
+        // Consume only this old wake. A nested read can retain a newer note.
+        o->child_event_pending=0;
+        int sampled=engine_sample_member(o,1,pid);engine_child_handoff_diag(o,6,steps,used,sampled);if(!sampled)return 0;
+        if(!engine_child_admission_terminal_guard(o))return 0;
+    }
+    return 1;
+}
+static int engine_child_pre_sample_cut(struct engine_owner *o) {
+    // Already admitted observations retain their old paid boundary. Before
+    // admission, no closed unit/debt is deferred: the original unit stays open.
+    return engine_child_admission_open(o)?1:engine_unit_cut(o,ENGINE_QUEUE_CENSUS_MEMBER);
+}
 static int engine_census(struct engine_owner *owner,unsigned via,int observe) {
     int ids[3]={0};int n=engine_list_children(owner,0,owner->ticket.pid,ids,sizeof(ids));
     if(!native_pid_list_known(n,owner->child_list_errno[0])||n>1||((n||via==2)&&owner->slots!=2)) {owner->coverage_lost=1;return engine_child_unproven(owner,"unexpected or unknown child census or omitted helper member");}
@@ -3090,9 +3181,9 @@ static int engine_census(struct engine_owner *owner,unsigned via,int observe) {
         if(!observe)return 1;
         // First discovery binds birth/full token immediately, before any
         // new rest. Later waves can close census under that retained identity.
-        if(owner->members[1].token_known&&!engine_unit_cut(owner,ENGINE_QUEUE_CENSUS_MEMBER))return 0;
+        if(owner->members[1].token_known&&!engine_child_pre_sample_cut(owner))return 0;
         uint64_t member_epoch=private_cost.open_cpu;
-        if(!engine_sample_member(owner,1,ids[0])||!engine_observation_finish(owner,member_epoch))return 0;
+        if(!engine_sample_child_same_wake(owner,ids[0])||!engine_observation_finish(owner,member_epoch))return 0;
         int children[2]={0};int count=engine_list_children(owner,1,ids[0],children,sizeof(children));
         if(!native_pid_list_empty(count,owner->child_list_errno[1]))return engine_child_unproven(owner,"descendant child edge not known empty");
     } else if(via==2&&!owner->child_created) {
@@ -3127,9 +3218,9 @@ static int engine_events_service(struct engine_owner *o,uint64_t wait_ns) {
         o->child_event_pending=0;if(done)return 1;
         // An EXEC wake invokes the SAME strict incarnation/GS1 sampler,
         // including its existing one-shot custody STOP and continuation.
-        if(!engine_unit_cut(o,ENGINE_QUEUE_CENSUS_MEMBER))return 0;
+        if(!engine_child_pre_sample_cut(o))return 0;
         uint64_t member_epoch=private_cost.open_cpu;
-        if(!engine_sample_member(o,1,o->members[1].state.pid)||!engine_observation_finish(o,member_epoch))return 0;
+        if(!engine_sample_child_same_wake(o,o->members[1].state.pid)||!engine_observation_finish(o,member_epoch))return 0;
     }
     return 1;
 }

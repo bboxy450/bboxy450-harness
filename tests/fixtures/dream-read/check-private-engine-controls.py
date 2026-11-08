@@ -31,11 +31,15 @@ VALIDATED = (b'if(!engine_owner_priority()||!engine_pretest_current(context)'
 # persistence and original-controller custody controls. No retired graph/control
 # is re-labelled as a current pass.
 LEDGERS = ('hold-ledger.ndjson', 'hold-control-success', 'claim.json', 'charge-diagnostic.ndjson',
+           'same-wake/total-27.ndjson', 'same-wake/admission-child', 'same-wake/slow-exec-delay', 'same-wake/execute-fifo.json', 'same-wake/exit',
            'admitted-descriptor', 'retained-descriptor', 'currentness-a', 'currentness-b', 'deadline-result/stdout', 'deadline-result/result.json',
            *(f'total-{i}.ndjson' for i in range(27)), 'knote-rollup-26', *(f'live-race-{i}' for i in range(16,23)), *(f'event-release-{i}' for i in range(23,26)), 'rollup-2', 'rollup-2-terminal', 'rollup-2-release', 'release-6',
            *(f'pause-{i}-{phase}' for i in (9,10) for phase in ('start','done','release')),
            *('diagnostic-' + str(i) + '/' + name for i in range(4) for name in ('stderr', 'stdout', 'result.json')))
 ASSERTIONS = {
+ 'custody-stop-ignore-current-RI': b'fresh current RI and sticky admission state gate the one verifier custody STOP',
+ 'same-wake-nonblocking-only': b'bounded event wait admits slow-exec projection without exhausting the unchanged CPU guard',
+ 'same-wake-insert-pre-stop-rest': b'same-wake admission API keeps pre-STOP window open until positive custody ACK',
  'census-clear-new-delivery': b'observing census consumes only old coalesced wake and preserves every nested new delivery',
  'sample-old-combined-unit': b'retained-child sample composition closes every full-cost phase before the one millisecond hard bound',
  'batch-dropped-currentness-check': b'batched currentness still refuses an actual retained-file change with every full cost paid',
@@ -293,6 +297,12 @@ def variants(source):
     result = {}
     def add(name, anchor, replacement, args):
         result[name] = (changed(source, anchor, replacement), args)
+    add('custody-stop-ignore-current-RI', b'return !o->failed&&u&&u->ri_proc_start_abstime&&!u->ri_proc_exit_abstime\n        &&u->ri_proc_start_abstime==o->members[1].state.start_absolute\n        &&u->ri_proc_start_abstime==o->event_watch[1].start&&engine_child_watch_matches(o);',
+        b'(void)o;(void)u;return 1;', ['custody-stop-identity-api'])
+    add('same-wake-nonblocking-only', b'static uint64_t engine_child_handoff_event_wait(unsigned pending,unsigned stop_sent) {return pending||stop_sent?0:1000000;}',
+        b'static uint64_t engine_child_handoff_event_wait(unsigned pending,unsigned stop_sent) {(void)pending;(void)stop_sent;return 0;}', ['same-wake-event-wait-api'])
+    add('same-wake-insert-pre-stop-rest', b'return sample(o,1,pid);',
+        b'int observed=sample(o,1,pid);return observed&&engine_checkpoint(o);', ['same-wake-admission-api'])
     add('census-clear-new-delivery', b'if(observe)o->child_event_pending=0;\n    return census(o,2,observe);',
         b'int observed=census(o,2,observe);if(observe)o->child_event_pending=0;return observed;', ['nested-census-delivery-control'])
     add('sample-old-combined-unit', b'return boundary==ENGINE_QUEUE_CENSUS_MEMBER||boundary==ENGINE_MEMBER_GS1;',
@@ -431,9 +441,9 @@ def child_exit_witness_receipt(stdout):
 
 
 def retain_current(stdout, report):
-    found=re.findall(rb'private_engine_controls=pass cases=101 total_budget_controls=8 synthetic_source_known=true real_candidate_created=0 runtime_approved=false retained=(/private/tmp/dream-private-engine-controls\.[A-Za-z0-9]+)\n',stdout)
+    found=re.findall(rb'private_engine_controls=pass cases=106 total_budget_controls=8 synthetic_source_known=true real_candidate_created=0 runtime_approved=false retained=(/private/tmp/dream-private-engine-controls\.[A-Za-z0-9]+)\n',stdout)
     if len(found)!=1:
-        raise ValueError('current fixture lacks exact101 remaining controls and eight total-budget witnesses')
+        raise ValueError('current fixture lacks exact106 remaining controls and eight total-budget witnesses')
     if os.fsdecode(found[0]) != report['commands'][-1]['fixture_capture']['source_dir']:
         raise ValueError('completed fixture root differs from original command binding')
     modes=re.findall(rb'private_total_budget_control_source_known mode=([0-9]+) original_pid=([0-9]+) actual_own_wait4=1 group_gone=1 terminal_cpu_ns=([0-9]+)',stdout)
@@ -521,7 +531,44 @@ def retain_current(stdout, report):
         'old_pending_consumed_before_observing_census':True,'new_nested_delivery_retained_after_census':True,
         'source_scope':'shared observing-census span +production event-note identity guard; supplied identities/notes, no native process',
         'new_exit_note_not_own_wait4_or_GS1':True}
-    report['baseline_cases']=101
+    admission=re.findall(rb'^private_same_wake_admission_completed_source_known original_pid=([0-9]+) child_pid=([0-9]+) child_image_admitted=1 GS1_bound=1 GS2_settled=1 rollup_mask=31 actual_own_wait4=1 group_gone=1 helper_CPU_ns=([0-9]+) helper_debt_delta_ns=([0-9]+) debt_ns=([0-9]+) paid_ns=([0-9]+) native_process=true installed_tool_qualification=false runtime_approved=false\n',stdout,re.MULTILINE)
+    stopped=re.findall(rb'^private_same_wake_STOP_axis_source_known positive_ACK_before_first_rest=1 actual_full_unit_CPU_ns=([0-9]+) hard_unit_ns=1000000 nominal_target_ns=500000 no_OS_WCET_claim=true runtime_approved=false\n',stdout,re.MULTILINE)
+    api=b'private_same_wake_admission_API_source_known captured=1 closed_paid_unit_before_ACK=0 supplied_stopped_ACK=1 supplied_GS1=1 supplied_rollup_mask=31 sticky_child_cost_unproven=0 native_process=false values_supplied=true actual_GS1=false actual_own_wait4=false runtime_approved=false\n'
+    if len(admission)!=1 or len(stopped)!=1 or stdout.count(api)!=1:
+        raise ValueError('same-wake actual GS1 and separate API ordering witnesses missing or duplicated')
+    leader,child,cpu,delta,debt,paid=map(int,admission[0]);unit=int(stopped[0])
+    if not leader or not child or leader==child or delta!=9*max(1000000,cpu) or debt!=paid or not 0<unit<=1000000:
+        raise ValueError('same-wake actual owner full cost/debt/STOP unit prerequisites failed')
+    wakeup=re.findall(rb'^private_same_wake_execute_wakeup_source_known prepared_before_birth=true original_FIFO_dev=([0-9]+) original_FIFO_ino=([0-9]+) write_result=1 write_errno=0 write_begin_CPU_ns=([0-9]+) write_end_CPU_ns=([0-9]+) child_uses_blocking_read=true child_execute_timer_poll=false controller_write_nonblocking=true runtime_approved=false\n',stdout,re.MULTILINE)
+    if len(wakeup)!=1:
+        raise ValueError('actual prepared FIFO execute wakeup receipt missing or duplicated')
+    fifo_dev,fifo_ino,write_begin,write_end=map(int,wakeup[0])
+    if not fifo_dev or not fifo_ino or not 0<write_begin<=write_end:
+        raise ValueError('actual prepared FIFO identity or nonblocking write clocks unknown')
+    slow=re.findall(rb'^private_same_wake_slow_exec_source_known child_pid=([0-9]+) clone_begin_ns=([0-9]+) clone_end_ns=([0-9]+) clone_delay_ns=([0-9]+) minimum_delay_ns=750000 actual_clock_reads=true actual_GS1=true native_process=true installed_tool_qualification=false runtime_approved=false\n',stdout,re.MULTILINE)
+    if len(slow)!=1:
+        raise ValueError('actual slow-CLONE measured delay receipt missing or duplicated')
+    slow_pid,clone_begin,clone_end,clone_delay=map(int,slow[0])
+    if slow_pid!=child or not 0<clone_begin<=clone_end or clone_delay!=clone_end-clone_begin or clone_delay<750000:
+        raise ValueError('actual original slow-CLONE did not remain before EXEC for measured750us')
+    projected=b'private_same_wake_event_wait_API_source_known admitted=1 supplied_CPU_ns=220000 supplied_elapsed_ns=750000 supplied_steps=1 supplied_rollup_mask=31 sticky_child_cost_unproven=0 native_process=false values_supplied=true OS_CPU_claimed=false runtime_approved=false\n'
+    terminal=b'private_same_wake_exit_API_source_known EXEC_only_not_terminal=1 retained_EXIT_received=1 image_admitted=0 custody_STOP=0 sticky_child_cost_unproven=1 distinct_detail="verifier exited before admission" native_process=false values_supplied=true actual_GS1=false actual_own_wait4=false runtime_approved=false\n'
+    if stdout.count(projected)!=1 or stdout.count(terminal)!=1:
+        raise ValueError('event-wait and exact pre-admission EXIT API projections missing or duplicated')
+    report['same_wake_admission_control']={'original_pid':leader,'child_pid':child,'actual_GS1_and_GS2':True,
+        'actual_clone_delay_ns':clone_delay,'clone_delay_clock_begin_ns':clone_begin,'clone_delay_clock_end_ns':clone_end,
+        'prepared_execute_FIFO':{'device':fifo_dev,'inode':fifo_ino,'actual_nonblocking_write_CPU_ns':write_end-write_begin,'child_execute_timer_poll':False},
+        'post_ACK_full_unit_CPU_ns':unit,'hard_unit_ns':1000000,'nominal_target_ns':500000,'OS_WCET_claimed':False,
+        'authoritative_subtree_CPU_ns':cpu,'helper_debt_delta_ns':delta,'actual_own_wait4_and_groupgone':True,
+        'API_negative_scope':'supplied-state correlated gap at shared production capture span; no physical missing-GS1 quarantine exit',
+        'installed_tool_qualification':False}
+    identity=b'private_custody_STOP_identity_API_source_known cases=7 accepted_mask=1 expected_mask=1 foreign_RI_zero_RI_terminal_RI_failed_admission_noncurrent_row_wrong_watch_refused=true native_process=false values_supplied=true actual_SIGSTOP=false runtime_approved=false\n'
+    if stdout.count(identity)!=1:
+        raise ValueError('fresh-RI/failed-admission custody-STOP guard API witness missing or duplicated')
+    report['custody_STOP_identity_API']={'cases':7,'accepted_mask':1,'expected_mask':1,
+        'source_scope':'shared production pre-SIGSTOP guard; supplied current/foreign/zero/terminal RI and retained identity rows, no actual signal',
+        'old_refusal_passive_settlement_observations':'preserved; newly failed precheck returns before new dispatch'}
+    report['baseline_cases']=106
     marker=b'private_total_retained_guard_source_known api=true supplied_clock_and_identity_values=true native_process=false runtime_approved=false\n'
     if stdout.count(marker)!=1:
         raise ValueError('current retained-clock/child production API witness missing or duplicated')
@@ -605,6 +652,17 @@ def verify(directory, inputs, report, total_only=False):
                 raise ValueError('mutant did not reach independent native/unit/physical/causal prerequisites: '+name)
         if ASSERTIONS[name] not in stderr:
             raise ValueError('mutant missed its required causal assertion: '+name)
+        if name=='custody-stop-ignore-current-RI':
+            if b'private_custody_STOP_identity_API_source_known cases=7 accepted_mask=127 expected_mask=1' not in stdout:
+                raise ValueError('custody-STOP identity mutant missed its fresh-RI/failed-admission safety assertion')
+        if name=='same-wake-nonblocking-only':
+            marker=b'private_same_wake_event_wait_API_source_known admitted=0 supplied_CPU_ns=400000 supplied_elapsed_ns=100000 supplied_steps=10 supplied_rollup_mask=30 sticky_child_cost_unproven=1 native_process=false values_supplied=true OS_CPU_claimed=false runtime_approved=false\n'
+            if marker not in stdout:
+                raise ValueError('nonblocking-only API mutant missed unchanged400us-headroom refusal cause')
+        if name=='same-wake-insert-pre-stop-rest':
+            marker=b'private_same_wake_admission_API_source_known captured=1 closed_paid_unit_before_ACK=1 supplied_stopped_ACK=0 supplied_GS1=0 supplied_rollup_mask=30 sticky_child_cost_unproven=1 native_process=false values_supplied=true actual_GS1=false actual_own_wait4=false runtime_approved=false\n'
+            if marker not in stdout:
+                raise ValueError('pre-STOP-rest API mutant missed exact unpaid-window loss/bit1/latch cause')
         if name in ('verifier-poll-only','verifier-skip-terminal-drain'):
             report['commands'][-1]['actual_kernel_child_lifetime']=verifier_event_lifetime(stdout)
         if name=='total-qos' and (b'detail=live helper priority differs from observed background band4' not in stderr
