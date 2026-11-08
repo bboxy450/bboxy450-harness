@@ -1694,7 +1694,8 @@ pub fn snapshot(control: u8) -> Model {
 
 /// Independent65086/65126 admission, native effect and original custody model.
 /// The external helper never becomes an own-thread quantum. Native birth
-/// 2ms/25ms/3ms, ordinary controller/application1ms, effect retention and their
+/// 2ms CPU/250ms prepared-process wall/3ms inclusive under66331; every
+/// other native class remains25ms. Ordinary controller/application1ms and
 /// own9x debt stay; helper terminal CPU/debt is Q2HelperTotalBudget separately.
 /// Attempt0/1/2 classes represent empty/near256/exhausted consumed capacity.
 pub fn helper(control: u8) -> Model {
@@ -1720,6 +1721,7 @@ fn helper_observer(control: u8, full_observer: bool) -> Model {
         20 => "PanicRelease",
         21 => "RevokeRelease",
         22 => "StopRetry",
+        23 => "OldProcessCreateWall",
         _ => panic!("superseded external-grant control"),
     };
     const P: usize = 0;
@@ -1752,6 +1754,18 @@ fn helper_observer(control: u8, full_observer: bool) -> Model {
     const APP: usize = 27;
     const CONFIG: usize = 28;
     const RAW_COVER: usize = 29;
+    // Disjoint, single-observation policy projection. Legacy custody fields
+    // remain untouched, avoiding a cross product with every lifecycle history.
+    const BOUND_CASE: usize = 30;
+    const NATIVE_TAG: usize = 31; // 1 prepared process_create,2 any other native
+    const WALL_MS: usize = 32;
+    const NATIVE_CPU_MS: usize = 33;
+    const INCLUSIVE_CPU_MS: usize = 34;
+    const BOUND_CLOCK_KNOWN: usize = 35;
+    const BOUND_VERDICT: usize = 36;
+    const CREATE_EXCESS_MS: usize = 37;
+    const CREATE_EXCESS_COUNT: usize = 38;
+    const CREATE_EXCESS_KNOWN: usize = 39;
     let mut m = base(
         &format!("DreamReadHelper{suffix}"),
         control != 0,
@@ -1790,6 +1804,16 @@ fn helper_observer(control: u8, full_observer: bool) -> Model {
             ("ordinaryApplicationUsed", 1, 0),
             ("configured", 1, 0),
             ("actualSourceCoverageKnown", 1, 1),
+            ("nativeBoundSingleObservationCase", 10, 0),
+            ("nativeTagPreparedProcessCreateOther", 2, 0),
+            ("nativeWallMillisecondsRepresentative", 251, 0),
+            ("nativeCpuMillisecondsRepresentative", 3, 0),
+            ("inclusiveCpuMillisecondsRepresentative", 4, 0),
+            ("nativeBoundClockKnown", 1, 0),
+            ("nativeBoundVerdictUnsetAdmitRefuse", 2, 0),
+            ("processCreateWallExcessMilliseconds", 226, 0),
+            ("processCreateWallExcessCount", 1, 0),
+            ("processCreateWallExcessKnown", 1, 0),
         ],
     );
     for profile in 0..=14 {
@@ -2196,6 +2220,76 @@ fn helper_observer(control: u8, full_observer: bool) -> Model {
         "StopAttemptIsNotRetriedAfterAnyNativeOutcome",
         eq(STOP, 2).negate(),
     );
+    // Decision66331 changes only prepared posix_spawn. Existing C1 compute
+    // owner THREAD creation and publication remain other-native25ms. The old
+    // profile3 is now process_create above250ms; CPU/inclusive/clock/custody
+    // profiles retain their original meaning and actions.
+    for action in &mut m.actions {
+        action.guard = eq(BOUND_CASE, 0).and(action.guard.clone());
+    }
+    // Ten correlated supplied-observation classes, never 0..251 independent
+    // choices. One original observation means count0/1; source u64 telemetry
+    // is ns (these exact ms representatives multiply by1_000_000). Known
+    // creation excess is retained BEFORE verdict, even on251/CPU refusal.
+    let bounds = [
+        (1, 25, 2, 3, true),
+        (1, 34, 2, 3, true),
+        (1, 250, 2, 3, true),
+        (1, 251, 2, 3, true),
+        (2, 25, 2, 3, true),
+        (2, 34, 2, 3, true),
+        (1, 34, 3, 3, true),
+        (1, 34, 2, 4, true),
+        (1, 34, 2, 3, false),
+        (2, 250, 2, 3, true),
+    ];
+    for (index, &(tag, wall, cpu, inclusive, known)) in bounds.iter().enumerate() {
+        let case = index as i64 + 1;
+        let excess_known = tag == 1 && known;
+        let excess = if excess_known { (wall - 25).max(0) } else { 0 };
+        act(
+            &mut m,
+            &format!("RetainTaggedNativeBoundObservation{case}"),
+            all([eq(CONFIG, 0), eq(P, 0), eq(EFFECT, 0), eq(BOUND_CASE, 0)]),
+            &[
+                (BOUND_CASE, Int(case)),
+                (NATIVE_TAG, Int(tag)),
+                (WALL_MS, Int(wall)),
+                (NATIVE_CPU_MS, Int(cpu)),
+                (INCLUSIVE_CPU_MS, Int(inclusive)),
+                (BOUND_CLOCK_KNOWN, Int(i64::from(known))),
+                (CREATE_EXCESS_MS, Int(excess)),
+                (CREATE_EXCESS_COUNT, Int(i64::from(excess > 0))),
+                (CREATE_EXCESS_KNOWN, Int(i64::from(excess_known))),
+            ],
+        );
+        let wall_bound = if tag == 1 && control != 23 { 250 } else { 25 };
+        let admitted = known && cpu <= 2 && inclusive <= 3 && wall <= wall_bound;
+        act(
+            &mut m,
+            &format!("VerdictExactTaggedNativeBoundObservation{case}"),
+            all([eq(BOUND_CASE, case), eq(BOUND_VERDICT, 0)]),
+            &[(BOUND_VERDICT, Int(if admitted { 1 } else { 2 }))],
+        );
+        let expected =
+            known && cpu <= 2 && inclusive <= 3 && wall <= if tag == 1 { 250 } else { 25 };
+        safe(
+            &mut m,
+            &format!("TaggedNativeWallExcessIsExactCase{case}"),
+            eq(BOUND_CASE, case).negate().or(all([
+                eq(CREATE_EXCESS_MS, excess),
+                eq(CREATE_EXCESS_COUNT, i64::from(excess > 0)),
+                eq(CREATE_EXCESS_KNOWN, i64::from(excess_known)),
+            ])),
+        );
+        safe(
+            &mut m,
+            &format!("TaggedNativeVerdictMatchesBoundCase{case}"),
+            all([eq(BOUND_CASE, case), eq(BOUND_VERDICT, 0).negate()])
+                .negate()
+                .or(eq(BOUND_VERDICT, if expected { 1 } else { 2 })),
+        );
+    }
     if control != 0 {
         let names: &[&str] = match control {
             1 => &["NativeEffectRequiresReservedAttempt"],
@@ -2211,6 +2305,10 @@ fn helper_observer(control: u8, full_observer: bool) -> Model {
             18 => &["TrustedOutputHasActualReapAndRetirement"],
             19..=21 => &["FaultCannotReleaseUnsettledOwnership"],
             22 => &["StopAttemptIsNotRetriedAfterAnyNativeOutcome"],
+            23 => &[
+                "TaggedNativeVerdictMatchesBoundCase2",
+                "TaggedNativeVerdictMatchesBoundCase3",
+            ],
             _ => unreachable!(),
         };
         let valid = all(m
@@ -7430,7 +7528,7 @@ mod helper_observer_lowering_equivalence {
             }
         }
         for control in [
-            0, 1, 2, 3, 4, 9, 10, 11, 12, 13, 14, 16, 17, 18, 19, 20, 21, 22,
+            0, 1, 2, 3, 4, 9, 10, 11, 12, 13, 14, 16, 17, 18, 19, 20, 21, 22, 23,
         ] {
             let full_model = helper_observer(control, true);
             let lowered_model = helper(control);
@@ -7954,6 +8052,44 @@ mod tests {
                 .any(|s| s[1] == 2 && s[2] == 0 && s[5] == 1 && s[14] == 1),
             "A1 effect is retained across A1/B2/A3"
         );
+        for (case, verdict, excess, count, known) in [
+            (1, 1, 0, 0, 1),
+            (2, 1, 9, 1, 1),
+            (3, 1, 225, 1, 1),
+            (4, 2, 226, 1, 1),
+            (5, 1, 0, 0, 0),
+            (6, 2, 0, 0, 0),
+            (7, 2, 9, 1, 1),
+            (8, 2, 9, 1, 1),
+            (9, 2, 0, 0, 0),
+            (10, 2, 0, 0, 0),
+        ] {
+            assert!(
+                good.states.iter().any(|s| s[30] == case
+                    && s[36] == verdict
+                    && s[37] == excess
+                    && s[38] == count
+                    && s[39] == known),
+                "exact tagged bound verdict and unclamped telemetry case{case}"
+            );
+        }
+        let old_wall = helper(23).check(100_000).unwrap();
+        assert!(
+            old_wall
+                .violations
+                .iter()
+                .any(|v| v.property == "TaggedNativeVerdictMatchesBoundCase2"
+                    && !v.prefix.is_empty()
+                    && old_wall.states[*v.prefix.last().unwrap()][30] == 2),
+            "old25ms control must over-refuse the otherwise valid34ms process_create positive"
+        );
+        assert!(
+            old_wall
+                .states
+                .iter()
+                .any(|s| s[30] == 2 && s[36] == 2 && s[37] == 9 && s[38] == 1),
+            "old-bound refusal still retains exact9ms excess rather than a TypeOK failure"
+        );
         for (control, property) in [
             (1, "NativeEffectRequiresReservedAttempt"),
             (2, "TrustedOutputHasOnlyAdmittedMembers"),
@@ -7972,6 +8108,7 @@ mod tests {
             (20, "FaultCannotReleaseUnsettledOwnership"),
             (21, "FaultCannotReleaseUnsettledOwnership"),
             (22, "StopAttemptIsNotRetriedAfterAnyNativeOutcome"),
+            (23, "TaggedNativeVerdictMatchesBoundCase2"),
         ] {
             let m = helper(control);
             let checked = m.check(100_000).unwrap();

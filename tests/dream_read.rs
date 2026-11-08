@@ -2920,9 +2920,25 @@ fn assert_proof_helper_gates(metrics: &str) {
         "native class CPU gate: {native}"
     );
     assert!(
-        metric(native, "max_wall_ns") <= 25_000_000,
-        "native class wall gate: {native}"
+        metric(native, "max_wall_ns") <= 250_000_000,
+        "prepared process_create wall gate (66331): {native}"
     );
+    let excess_count = metric(native, "process_create_wall_excess_count");
+    let excess_ns = metric(native, "process_create_wall_excess_ns");
+    assert!(
+        native.contains("process_create_wall_excess_known=true"),
+        "{native}"
+    );
+    assert!(excess_count <= metric(native, "count"), "{native}");
+    if metric(native, "max_wall_ns") <= 25_000_000 {
+        assert_eq!((excess_count, excess_ns), (0, 0), "{native}");
+    } else {
+        assert!(excess_count > 0, "{native}");
+        assert!(
+            excess_ns >= metric(native, "max_wall_ns") - 25_000_000,
+            "full observed excess must survive: {native}"
+        );
+    }
     assert!(
         metric(native, "inclusive_max_cpu_ns") <= 3_000_000,
         "inclusive class gate: {native}"

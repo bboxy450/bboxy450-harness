@@ -894,6 +894,7 @@ struct HelperSummary {
     inclusive_max_wall: u64,
     app_max_cpu: u64,
     creation_debt: u64,
+    process_create_wall: super::c1::ProcessCreateWallExcess,
     retirement_count: u64,
     retirement_pending_cpu: u64,
     retirement_cpu: u64,
@@ -923,7 +924,7 @@ impl HelperSummary {
             self.proof_admission_max_cpu
         );
         eprintln!(
-            "dream-read helper_native profile=read-helper-native/1 tag=process_create count={} reservations={} effects={} failures_with_effect={} unknown_effects={} last_errno={} last_failed_sequence={} cpu_ns={} max_cpu_ns={} max_wall_ns={} inclusive_max_cpu_ns={} inclusive_max_wall_ns={} app_max_cpu_ns={} debt_ns={}",
+            "dream-read helper_native profile=read-helper-native/1 tag=process_create count={} reservations={} effects={} failures_with_effect={} unknown_effects={} last_errno={} last_failed_sequence={} cpu_ns={} max_cpu_ns={} max_wall_ns={} inclusive_max_cpu_ns={} inclusive_max_wall_ns={} app_max_cpu_ns={} debt_ns={} process_create_wall_excess_ns={} process_create_wall_excess_count={} process_create_wall_excess_known={} process_create_wall_scope=prepared_posix_spawn",
             self.creations,
             self.attempts,
             self.effects,
@@ -937,7 +938,10 @@ impl HelperSummary {
             self.inclusive_max_cpu,
             self.inclusive_max_wall,
             self.app_max_cpu,
-            self.creation_debt
+            self.creation_debt,
+            self.process_create_wall.process_create_wall_excess_ns,
+            self.process_create_wall.process_create_wall_excess_count,
+            self.process_create_wall.known
         );
         eprintln!(
             "dream-read helper_retirement profile=read-helper-native/1 tag=application count={} pending_pipe_cpu_ns={} cpu_ns={} max_cpu_ns={} inclusive_max_cpu_ns={} unknown_clocks={} conservative_additional_debt_ns={}",
@@ -1182,9 +1186,10 @@ impl super::resolve::ProofPace for ProofClock {
         } else {
             accounted_birth_cpu.max(1_000_000).checked_mul(9)
         };
-        {
+        let wall_excess_known = {
             let mut summary = self.helper_summary.borrow_mut();
-            summary.cost_known &= known;
+            let wall_excess_known = summary.process_create_wall.record(span.wall_ns).is_ok();
+            summary.cost_known &= known && wall_excess_known;
             summary.creations += 1;
             summary.attempts += span.credits as u64;
             summary.effects += u64::from(span.identity.is_some());
@@ -1197,7 +1202,8 @@ impl super::resolve::ProofPace for ProofClock {
             summary.creation_debt = summary
                 .creation_debt
                 .saturating_add(debt.unwrap_or(u64::MAX));
-        }
+            wall_excess_known
+        };
         let (control, charged) = {
             let mut b = self.budget.borrow_mut();
             let charged = b.read_charge(
@@ -1208,10 +1214,10 @@ impl super::resolve::ProofPace for ProofClock {
             );
             (b.control.clone(), charged)
         };
-        let code = if !known || debt.is_none() {
+        let code = if !known || !wall_excess_known || debt.is_none() {
             Some(c::Code::SourceUnavailable)
         } else if span.cpu_ns > 2_000_000
-            || span.wall_ns > 25_000_000
+            || !super::c1::process_create_wall_allowed(span.wall_ns)
             || span.inclusive_cpu_ns > 3_000_000
             || span.app_cpu_ns > 1_000_000
         {
@@ -2913,16 +2919,51 @@ mod helper_tests {
     fn native_wall_limit_retains_raw_cost_and_debt() {
         let (mut clock, summary, _) = owner();
         let mut value = span(100_000, 200_000, 100_000);
-        value.wall_ns = 25_000_001;
-        value.inclusive_wall_ns = 25_100_001;
+        value.wall_ns = 251_000_000;
+        value.inclusive_wall_ns = 251_100_000;
         assert!(clock.native_created(value).is_err());
         assert_eq!(*clock.failure.borrow(), Some(c::Code::ResourceLimit));
         let summary = summary.borrow();
         assert!(summary.cost_known);
-        assert_eq!(summary.native_max_wall, 25_000_001);
-        assert_eq!(summary.inclusive_max_wall, 25_100_001);
+        assert_eq!(summary.native_max_wall, 251_000_000);
+        assert_eq!(summary.inclusive_max_wall, 251_100_000);
+        assert_eq!(
+            summary.process_create_wall.process_create_wall_excess_ns,
+            226_000_000
+        );
+        assert_eq!(
+            summary.process_create_wall.process_create_wall_excess_count,
+            1
+        );
+        assert!(summary.process_create_wall.known);
         assert_eq!(summary.native_max_cpu, 100_000);
         assert_eq!(summary.creation_debt, 9_000_000);
+    }
+    #[test]
+    fn prepared_spawn_34_and_250ms_preserve_full_excess_without_wall_refusal() {
+        for wall in [34_000_000, 250_000_000] {
+            let (mut clock, summary, _) = owner();
+            let mut value = span(100_000, 200_000, 100_000);
+            value.wall_ns = wall;
+            value.inclusive_wall_ns = wall + 100_000;
+            // Supplied native observation has an independent no-effect ENOENT.
+            // Its admissible wall must not be rewritten as a resource refusal.
+            assert!(clock.native_created(value).is_err());
+            assert_eq!(*clock.failure.borrow(), Some(c::Code::SourceUnavailable));
+            let summary = summary.borrow();
+            assert!(summary.cost_known);
+            assert_eq!(summary.native_max_wall, wall);
+            assert_eq!(
+                summary.process_create_wall.process_create_wall_excess_ns,
+                wall - 25_000_000
+            );
+            assert_eq!(
+                summary.process_create_wall.process_create_wall_excess_count,
+                1
+            );
+            assert!(summary.process_create_wall.known);
+            assert_eq!(summary.creation_debt, 9_000_000);
+        }
     }
     #[test]
     fn native_inclusive_limit_retains_raw_cost_and_debt() {

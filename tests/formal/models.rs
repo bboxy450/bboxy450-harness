@@ -7027,6 +7027,7 @@ pub fn corpus() -> Vec<(Model, &'static str)> {
         (dream_read::helper(20), "safety"),
         (dream_read::helper(21), "safety"),
         (dream_read::helper(22), "safety"),
+        (dream_read::helper(23), "safety"),
         (dream_read::helper_exec(0), "pass"),
         (dream_read::helper_exec(1), "safety"),
         (dream_read::helper_exec(2), "safety"),

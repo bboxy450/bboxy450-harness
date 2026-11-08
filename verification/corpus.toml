@@ -1787,6 +1787,11 @@ expected = "safety"
 frontend = "project"
 
 [[model]]
+name = "BrokenHarnessDreamReadHelperOldProcessCreateWall"
+expected = "safety"
+frontend = "project"
+
+[[model]]
 name = "HarnessDreamReadGitSigTemp"
 expected = "pass"
 frontend = "project"

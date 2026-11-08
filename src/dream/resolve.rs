@@ -1014,6 +1014,7 @@ struct HelperSample {
 #[derive(Default)]
 struct HelperProfile {
     phases: [HelperSample; 6],
+    process_create_wall: super::c1::ProcessCreateWallExcess,
 }
 #[derive(Clone, Copy)]
 struct HelperStamp {
@@ -1075,12 +1076,25 @@ impl HelperProfile {
         start: HelperStamp,
         end: HelperStamp,
     ) -> Result<(), Invalid> {
+        self.record_attempt(phase, start, end, true)
+    }
+    fn record_attempt(
+        &mut self,
+        phase: HelperPhase,
+        start: HelperStamp,
+        end: HelperStamp,
+        native_attempted: bool,
+    ) -> Result<(), Invalid> {
         let sample = &mut self.phases[phase as usize];
         sample.count = sample.count.saturating_add(1);
         let wall = u64::try_from(end.wall.saturating_duration_since(start.wall).as_nanos())
             .unwrap_or(u64::MAX);
         sample.wall_total = sample.wall_total.saturating_add(wall);
         sample.wall_max = sample.wall_max.max(wall);
+        // Retain the full known excess before a CPU/clock/wall refusal.
+        let wall_excess_known = phase != HelperPhase::Spawn
+            || !native_attempted
+            || self.process_create_wall.record(wall).is_ok();
         let cpu = if start.cpu == u64::MAX || end.cpu == u64::MAX {
             None
         } else {
@@ -1092,6 +1106,9 @@ impl HelperProfile {
         };
         sample.cpu_total = sample.cpu_total.saturating_add(cpu);
         sample.cpu_max = sample.cpu_max.max(cpu);
+        if !wall_excess_known {
+            return Err(Invalid("selected helper native wall excess unavailable"));
+        }
         // Raw inclusive remains an observation, not a wrapper exemption. Exact
         // creation has its named native bound; each ordinary phase and the
         // combined surrounding application CPU retain their1ms fence.
@@ -1103,7 +1120,10 @@ impl HelperProfile {
         if phase != HelperPhase::RawInclusive && cpu > limit {
             return Err(Invalid("resource_limit: selected helper phase CPU bound"));
         }
-        if phase == HelperPhase::Spawn && wall > 25_000_000 {
+        if phase == HelperPhase::Spawn
+            && native_attempted
+            && !super::c1::process_create_wall_allowed(wall)
+        {
             return Err(Invalid("resource_limit: selected helper native wall bound"));
         }
         Ok(())
@@ -1123,7 +1143,119 @@ impl HelperProfile {
                 sample.wall_max,
                 sample.unknown
             );
+            if index == HelperPhase::Spawn as usize {
+                eprintln!(
+                    "dream-read helper_process_create process_create_wall_excess_ns={} process_create_wall_excess_count={} process_create_wall_excess_known={} process_create_wall_scope=prepared_posix_spawn",
+                    self.process_create_wall.process_create_wall_excess_ns,
+                    self.process_create_wall.process_create_wall_excess_count,
+                    self.process_create_wall.known
+                );
+            }
         }
+    }
+}
+#[cfg(test)]
+mod prepared_spawn_wall_profile_tests {
+    use super::*;
+
+    fn observe(profile: &mut HelperProfile, wall_ms: u64, cpu_ns: u64) -> Result<(), Invalid> {
+        let wall = std::time::Instant::now();
+        profile.record(
+            HelperPhase::Spawn,
+            HelperStamp { cpu: 0, wall },
+            HelperStamp {
+                cpu: cpu_ns,
+                wall: wall + std::time::Duration::from_millis(wall_ms),
+            },
+        )
+    }
+
+    #[test]
+    fn prepared_spawn_34_and_250ms_admit_251ms_refuses_with_full_excess() {
+        let mut profile = HelperProfile::default();
+        observe(&mut profile, 34, 2_000_000).unwrap();
+        assert_eq!(
+            profile.process_create_wall.process_create_wall_excess_ns,
+            9_000_000
+        );
+        assert_eq!(
+            profile.process_create_wall.process_create_wall_excess_count,
+            1
+        );
+        observe(&mut profile, 250, 2_000_000).unwrap();
+        assert!(observe(&mut profile, 251, 2_000_000).is_err());
+        assert_eq!(
+            profile.process_create_wall.process_create_wall_excess_ns,
+            460_000_000
+        );
+        assert_eq!(
+            profile.process_create_wall.process_create_wall_excess_count,
+            3
+        );
+        assert!(profile.process_create_wall.known);
+        let sample = profile.phases[HelperPhase::Spawn as usize];
+        assert_eq!(sample.count, 3);
+        assert_eq!(sample.wall_max, 251_000_000);
+        assert_eq!(sample.cpu_max, 2_000_000);
+    }
+
+    #[test]
+    fn prepared_spawn_cpu_and_unknown_clock_refusals_keep_wall_observation() {
+        let mut profile = HelperProfile::default();
+        assert!(observe(&mut profile, 34, 2_000_001).is_err());
+        assert_eq!(
+            profile.phases[HelperPhase::Spawn as usize].cpu_max,
+            2_000_001
+        );
+        assert_eq!(
+            profile.process_create_wall.process_create_wall_excess_ns,
+            9_000_000
+        );
+        assert_eq!(
+            profile.process_create_wall.process_create_wall_excess_count,
+            1
+        );
+
+        let mut unknown = HelperProfile::default();
+        assert!(observe(&mut unknown, 34, u64::MAX).is_err());
+        assert_eq!(unknown.phases[HelperPhase::Spawn as usize].unknown, 1);
+        assert_eq!(
+            unknown.process_create_wall.process_create_wall_excess_ns,
+            9_000_000
+        );
+        assert_eq!(
+            unknown.process_create_wall.process_create_wall_excess_count,
+            1
+        );
+        assert!(unknown.process_create_wall.known);
+
+        let wall = std::time::Instant::now();
+        let mut unattempted = HelperProfile::default();
+        assert!(
+            unattempted
+                .record_attempt(
+                    HelperPhase::Spawn,
+                    HelperStamp {
+                        cpu: u64::MAX,
+                        wall
+                    },
+                    HelperStamp {
+                        cpu: 1,
+                        wall: wall + std::time::Duration::from_millis(34),
+                    },
+                    false,
+                )
+                .is_err()
+        );
+        assert_eq!(
+            unattempted.phases[HelperPhase::Spawn as usize].wall_max,
+            34_000_000
+        );
+        assert_eq!(unattempted.phases[HelperPhase::Spawn as usize].unknown, 1);
+        assert_eq!(
+            unattempted.process_create_wall,
+            super::super::c1::ProcessCreateWallExcess::default()
+        );
     }
 }
 fn helper_record(phase: HelperPhase, start: HelperStamp, end: HelperStamp) -> Result<(), Invalid> {
@@ -1699,7 +1831,13 @@ fn helper_begin_refusal(
 ) -> Invalid {
     let end = helper_stamp(HelperPhase::RawInclusive, true);
     if let Some(spawn) = spawn {
-        let _ = helper_record(HelperPhase::Spawn, spawn, end);
+        let _ = SELECTED.with(|slot| {
+            slot.borrow_mut()
+                .as_mut()
+                .ok_or(Invalid("selected helper owner unavailable"))?
+                .helper_profile
+                .record_attempt(HelperPhase::Spawn, spawn, end, false)
+        });
     }
     let _ = helper_record(HelperPhase::RawInclusive, inclusive, end);
     eprintln!(

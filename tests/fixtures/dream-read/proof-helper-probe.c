@@ -184,6 +184,11 @@ struct prepared_spawn_outcome {
     pid_t pid;int attempted,error,cpu_known,wall_known;
     uint64_t cpu_start,cpu_end,wall_start,wall_end,cpu,wall;
 };
+enum native_budget_class {NATIVE_PROCESS_CREATE=1,NATIVE_OTHER=2};
+static uint64_t native_wall_limit(unsigned kind) {return kind==NATIVE_PROCESS_CREATE?250000000:25000000;}
+static int native_budget_allowed(unsigned kind,uint64_t cpu,uint64_t wall,uint64_t inclusive,uint64_t app) {
+    return cpu<=2000000&&wall<=native_wall_limit(kind)&&inclusive<=3000000&&app<=1000000;
+}
 static void prepared_spawn(const char *program,char *const argv[],char *const envp[],
     const posix_spawn_file_actions_t *actions,const posix_spawnattr_t *attr,int own_group,struct prepared_spawn_outcome *out) {
     memset(out,0,sizeof(*out));out->cpu=out->wall=UINT64_MAX;
@@ -217,9 +222,10 @@ static pid_t suspended(const char *program, char *const argv[], char *const envp
     require(out.attempted&&out.cpu_known&&out.wall_known,"known prepared creation clock");
     if (out.error != 0 || pid <= 0) { errno = out.error; require(0, "suspended creation"); }
     posix_spawn_file_actions_destroy(&actions); posix_spawnattr_destroy(&attr);
-    if (*cpu > 2000000 || *wall > 25000000) {
+    if(*wall>25000000)fprintf(stderr,"process_create_wall_excess_ns=%llu process_create_wall_excess_count=1 scope=auxiliary_single_prepared_spawn\n",(unsigned long long)(*wall-25000000));
+    if (*cpu > 2000000 || *wall > native_wall_limit(NATIVE_PROCESS_CREATE)) {
         dispose_owned();
-        require(0, "native creation 2ms CPU/25ms wall");
+        require(0, "native process creation 2ms CPU/250ms wall");
     }
     return pid;
 }
@@ -426,6 +432,8 @@ struct private_metrics {
     uint64_t deadline_first_ns,deadline_first_unit_ns;unsigned deadline_first_line,deadline_last_line;
     uint64_t booked_ordinary_cost_ns,booked_helper_cost_ns,ordinary_raw_total_ns,ordinary_floor_total_ns;
     uint64_t engine_charge_calls,poll_closure_calls;
+    uint64_t process_create_wall_excess_ns,process_create_wall_excess_count;
+    unsigned process_create_wall_excess_known;
 };
 static const char *private_error="input_invalid",*private_detail="strict private input decoding failed";
 static struct private_metrics private_cost;
@@ -437,6 +445,7 @@ static int private_failed=0;
 // Bounded diagnostic location only:1..22 engine,100..105 claim,
 // 200..240 home/config,1000+form scripted command. Absent in production.
 static unsigned source_known_flow_stage,source_known_flow_failure_stage;
+static unsigned source_known_process_create_case;
 static struct private_metrics source_known_flow_failure_cost;
 #define ENGINE_FLOW_STAGE(value) (source_known_flow_stage=(value))
 #define ENGINE_FLOW_FAILURE_STAGE() do{source_known_flow_failure_stage=source_known_flow_stage;source_known_flow_failure_cost=private_cost;}while(0)
@@ -460,6 +469,7 @@ static struct private_terminal_observation private_terminal;
 static void private_reset_diagnostics(void) {
     memset(private_errors,0,sizeof(private_errors));private_error_count=0;private_errors_overflow=0;
     memset(&private_terminal,0,sizeof(private_terminal));private_terminal.cost_ok=private_terminal.diagnostics_ok=1;
+    private_cost.process_create_wall_excess_known=1;
 }
 static void private_record_error(const char *code,const char *detail) {
     unsigned index=0;while(index<10&&strcmp(code,private_error_codes[index]))index++;
@@ -2339,6 +2349,9 @@ struct engine_owner {
     struct engine_ticket ticket;struct engine_member members[2];
     struct engine_incarnation retired[8];unsigned retired_count,slots,verified_descendants;
     struct prepared_spawn_outcome native;
+    uint64_t process_create_wall_excess_ns,process_create_wall_excess_count;
+    unsigned creation_wall_accounted,process_create_wall_excess_known,native_budget_projection_case;
+    uint64_t native_gate_cpu_ns,native_gate_wall_ns,native_gate_inclusive_ns,native_gate_app_ns;
     struct engine_unit_observation failed_unit_first,failed_unit_last;uint64_t failed_units,last_poll_cpu,last_charged_cost;
     unsigned running,retiring,failed,foreground,paused,direct_reaped,direct_custody,coverage_lost;
     unsigned command,case_fired,record_count,child_created,child_settled,source_admitted;
@@ -2427,6 +2440,21 @@ static uint64_t engine_now(struct engine_owner *owner,clockid_t id) {
 }
 
 static int engine_safe_sum(uint64_t a,uint64_t b,uint64_t *sum) {if(UINT64_MAX-a<b)return 0;*sum=a+b;return 1;}
+static void engine_creation_wall_observation(struct engine_owner *o,uint64_t wall,int known) {
+    if(o->creation_wall_accounted)return;
+    o->creation_wall_accounted=1;o->process_create_wall_excess_known=known&&wall!=UINT64_MAX;
+    if(!o->process_create_wall_excess_known){private_cost.process_create_wall_excess_known=0;return;}
+    if(wall<=25000000)return;
+    uint64_t excess=wall-25000000,sum=0,count=0;
+    o->process_create_wall_excess_ns=excess;o->process_create_wall_excess_count=1;
+    if(!engine_safe_sum(private_cost.process_create_wall_excess_ns,excess,&sum)
+        ||!engine_safe_sum(private_cost.process_create_wall_excess_count,1,&count)) {
+        private_cost.process_create_wall_excess_known=0;
+        private_cost.process_create_wall_excess_ns=UINT64_MAX;private_cost.process_create_wall_excess_count=UINT64_MAX;
+        (void)engine_failure(o,"clock_unknown","process creation wall excess aggregate overflow");return;
+    }
+    private_cost.process_create_wall_excess_ns=sum;private_cost.process_create_wall_excess_count=count;
+}
 static int engine_token_signal(const audit_token_t *token,int signal) {
     errno=0;int result=proc_signal_with_audittoken((audit_token_t *)token,signal);return result==0?0:(result>0?result:errno);
 }
@@ -2813,11 +2841,13 @@ static int engine_census_record(struct engine_owner *o) {
     return engine_write_record(o,line,n);
 }
 static int engine_record(struct engine_owner *o,const char *phase) {
-    char bytes[2048];int n=snprintf(bytes,sizeof(bytes),"{\"kind\":\"helper_total_budget\",\"decision\":66280,\"phase\":\"%s\",\"sequence\":%u,\"pid\":%d,\"birth\":%llu,\"start\":%llu,\"live_cpu_ns\":%llu,\"last_sample_ns\":%llu,\"sample_gap_ns\":%llu,\"max_sample_gap_ns\":%llu,\"sample_gap_checks\":%llu,\"activation_ns\":%llu,\"qos_checked_mask\":%u,\"priority\":[%d,%d],\"wait4_user_ns\":%llu,\"wait4_system_ns\":%llu,\"terminal_cpu_ns\":%llu,\"job_cpu_ns\":%llu,\"command_cap_ns\":%llu,\"job_cap_ns\":%llu,\"terminal_rss_bytes\":%llu,\"helper_cost_retained\":%u,\"helper_cost_paid\":%u,\"helper_debt_target\":%llu,\"helper_debt_before_ns\":%llu,\"helper_cost_ns\":%llu,\"helper_debt_delta_ns\":%llu,\"helper_global_paid_after_ns\":%llu,\"debt_scope\":\"whole_controller_cumulative\",\"helper_debt_target_scope\":\"global_watermark\",\"debt_charged_ns\":%llu,\"debt_paid_ns\":%llu,\"group_kill_attempted\":%u,\"group_kill_errno\":%d,\"group_kill_pending\":%u,\"group_kill_raced_exit\":%u,\"actual_own_wait4\":%u,\"group_gone\":%u,\"quarantined\":%u,\"owner_lost\":%u,\"runtime_approved\":false}\n",
+    char bytes[3072];int n=snprintf(bytes,sizeof(bytes),"{\"kind\":\"helper_total_budget\",\"decision\":66280,\"phase\":\"%s\",\"sequence\":%u,\"pid\":%d,\"birth\":%llu,\"start\":%llu,\"live_cpu_ns\":%llu,\"last_sample_ns\":%llu,\"sample_gap_ns\":%llu,\"max_sample_gap_ns\":%llu,\"sample_gap_checks\":%llu,\"activation_ns\":%llu,\"qos_checked_mask\":%u,\"priority\":[%d,%d],\"wait4_user_ns\":%llu,\"wait4_system_ns\":%llu,\"terminal_cpu_ns\":%llu,\"job_cpu_ns\":%llu,\"command_cap_ns\":%llu,\"job_cap_ns\":%llu,\"terminal_rss_bytes\":%llu,\"process_create_wall_excess_ns\":%llu,\"process_create_wall_excess_count\":%llu,\"process_create_wall_excess_known\":%u,\"process_create_wall_excess_scope\":\"original_prepared_spawn_snapshot\",\"native_budget_projection_case\":%u,\"native_actual_cpu_ns\":%llu,\"native_actual_wall_ns\":%llu,\"native_gate_cpu_ns\":%llu,\"native_gate_wall_ns\":%llu,\"native_gate_inclusive_ns\":%llu,\"helper_cost_retained\":%u,\"helper_cost_paid\":%u,\"helper_debt_target\":%llu,\"helper_debt_before_ns\":%llu,\"helper_cost_ns\":%llu,\"helper_debt_delta_ns\":%llu,\"helper_global_paid_after_ns\":%llu,\"debt_scope\":\"whole_controller_cumulative\",\"helper_debt_target_scope\":\"global_watermark\",\"debt_charged_ns\":%llu,\"debt_paid_ns\":%llu,\"group_kill_attempted\":%u,\"group_kill_errno\":%d,\"group_kill_pending\":%u,\"group_kill_raced_exit\":%u,\"actual_own_wait4\":%u,\"group_gone\":%u,\"quarantined\":%u,\"owner_lost\":%u,\"runtime_approved\":false}\n",
         phase,o->ticket.sequence,o->ticket.pid,(unsigned long long)o->ticket.birth,(unsigned long long)o->ticket.start,
         (unsigned long long)o->live_cpu_ns,(unsigned long long)o->last_sample_ns,(unsigned long long)o->sample_gap_ns,(unsigned long long)o->max_sample_gap_ns,(unsigned long long)o->sample_gap_checks,(unsigned long long)o->activation_ns,o->qos_checked_mask,o->members[0].state.priority,o->members[1].state.priority,
         (unsigned long long)o->wait_user,(unsigned long long)o->wait_system,(unsigned long long)o->terminal_cpu_ns,(unsigned long long)o->result->helper_job_cpu_ns,
-        (unsigned long long)ENGINE_COMMAND_CPU_NS,(unsigned long long)ENGINE_JOB_CPU_NS,(unsigned long long)o->wait_rss,o->helper_cost_retained,o->helper_cost_paid,
+        (unsigned long long)ENGINE_COMMAND_CPU_NS,(unsigned long long)ENGINE_JOB_CPU_NS,(unsigned long long)o->wait_rss,
+        (unsigned long long)o->process_create_wall_excess_ns,(unsigned long long)o->process_create_wall_excess_count,o->process_create_wall_excess_known,o->native_budget_projection_case,
+        (unsigned long long)o->native.cpu,(unsigned long long)o->native.wall,(unsigned long long)o->native_gate_cpu_ns,(unsigned long long)o->native_gate_wall_ns,(unsigned long long)o->native_gate_inclusive_ns,o->helper_cost_retained,o->helper_cost_paid,
         (unsigned long long)o->helper_debt_target,(unsigned long long)o->helper_debt_before,(unsigned long long)o->helper_cost_ns,(unsigned long long)o->helper_debt_delta_ns,(unsigned long long)o->helper_global_paid_after,(unsigned long long)private_cost.debt,(unsigned long long)private_cost.debt_paid,
         o->group_kill_attempted,o->group_kill_result,o->group_kill_pending,o->group_kill_raced_exit,o->direct_reaped,o->result->group_gone,o->settlement_quarantined,o->owner_lost);
     return engine_write_record(o,bytes,n)&&engine_failed_record(o)&&engine_pause_record(o)&&engine_ri_record(o)&&engine_child_record(o)&&engine_census_record(o);
@@ -2977,6 +3007,15 @@ static int engine_birth(struct engine_owner *o,struct engine_prepared *p) {
     if(o->git_signature&&!private_git_sig_before_birth(o->context,o->git_signature))return engine_failure(o,private_error,private_detail);
     struct prepared_spawn_outcome raw;prepared_spawn(p->image,p->argv,p->env,&p->actions,&p->attr,1,&raw);o->native=raw;
     if(raw.pid>0) {o->ticket.pid=o->ticket.pgid=raw.pid;o->direct_custody=1;o->result->created++;o->result->group_gone=o->result->retired_coverage=0;}
+    o->native_gate_wall_ns=raw.wall;
+#ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
+    // Supplied policy inputs ONLY; retain the actual OS clocks/cost above.
+    // The fixture exposes both and never calls these OS timing observations.
+    o->native_budget_projection_case=source_known_process_create_case;
+    if(source_known_process_create_case==1||source_known_process_create_case==3)o->native_gate_wall_ns=34000000;
+    if(source_known_process_create_case==2)o->native_gate_wall_ns=251000000;
+#endif
+    engine_creation_wall_observation(o,o->native_gate_wall_ns,raw.wall_known);
     int transferred=engine_transfer_prepared(o,p);
     uint64_t end=engine_now(o,CLOCK_THREAD_CPUTIME_ID),total=engine_interval(begin,end);
     uint64_t app=total!=UINT64_MAX&&raw.cpu!=UINT64_MAX&&total>=raw.cpu?total-raw.cpu:UINT64_MAX;
@@ -2985,9 +3024,16 @@ static int engine_birth(struct engine_owner *o,struct engine_prepared *p) {
     int paid=engine_charge(o,total,total,0);total=private_cost.last_unit;
     app=total!=UINT64_MAX&&raw.cpu!=UINT64_MAX&&total>=raw.cpu?total-raw.cpu:UINT64_MAX;
     engine_max(&o->result->inclusive_max_ns,total);engine_max(&o->result->ordinary_max_ns,app);
+    o->native_gate_cpu_ns=raw.cpu;o->native_gate_inclusive_ns=total;o->native_gate_app_ns=app;
     if(raw.attempted&&!raw.error&&raw.pid<=0)return engine_quarantine(o,"native success without usable original PID retains opaque effect custody");
     if(!raw.attempted||!raw.cpu_known||!raw.wall_known||raw.pid<=0||raw.error||!transferred)return engine_failure(o,"coverage_unknown","prepared native creation/effect refused");
-    if(raw.cpu>2000000||raw.wall>25000000||total>3000000||app>1000000)return engine_failure(o,"resource_limit","unchanged native2ms wall25ms application1ms inclusive3ms gate");
+#ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
+    if(source_known_process_create_case&&!native_budget_allowed(NATIVE_PROCESS_CREATE,raw.cpu,raw.wall,total,app))
+        return engine_failure(o,"resource_limit","source-known projection requires actual unchanged native admission first");
+    if(source_known_process_create_case==3){o->native_gate_cpu_ns=2000001;o->native_gate_inclusive_ns=2500000;o->native_gate_app_ns=499999;}
+#endif
+    if(!native_budget_allowed(NATIVE_PROCESS_CREATE,o->native_gate_cpu_ns,o->native_gate_wall_ns,o->native_gate_inclusive_ns,o->native_gate_app_ns))
+        return engine_failure(o,"resource_limit","process creation native2ms wall250ms application1ms inclusive3ms gate");
     if(!paid||o->failed)return 0;
     if(!engine_sample_member(o,0,raw.pid)||!engine_checkpoint(o))return 0;
     if(o->members[0].state.status!=SSTOP)return engine_failure(o,"coverage_unknown","initial custody was not stopped");
@@ -3558,7 +3604,7 @@ static int engine_complete_result(const struct private_engine_context *context,s
         return private_fail("coverage_unknown","complete fixed case lacks actual semantic, verifier or physical settlement coverage");
     if(!engine_metric_bound(&result->ordinary_max_ns,1000000)||!engine_metric_bound(&result->controller_max_ns,1000000)
         ||!engine_metric_bound(&result->cleanup_max_ns,1000000)||!engine_metric_bound(&result->native_cpu_max_ns,2000000)
-        ||!engine_metric_bound(&result->native_wall_max_ns,25000000)||!engine_metric_bound(&result->inclusive_max_ns,3000000)
+        ||!engine_metric_bound(&result->native_wall_max_ns,native_wall_limit(NATIVE_PROCESS_CREATE))||!engine_metric_bound(&result->inclusive_max_ns,3000000)
         ||result->helper_job_cpu_ns>ENGINE_JOB_CPU_NS
         ||!engine_metric_bound(&result->A_ns,ENGINE_JOB_CPU_NS)||!engine_metric_bound(&result->C_ns,UINT64_MAX-1)
 
@@ -3974,7 +4020,7 @@ static void private_finish_diagnostics(const char *phase,unsigned created,unsign
         int n=snprintf(counts+used,sizeof(counts)-used,"%s%llu",i?",":"",(unsigned long long)private_errors[i].count);
         if(n<=0||(size_t)n>=sizeof(counts)-used){private_terminal.diagnostics_ok=0;counts[0]=0;break;}used+=(size_t)n;
     }
-    char final[4096];int final_len=snprintf(final,sizeof(final),"private_candidate_terminal profile=read-helper-native/1 stage=%s metrics_cutoff=pre_result_emission metadata_kind=declared_peak_capacity terminal_cutoff=after_paid_tail_and_error_diagnostics_before_final_receipt runtime_approved=false helper_created=%u helper_reaped=%u result_complete=%s control_verdict=%s persistence_verdict=%s terminal_cost_verdict=%s tail_complete=%s persistence_attempted=%s persistence_open=%s persistence_write=%s persistence_fsync=%s persistence_close=%s persistence_directory_fsync=%s persistence_errno=%d stdout_errno=%d stdout_attempted=%s reporting_only=%u original_entry_ns=%llu original_deadline_ns=%llu deadline_observed_ns=%llu deadline_first_ns=%llu deadline_first_unit_ns=%llu deadline_first_line=%u deadline_last_line=%u reporting_started_ns=%llu closed_unit_count=%llu path_walk_components=%llu path_walk_units=%llu booked_ordinary_units=%llu engine_charge_calls=%llu poll_closure_calls=%llu ordinary_cost_ns=%llu ordinary_raw_cpu_ns=%llu ordinary_raw_complete=%s ordinary_floor_surcharge_ns=%llu helper_cost_total_ns=%llu debt_components_match=%s debt_scope=whole_controller_cumulative persistence_paid=%s formatter_cpu_start_ns=%llu formatter_cpu_end_ns=%llu formatter_inclusive_ns=%llu write_cpu_start_ns=%llu write_cpu_end_ns=%llu write_inclusive_ns=%llu close_max_cpu_ns=%llu probe_rss_peak_bytes=%llu rss_known=%s ordinary_max_ns=%llu debt_charged_ns=%llu debt_paid_ns=%llu retained_units=%llu retained_overflow=%u format_paid=%s write_paid=%s error_count=%llu error_codes=cancelled,clock_unknown,coverage_unknown,deadline,input_invalid,resource_limit,review_unbound,settlement_unknown,signature_unexpected,source_changed,other error_counts=%s errors_complete=%s diagnostics_complete=%s parent_actual_reap_required=true\n",
+    char final[4096];int final_len=snprintf(final,sizeof(final),"private_candidate_terminal profile=read-helper-native/1 stage=%s metrics_cutoff=pre_result_emission metadata_kind=declared_peak_capacity terminal_cutoff=after_paid_tail_and_error_diagnostics_before_final_receipt runtime_approved=false helper_created=%u helper_reaped=%u result_complete=%s control_verdict=%s persistence_verdict=%s terminal_cost_verdict=%s tail_complete=%s persistence_attempted=%s persistence_open=%s persistence_write=%s persistence_fsync=%s persistence_close=%s persistence_directory_fsync=%s persistence_errno=%d stdout_errno=%d stdout_attempted=%s reporting_only=%u original_entry_ns=%llu original_deadline_ns=%llu deadline_observed_ns=%llu deadline_first_ns=%llu deadline_first_unit_ns=%llu deadline_first_line=%u deadline_last_line=%u reporting_started_ns=%llu closed_unit_count=%llu path_walk_components=%llu path_walk_units=%llu booked_ordinary_units=%llu engine_charge_calls=%llu poll_closure_calls=%llu ordinary_cost_ns=%llu ordinary_raw_cpu_ns=%llu ordinary_raw_complete=%s ordinary_floor_surcharge_ns=%llu helper_cost_total_ns=%llu debt_components_match=%s debt_scope=whole_controller_cumulative process_create_wall_excess_ns=%llu process_create_wall_excess_count=%llu process_create_wall_excess_known=%u process_create_wall_excess_scope=invocation_sum_once_per_prepared_spawn persistence_paid=%s formatter_cpu_start_ns=%llu formatter_cpu_end_ns=%llu formatter_inclusive_ns=%llu write_cpu_start_ns=%llu write_cpu_end_ns=%llu write_inclusive_ns=%llu close_max_cpu_ns=%llu probe_rss_peak_bytes=%llu rss_known=%s ordinary_max_ns=%llu debt_charged_ns=%llu debt_paid_ns=%llu retained_units=%llu retained_overflow=%u format_paid=%s write_paid=%s error_count=%llu error_codes=cancelled,clock_unknown,coverage_unknown,deadline,input_invalid,resource_limit,review_unbound,settlement_unknown,signature_unexpected,source_changed,other error_counts=%s errors_complete=%s diagnostics_complete=%s parent_actual_reap_required=true\n",
         phase,created,reaped,private_terminal.stdout_complete?"true":"false",private_terminal.control_known?(private_terminal.control_ok?"passed":"failed"):"unknown",
         private_terminal.persistence_attempted?(private_terminal.persist_unknown?"unknown":private_terminal.persist_ok?"persisted":"not_persisted"):"unknown",private_terminal.cost_unknown?"unknown":private_terminal.cost_ok?"passed":"failed",private_terminal.tail_complete?"true":"false",private_terminal.persistence_attempted?"true":"false",
         private_terminal.persist_open?"true":"false",private_terminal.persist_write?"true":"false",private_terminal.persist_fsync?"true":"false",private_terminal.persist_close?"true":"false",private_terminal.persist_dir_fsync?"true":"false",private_terminal.persistence_errno,private_terminal.stdout_errno,private_terminal.stdout_attempted?"true":"false",private_cost.reporting_only,
@@ -3983,6 +4029,7 @@ static void private_finish_diagnostics(const char *phase,unsigned created,unsign
         (unsigned long long)private_cost.closed_unit_count,(unsigned long long)private_cost.path_walk_components,(unsigned long long)private_cost.path_walk_units,
         (unsigned long long)private_cost.booked_units,(unsigned long long)private_cost.engine_charge_calls,(unsigned long long)private_cost.poll_closure_calls,
         (unsigned long long)private_cost.booked_ordinary_cost_ns,(unsigned long long)private_cost.ordinary_raw_total_ns,(!private_errors[1].count&&!private_cost.retained_overflow)?"true":"false",(unsigned long long)private_cost.ordinary_floor_total_ns,(unsigned long long)private_cost.booked_helper_cost_ns,private_debt_components_match()?"true":"false",
+        (unsigned long long)private_cost.process_create_wall_excess_ns,(unsigned long long)private_cost.process_create_wall_excess_count,private_cost.process_create_wall_excess_known,
         private_terminal.persistence_paid?"true":"false",(unsigned long long)private_terminal.format_start,(unsigned long long)private_terminal.format_end,(unsigned long long)private_terminal.format_inclusive,
         (unsigned long long)private_terminal.write_start,(unsigned long long)private_terminal.write_end,(unsigned long long)private_terminal.write_inclusive,(unsigned long long)private_cost.close_max,
         (unsigned long long)private_cost.rss_peak,private_cost.rss_known?"true":"false",(unsigned long long)private_cost.ordinary_max,(unsigned long long)private_cost.debt,(unsigned long long)private_cost.debt_paid,

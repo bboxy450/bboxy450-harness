@@ -30,7 +30,7 @@ static void fixture_reset_cost(void) {
     private_cost.open_cpu=clock_ns(CLOCK_THREAD_CPUTIME_ID);engine_cancel_signal=engine_owner_loss_signal=0;
     source_known_payment_interrupts=source_known_payment_fail_nth=source_known_schedule_interrupts=source_known_schedule_fail_nth=0;
     source_known_tail_over_cpu=source_known_final_kill_eperm=source_known_terminal_rss_unavailable=0;
-    source_known_flow_stage=source_known_flow_failure_stage=0;memset(&source_known_flow_failure_cost,0,sizeof(source_known_flow_failure_cost));
+    source_known_process_create_case=0;source_known_flow_stage=source_known_flow_failure_stage=0;memset(&source_known_flow_failure_cost,0,sizeof(source_known_flow_failure_cost));
 }
 static void fixture_cleanup(void) {
     struct engine_owner *o=fixture_live_owner;if(!o||o->ticket.pid<=0)return;
@@ -830,6 +830,7 @@ static int fixture_total_argument(unsigned mode,const char *root,char argument[4
 }
 static int total_spawn(struct engine_owner *o,struct private_engine_result *r,const char *self,int dir,unsigned mode,const char *root) {
     memset(o,0,sizeof(*o));memset(r,0,sizeof(*r));reset();fixture(dir);
+    source_known_process_create_case=mode>=13&&mode<=15?mode-12:0;
     o->context=&context;o->result=r;o->slots=mode==2?2:1;o->source_admitted=1;o->controller_parent=getppid();
     o->input=o->output=o->errors=-1;o->ledger=-1;o->capture=malloc(ENGINE_CAPTURE_MAX);require(o->capture!=NULL,"bounded total-budget fixture capture");
     fixture_live_owner=o;fixture_release_path[0]=0;
@@ -1000,7 +1001,7 @@ static void total_control(const char *self,const char *root,int dir,unsigned mod
     if(mode==3)require(fixture_live_record(&owner,&pacing),"bounded fixture pacing diagnostics are fully charged");
     // Distinct prerequisite assertions prevent an unrelated native/clock/unit
     // refusal from satisfying a mutant's intended property assertion.
-    require(owner.native.cpu_known&&owner.native.wall_known&&owner.native.cpu<=2000000&&owner.native.wall<=25000000
+    require(owner.native.cpu_known&&owner.native.wall_known&&owner.native.cpu<=2000000&&owner.native.wall<=250000000
         &&result.inclusive_max_ns.known&&result.inclusive_max_ns.value<=3000000&&private_cost.ordinary_max<=1000000,
         "total causal fixture requires unchanged native inclusive and own-thread unit gates");
     if(mode!=6)require(settled&&owner.wait_observed,"total causal fixture requires actual original ownwait4 and group proof before property verdict");
@@ -1042,7 +1043,7 @@ static void helper_cpu_debt_control(const char *self,const char *root,int dir) {
     uint64_t cpu=engine_wait4_cpu(&owner.retained_wait),wall=engine_interval(owner.activation_ns,owner.wait_read_ns);
     int settled=owner.wait_observed&&owner.direct_reaped&&result.group_gone&&result.retired_coverage&&!engine_current;
     if(settled)fixture_live_owner=NULL;
-    require(settled&&owner.native.cpu_known&&owner.native.wall_known&&owner.native.cpu<=2000000&&owner.native.wall<=25000000
+    require(settled&&owner.native.cpu_known&&owner.native.wall_known&&owner.native.cpu<=2000000&&owner.native.wall<=250000000
         &&result.inclusive_max_ns.known&&result.inclusive_max_ns.value<=3000000&&private_cost.ordinary_max<=1000000
         &&owner.max_sample_gap_ns<=ENGINE_SAMPLE_NS&&owner.terminal_budget_passed,
         "long-wall CPU witness retains every original native ordinary live terminal and actual-reap gate");
@@ -1060,6 +1061,68 @@ static void helper_cpu_debt_control(const char *self,const char *root,int dir) {
         "long wall helper adds only nine times wait4 CPU above its existing global debt baseline");
     engine_close_transferred(&owner);require(close(owner.ledger)==0,"long-wall original raw ledger close");free(owner.capture);
     require(private_end_unit(private_cost.open_cpu),"long-wall fixture original disposal cost paid");controls++;reset();
+}
+
+static void process_create_policy_api(void) {
+    reset();
+    require(native_budget_allowed(NATIVE_PROCESS_CREATE,500000,34000000,600000,100000)
+        &&native_budget_allowed(NATIVE_PROCESS_CREATE,2000000,250000000,3000000,1000000),"process-create policy API admits34ms and exact250ms with unchanged CPU inclusive application gates");
+    require(!native_budget_allowed(NATIVE_PROCESS_CREATE,500000,251000000,600000,100000)
+        &&!native_budget_allowed(NATIVE_PROCESS_CREATE,2000001,34000000,2500000,499999),"process-create policy API refuses251ms and CPU above2ms");
+    require(!native_budget_allowed(NATIVE_OTHER,500000,34000000,600000,100000)
+        &&!native_budget_allowed(NATIVE_PROCESS_CREATE,1500000,34000000,3000001,1000000)
+        &&!native_budget_allowed(NATIVE_OTHER,1500000,25000000,3000001,1000000),"other-native34ms and every native inclusive above3ms remain refused");
+    require(!native_budget_allowed(NATIVE_PROCESS_CREATE,UINT64_MAX,34000000,600000,100000)
+        &&!native_budget_allowed(NATIVE_PROCESS_CREATE,500000,UINT64_MAX,600000,100000),"unknown native clocks remain refused without finite excess invention");
+    struct engine_owner a,b,c;memset(&a,0,sizeof(a));memset(&b,0,sizeof(b));memset(&c,0,sizeof(c));
+    engine_creation_wall_observation(&a,34000000,1);engine_creation_wall_observation(&a,34000000,1);
+    engine_creation_wall_observation(&b,251000000,1);
+    require(a.process_create_wall_excess_ns==9000000&&a.process_create_wall_excess_count==1
+        &&b.process_create_wall_excess_ns==226000000&&b.process_create_wall_excess_count==1
+        &&private_cost.process_create_wall_excess_ns==235000000&&private_cost.process_create_wall_excess_count==2,
+        "process-create excess API sums each known observation once including refused251ms");
+    engine_creation_wall_observation(&c,UINT64_MAX,0);
+    require(!private_cost.process_create_wall_excess_known&&!c.process_create_wall_excess_known
+        &&private_cost.process_create_wall_excess_ns==235000000&&private_cost.process_create_wall_excess_count==2,
+        "unknown process-create wall marks aggregate unproven without erasing known excess");
+    require(private_end_unit(private_cost.open_cpu),"native policy supplied-input API actual CPU fully paid");
+    printf("private_process_create_policy_source_known supplied_inputs=true native_process=false other_native_wall_limit_ns=25000000 process_create_wall_limit_ns=250000000 runtime_approved=false\n");
+    require(fflush(stdout)==0&&private_end_unit(private_cost.open_cpu),"native policy API evidence paid");controls++;reset();
+}
+static int process_create_wall_control(const char *self,const char *root,int dir,unsigned mode) {
+    require(mode<3,"three process-create native policy projection cases");
+    struct engine_owner owner;struct private_engine_result result;int status=-1;
+    int born=total_spawn(&owner,&result,self,dir,13+mode,root);
+    if(born)await_original(&owner);
+    (void)engine_retire(&owner,&status);
+    int settled=owner.direct_reaped&&owner.wait_observed&&result.group_gone&&result.retired_coverage&&!engine_current;
+    if(settled)fixture_live_owner=NULL;
+    require(settled&&owner.native.cpu_known&&owner.native.wall_known&&owner.native.cpu<=2000000
+        &&owner.native.wall<=250000000&&result.inclusive_max_ns.known
+        &&result.inclusive_max_ns.value<=3000000&&private_cost.ordinary_max<=1000000
+        &&owner.helper_cost_retained&&owner.helper_cost_paid&&private_cost.debt==private_cost.debt_paid,
+        "process-create projection retains actual native hard gates ownwait4 groupgone and full real CPU payment");
+    printf("private_process_create_axis_source_known mode=%u original_pid=%d actual_own_wait4=%u group_gone=%u actual_native_CPU_ns=%llu actual_native_wall_ns=%llu applied_CPU_ns=%llu applied_wall_ns=%llu applied_inclusive_ns=%llu process_create_wall_excess_ns=%llu process_create_wall_excess_count=%llu excess_scope=original_prepared_spawn_snapshot projection=true born=%d continued=%u debt_ns=%llu paid_ns=%llu real_candidate_created=0 runtime_approved=false\n",
+        mode,owner.ticket.pid,owner.direct_reaped,result.group_gone,(unsigned long long)owner.native.cpu,(unsigned long long)owner.native.wall,
+        (unsigned long long)owner.native_gate_cpu_ns,(unsigned long long)owner.native_gate_wall_ns,(unsigned long long)owner.native_gate_inclusive_ns,
+        (unsigned long long)owner.process_create_wall_excess_ns,(unsigned long long)owner.process_create_wall_excess_count,born,owner.activation_ns!=0,
+        (unsigned long long)private_cost.debt,(unsigned long long)private_cost.debt_paid);
+    require(fflush(stdout)==0&&private_end_unit(private_cost.open_cpu),"process-create projected-policy raw evidence fully paid");
+    if(mode==0)require(born&&!owner.failed&&owner.activation_ns&&owner.native_gate_wall_ns==34000000
+        &&owner.process_create_wall_excess_ns==9000000&&owner.process_create_wall_excess_count==1
+        &&private_cost.process_create_wall_excess_ns==9000000&&private_cost.process_create_wall_excess_count==1,
+        "34ms process-create policy admits and records exact9ms excess on actual owned fixture");
+    else if(mode==1)require(!born&&!owner.activation_ns&&private_errors[5].count&&owner.native_gate_wall_ns==251000000
+        &&owner.process_create_wall_excess_ns==226000000&&owner.process_create_wall_excess_count==1,
+        "251ms process-create policy refuses without CONT and retains exact226ms excess through own settlement");
+    else require(!born&&!owner.activation_ns&&private_errors[5].count&&owner.native_gate_cpu_ns==2000001
+        &&owner.process_create_wall_excess_ns==9000000&&owner.process_create_wall_excess_count==1,
+        "process-create CPU above2ms refuses without CONT after actual owned settlement");
+    engine_close_transferred(&owner);require(close(owner.ledger)==0,"projected-policy original raw ledger close");free(owner.capture);
+    require(private_end_unit(private_cost.open_cpu),"projected-policy original disposal fully paid");controls++;
+    printf("private_process_create_completed_source_known mode=%u actual_own_wait4=1 group_gone=1 policy_inputs_projected=true expected_exit=%u runtime_approved=false\n",mode,mode?81:0);
+    require(fflush(stdout)==0&&private_end_unit(private_cost.open_cpu),"projected-policy completion evidence fully paid");
+    return mode?81:0;
 }
 
 static void total_boundary_api(void) {
@@ -1124,7 +1187,9 @@ int main(int argc,char **argv) {
     unsigned deadline=argc==2&&!strcmp(argv[1],"terminal-deadline-controls");
     unsigned cpu_debt=argc==2&&!strcmp(argv[1],"helper-cpu-debt-control");
     unsigned expand=argc==2&&!strcmp(argv[1],"argv-expansion-controls");
-    require(argc==1||selected<12||diagnostics||setup||deadline||cpu_debt||expand||hold||flow||result_only||charge||boundary||retained,"private source-known controls argc");
+    unsigned native_api=argc==2&&!strcmp(argv[1],"process-create-policy-api");
+    unsigned native_case=argc==3&&!strcmp(argv[1],"process-create-wall-control")?(unsigned)strtoul(argv[2],NULL,10):3;
+    require(argc==1||selected<12||diagnostics||setup||deadline||cpu_debt||expand||native_api||native_case<3||hold||flow||result_only||charge||boundary||retained,"private source-known controls argc");
     require(atexit(dispose_owned)==0,"owned cleanup registration");
     char root[]="/private/tmp/dream-private-engine-controls.XXXXXX";require(mkdtemp(root)!=NULL,"owned fixture directory");
     int dir=open(root,O_RDONLY|O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC);require(dir>=0,"owned fixture root");
@@ -1155,6 +1220,8 @@ int main(int argc,char **argv) {
     if(retained){total_retained_guard_api();require(close(dir)==0,"owned retained guard API root close");return 0;}
     if(selected<12){total_control(self,root,dir,selected);require(close(dir)==0,"owned narrow fixture root close");return 0;}
     if(diagnostics){terminal_diagnostic_controls(dir);require(close(dir)==0,"owned diagnostic root close");return 0;}
+    if(native_api){process_create_policy_api();require(close(dir)==0,"owned native policy API root close");return 0;}
+    if(native_case<3){int code=process_create_wall_control(self,root,dir,native_case);require(close(dir)==0,"owned native policy process root close");return code;}
     if(expand){argv_expansion_controls(dir);require(close(dir)==0,"owned argv expansion root close");return 0;}
     if(cpu_debt){helper_cpu_debt_control(self,root,dir);require(close(dir)==0,"owned CPU-debt root close");return 0;}
     if(deadline){terminal_deadline_controls(dir);require(close(dir)==0,"owned terminal-deadline root close");return 0;}
@@ -1162,6 +1229,8 @@ int main(int argc,char **argv) {
     argv_expansion_controls(dir);semantic_controls();result_controls();flow_controls(root,dir);terminal_diagnostic_controls(dir);terminal_deadline_controls(dir);charge_diagnostic_control(dir);
     for(unsigned mode=0;mode<12;mode++)total_control(self,root,dir,mode);
     helper_cpu_debt_control(self,root,dir);
+    process_create_policy_api();
+    for(unsigned mode=0;mode<3;mode++)(void)process_create_wall_control(self,root,dir,mode);
     total_boundary_api();
     total_retained_guard_api();
     quarantine_hold_process_control(self,root,dir);

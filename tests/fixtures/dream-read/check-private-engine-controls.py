@@ -31,10 +31,12 @@ VALIDATED = (b'if(!engine_owner_priority()||!engine_pretest_current(context)'
 # is re-labelled as a current pass.
 LEDGERS = ('hold-ledger.ndjson', 'hold-control-success', 'claim.json', 'charge-diagnostic.ndjson',
            'admitted-descriptor', 'retained-descriptor', 'deadline-result/stdout', 'deadline-result/result.json',
-           *(f'total-{i}.ndjson' for i in range(13)), 'rollup-2', 'rollup-2-terminal', 'rollup-2-release', 'release-6',
+           *(f'total-{i}.ndjson' for i in range(16)), 'rollup-2', 'rollup-2-terminal', 'rollup-2-release', 'release-6',
            *(f'pause-{i}-{phase}' for i in (9,10) for phase in ('start','done','release')),
            *('diagnostic-' + str(i) + '/' + name for i in range(4) for name in ('stderr', 'stdout', 'result.json')))
 ASSERTIONS = {
+ 'process-create-old25': b'34ms process-create policy admits and records exact9ms excess on actual owned fixture',
+ 'process-create-ignore-cpu': b'process-create CPU above2ms refuses without CONT after actual owned settlement',
  'argv-unknown-brace-accepted': b'unregistered or malformed brace syntax refuses instead of copying unknown literals',
  'argv-tree-literal-reject': b'actual registry tree_pin argv preparation preserves selected commit and literal tree selector',
  'helper-cpu-not-wall': b'long wall helper adds only nine times wait4 CPU above its existing global debt baseline',
@@ -273,6 +275,10 @@ def variants(source):
     result = {}
     def add(name, anchor, replacement, args):
         result[name] = (changed(source, anchor, replacement), args)
+    add('process-create-old25', b'kind==NATIVE_PROCESS_CREATE?250000000:25000000',
+        b'kind==NATIVE_PROCESS_CREATE?25000000:25000000', ['process-create-wall-control', '0'])
+    add('process-create-ignore-cpu', b'return cpu<=2000000&&wall<=native_wall_limit(kind)&&inclusive<=3000000&&app<=1000000;',
+        b'(void)cpu;return wall<=native_wall_limit(kind)&&inclusive<=3000000&&app<=1000000;', ['process-create-wall-control', '2'])
     add('argv-tree-literal-reject', b'if(strcmp(text,"^{tree}"))return 0;',
         b'if(1||strcmp(text,"^{tree}"))return 0;', ['argv-expansion-controls'])
     add('argv-unknown-brace-accepted', b'if(!value)return 0;', b'(void)0;', ['argv-expansion-controls'])
@@ -343,9 +349,9 @@ def variants(source):
 
 
 def retain_current(stdout, report):
-    found=re.findall(rb'private_engine_controls=pass cases=68 total_budget_controls=8 synthetic_source_known=true real_candidate_created=0 runtime_approved=false retained=(/private/tmp/dream-private-engine-controls\.[A-Za-z0-9]+)\n',stdout)
+    found=re.findall(rb'private_engine_controls=pass cases=72 total_budget_controls=8 synthetic_source_known=true real_candidate_created=0 runtime_approved=false retained=(/private/tmp/dream-private-engine-controls\.[A-Za-z0-9]+)\n',stdout)
     if len(found)!=1:
-        raise ValueError('current fixture lacks exact68 remaining controls and eight total-budget witnesses')
+        raise ValueError('current fixture lacks exact72 remaining controls and eight total-budget witnesses')
     if os.fsdecode(found[0]) != report['commands'][-1]['fixture_capture']['source_dir']:
         raise ValueError('completed fixture root differs from original command binding')
     modes=re.findall(rb'private_total_budget_control_source_known mode=([0-9]+) original_pid=([0-9]+) actual_own_wait4=1 group_gone=1 terminal_cpu_ns=([0-9]+)',stdout)
@@ -371,7 +377,11 @@ def retain_current(stdout, report):
         if end<start or end-start!=elapsed or end>=deadline or deadline-start!=30000000000:
             raise ValueError('source-known engine flow violated original30s timing or raw elapsed identity')
     report['source_known_argv_and_engine_scope']={'actual_registry_forms':list(range(15)),'actual_prepares_per_variant':15,'variants':4,'timing_raw_scope':'command_engine_only; real controller/config/reference/argv/semantic work, native/wait4 scripted; outer-inner authentication/platform validation not exercised','actual_helper_births':0,'whole_private_candidate_fit_proven':False}
-    report['baseline_cases']=68
+    create_rows=re.findall(rb'private_process_create_completed_source_known mode=([0-2]) actual_own_wait4=1 group_gone=1 policy_inputs_projected=true expected_exit=([0-9]+)',stdout)
+    if sorted((int(m),int(code)) for m,code in create_rows)!=[(0,0),(1,81),(2,81)]:
+        raise ValueError('three actual owned-fixture creation policy projections lack completed original settlement')
+    report['process_create_policy_controls']={'supplied_policy_inputs':True,'actual_OS_costs_separately_retained':True,'actual_owned_effects_and_settlement':True,'OS_34ms_or_251ms_timing_claimed':False,'positive_wall_ns':34000000,'positive_excess_ns':9000000,'refused_wall_ns':251000000,'refused_excess_ns':226000000,'cpu_above_2ms_refused':True,'other_native_wall_ns':25000000,'inclusive_ns':3000000}
+    report['baseline_cases']=72
     marker=b'private_total_retained_guard_source_known api=true supplied_clock_and_identity_values=true native_process=false runtime_approved=false\n'
     if stdout.count(marker)!=1:
         raise ValueError('current retained-clock/child production API witness missing or duplicated')
@@ -401,6 +411,12 @@ def verify(directory, inputs, report, total_only=False):
         retain_current(stdout,report)
         code,_,_=run([str(program),'diagnostic-setup-budget-control'],current,'own-thread-negative',report,fixture=True)
         expect(code,0,'actual over-budget own-thread cost/debt negative')
+        for mode in (1,2):
+            code,stdout,stderr=run([str(program),'process-create-wall-control',str(mode)],current,'process-create-refusal-'+str(mode),report,fixture=True)
+            expect(code,81,'owned process-create policy refusal '+str(mode))
+            marker=(f'private_process_create_completed_source_known mode={mode} actual_own_wait4=1 group_gone=1 policy_inputs_projected=true expected_exit=81').encode()
+            if marker not in stdout or b'probe refused:' in stderr:
+                raise ValueError('native policy refusal did not finish the intended causal assertion and actual owner cleanup')
     all_variants=variants(source)
     selected={k:v for k,v in all_variants.items() if not total_only or k.startswith('total-')}
     for name,(changed_source,args) in selected.items():

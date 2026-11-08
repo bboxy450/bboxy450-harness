@@ -39,6 +39,129 @@ const WAIT: Duration = Duration::from_millis(9);
 // telemetry formatting/process teardown. Parent wait4 usage covers that tail.
 const NATIVE_CPU_NS: u64 = 2_000_000;
 const NATIVE_WALL_NS: u64 = 25_000_000;
+// Decision66331 changes only prepared posix_spawn. The existing thread-create
+// and publish NativeKind gates below retain their25ms native wall ceiling.
+pub(crate) const PROCESS_CREATE_WALL_NS: u64 = 250_000_000;
+
+pub(crate) fn process_create_wall_allowed(wall_ns: u64) -> bool {
+    wall_ns <= PROCESS_CREATE_WALL_NS
+}
+
+/// Invocation-local sum/count of known process_create wall excess over25ms.
+/// Observation precedes admission: a refused251ms call still contributes its
+/// full226ms excess. Unknown or unrepresentable totals are sticky failures;
+/// the caller retains the original raw wall and must not certify this prefix.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ProcessCreateWallExcess {
+    pub(crate) process_create_wall_excess_ns: u64,
+    pub(crate) process_create_wall_excess_count: u64,
+    pub(crate) known: bool,
+}
+impl Default for ProcessCreateWallExcess {
+    fn default() -> Self {
+        Self {
+            process_create_wall_excess_ns: 0,
+            process_create_wall_excess_count: 0,
+            known: true,
+        }
+    }
+}
+impl ProcessCreateWallExcess {
+    pub(crate) fn record(&mut self, wall_ns: u64) -> Result<(), ()> {
+        if !self.known || wall_ns == u64::MAX {
+            self.known = false;
+            return Err(());
+        }
+        let excess = wall_ns.saturating_sub(NATIVE_WALL_NS);
+        if excess == 0 {
+            return Ok(());
+        }
+        match (
+            self.process_create_wall_excess_ns.checked_add(excess),
+            self.process_create_wall_excess_count.checked_add(1),
+        ) {
+            (Some(ns), Some(count)) => {
+                self.process_create_wall_excess_ns = ns;
+                self.process_create_wall_excess_count = count;
+                Ok(())
+            }
+            _ => {
+                self.known = false;
+                Err(())
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod process_create_wall_tests {
+    use super::*;
+
+    #[test]
+    fn prepared_spawn_wall_limit_and_full_excess_are_independent() {
+        let mut metrics = ProcessCreateWallExcess::default();
+        for (wall, allowed) in [
+            (25_000_000, true),
+            (34_000_000, true),
+            (250_000_000, true),
+            (251_000_000, false),
+        ] {
+            metrics.record(wall).unwrap();
+            assert_eq!(process_create_wall_allowed(wall), allowed);
+        }
+        assert_eq!(metrics.process_create_wall_excess_ns, 460_000_000);
+        assert_eq!(metrics.process_create_wall_excess_count, 3);
+        assert!(metrics.known);
+        assert!(!process_create_wall_allowed(u64::MAX));
+    }
+
+    #[test]
+    fn existing_thread_and_publish_native_classes_still_refuse_34ms() {
+        for kind in [NativeKind::ComputeOwnerCreate, NativeKind::PublishNoreplace] {
+            let accounting = Accounting::new();
+            let start = Instant::now();
+            let mut clocks = [start, start + Duration::from_millis(34)].into_iter();
+            let out = native_call_clock(
+                &accounting,
+                kind,
+                || 7,
+                |_| false,
+                || 0,
+                || clocks.next().unwrap(),
+            )
+            .unwrap();
+            assert_eq!(out.value, 7);
+            assert!(matches!(out.verdict, Err(w::Code::ResourceLimit)));
+            assert_eq!(
+                accounting.native[kind as usize]
+                    .max_wall
+                    .load(Ordering::Acquire),
+                34_000_000
+            );
+        }
+    }
+
+    #[test]
+    fn excess_unknown_and_overflow_cannot_be_finite_complete_totals() {
+        let mut unknown = ProcessCreateWallExcess::default();
+        unknown.record(34_000_000).unwrap();
+        assert!(unknown.record(u64::MAX).is_err());
+        assert!(!unknown.known);
+        assert_eq!(unknown.process_create_wall_excess_ns, 9_000_000);
+        assert_eq!(unknown.process_create_wall_excess_count, 1);
+        assert!(unknown.record(34_000_000).is_err());
+
+        let mut overflow = ProcessCreateWallExcess {
+            process_create_wall_excess_ns: u64::MAX - 5,
+            process_create_wall_excess_count: 1,
+            known: true,
+        };
+        assert!(overflow.record(25_000_006).is_err());
+        assert!(!overflow.known);
+        assert_eq!(overflow.process_create_wall_excess_ns, u64::MAX - 5);
+        assert_eq!(overflow.process_create_wall_excess_count, 1);
+    }
+}
 const SPAN_NS: u64 = UNIT_NS + NATIVE_CPU_NS;
 #[derive(Clone, Copy)]
 enum NativeKind {
@@ -2827,8 +2950,9 @@ impl Budget {
         Ok((cpu, wall))
     }
     /// Record one already closed ordinary or purpose-admitted prepared-helper
-    /// span. The helper caller independently validates exact native2ms/25ms;
-    /// the inspect-c1 NativeKind array and its admission remain unchanged.
+    /// span. The helper caller independently validates native2msCPU/250ms wall
+    /// for prepared process_create under66331; other native wall gates stay25ms.
+    /// The inspect-c1 NativeKind array and its admission remain unchanged.
     pub(crate) fn read_charge(
         &mut self,
         cpu: u64,
