@@ -96,25 +96,42 @@ struct image {
     uint64_t thread_user_raw,thread_system_raw;
     char path[PROC_PIDPATHINFO_MAXSIZE];
 };
+#ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
+static pid_t source_known_taskall_pid;
+static int source_known_taskall_error,source_known_taskall_clock_failure;
+static int source_known_taskall_native_result,source_known_taskall_native_errno;
+#endif
 static int control_observe(pid_t pid,struct image *out) {
     struct proc_taskallinfo all;
     memset(out, 0, sizeof(*out));
-    int result=proc_pidinfo(pid,PROC_PIDTASKALLINFO,0,&all,sizeof(all));
-    if(result!=(int)sizeof(all)){fprintf(stderr,"observe_failed op=taskall pid=%d result=%d errno=%d\n",pid,result,errno);return 0;}
-    if(!known_clock_ns(CLOCK_MONOTONIC,&out->observed_at))return 0;
+    errno=0;int result=proc_pidinfo(pid,PROC_PIDTASKALLINFO,0,&all,sizeof(all));int read_error=errno;
+#ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
+    if(pid==source_known_taskall_pid&&(source_known_taskall_error||source_known_taskall_clock_failure)) {
+        source_known_taskall_native_result=result;source_known_taskall_native_errno=read_error;
+        if(source_known_taskall_error){result=0;read_error=source_known_taskall_error;source_known_taskall_error=0;}
+    }
+#endif
+    if(result!=(int)sizeof(all)){fprintf(stderr,"observe_failed op=taskall pid=%d result=%d errno=%d\n",pid,result,read_error);errno=read_error;return 0;}
+    // errno is meaningless after a successful native read. Later semantic or
+    // clock failures must never inherit an old ESRCH and trigger exit recovery.
+    errno=0;int clock_known=known_clock_ns(CLOCK_MONOTONIC,&out->observed_at);
+#ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
+    if(pid==source_known_taskall_pid&&source_known_taskall_clock_failure){source_known_taskall_clock_failure=0;clock_known=0;errno=ESRCH;}
+#endif
+    if(!clock_known){errno=EIO;return 0;}
     struct proc_bsdinfo b=all.pbsd;struct proc_taskinfo t=all.ptinfo;
     out->pid = pid; out->ppid = b.pbi_ppid; out->pgid = b.pbi_pgid;
     out->uid=b.pbi_uid;out->nice=b.pbi_nice;out->priority=t.pti_priority;
     out->birth = (uint64_t)b.pbi_start_tvsec * 1000000ULL + b.pbi_start_tvusec;
     out->status = b.pbi_status;
     out->flags=b.pbi_flags;
-    if(UINT64_MAX-t.pti_total_user<t.pti_total_system)return 0;
+    if(UINT64_MAX-t.pti_total_user<t.pti_total_system){errno=EOVERFLOW;return 0;}
     out->raw_cpu=t.pti_total_user+t.pti_total_system;
-    if(!known_absolute_ns(out->raw_cpu,&out->cpu)||!known_absolute_ns(t.pti_total_user,&out->user)||!known_absolute_ns(t.pti_total_system,&out->system))return 0;
+    if(!known_absolute_ns(out->raw_cpu,&out->cpu)||!known_absolute_ns(t.pti_total_user,&out->user)||!known_absolute_ns(t.pti_total_system,&out->system)){errno=EIO;return 0;}
     out->threads=t.pti_threadnum;out->runnable=t.pti_numrunning;
     out->thread_state=-1;
     out->rss=t.pti_resident_size;
-    return out->birth>0&&out->pgid>0;
+    if(!out->birth||out->pgid<=0){errno=EIO;return 0;}errno=0;return 1;
 }
 static int observe(pid_t pid, struct image *out) {
     struct rusage_info_v1 usage;
@@ -2602,10 +2619,49 @@ static int engine_member_terminal(struct engine_owner *owner,unsigned i) {
     }
     m->phase=ENGINE_EXITED;m->terminal_observed_ns=observed;if(!i)owner->child_rollup_read_ns=observed;return 1;
 }
+static int engine_sample_owned_member(const struct engine_owner *owner,unsigned i,pid_t pid) {
+    if(i>=2||!owner->direct_custody||owner->direct_reaped||owner->wait_observed||owner->ticket.pid<=0
+        ||!owner->ticket.birth||!owner->ticket.start)return 0;
+    const struct engine_member *m=&owner->members[i];
+    if(pid<=0||m->state.pid!=pid||!m->state.birth||!m->state.start_absolute||!m->token_known)return 0;
+    if(!i&&(owner->ticket.pid!=pid||owner->ticket.birth!=m->state.birth||owner->ticket.start!=m->state.start_absolute))return 0;
+    if(i&&(owner->slots!=2||owner->ticket.pid==pid))return 0;
+    unsigned matches=0;
+    for(unsigned j=0;j<owner->retired_count;j++) {
+        const struct engine_incarnation *r=&owner->retired[j];
+        if(r->current&&r->pid==pid&&r->birth==m->state.birth&&r->start==m->state.start_absolute
+            &&!memcmp(&r->token,&m->token,sizeof(m->token)))matches++;
+    }
+    return matches==1;
+}
+#ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
+static void (*source_known_before_live_read)(struct engine_owner *,unsigned,pid_t,unsigned);
+static unsigned source_known_live_rechecks;
+static int source_known_live_read_error;
+#endif
+static int engine_sample_terminal_after_error(struct engine_owner *owner,unsigned i,pid_t pid,int read_error) {
+#ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
+    source_known_live_read_error=read_error;
+#endif
+    if(read_error==ESRCH&&engine_sample_owned_member(owner,i,pid)) {
+#ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
+        source_known_live_rechecks++;
+#endif
+        if(engine_member_terminal(owner,i))return 1;
+    }
+    return 0;
+}
 static int engine_sample_member(struct engine_owner *owner,unsigned i,pid_t pid) {
     struct engine_member *m=&owner->members[i];struct image current;
     if(m->token_known&&engine_member_terminal(owner,i))return 1;
-    if(!control_observe(pid,&current))return engine_failure(owner,"coverage_unknown","live helper observation unavailable");
+#ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
+    if(source_known_before_live_read)source_known_before_live_read(owner,i,pid,1);
+#endif
+    if(!control_observe(pid,&current)) {
+        int read_error=errno;
+        if(engine_sample_terminal_after_error(owner,i,pid,read_error))return 1;
+        errno=read_error;return engine_failure(owner,"coverage_unknown","live helper observation unavailable");
+    }
     if(current.pid!=pid||current.pgid!=owner->ticket.pgid||current.ppid!=(i?owner->ticket.pid:getpid())||current.uid!=geteuid()
         ||(m->state.birth&&current.birth!=m->state.birth)||current.threads!=1||current.runnable>1)
         return engine_failure(owner,"coverage_unknown","helper lineage birth group or single-thread predicate differs");
@@ -2628,7 +2684,15 @@ static int engine_sample_member(struct engine_owner *owner,unsigned i,pid_t pid)
     if(!engine_usage(owner,i,&u))return 0;
     if(!i)owner->child_rollup_read_ns=owner->ri_end_ns[i];
     struct image closing;
-    if(!control_observe(pid,&closing)||closing.birth!=current.birth||closing.ppid!=current.ppid||closing.pgid!=current.pgid||closing.uid!=current.uid||closing.threads!=1||closing.runnable>1)return engine_failure(owner,"coverage_unknown","post-RI member identity continuity unavailable");
+#ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
+    if(source_known_before_live_read)source_known_before_live_read(owner,i,pid,2);
+#endif
+    if(!control_observe(pid,&closing)) {
+        int read_error=errno;
+        if(engine_sample_terminal_after_error(owner,i,pid,read_error))return 1;
+        errno=read_error;return engine_failure(owner,"coverage_unknown","post-RI member identity continuity unavailable");
+    }
+    if(closing.birth!=current.birth||closing.ppid!=current.ppid||closing.pgid!=current.pgid||closing.uid!=current.uid||closing.threads!=1||closing.runnable>1)return engine_failure(owner,"coverage_unknown","post-RI member identity continuity unavailable");
     if(!engine_priority(owner,i,&closing))return 0;
     m->state.status=closing.status;m->state.runnable=closing.runnable;m->state.rss=closing.rss;
     if((owner->pause_ack_mask&(1u<<i))&&!owner->pause_resume_admitted&&(closing.status!=SSTOP||closing.runnable!=0)) {

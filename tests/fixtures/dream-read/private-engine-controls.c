@@ -30,6 +30,8 @@ static void fixture_reset_cost(void) {
     private_cost.open_cpu=clock_ns(CLOCK_THREAD_CPUTIME_ID);engine_cancel_signal=engine_owner_loss_signal=0;
     source_known_payment_interrupts=source_known_payment_fail_nth=source_known_schedule_interrupts=source_known_schedule_fail_nth=0;
     source_known_tail_over_cpu=source_known_final_kill_eperm=source_known_terminal_rss_unavailable=0;
+    source_known_taskall_pid=0;source_known_taskall_error=source_known_taskall_clock_failure=0;
+    source_known_taskall_native_result=source_known_taskall_native_errno=0;source_known_before_live_read=NULL;source_known_live_rechecks=0;source_known_live_read_error=0;
     source_known_process_create_case=0;source_known_flow_stage=source_known_flow_failure_stage=0;memset(&source_known_flow_failure_cost,0,sizeof(source_known_flow_failure_cost));
 }
 static void fixture_cleanup(void) {
@@ -821,10 +823,11 @@ static int fixture_total_argument(unsigned mode,const char *root,char argument[4
     int n;release[0]=0;
     if(mode==9||mode==10)n=snprintf(argument,4097,"%s/pause-%u-start",root,mode);
     else if(mode==2||mode==6)n=snprintf(argument,4097,"%s/%s-%u",root,mode==2?"rollup":"release",mode);
+    else if(mode>=16&&mode<=22)n=snprintf(argument,4097,"%s/live-race-%u",root,mode);
     else n=snprintf(argument,4097,"%llu",(unsigned long long)(mode==1?260000000:mode==3?500000000:mode==5?500000000:3000000));
     if(n<=0||n>=4097)return 0;
     if(mode==2)n=snprintf(release,4097,"%s-release",argument);
-    else if(mode==6)n=snprintf(release,4097,"%s",argument);
+    else if(mode==6||(mode>=16&&mode<=22))n=snprintf(release,4097,"%s",argument);
     else return 1;
     return n>0&&n<4097;
 }
@@ -837,7 +840,7 @@ static int total_spawn(struct engine_owner *o,struct private_engine_result *r,co
     char ledger[48];snprintf(ledger,sizeof(ledger),"total-%u.ndjson",mode);o->ledger=openat(dir,ledger,O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,0600);require(o->ledger>=0,"owned total-budget fixture ledger");
     struct engine_prepared p;memset(&p,0,sizeof(p));for(unsigned i=0;i<2;i++)p.input[i]=p.output[i]=p.errors[i]=-1;
     strcpy(p.image,self);strcpy(p.descendant,self);strcpy(p.cwd,root);strcpy(o->image,self);strcpy(o->descendant,self);
-    const char *kind=mode==2?"rollup-child":mode==6?"held-child":mode==7?"exit-child":mode==8?"rss-child":mode==12?"long-wall-cpu-child":(mode==9||mode==10)?"pause-bypass-child":"burn-child";
+    const char *kind=mode==2?"rollup-child":(mode==6||(mode>=16&&mode<=22))?"held-child":mode==7?"exit-child":mode==8?"rss-child":mode==12?"long-wall-cpu-child":(mode==9||mode==10)?"pause-bypass-child":"burn-child";
     char argument[4097];require(fixture_total_argument(mode,root,argument,fixture_release_path),"bounded fixture argument and exact original release path");
     require(engine_put(&p,self,&p.argv[p.argc++])&&engine_put(&p,kind,&p.argv[p.argc++])&&engine_put(&p,argument,&p.argv[p.argc++]),"bounded source-known helper argv");
     if(mode==9||mode==10){char path[4097];snprintf(path,sizeof(path),"%s/pause-%u-done",root,mode);require(engine_put(&p,path,&p.argv[p.argc++]),"bounded actual pause done marker");snprintf(path,sizeof(path),"%s/pause-%u-release",root,mode);require(engine_put(&p,path,&p.argv[p.argc++]),"bounded actual pause release marker");strcpy(fixture_release_path,path);}
@@ -1063,6 +1066,87 @@ static void helper_cpu_debt_control(const char *self,const char *root,int dir) {
     require(private_end_unit(private_cost.open_cpu),"long-wall fixture original disposal cost paid");controls++;reset();
 }
 
+static unsigned live_race_mode,live_race_hook_calls,live_race_gate_released;
+static uint64_t live_race_terminal_start,live_race_terminal_exit;
+static void live_race_before_read(struct engine_owner *o,unsigned i,pid_t pid,unsigned site) {
+    if(site!=(live_race_mode==6?2u:1u))return;
+    source_known_before_live_read=NULL;live_race_hook_calls++;
+    require(i==0&&pid==o->ticket.pid&&o->direct_custody&&!o->direct_reaped,"race fixture targets only its original unreaped direct member");
+    source_known_taskall_pid=pid;
+    if(live_race_mode==4){source_known_taskall_clock_failure=1;return;}
+    if(live_race_mode==5){source_known_taskall_error=ESRCH;return;}
+    int fd=open(fixture_release_path,O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,0600);
+    require(fd>=0&&close(fd)==0,"race fixture releases only the original held child's gate after precheck");live_race_gate_released=1;
+    await_original(o);
+    struct rusage_info_v1 u;memset(&u,0,sizeof(u));
+    require(proc_pid_rusage(pid,RUSAGE_INFO_V1,(rusage_info_t *)&u)==0
+        &&u.ri_proc_start_abstime==o->ticket.start&&u.ri_proc_exit_abstime,
+        "race fixture independently observes exact original terminal RI before injected TASKALLINFO error");
+    live_race_terminal_start=u.ri_proc_start_abstime;live_race_terminal_exit=u.ri_proc_exit_abstime;
+    if(live_race_mode==1)o->members[0].state.birth++;
+    if(live_race_mode==2)o->members[0].token.val[7]^=1;
+    require(engine_checkpoint(o),"race fixture exit and supplied identity mutation CPU fully paid");
+    source_known_taskall_error=live_race_mode==3?EIO:ESRCH;
+}
+static int live_sample_race_control(const char *self,const char *root,int dir,unsigned mode) {
+    require(mode<7,"seven first and closing live-sample race cases");
+    struct engine_owner owner;struct private_engine_result result;int status=-1;
+    int born=total_spawn(&owner,&result,self,dir,16+mode,root);
+    if(!born){(void)engine_retire(&owner,&status);require(0,"live race fixture requires actual unchanged native and background admission");}
+    require(engine_sample_owned_member(&owner,0,owner.ticket.pid),"race fixture starts with exact current retained PID birth start and full token");
+    struct engine_member original=owner.members[0];
+    owner.members[0].token.val[0]^=1;
+    require(!engine_sample_owned_member(&owner,0,owner.ticket.pid),"race recovery full-token premise refuses changes outside PID version");owner.members[0]=original;
+    owner.direct_reaped=1;require(!engine_sample_owned_member(&owner,0,owner.ticket.pid),"race recovery never rechecks a reaped original PID");owner.direct_reaped=0;
+    require(engine_checkpoint(&owner),"race fixture original identity premise checks fully paid");
+    live_race_mode=mode;live_race_hook_calls=live_race_gate_released=0;live_race_terminal_start=live_race_terminal_exit=0;
+    source_known_before_live_read=live_race_before_read;
+    int sampled=engine_sample_member(&owner,0,owner.ticket.pid);
+    int read_error=source_known_live_read_error,native_result=source_known_taskall_native_result,native_error=source_known_taskall_native_errno;
+    unsigned rechecks=source_known_live_rechecks;
+    source_known_before_live_read=NULL;source_known_taskall_pid=0;source_known_taskall_error=source_known_taskall_clock_failure=0;
+    // Only supplied fixture identities are restored; original custody pins and
+    // kernel identities never changed. Settlement uses the original owner.
+    if(mode==1||mode==2)owner.members[0]=original;
+    if(!live_race_gate_released) {
+        int fd=open(fixture_release_path,O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,0600);
+        require(fd>=0&&close(fd)==0,"unreleased race fixture opens only its original held gate before cleanup");live_race_gate_released=1;
+        await_original(&owner);
+    }
+    (void)engine_retire(&owner,&status);
+    int settled=owner.direct_reaped&&owner.wait_observed&&result.group_gone&&result.retired_coverage&&!engine_current;
+    if(settled)fixture_live_owner=NULL;
+    require(settled&&owner.native.cpu_known&&owner.native.wall_known&&owner.native.cpu<=2000000&&owner.native.wall<=250000000
+        &&result.inclusive_max_ns.known&&result.inclusive_max_ns.value<=3000000&&private_cost.ordinary_max<=1000000
+        &&owner.helper_cost_retained&&owner.helper_cost_paid&&private_cost.debt==private_cost.debt_paid,
+        "live race fixture preserves actual native unit CPU debt ownwait4 and group settlement prerequisites");
+    printf("private_live_sample_race_axis_source_known mode=%u original_pid=%d hook_calls=%u sampled=%d applied_read_error=%d terminal_rechecks=%u native_TASKALLINFO_result=%d native_TASKALLINFO_errno=%d terminal_start=%llu terminal_exit=%llu actual_own_wait4=%u group_gone=%u actual_CPU_ns=%llu debt_ns=%llu paid_ns=%llu read_error_or_clock_fault_injected=true real_candidate_created=0 runtime_approved=false\n",
+        mode,owner.ticket.pid,live_race_hook_calls,sampled,read_error,rechecks,native_result,native_error,
+        (unsigned long long)live_race_terminal_start,(unsigned long long)live_race_terminal_exit,owner.direct_reaped,result.group_gone,
+        (unsigned long long)owner.terminal_cpu_ns,(unsigned long long)private_cost.debt,(unsigned long long)private_cost.debt_paid);
+    require(fflush(stdout)==0&&private_end_unit(private_cost.open_cpu),"live race raw outcome and actual native distinction fully paid");
+    require(live_race_hook_calls==1,"live race fixture injects strictly after the first terminal precheck");
+    if(!mode)require(sampled&&read_error==ESRCH&&rechecks==1&&live_race_terminal_start==owner.ticket.start
+        &&live_race_terminal_exit&&!owner.failed&&!private_failed,
+        "ESRCH after injected original exit rechecks qualified terminal proof and settles successfully");
+    else if(mode==6)require(sampled&&read_error==ESRCH&&rechecks==1&&live_race_terminal_start==owner.ticket.start
+        &&live_race_terminal_exit&&!owner.failed&&!private_failed,
+        "closing TASKALLINFO ESRCH reuses the same qualified original terminal rescue");
+    else if(mode==1||mode==2)require(!sampled&&read_error==ESRCH&&!rechecks&&private_errors[2].count,
+        "ESRCH with supplied foreign birth or full token mismatch remains coverage unknown");
+    else if(mode==3)require(!sampled&&read_error==EIO&&!rechecks&&private_errors[2].count,
+        "nonESRCH read failure never uses otherwise available terminal proof");
+    else if(mode==4)require(!sampled&&read_error==EIO&&!rechecks&&private_errors[2].count&&native_result==(int)sizeof(struct proc_taskallinfo),
+        "successful TASKALLINFO then clock failure cannot reuse stale ESRCH for recovery");
+    else require(!sampled&&read_error==ESRCH&&rechecks==1&&!live_race_terminal_exit&&private_errors[2].count,
+        "ESRCH while exact original remains live never substitutes errno for terminal proof");
+    engine_close_transferred(&owner);require(close(owner.ledger)==0,"race fixture original ledger close");free(owner.capture);
+    require(private_end_unit(private_cost.open_cpu),"race fixture exact original disposal fully paid");controls++;
+    printf("private_live_sample_race_completed_source_known mode=%u actual_own_wait4=1 group_gone=1 expected_exit=%u terminal_fields_changed=false runtime_approved=false\n",mode,(mode&&mode!=6)?81:0);
+    require(fflush(stdout)==0&&private_end_unit(private_cost.open_cpu),"race completion evidence fully paid");
+    return mode&&mode!=6?81:0;
+}
+
 static void process_create_policy_api(void) {
     reset();
     require(native_budget_allowed(NATIVE_PROCESS_CREATE,500000,34000000,600000,100000)
@@ -1189,7 +1273,8 @@ int main(int argc,char **argv) {
     unsigned expand=argc==2&&!strcmp(argv[1],"argv-expansion-controls");
     unsigned native_api=argc==2&&!strcmp(argv[1],"process-create-policy-api");
     unsigned native_case=argc==3&&!strcmp(argv[1],"process-create-wall-control")?(unsigned)strtoul(argv[2],NULL,10):3;
-    require(argc==1||selected<12||diagnostics||setup||deadline||cpu_debt||expand||native_api||native_case<3||hold||flow||result_only||charge||boundary||retained,"private source-known controls argc");
+    unsigned race_case=argc==3&&!strcmp(argv[1],"live-sample-race-control")?(unsigned)strtoul(argv[2],NULL,10):7;
+    require(argc==1||selected<12||diagnostics||setup||deadline||cpu_debt||expand||native_api||native_case<3||race_case<7||hold||flow||result_only||charge||boundary||retained,"private source-known controls argc");
     require(atexit(dispose_owned)==0,"owned cleanup registration");
     char root[]="/private/tmp/dream-private-engine-controls.XXXXXX";require(mkdtemp(root)!=NULL,"owned fixture directory");
     int dir=open(root,O_RDONLY|O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC);require(dir>=0,"owned fixture root");
@@ -1220,6 +1305,7 @@ int main(int argc,char **argv) {
     if(retained){total_retained_guard_api();require(close(dir)==0,"owned retained guard API root close");return 0;}
     if(selected<12){total_control(self,root,dir,selected);require(close(dir)==0,"owned narrow fixture root close");return 0;}
     if(diagnostics){terminal_diagnostic_controls(dir);require(close(dir)==0,"owned diagnostic root close");return 0;}
+    if(race_case<7){int code=live_sample_race_control(self,root,dir,race_case);require(close(dir)==0,"owned live race root close");return code;}
     if(native_api){process_create_policy_api();require(close(dir)==0,"owned native policy API root close");return 0;}
     if(native_case<3){int code=process_create_wall_control(self,root,dir,native_case);require(close(dir)==0,"owned native policy process root close");return code;}
     if(expand){argv_expansion_controls(dir);require(close(dir)==0,"owned argv expansion root close");return 0;}
@@ -1231,6 +1317,7 @@ int main(int argc,char **argv) {
     helper_cpu_debt_control(self,root,dir);
     process_create_policy_api();
     for(unsigned mode=0;mode<3;mode++)(void)process_create_wall_control(self,root,dir,mode);
+    for(unsigned mode=0;mode<7;mode++)(void)live_sample_race_control(self,root,dir,mode);
     total_boundary_api();
     total_retained_guard_api();
     quarantine_hold_process_control(self,root,dir);

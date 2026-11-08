@@ -2147,3 +2147,8 @@ frontend = "project"
 name = "BrokenHarnessQ2HelperTotalBudgetBlockedExitDrain"
 expected = "liveness"
 frontend = "project"
+
+[[model]]
+name = "BrokenHarnessQ2HelperTotalBudgetMissingTerminalRecheck"
+expected = "safety"
+frontend = "project"

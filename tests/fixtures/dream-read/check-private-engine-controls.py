@@ -31,10 +31,15 @@ VALIDATED = (b'if(!engine_owner_priority()||!engine_pretest_current(context)'
 # is re-labelled as a current pass.
 LEDGERS = ('hold-ledger.ndjson', 'hold-control-success', 'claim.json', 'charge-diagnostic.ndjson',
            'admitted-descriptor', 'retained-descriptor', 'deadline-result/stdout', 'deadline-result/result.json',
-           *(f'total-{i}.ndjson' for i in range(16)), 'rollup-2', 'rollup-2-terminal', 'rollup-2-release', 'release-6',
+           *(f'total-{i}.ndjson' for i in range(23)), *(f'live-race-{i}' for i in range(16,23)), 'rollup-2', 'rollup-2-terminal', 'rollup-2-release', 'release-6',
            *(f'pause-{i}-{phase}' for i in (9,10) for phase in ('start','done','release')),
            *('diagnostic-' + str(i) + '/' + name for i in range(4) for name in ('stderr', 'stdout', 'result.json')))
 ASSERTIONS = {
+ 'live-sample-closing-no-rescue': b'closing TASKALLINFO ESRCH reuses the same qualified original terminal rescue',
+ 'live-sample-errno-as-exit': b'ESRCH while exact original remains live never substitutes errno for terminal proof',
+ 'live-sample-no-recheck': b'ESRCH after injected original exit rechecks qualified terminal proof and settles successfully',
+ 'live-sample-ignore-owned-row': b'ESRCH with supplied foreign birth or full token mismatch remains coverage unknown',
+ 'live-sample-any-error': b'nonESRCH read failure never uses otherwise available terminal proof',
  'process-create-old25': b'34ms process-create policy admits and records exact9ms excess on actual owned fixture',
  'process-create-ignore-cpu': b'process-create CPU above2ms refuses without CONT after actual owned settlement',
  'argv-unknown-brace-accepted': b'unregistered or malformed brace syntax refuses instead of copying unknown literals',
@@ -275,6 +280,15 @@ def variants(source):
     result = {}
     def add(name, anchor, replacement, args):
         result[name] = (changed(source, anchor, replacement), args)
+    add('live-sample-closing-no-rescue', b'if(!control_observe(pid,&closing)) {\n        int read_error=errno;\n        if(engine_sample_terminal_after_error(owner,i,pid,read_error))return 1;',
+        b'if(!control_observe(pid,&closing)) {\n        int read_error=errno;\n        if(0&&engine_sample_terminal_after_error(owner,i,pid,read_error))return 1;', ['live-sample-race-control', '6'])
+    add('live-sample-errno-as-exit', b'if(engine_member_terminal(owner,i))return 1;', b'return 1;', ['live-sample-race-control', '5'])
+    add('live-sample-no-recheck', b'if(read_error==ESRCH&&engine_sample_owned_member(owner,i,pid))',
+        b'if(0&&read_error==ESRCH&&engine_sample_owned_member(owner,i,pid))', ['live-sample-race-control', '0'])
+    add('live-sample-ignore-owned-row', b'if(read_error==ESRCH&&engine_sample_owned_member(owner,i,pid))',
+        b'(void)pid;if(read_error==ESRCH)', ['live-sample-race-control', '2'])
+    add('live-sample-any-error', b'if(read_error==ESRCH&&engine_sample_owned_member(owner,i,pid))',
+        b'if(read_error!=0&&engine_sample_owned_member(owner,i,pid))', ['live-sample-race-control', '3'])
     add('process-create-old25', b'kind==NATIVE_PROCESS_CREATE?250000000:25000000',
         b'kind==NATIVE_PROCESS_CREATE?25000000:25000000', ['process-create-wall-control', '0'])
     add('process-create-ignore-cpu', b'return cpu<=2000000&&wall<=native_wall_limit(kind)&&inclusive<=3000000&&app<=1000000;',
@@ -349,9 +363,9 @@ def variants(source):
 
 
 def retain_current(stdout, report):
-    found=re.findall(rb'private_engine_controls=pass cases=72 total_budget_controls=8 synthetic_source_known=true real_candidate_created=0 runtime_approved=false retained=(/private/tmp/dream-private-engine-controls\.[A-Za-z0-9]+)\n',stdout)
+    found=re.findall(rb'private_engine_controls=pass cases=79 total_budget_controls=8 synthetic_source_known=true real_candidate_created=0 runtime_approved=false retained=(/private/tmp/dream-private-engine-controls\.[A-Za-z0-9]+)\n',stdout)
     if len(found)!=1:
-        raise ValueError('current fixture lacks exact72 remaining controls and eight total-budget witnesses')
+        raise ValueError('current fixture lacks exact79 remaining controls and eight total-budget witnesses')
     if os.fsdecode(found[0]) != report['commands'][-1]['fixture_capture']['source_dir']:
         raise ValueError('completed fixture root differs from original command binding')
     modes=re.findall(rb'private_total_budget_control_source_known mode=([0-9]+) original_pid=([0-9]+) actual_own_wait4=1 group_gone=1 terminal_cpu_ns=([0-9]+)',stdout)
@@ -381,7 +395,11 @@ def retain_current(stdout, report):
     if sorted((int(m),int(code)) for m,code in create_rows)!=[(0,0),(1,81),(2,81)]:
         raise ValueError('three actual owned-fixture creation policy projections lack completed original settlement')
     report['process_create_policy_controls']={'supplied_policy_inputs':True,'actual_OS_costs_separately_retained':True,'actual_owned_effects_and_settlement':True,'OS_34ms_or_251ms_timing_claimed':False,'positive_wall_ns':34000000,'positive_excess_ns':9000000,'refused_wall_ns':251000000,'refused_excess_ns':226000000,'cpu_above_2ms_refused':True,'other_native_wall_ns':25000000,'inclusive_ns':3000000}
-    report['baseline_cases']=72
+    race_rows=re.findall(rb'private_live_sample_race_completed_source_known mode=([0-6]) actual_own_wait4=1 group_gone=1 expected_exit=([0-9]+) terminal_fields_changed=false',stdout)
+    if sorted((int(m),int(code)) for m,code in race_rows)!=[(0,0),(1,81),(2,81),(3,81),(4,81),(5,81),(6,0)]:
+        raise ValueError('first-read ESRCH race cases lack complete original ownwait4 and group settlement')
+    report['live_read_race_controls']={'modes':{'0':'actual gated original exits after first precheck; supplied readESRCH; qualified terminal recheck','1':'supplied foreign birth still coverage_unknown','2':'supplied mismatched full audit token still coverage_unknown','3':'nonESRCH EIO never retries despite actual terminal proof','4':'successful TASKALLINFO then injected clock failure sanitizes staleESRCH','5':'ESRCH on still-live exact original requires actual terminal proof and refuses','6':'actual exit injected at closing TASKALLINFO uses same rescue'},'actual_original_wait4_and_groupgone':True,'actual_OS_read_result_and_applied_fault_separate':True,'rescue_sites':['first TASKALLINFO','closing TASKALLINFO'],'successful_closing_lineage_and_QoS_checks':'unchanged','terminal_fields_changed':False,'real_candidate_created':0}
+    report['baseline_cases']=79
     marker=b'private_total_retained_guard_source_known api=true supplied_clock_and_identity_values=true native_process=false runtime_approved=false\n'
     if stdout.count(marker)!=1:
         raise ValueError('current retained-clock/child production API witness missing or duplicated')
@@ -417,6 +435,18 @@ def verify(directory, inputs, report, total_only=False):
             marker=(f'private_process_create_completed_source_known mode={mode} actual_own_wait4=1 group_gone=1 policy_inputs_projected=true expected_exit=81').encode()
             if marker not in stdout or b'probe refused:' in stderr:
                 raise ValueError('native policy refusal did not finish the intended causal assertion and actual owner cleanup')
+    if not total_only:
+        for mode in (1,2,3,4,5):
+            code,stdout,stderr=run([str(program),'live-sample-race-control',str(mode)],current,'live-sample-refusal-'+str(mode),report,fixture=True)
+            expect(code,81,'owned first-read live-sample refusal '+str(mode))
+            marker=(f'private_live_sample_race_completed_source_known mode={mode} actual_own_wait4=1 group_gone=1 expected_exit=81 terminal_fields_changed=false').encode()
+            if marker not in stdout or b'probe refused:' in stderr:
+                raise ValueError('live-sample refusal lacks its intended assertion and original owner cleanup')
+    if not total_only:
+        code,stdout,stderr=run([str(program),'live-sample-race-control','6'],current,'live-sample-closing-positive',report,fixture=True)
+        expect(code,0,'owned closing TASKALLINFO terminal rescue')
+        if b'private_live_sample_race_completed_source_known mode=6 actual_own_wait4=1 group_gone=1 expected_exit=0' not in stdout:
+            raise ValueError('closing sample rescue lacks its actual original owner completion')
     all_variants=variants(source)
     selected={k:v for k,v in all_variants.items() if not total_only or k.startswith('total-')}
     for name,(changed_source,args) in selected.items():

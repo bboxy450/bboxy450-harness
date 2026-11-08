@@ -2807,6 +2807,17 @@ fn total_budget_observer(control: u8, full_observer: bool, boundary: bool) -> Mo
     const END_EOF_READY: usize = 79;
     const END_OWN_DEBT: usize = 80;
     const INPUT_REMAINING: usize = 81;
+    const LS_CASE: usize = 82;
+    const LS_PHASE: usize = 83;
+    const LS_ERR: usize = 84; //0 none,1 TASKALLINFO ESRCH,2 other failure
+    const LS_OWNED: usize = 85;
+    const LS_UNREAPED: usize = 86;
+    const LS_BIRTH: usize = 87;
+    const LS_TOKEN: usize = 88;
+    const LS_TERMINAL: usize = 89; //0 live,1 originalSZOMB,2 retainedRIexit,3 unknown
+    const LS_CHECKED: usize = 90;
+    const LS_PROOF: usize = 91;
+    const LS_RESULT: usize = 92; //0 pending,1 existing terminal path,2 coverage refusal
 
     let suffix = [
         "",
@@ -2828,6 +2839,7 @@ fn total_budget_observer(control: u8, full_observer: bool, boundary: bool) -> Mo
         "UnknownCpuRelease",
         "UnknownRssTrust",
         "BlockedExitDrain",
+        "MissingTerminalRecheck",
     ][control as usize];
     let mut m = base(
         "Q2HelperTotalBudget",
@@ -2931,6 +2943,21 @@ fn total_budget_observer(control: u8, full_observer: bool, boundary: bool) -> Mo
             ("terminalOutputEofAvailable", 1, 0),
             ("ownAccountingDrainFreshRestRemaining", 9, 0),
             ("terminalPreparedInputIncomplete", 1, 0),
+            ("liveSampleRaceSuppliedCase", 9, 0),
+            (
+                "liveSampleRaceSelectedPrecheckedFailedRecheckedResolved",
+                4,
+                0,
+            ),
+            ("liveSampleRaceRawTaskallErrnoNoneEsrchOther", 2, 0),
+            ("liveSampleOriginalOwned", 1, 0),
+            ("liveSampleOriginalUnreaped", 1, 0),
+            ("liveSampleBirthStillMatchesOriginal", 1, 0),
+            ("liveSampleRetainedTokenProofMatchesOriginal", 1, 0),
+            ("liveSampleTerminalLiveOriginalZombieRiExitUnknown", 3, 0),
+            ("liveSampleTerminalRecheckPerformed", 1, 0),
+            ("liveSampleExistingTerminalProofValid", 1, 0),
+            ("liveSampleDispositionPendingTerminalCoverageRefused", 2, 0),
         ],
     );
     m.name = format!(
@@ -4567,6 +4594,136 @@ fn total_budget_observer(control: u8, full_observer: bool, boundary: bool) -> Mo
         eq(SETTLED, 1).or(all([eq(H, 6), eq(OWNER, 1)])),
         controller,
     );
+    // Task66347 is a disjoint projection of one existing sample call, not
+    // an extra helper lifecycle or source of CPU/exit/reap/qualification credit.
+    // The old genuine-unavailable-counter trajectory7 remains strict refusal.
+    for action in &mut m.actions {
+        action.guard = eq(LS_CASE, 0).and(action.guard.clone());
+    }
+    let same_original_terminal = all([
+        eq(LS_ERR, 1),
+        eq(LS_OWNED, 1),
+        eq(LS_UNREAPED, 1),
+        eq(LS_BIRTH, 1),
+        eq(LS_TOKEN, 1),
+        eq(LS_TERMINAL, 1).or(eq(LS_TERMINAL, 2)),
+    ]);
+    // LS_OWNED includes original leader custody plus exact member PID/start
+    // and exactly one CURRENT retained incarnation row; UNREAPED is separate.
+    // Terminal kinds are the existing RIexit/tokenGone/BSD-if-present proof
+    // outcomes, never raw errno-as-exit. The SAME predicate covers either failed
+    // TASKALLINFO call (first or post-RI closing). Successful closing identity/
+    // QoS checks remain strict; RI and all other native APIs gain no retry.
+    // Correlated supplied native outcomes include adversarial identity inputs;
+    // they do not assert that foreign birth while an original PID is pinned is
+    // a possible kernel success. Both valid existing terminal proof kinds and
+    // every failed premise must receive the correct function disposition.
+    let sample_cases = [
+        (1, 1, 1, 1, 1, 1), //ESRCH then same original SZOMB
+        (1, 1, 1, 1, 1, 0), //ESRCH but original still live
+        (1, 1, 1, 0, 1, 1), //foreign birth
+        (1, 1, 1, 1, 0, 1), //wrong retained token
+        (2, 1, 1, 1, 1, 1), //nonESRCH never recovers from terminal facts
+        (1, 0, 1, 1, 1, 1), //unowned
+        (1, 1, 0, 1, 1, 1), //already reaped
+        (1, 1, 1, 1, 1, 2), //existing retained rusage exit proof
+        (1, 1, 1, 1, 1, 3), //terminal observation unavailable
+    ];
+    for (index, &(error, owned, unreaped, birth, token, terminal)) in
+        sample_cases.iter().enumerate()
+    {
+        let case = index as i64 + 1;
+        act(
+            &mut m,
+            &format!("SelectOriginalLiveSampleRaceCase{case}"),
+            all([eq(H, 0), eq(TRAJECTORY, 0), eq(LS_CASE, 0)]),
+            &[
+                (LS_CASE, Int(case)),
+                (LS_OWNED, Int(owned)),
+                (LS_UNREAPED, Int(unreaped)),
+            ],
+        );
+        act(
+            &mut m,
+            &format!("ExistingTerminalPrecheckFindsLiveBeforeTaskall{case}"),
+            all([eq(LS_CASE, case), eq(LS_PHASE, 0)]),
+            &[(LS_PHASE, Int(1))],
+        );
+        act(
+            &mut m,
+            &format!("TaskallReadFailsAfterPrecheckCase{case}"),
+            all([eq(LS_CASE, case), eq(LS_PHASE, 1)]),
+            &[
+                (LS_PHASE, Int(2)),
+                (LS_ERR, Int(error)),
+                (LS_BIRTH, Int(birth)),
+                (LS_TOKEN, Int(token)),
+                (LS_TERMINAL, Int(terminal)),
+            ],
+        );
+    }
+    let eligible_recheck = all([eq(LS_ERR, 1), eq(LS_OWNED, 1), eq(LS_UNREAPED, 1)]);
+    if control == 19 {
+        act(
+            &mut m,
+            "BrokenEsrchRefusesBeforeExistingTerminalRecheck",
+            all([eq(LS_PHASE, 2), eligible_recheck.clone()]),
+            &[(LS_PHASE, Int(4)), (LS_RESULT, Int(2))],
+        );
+    } else {
+        for valid in [false, true] {
+            act(
+                &mut m,
+                &format!("FreshExistingSameOriginalTerminalRecheck{valid}"),
+                all([
+                    eq(LS_PHASE, 2),
+                    eligible_recheck.clone(),
+                    if valid {
+                        same_original_terminal.clone()
+                    } else {
+                        same_original_terminal.clone().negate()
+                    },
+                ]),
+                &[
+                    (LS_PHASE, Int(3)),
+                    (LS_CHECKED, Int(1)),
+                    (LS_PROOF, Int(i64::from(valid))),
+                ],
+            );
+            act(
+                &mut m,
+                &format!("ResolveSampleFromExistingTerminalProof{valid}"),
+                all([eq(LS_PHASE, 3), eq(LS_PROOF, i64::from(valid))]),
+                &[
+                    (LS_PHASE, Int(4)),
+                    (LS_RESULT, Int(if valid { 1 } else { 2 })),
+                ],
+            );
+        }
+    }
+    act(
+        &mut m,
+        "NonEsrchUnownedOrReapedSampleKeepsCoverageRefusal",
+        all([eq(LS_PHASE, 2), eligible_recheck.negate()]),
+        &[(LS_PHASE, Int(4)), (LS_RESULT, Int(2))],
+    );
+    safe(
+        &mut m,
+        "LiveSampleTerminalPathRequiresQualifiedOriginalRecheck",
+        eq(LS_RESULT, 1).negate().or(all([
+            same_original_terminal.clone(),
+            eq(LS_CHECKED, 1),
+            eq(LS_PROOF, 1),
+        ])),
+    );
+    safe(
+        &mut m,
+        "LiveSampleDispositionMatchesSameOriginalTerminalProof",
+        eq(LS_PHASE, 4).negate().or(same_original_terminal
+            .clone()
+            .and(eq(LS_RESULT, 1))
+            .or(same_original_terminal.negate().and(eq(LS_RESULT, 2)))),
+    );
     if control != 0 && control != 18 && boundary {
         let names: &[&str] = match control {
             1 => &["BackgroundOnly"],
@@ -4592,6 +4749,7 @@ fn total_budget_observer(control: u8, full_observer: bool, boundary: bool) -> Mo
                 "UnknownAuthoritativeCpuCannotGetFiniteCreditOrRelease",
             ],
             17 => &["TrustWithinCap"],
+            19 => &["LiveSampleDispositionMatchesSameOriginalTerminalProof"],
             _ => unreachable!(),
         };
         let valid = all(m
@@ -4629,7 +4787,7 @@ mod total_budget_tests {
         "SettlementHonest",
     ];
     #[test]
-    fn q2_helper_total_budget_safety_liveness_and_eighteen_causal_controls() {
+    fn q2_helper_total_budget_safety_liveness_and_nineteen_causal_controls() {
         let good_model = total_budget(0);
         let good = good_model.check(100_000).unwrap();
         // Failure diagnostics consume the completed current graph, never a
@@ -5163,6 +5321,41 @@ mod total_budget_tests {
                 && s[30] == 0),
             "positive natural exit makes accounting-only EOF/status/retire progress with paid ownunit/helper debt and incomplete-input refusal, without deadline/cancel/CONT"
         );
+        for case in 1..=9 {
+            let terminal = matches!(case, 1 | 8);
+            let result = if terminal { 1 } else { 2 };
+            let error = if case == 5 { 2 } else { 1 };
+            assert!(
+                good.states
+                    .iter()
+                    .any(|s| s[82] == case && s[83] == 4 && s[92] == result && s[84] == error),
+                "live sample race receives exact same-original terminal or coverage refusal case{case}"
+            );
+        }
+        assert!(
+            good.states.iter().any(|s| s[82] == 1
+                && s[83] == 2
+                && s[89] == 1
+                && s[90] == 0
+                && s[92] == 0),
+            "exit occurs after live precheck but before TASKALLINFO failure/recheck"
+        );
+        assert!(
+            good.states.iter().any(|s| s[82] == 1
+                && s[83] == 4
+                && s[90] == 1
+                && s[91] == 1
+                && s[16] == 0
+                && s[8] == 0
+                && s[11] == 0),
+            "terminal sample disposition never fabricates ownwait4/groupgone/trust"
+        );
+        assert!(
+            good.states
+                .iter()
+                .any(|s| s[82] == 5 && s[83] == 4 && s[90] == 0 && s[92] == 2),
+            "nonESRCH refuses without using terminal recovery"
+        );
         let expected = [
             "BackgroundOnly",
             "TrustWithinCap",
@@ -5182,6 +5375,7 @@ mod total_budget_tests {
             "SettlementHonest",
             "TrustWithinCap",
             "PositiveExitGetsAccountingOnlyDrainOrOwnedQuarantine",
+            "LiveSampleDispositionMatchesSameOriginalTerminalProof",
         ];
         for (index, property) in expected.into_iter().enumerate() {
             let control = (index + 1) as u8;
@@ -5345,6 +5539,19 @@ mod total_budget_tests {
                         "former payload-blocked exit guard must specifically leave normal terminal drain disabled, not be excused by deadline/cancel"
                     );
                 }
+                19 => assert!(
+                    checked.states.iter().any(|s| s[82] == 1
+                        && s[83] == 4
+                        && s[84] == 1
+                        && s[85] == 1
+                        && s[86] == 1
+                        && s[87] == 1
+                        && s[88] == 1
+                        && s[89] == 1
+                        && s[90] == 0
+                        && s[92] == 2),
+                    "missing-recheck mutant falsely refuses actual same-original terminal race, not TypeOK"
+                ),
                 _ => unreachable!(),
             }
             println!(
@@ -5464,7 +5671,7 @@ mod total_budget_tests {
                 std::fs::create_dir_all(root.join(variant)).unwrap();
             }
         }
-        for control in 0..=18 {
+        for control in 0..=19 {
             let full = total_budget_observer(control, true, true);
             let lower = total_budget(control);
             assert_eq!(
@@ -5538,7 +5745,6 @@ mod total_budget_tests {
         }
     }
 }
-
 /// Decision d93377961365654: a reviewed finite program/build premise is distinct
 /// from runtime observations. The approved graph assumes that premise; the
 /// adversarial graph permits unaccounted work after its explicit withdrawal.
