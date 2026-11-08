@@ -3763,14 +3763,30 @@ fn total_budget_observer(control: u8, full_observer: bool, boundary: bool) -> Mo
         ]),
         &[(END_DRAIN, Int(1)), (END_OWN_DEBT, Int(9))],
     );
-    for rest in 1..=9 {
-        act(
-            &mut m,
-            &format!("ObserveActualFreshAccountingDrainRest{rest}"),
-            all([eq(TRAJECTORY, 19), eq(END_DRAIN, 1), eq(END_OWN_DEBT, rest)]),
-            &[(END_OWN_DEBT, Int(rest - 1))],
-        );
-    }
+    // The owner retains one absolute fresh-rest endpoint, not nine owned
+    // countdown effects. A positive observed now>=endpoint discharges the
+    // complete ordinary-unit rest. Missing/reversed/unavailable clock never
+    // supplies that observation and may stutter or retain owned quarantine.
+    act(
+        &mut m,
+        "ObserveActualFreshAccountingDrainRestEndpoint",
+        all([
+            eq(TRAJECTORY, 19),
+            eq(END_DRAIN, 1),
+            Int(0).lt(Var(END_OWN_DEBT)),
+        ]),
+        &[(END_OWN_DEBT, Int(0))],
+    );
+    act(
+        &mut m,
+        "AccountingDrainRestEndpointUnavailableRetainsFullFreshDebt",
+        all([
+            eq(TRAJECTORY, 19),
+            eq(END_DRAIN, 1),
+            Int(0).lt(Var(END_OWN_DEBT)),
+        ]),
+        &[],
+    );
     let finish_end_drain = m.actions.len();
     act(
         &mut m,
@@ -4189,14 +4205,26 @@ fn total_budget_observer(control: u8, full_observer: bool, boundary: bool) -> Mo
         );
         controller.push(quarantine);
     }
-    for debt in 1..=36 {
-        act(
-            &mut m,
-            &format!("PayActualPostReapHelperRest{debt}"),
-            all([eq(DEBT, debt), eq(REAP, 1)]),
-            &[(DEBT, Int(debt - 1)), (PAID, Var(PAID).plus(Int(1)))],
-        );
-    }
+    // Source-correlated endpoint abstraction: the same owner records full
+    // DUE=9*max(actual terminal CPU, ordinary floor) before any observation.
+    // A single UNFAIR positive absolute-rest endpoint observation pays all of
+    // the retained obligation. No artificial per-millisecond owned effects or
+    // credit from idle time precede it; unavailable observations keep every
+    // raw cost/debt/pin. Group proof, deadline and quarantine remain independent
+    // before/after this action. Raw CPU_MAX keeps its unknown-cost refusal even
+    // if the separate conservative pacing obligation becomes paid.
+    act(
+        &mut m,
+        "ObserveActualPostReapFullHelperRestEndpoint",
+        all([Int(0).lt(Var(DEBT)), eq(REAP, 1)]),
+        &[(PAID, Var(PAID).plus(Var(DEBT))), (DEBT, Int(0))],
+    );
+    act(
+        &mut m,
+        "HelperRestEndpointUnavailableRetainsExactFullDebt",
+        all([Int(0).lt(Var(DEBT)), eq(REAP, 1)]),
+        &[],
+    );
     act(
         &mut m,
         "AdmitNextHelperOrMainOnlyAfterSettlementAndCurrentDebt",
