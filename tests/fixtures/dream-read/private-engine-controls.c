@@ -1190,8 +1190,22 @@ static void verifier_event_leader(const char *gate,int forks) {
     while(access(gate,F_OK)!=0)usleep(1000);
     if(forks) {
         pid_t child=fork();if(child<0)_exit(77);if(!child)_exit(0);
+        // Keep this original child unreaped until its actual kernel birth/exit
+        // interval is retained. No supplied API time is an OS lifetime claim.
+        siginfo_t terminal;memset(&terminal,0,sizeof(terminal));
+        int waited;do{waited=waitid(P_PID,child,&terminal,WEXITED|WNOWAIT);}while(waited<0&&errno==EINTR);
+        int own_terminal=waited==0&&terminal.si_pid==child&&terminal.si_code==CLD_EXITED;
+        struct rusage_info_v1 usage;memset(&usage,0,sizeof(usage));errno=0;
+        int ri_result=proc_pid_rusage(child,RUSAGE_INFO_V1,(rusage_info_t *)&usage),ri_error=errno;
+        mach_timebase_info_data_t tb={0,0};int timebase=mach_timebase_info(&tb)==KERN_SUCCESS&&tb.numer&&tb.denom;
+        uint64_t lifetime=UINT64_MAX;
+        int known=own_terminal&&ri_result==0&&usage.ri_proc_start_abstime&&usage.ri_proc_exit_abstime>usage.ri_proc_start_abstime
+            &&timebase&&engine_cpu_ticks(usage.ri_proc_exit_abstime-usage.ri_proc_start_abstime,&lifetime);
+        char line[512];int n=snprintf(line,sizeof(line),"private_verifier_child_lifetime_source_known child_pid=%d own_WNOWAIT=%d ri_result=%d ri_errno=%d start_abstime=%llu exit_abstime=%llu lifetime_ns=%llu timebase_numer=%u timebase_denom=%u\n",
+            child,own_terminal,ri_result,ri_error,(unsigned long long)usage.ri_proc_start_abstime,(unsigned long long)usage.ri_proc_exit_abstime,(unsigned long long)lifetime,tb.numer,tb.denom);
+        int written=n>0&&(size_t)n<sizeof(line)&&write(STDOUT_FILENO,line,(size_t)n)==n;
         int status=0;pid_t got;do{got=waitpid(child,&status,0);}while(got<0&&errno==EINTR);
-        if(got!=child||!WIFEXITED(status)||WEXITSTATUS(status))_exit(77);
+        if(!known||!written||got!=child||!WIFEXITED(status)||WEXITSTATUS(status))_exit(77);
     }
     _exit(0);
 }
@@ -1203,11 +1217,16 @@ static int verifier_event_control(const char *self,const char *root,int dir,unsi
     if(mode!=2)o.command=12;
     if(mode==1)o.git_signature=&missing_sig; // No real GS1 descriptor: GS2 must still refuse independently.
     unsigned registered=o.event_registered_mask,held_before=o.event_fd_live;int queue=o.event_fd;
-    int missed_fork_observed=0;
+    int missed_fork_observed=0;uint64_t poll_before_abstime=0,poll_after_abstime=0;
     if(mode!=2) {
         int flags=held_before?fcntl(queue,F_GETFD):-1;
         require(born&&registered==1&&held_before&&flags>=0&&(flags&FD_CLOEXEC),"actual leader registration and owned close-on-exec queue precede first controlled continuation");
+        // The first real empty census finishes while the original leader is
+        // still gated. The next census begins only after its positive WNOWAIT.
+        require(engine_census(&o,1,1)&&native_pid_list_empty(o.child_list_count[0],o.child_list_errno[0]),"gated event fixture proves original pre-fork native census empty");
+        poll_before_abstime=mach_absolute_time();
         fixture_touch(fixture_release_path);await_original(&o);
+        poll_after_abstime=mach_absolute_time();
         int observed=engine_events_service(&o,0);
         if(!mode)missed_fork_observed=!observed&&o.leader_fork_events&&o.fork_seen_child_missed&&!o.child_created
             &&!strcmp(private_detail,"verifier forked and exited before census");
@@ -1224,7 +1243,25 @@ static int verifier_event_control(const char *self,const char *root,int dir,unsi
     printf("private_verifier_event_axis_source_known mode=%u original_pid=%d actual_own_wait4=%u group_gone=%u leader_fork_events=%llu leader_exec_events=%llu fork_seen_child_missed=%u registered_mask=%u registration_errno=%d queue_held_before=%u close_attempted=%u close_errno=%d helper_CPU_ns=%llu helper_debt_delta_ns=%llu debt_ns=%llu paid_ns=%llu runtime_approved=false\n",
         mode,o.ticket.pid,o.direct_reaped,r.group_gone,(unsigned long long)o.leader_fork_events,(unsigned long long)o.leader_exec_events,o.fork_seen_child_missed,registered,o.event_register_errno[0],held_before,o.event_close_attempted,o.event_close_errno,(unsigned long long)o.terminal_cpu_ns,(unsigned long long)o.helper_debt_delta_ns,(unsigned long long)private_cost.debt,(unsigned long long)private_cost.debt_paid);
     require(fflush(stdout)==0&&private_end_unit(private_cost.open_cpu),"event refusal raw evidence fully paid");
-    if(!mode)require(missed_fork_observed,"actual queued leader fork survives child reap and terminal precheck before census");
+    if(!mode) {
+        require(engine_capture_drain(&o)&&o.out_len<1024,"actual child lifetime receipt is bounded and drained after original settlement");
+        o.capture[o.out_len]=0;int child_pid=0,own_terminal=0,ri_result=-1,ri_error=0,consumed=0;
+        unsigned numer=0,denom=0;unsigned long long start=0,exit_at=0,lifetime=UINT64_MAX;
+        int fields=sscanf((char *)o.capture,"private_verifier_child_lifetime_source_known child_pid=%d own_WNOWAIT=%d ri_result=%d ri_errno=%d start_abstime=%llu exit_abstime=%llu lifetime_ns=%llu timebase_numer=%u timebase_denom=%u\n%n",
+            &child_pid,&own_terminal,&ri_result,&ri_error,&start,&exit_at,&lifetime,&numer,&denom,&consumed);
+        uint64_t checked=UINT64_MAX;int known=fields==9&&consumed>0&&(size_t)consumed==o.out_len
+            &&child_pid>0&&own_terminal==1&&ri_result==0&&numer&&denom&&start&&exit_at>start
+            &&engine_cpu_ticks(exit_at-start,&checked)&&checked==lifetime
+            &&(((__uint128_t)(exit_at-start)*numer+denom-1)/denom)==lifetime;
+        int between=known&&poll_before_abstime&&poll_before_abstime<start&&exit_at<poll_after_abstime;
+        int normal=WIFEXITED(o.retained_status)&&WEXITSTATUS(o.retained_status)==0;
+        require(write(STDOUT_FILENO,o.capture,o.out_len)==(ssize_t)o.out_len,"actual child kernel lifetime raw receipt retained by controller");
+        printf("private_verifier_event_lifetime_axis_source_known original_pid=%d child_pid=%d known=%u normal_leader_exit=%u poll_before_abstime=%llu child_start_abstime=%llu child_exit_abstime=%llu poll_after_abstime=%llu lifetime_ns=%llu strictly_between_polls=%u actual_own_wait4=1 group_gone=1 runtime_approved=false\n",
+            o.ticket.pid,child_pid,(unsigned)known,(unsigned)normal,(unsigned long long)poll_before_abstime,start,exit_at,(unsigned long long)poll_after_abstime,lifetime,(unsigned)between);
+        require(fflush(stdout)==0&&private_end_unit(private_cost.open_cpu),"actual child kernel lifetime parsing and raw evidence fully paid before verdict");
+        require(known&&normal&&between,"actual measured verifier kernel lifetime is known and strictly between native census polls");
+        require(missed_fork_observed,"actual queued leader fork survives child reap and terminal precheck before census");
+    }
     if(mode==2)require(!born&&!registered&&held_before&&o.event_register_errno[0]==EIO&&!o.activation_ns&&private_errors[2].count,
         "failed leader event registration refuses coverage before any controlled continuation and still settles original effect");
     else if(mode==1)require(o.failed&&private_errors[2].count&&private_errors[7].count

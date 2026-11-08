@@ -378,6 +378,25 @@ def variants(source):
     return result
 
 
+def verifier_event_lifetime(stdout):
+    raw=re.findall(rb'^private_verifier_child_lifetime_source_known child_pid=([0-9]+) own_WNOWAIT=1 ri_result=0 ri_errno=([0-9]+) start_abstime=([0-9]+) exit_abstime=([0-9]+) lifetime_ns=([0-9]+) timebase_numer=([0-9]+) timebase_denom=([0-9]+)\n',stdout,re.MULTILINE)
+    axes=re.findall(rb'^private_verifier_event_lifetime_axis_source_known original_pid=([0-9]+) child_pid=([0-9]+) known=1 normal_leader_exit=1 poll_before_abstime=([0-9]+) child_start_abstime=([0-9]+) child_exit_abstime=([0-9]+) poll_after_abstime=([0-9]+) lifetime_ns=([0-9]+) strictly_between_polls=1 actual_own_wait4=1 group_gone=1 runtime_approved=false\n',stdout,re.MULTILINE)
+    if len(raw)!=1 or len(axes)!=1:
+        raise ValueError('actual kernel fast-child lifetime and original settled-owner interval receipts missing or duplicated')
+    child,error,start,exit_at,lifetime,numer,denom=map(int,raw[0])
+    original,axis_child,before,axis_start,axis_exit,after,axis_lifetime=map(int,axes[0])
+    if (not original or not child or child==original or child!=axis_child or start!=axis_start or exit_at!=axis_exit
+            or not before<start<exit_at<after or not numer or not denom
+            or lifetime!=axis_lifetime or lifetime!=((exit_at-start)*numer+denom-1)//denom
+            or not 0<lifetime):
+        raise ValueError('actual kernel child lifetime is unknown or not strictly between actual census polls')
+    return {'original_pid':original,'child_pid':child,'ri_errno_on_success':error,'raw_start_abstime':start,
+            'raw_exit_abstime':exit_at,'timebase_numer':numer,'timebase_denom':denom,
+            'rounded_up_lifetime_ns':lifetime,'poll_before_abstime':before,'poll_after_abstime':after,
+            'actual_child_WNOWAIT_before_own_parent_reap':True,'actual_original_wait4_and_groupgone':True,
+            'scope':'source-known actual fork lifetime; not installed Git/GPG qualification'}
+
+
 def retain_current(stdout, report):
     found=re.findall(rb'private_engine_controls=pass cases=83 total_budget_controls=8 synthetic_source_known=true real_candidate_created=0 runtime_approved=false retained=(/private/tmp/dream-private-engine-controls\.[A-Za-z0-9]+)\n',stdout)
     if len(found)!=1:
@@ -420,8 +439,9 @@ def retain_current(stdout, report):
         raise ValueError('three actual original event-discovery refusals lack complete settlement')
     if stdout.count(b'private_verifier_event_api_source_known scripted_child_lifetime_ns=100000 notifications_coalesce=true native_process=false actual_queue_lifetime=true runtime_approved=false\n')!=1:
         raise ValueError('scripted submillisecond event/census API or actual queue-lifetime witness missing')
+    report['verifier_event_actual_kernel_lifetime']=verifier_event_lifetime(stdout)
     report['verifier_event_controls']={'scripted_between_poll_child_lifetime_ns':100000,'scripted_times_are_OS_claims':False,
-        'owned_process_modes':{'0':'actual fork and child reap before census; actual queued event yields honest missed-verifier refusal',
+        'owned_process_modes':{'0':'actual kernel RI start/exit measured lifetime strictly between actual polls; child reaped by its own parent; actual queued event yields honest missed-verifier refusal',
                                '1':'actual never-fork leader; distinct created-no-verifier refusal',
                                '2':'injected registration EIO before CONT; actual original effect settled'},
         'notifications_are_birth_counts':False,'GS1_or_whole_lifetime_proof_from_events':False,
@@ -482,6 +502,7 @@ def verify(directory, inputs, report, total_only=False):
             marker=(f'private_verifier_event_completed_source_known mode={mode} actual_own_wait4=1 group_gone=1 expected_exit=81').encode()
             if marker not in stdout or b'probe refused:' in stderr:
                 raise ValueError('event refusal lacks its intended diagnostic and original owner cleanup')
+            if mode==0:report['commands'][-1]['actual_kernel_child_lifetime']=verifier_event_lifetime(stdout)
     all_variants=variants(source)
     selected={k:v for k,v in all_variants.items() if not total_only or k.startswith('total-')}
     for name,(changed_source,args) in selected.items():
@@ -496,6 +517,8 @@ def verify(directory, inputs, report, total_only=False):
                 raise ValueError('mutant did not reach independent native/unit/physical/causal prerequisites: '+name)
         if ASSERTIONS[name] not in stderr:
             raise ValueError('mutant missed its required causal assertion: '+name)
+        if name in ('verifier-poll-only','verifier-skip-terminal-drain'):
+            report['commands'][-1]['actual_kernel_child_lifetime']=verifier_event_lifetime(stdout)
         if name=='total-qos' and (b'detail=live helper priority differs from observed background band4' not in stderr
                 or b'actual_reaped=1 group_gone=1' not in stderr):
             raise ValueError('missing-QoS mutation refused for another reason or lacks own cleanup')
