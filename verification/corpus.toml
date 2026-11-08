@@ -2152,3 +2152,33 @@ frontend = "project"
 name = "BrokenHarnessQ2HelperTotalBudgetMissingTerminalRecheck"
 expected = "safety"
 frontend = "project"
+
+[[model]]
+name = "HarnessDreamReadVerifierEvents"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadVerifierEventsPollOnly"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadVerifierEventsLateRegistration"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadVerifierEventsEventAsProof"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadVerifierEventsEarlyClose"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadVerifierEventsSkipTerminalDrain"
+expected = "safety"
+frontend = "project"

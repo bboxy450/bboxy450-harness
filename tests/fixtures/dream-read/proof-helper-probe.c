@@ -26,6 +26,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/event.h>
 #include <sys/proc_info.h>
 #include <sys/resource.h>
 #include <sys/stat.h>
@@ -2372,6 +2373,12 @@ struct engine_owner {
     struct engine_unit_observation failed_unit_first,failed_unit_last;uint64_t failed_units,last_poll_cpu,last_charged_cost;
     unsigned running,retiring,failed,foreground,paused,direct_reaped,direct_custody,coverage_lost;
     unsigned command,case_fired,record_count,child_created,child_settled,source_admitted;
+    // The live bit makes zero-initialized API/fixture owners safe: FD0 is never
+    // an owned queue. Notifications are coalesced observations, not births.
+    int event_fd,event_register_errno[2],event_wait_errno,event_close_errno;
+    unsigned event_fd_live,event_registered_mask,event_close_attempted,fork_census_pending,child_event_pending;
+    uint64_t leader_fork_events,leader_exec_events;
+    unsigned child_discovered_via,fork_seen_child_missed;
     unsigned child_image_admitted,child_cost_unproven,child_rollup_known,child_rollup_mask,child_disappeared;
     uint64_t child_rollup_user,child_rollup_system,child_rollup_read_ns;
     unsigned escaped_cleanup_checks,escaped_kill_attempts,escaped_kill_failures,group_kill_not_attempted_terminal;int escaped_kill_errno;
@@ -2419,6 +2426,9 @@ static int engine_child_unproven(struct engine_owner *,const char *);
 static int engine_quarantine(struct engine_owner *,const char *);
 static int engine_cpu_ticks(uint64_t,uint64_t *);
 static int engine_record(struct engine_owner *,const char *);
+static int engine_events_poll(struct engine_owner *,uint64_t);
+static int engine_census(struct engine_owner *,unsigned,int);
+static int engine_events_close(struct engine_owner *);
 static void engine_cancel_handler(int signal) {(void)signal;engine_cancel_signal=1;}
 static void engine_owner_loss_handler(int signal) {(void)signal;engine_owner_loss_signal=1;engine_cancel_signal=1;}
 static __attribute__((unused)) int engine_owner_priority(void) {
@@ -2497,6 +2507,83 @@ static int engine_list_group(struct engine_owner *o,void *buffer,int size) {
     int error=0,count=native_group_count(o->ticket.pgid,buffer,size,&error);
     o->group_list_count=count;o->group_list_errno=error;o->group_list_known=native_pid_list_known(count,error);
     if(!o->group_list_known)o->group_list_failed=1;return count;
+}
+// EVFILT_PROC never supplies a child PID (Darwin sys/event.h NOTE_FORK).
+// Only the existing native census admits a member; NOTE_TRACK is unsupported.
+#ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
+static unsigned source_known_event_registration_failure;
+#endif
+static int engine_events_register(struct engine_owner *o,unsigned i,pid_t pid) {
+    if(i>=2||pid<=0||!o->direct_custody||o->direct_reaped)return engine_failure(o,"coverage_unknown","process event registration lacks original unreaped owner");
+    if(o->event_registered_mask&(1u<<i))return 1;
+    if(!o->event_fd_live) {
+        int fd=kqueue();if(fd<0)return engine_failure(o,"coverage_unknown","owned process event queue unavailable");
+        o->event_fd=fd;o->event_fd_live=1;
+        if(fcntl(fd,F_SETFD,FD_CLOEXEC)<0)return engine_failure(o,"coverage_unknown","process event queue close-on-exec unavailable");
+    }
+    struct kevent change;EV_SET(&change,(uintptr_t)pid,EVFILT_PROC,EV_ADD|EV_ENABLE|EV_CLEAR,NOTE_EXEC|NOTE_EXIT|(i?0:NOTE_FORK),0,NULL);
+    errno=0;int result;
+#ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
+    if(source_known_event_registration_failure){result=-1;errno=EIO;}else
+#endif
+    result=kevent(o->event_fd,&change,1,NULL,0,NULL);
+    int error=result<0?errno:0;o->event_register_errno[i]=error;
+    if(result!=0)return engine_failure(o,"coverage_unknown","process event registration failed");
+    o->event_registered_mask|=1u<<i;return 1;
+}
+static int engine_event_note(struct engine_owner *o,const struct kevent *event) {
+    if(event->filter!=EVFILT_PROC||(event->flags&EV_ERROR))return engine_failure(o,"coverage_unknown","process event delivery error or unexpected filter");
+    if(event->ident==(uintptr_t)o->ticket.pid) {
+        if(event->fflags&NOTE_FORK) {
+            if(o->leader_fork_events==UINT64_MAX)return engine_failure(o,"coverage_unknown","leader fork notification counter overflow");
+            o->leader_fork_events++;o->fork_census_pending=1;
+        }
+        if(event->fflags&NOTE_EXEC) {
+            if(o->leader_exec_events==UINT64_MAX)return engine_failure(o,"coverage_unknown","leader exec notification counter overflow");
+            o->leader_exec_events++;
+        }
+    } else if(!o->members[1].state.pid||event->ident!=(uintptr_t)o->members[1].state.pid)
+        return engine_failure(o,"coverage_unknown","process event recipient not in original retained roster");
+    else if(event->fflags&(NOTE_EXEC|NOTE_EXIT))o->child_event_pending=1;
+    // NOTE_EXEC/EXIT wake the ordinary sampler. Neither is identity, GS1,
+    // CPU, own-wait4, or retired-group evidence by itself.
+    return 1;
+}
+static int engine_events_poll(struct engine_owner *o,uint64_t wait_ns) {
+    if(!o->event_fd_live)return 1;
+    // At most two retained identities, fixed-capacity delivery. An absolute
+    // current RI bound limits this wait too; timers are never guarantees.
+    if(wait_ns>1000000)wait_ns=1000000;
+    uint64_t now=0;
+    if(wait_ns) {
+        now=engine_now(o,CLOCK_MONOTONIC);if(now==UINT64_MAX)return 0;
+        uint64_t deadline=o->context->outer->deadline;
+        uint64_t left=now<deadline?deadline-now:0;if(wait_ns>left)wait_ns=left;
+    }
+    if(wait_ns&&o->activation_ns&&!o->direct_reaped) {
+        if(!engine_sample_gap(o,now))return 0;
+        for(unsigned i=0;i<2;i++)if(o->members[i].state.pid&&o->members[i].phase!=ENGINE_EXITED&&o->members[i].ri_started_ns) {
+            uint64_t age=engine_interval(o->members[i].ri_started_ns,now);
+            uint64_t left=age<ENGINE_SAMPLE_NS?ENGINE_SAMPLE_NS-age:0;if(wait_ns>left)wait_ns=left;
+        }
+    }
+    struct timespec timeout={0,(long)wait_ns};struct kevent events[4];errno=0;
+    int n=kevent(o->event_fd,NULL,0,events,4,&timeout);int error=n<0?errno:0;o->event_wait_errno=error;
+    if(n<0){if(error==EINTR)return 1;return engine_failure(o,"coverage_unknown","owned process event wait unavailable");}
+    for(int i=0;i<n;i++)if(!engine_event_note(o,&events[i]))return 0;
+    return 1;
+}
+static const char *engine_missing_verifier_detail(const struct engine_owner *o) {
+    return o->leader_fork_events?"verifier forked and exited before census":"signature leader created no verifier";
+}
+static int engine_events_close(struct engine_owner *o) {
+    if(!o->event_fd_live)return 1;
+    // Independent physical settlement precedes release, including emergency
+    // and quarantine paths. Registration failure retains the same owned FD.
+    if(o->ticket.pid>0&&(!o->direct_reaped||!o->result->group_gone))return engine_failure(o,"settlement_unknown","process event queue retained until original ownreap and groupgone");
+    int fd=o->event_fd;o->event_close_attempted=1;o->event_fd_live=0;errno=0;
+    int result=close(fd);o->event_close_errno=result?errno:0;
+    return result==0?1:engine_failure(o,"settlement_unknown","owned process event queue close unresolved");
 }
 static int engine_owned_token(struct engine_owner *owner,pid_t pid,uint64_t birth,uint64_t start,const audit_token_t *token) {
     for(unsigned i=0;i<owner->retired_count;i++)if(owner->retired[i].pid==pid&&!memcmp(&owner->retired[i].token,token,sizeof(*token)))return 1;
@@ -2676,6 +2763,9 @@ static int engine_sample_member(struct engine_owner *owner,unsigned i,pid_t pid)
     if(m->phase==ENGINE_EXITED||(!i&&m->token_known&&memcmp(&m->token,&token,sizeof(token)))
         ||(i&&m->phase==ENGINE_EXPECTED&&old_version!=token.val[7]))return engine_failure(owner,"coverage_unknown","unexpected or reversed helper exec incarnation");
     uint64_t original_start=m->state.start_absolute;m->state=current;m->state.start_absolute=original_start;m->token=token;m->token_known=1;
+    // A watch never admits a numeric child. Existing lineage/birth/current
+    // full-token checks above bind its recipient before registration.
+    if(i&&!engine_events_register(owner,i,pid))return 0;
     if(!engine_priority(owner,i,&current))return 0;
     uint64_t ri_started=engine_now(owner,CLOCK_MONOTONIC);if(!engine_ri_begin(owner,i,ri_started))return 0;
     struct rusage_info_v1 u;int usage_result=proc_pid_rusage(pid,RUSAGE_INFO_V1,(rusage_info_t *)&u);
@@ -2802,23 +2892,56 @@ static int engine_live_budget(struct engine_owner *owner) {
     }
     return owner->last_sample_ns!=UINT64_MAX;
 }
-static int engine_sample(struct engine_owner *owner) {
-    int done=0;if(!known_exited(owner->ticket.pid,&done))return engine_failure(owner,"settlement_unknown","original WNOWAIT unavailable");
-    if(done)return 1;
+static int engine_census(struct engine_owner *owner,unsigned via,int observe) {
     int ids[3]={0};int n=engine_list_children(owner,0,owner->ticket.pid,ids,sizeof(ids));
-    if(!native_pid_list_known(n,owner->child_list_errno[0])||n>1||(n&&owner->slots!=2)) {owner->coverage_lost=1;return engine_child_unproven(owner,"unexpected or unknown child census or omitted helper member");}
+    if(!native_pid_list_known(n,owner->child_list_errno[0])||n>1||((n||via==2)&&owner->slots!=2)) {owner->coverage_lost=1;return engine_child_unproven(owner,"unexpected or unknown child census or omitted helper member");}
     if(n==1) {
         if(owner->members[1].state.pid&&owner->members[1].state.pid!=ids[0])return engine_failure(owner,"coverage_unknown","a second descendant replaced original helper");
-        if(!owner->members[1].state.pid) {owner->members[1].state.pid=ids[0];owner->child_created=1;owner->result->created++;}
+        if(!owner->members[1].state.pid) {
+            owner->members[1].state.pid=ids[0];owner->child_created=1;owner->result->created++;
+            owner->child_discovered_via=via;
+        }
+        if(!observe)return 1;
         if(!engine_sample_member(owner,1,ids[0])||!engine_checkpoint(owner))return 0;
         int children[2]={0};int count=engine_list_children(owner,1,ids[0],children,sizeof(children));
         if(!native_pid_list_empty(count,owner->child_list_errno[1]))return engine_child_unproven(owner,"descendant child edge not known empty");
+    } else if(via==2&&!owner->child_created) {
+        owner->fork_seen_child_missed=1;
+        return engine_failure(owner,"coverage_unknown",engine_missing_verifier_detail(owner));
     } else if(owner->child_created&&owner->members[1].phase!=ENGINE_EXITED) {
         // No terminal counter is invented. The final own-leader wait4 and
         // original token/group proof must discharge this retained child.
         if(!engine_member_terminal(owner,1)&&!engine_token_gone(&owner->members[1].token))return engine_failure(owner,"coverage_unknown","missing child retains a live original incarnation");
         owner->members[1].phase=ENGINE_EXITED;owner->child_disappeared=1;
     }
+    return 1;
+}
+static int engine_events_service(struct engine_owner *o,uint64_t wait_ns) {
+    if(!engine_events_poll(o,wait_ns))return 0;
+    int done=0;
+    if(o->fork_census_pending) {
+        o->fork_census_pending=0;
+        if(!known_exited(o->ticket.pid,&done))return engine_failure(o,"settlement_unknown","fork census lacks original WNOWAIT custody");
+        // Census in this same ordinary iteration, before the next paid rest.
+        if(!engine_census(o,2,!done&&!o->retiring))return 0;
+    }
+    if(o->child_event_pending&&!o->retiring) {
+        if(!known_exited(o->ticket.pid,&done))return engine_failure(o,"settlement_unknown","child event lacks original WNOWAIT custody");
+        o->child_event_pending=0;if(done)return 1;
+        // An EXEC wake invokes the SAME strict incarnation/GS1 sampler,
+        // including its existing one-shot custody STOP and continuation.
+        if(!engine_sample_member(o,1,o->members[1].state.pid))return 0;
+    }
+    return 1;
+}
+static int engine_sample(struct engine_owner *owner) {
+    if(!engine_events_poll(owner,0))return 0;
+    unsigned via=owner->fork_census_pending?2:1;owner->fork_census_pending=0;
+    int done=0;if(!known_exited(owner->ticket.pid,&done))return engine_failure(owner,"settlement_unknown","original WNOWAIT unavailable");
+    if(done)return via==2?engine_census(owner,via,0):1;
+    if(!engine_census(owner,via,1))return 0;
+    owner->child_event_pending=0;
+    int n=owner->child_list_count[0];
     if(!engine_sample_member(owner,0,owner->ticket.pid))return 0;
     if(owner->child_disappeared&&!engine_qualify_child_rollup(owner,owner->members[1].terminal_observed_ns!=0,native_pid_list_empty(n,owner->child_list_errno[0]),1))return 0;
     int group[3]={0};n=engine_list_group(owner,group,sizeof(group));
@@ -2904,6 +3027,13 @@ static int engine_census_record(struct engine_owner *o) {
     char line[512];int n=snprintf(line,sizeof(line),"{\"kind\":\"native_census_boundary\",\"child_count\":[%d,%d],\"child_errno\":[%d,%d],\"child_known_mask\":%u,\"child_failed_mask\":%u,\"group_count\":%d,\"group_errno\":%d,\"group_known\":%u,\"group_failed\":%u,\"zero_requires_errno_zero\":true,\"runtime_approved\":false}\n",o->child_list_count[0],o->child_list_count[1],o->child_list_errno[0],o->child_list_errno[1],o->child_list_known_mask,o->child_list_failed_mask,o->group_list_count,o->group_list_errno,o->group_list_known,o->group_list_failed);
     return engine_write_record(o,line,n);
 }
+static int engine_event_record(struct engine_owner *o) {
+    const char *via=o->child_discovered_via==2?"fork_event":o->child_discovered_via==1?"poll":"none";
+    char line[768];int n=snprintf(line,sizeof(line),"{\"kind\":\"verifier_event_discovery\",\"leader_fork_events\":%llu,\"leader_exec_events\":%llu,\"child_discovered_via\":\"%s\",\"fork_seen_child_missed\":%s,\"notification_counts_not_birth_counts\":true,\"registered_mask\":%u,\"registration_errno\":[%d,%d],\"wait_errno\":%d,\"queue_fd_held\":%u,\"close_attempted\":%u,\"close_errno\":%d,\"runtime_approved\":false}\n",
+        (unsigned long long)o->leader_fork_events,(unsigned long long)o->leader_exec_events,via,o->fork_seen_child_missed?"true":"false",
+        o->event_registered_mask,o->event_register_errno[0],o->event_register_errno[1],o->event_wait_errno,o->event_fd_live,o->event_close_attempted,o->event_close_errno);
+    return engine_write_record(o,line,n);
+}
 static int engine_record(struct engine_owner *o,const char *phase) {
     char bytes[3072];int n=snprintf(bytes,sizeof(bytes),"{\"kind\":\"helper_total_budget\",\"decision\":66280,\"phase\":\"%s\",\"sequence\":%u,\"pid\":%d,\"birth\":%llu,\"start\":%llu,\"live_cpu_ns\":%llu,\"last_sample_ns\":%llu,\"sample_gap_ns\":%llu,\"max_sample_gap_ns\":%llu,\"sample_gap_checks\":%llu,\"activation_ns\":%llu,\"qos_checked_mask\":%u,\"priority\":[%d,%d],\"wait4_user_ns\":%llu,\"wait4_system_ns\":%llu,\"terminal_cpu_ns\":%llu,\"job_cpu_ns\":%llu,\"command_cap_ns\":%llu,\"job_cap_ns\":%llu,\"terminal_rss_bytes\":%llu,\"process_create_wall_excess_ns\":%llu,\"process_create_wall_excess_count\":%llu,\"process_create_wall_excess_known\":%u,\"process_create_wall_excess_scope\":\"original_prepared_spawn_snapshot\",\"native_budget_projection_case\":%u,\"native_actual_cpu_ns\":%llu,\"native_actual_wall_ns\":%llu,\"native_gate_cpu_ns\":%llu,\"native_gate_wall_ns\":%llu,\"native_gate_inclusive_ns\":%llu,\"helper_cost_retained\":%u,\"helper_cost_paid\":%u,\"helper_debt_target\":%llu,\"helper_debt_before_ns\":%llu,\"helper_cost_ns\":%llu,\"helper_debt_delta_ns\":%llu,\"helper_global_paid_after_ns\":%llu,\"debt_scope\":\"whole_controller_cumulative\",\"helper_debt_target_scope\":\"global_watermark\",\"debt_charged_ns\":%llu,\"debt_paid_ns\":%llu,\"group_kill_attempted\":%u,\"group_kill_errno\":%d,\"group_kill_pending\":%u,\"group_kill_raced_exit\":%u,\"actual_own_wait4\":%u,\"group_gone\":%u,\"quarantined\":%u,\"owner_lost\":%u,\"runtime_approved\":false}\n",
         phase,o->ticket.sequence,o->ticket.pid,(unsigned long long)o->ticket.birth,(unsigned long long)o->ticket.start,
@@ -2914,7 +3044,7 @@ static int engine_record(struct engine_owner *o,const char *phase) {
         (unsigned long long)o->native.cpu,(unsigned long long)o->native.wall,(unsigned long long)o->native_gate_cpu_ns,(unsigned long long)o->native_gate_wall_ns,(unsigned long long)o->native_gate_inclusive_ns,o->helper_cost_retained,o->helper_cost_paid,
         (unsigned long long)o->helper_debt_target,(unsigned long long)o->helper_debt_before,(unsigned long long)o->helper_cost_ns,(unsigned long long)o->helper_debt_delta_ns,(unsigned long long)o->helper_global_paid_after,(unsigned long long)private_cost.debt,(unsigned long long)private_cost.debt_paid,
         o->group_kill_attempted,o->group_kill_result,o->group_kill_pending,o->group_kill_raced_exit,o->direct_reaped,o->result->group_gone,o->settlement_quarantined,o->owner_lost);
-    return engine_write_record(o,bytes,n)&&engine_failed_record(o)&&engine_pause_record(o)&&engine_ri_record(o)&&engine_child_record(o)&&engine_census_record(o);
+    return engine_write_record(o,bytes,n)&&engine_failed_record(o)&&engine_pause_record(o)&&engine_ri_record(o)&&engine_child_record(o)&&engine_census_record(o)&&engine_event_record(o);
 }
 static int engine_pause(struct engine_owner *o) {
     if(o->paused)return 1;if(o->pause_stop_attempted||o->retiring||o->group_kill_pending)return engine_failure(o,"coverage_unknown","consumed foreground STOP cannot be retried");
@@ -3099,7 +3229,7 @@ static int engine_birth(struct engine_owner *o,struct engine_prepared *p) {
     if(!native_budget_allowed(NATIVE_PROCESS_CREATE,o->native_gate_cpu_ns,o->native_gate_wall_ns,o->native_gate_inclusive_ns,o->native_gate_app_ns))
         return engine_failure(o,"resource_limit","process creation native2ms wall250ms application1ms inclusive3ms gate");
     if(!paid||o->failed)return 0;
-    if(!engine_sample_member(o,0,raw.pid)||!engine_checkpoint(o))return 0;
+    if(!engine_sample_member(o,0,raw.pid)||!engine_events_register(o,0,raw.pid)||!engine_checkpoint(o))return 0;
     if(o->members[0].state.status!=SSTOP)return engine_failure(o,"coverage_unknown","initial custody was not stopped");
     o->source_admitted=1;o->result->members_max=o->result->members_max?o->result->members_max:1;
     if(!engine_live_budget(o)||!engine_checkpoint(o))return 0;
@@ -3155,6 +3285,10 @@ static int engine_terminal_budget(struct engine_owner *o) {
 }
 static int engine_observe_wait4(struct engine_owner *o) {
     if(o->direct_reaped)return o->wait_observed;
+    // Drain before the consuming wait: after it the numeric leader is no
+    // longer our original pin and must never be queried as a census source.
+    (void)engine_events_poll(o,0);
+    if(o->fork_census_pending){o->fork_census_pending=0;(void)engine_census(o,2,0);}
     struct rusage r;int status;errno=0;pid_t got=wait4(o->ticket.pid,&status,WNOHANG,&r);
     if(got==0||(got<0&&errno==EINTR))return 0;
     if(got!=o->ticket.pid) {o->direct_custody=0;return engine_failure(o,"settlement_unknown","original ownwait4 ownership unavailable");}
@@ -3276,6 +3410,8 @@ static int engine_retire(struct engine_owner *o,int *status) {
     o->retiring=1;o->running=0;if(o->ticket.pid<=0)return 1;
     if(!strcmp(o->context->outer->case_name,"reap_delay")&&!o->case_fired){o->case_fired=1;return engine_quarantine(o,"fixture retains original unreaped handle before prompt refusal");}
     if(!private_pay_pending())return engine_quarantine(o,"prior controller debt unavailable before settlement");
+    (void)engine_events_poll(o,0);
+    if(o->fork_census_pending){o->fork_census_pending=0;(void)engine_census(o,2,0);}
     int done=0;if(!known_exited(o->ticket.pid,&done))return engine_quarantine(o,"original WNOWAIT ownership unavailable");
     engine_cleanup_escaped(o);int members_terminal=engine_group_observed_terminal(o,done);
     if(engine_final_kill_required(done,members_terminal)) {
@@ -3293,10 +3429,15 @@ static int engine_retire(struct engine_owner *o,int *status) {
     (void)engine_checkpoint(o);(void)engine_terminal_budget(o);
     if(!o->helper_cost_paid)return engine_quarantine(o,"terminal helper CPU bill retained but unpaid");
     if(!engine_settle_proven(o))return engine_quarantine(o,"actual ownwait4 lacks original group/retired identity proof");
+    // Classify discovery only after the original queue was drained before
+    // ownwait4, and before GS2 can report the separate missing-GS1 failure.
+    if(o->command==12&&o->verified_descendants!=1)
+        (void)engine_failure(o,"coverage_unknown",o->child_created?"signature lacks exactly one retained verifier":engine_missing_verifier_detail(o));
     if(o->command==12&&o->git_signature) {
         if(!private_git_sig_gs2(o->git_signature,1,WIFEXITED(o->retained_status)&&!engine_cancel_signal,o->signature_buffer,o->signature_capacity))engine_failure(o,private_error,private_detail);
         (void)engine_checkpoint(o);
     }
+    if(o->event_fd_live){(void)engine_events_close(o);(void)engine_checkpoint(o);}
     (void)engine_record(o,"reaped");(void)engine_checkpoint(o);
     o->result->phase="settled";engine_current=NULL;dispose_private_engine=NULL;return !o->failed;
 }
@@ -3316,6 +3457,7 @@ static int engine_hold_observe(struct engine_owner *o) {
     if(!o->owner_lost_recorded&&o->owner_lost) {o->owner_lost_recorded=1;(void)engine_record(o,"owner_lost");}
     if(!engine_checkpoint(o))return 0;
     if(!ready)return 0;
+    if(o->event_fd_live&&(!engine_events_close(o)||!engine_checkpoint(o)))return 0;
     (void)engine_record(o,o->owner_lost?"settled_refusal_owner_lost":"settled_refusal");
     if(!engine_checkpoint(o)||private_has_retained_cost()||private_cost.debt_paid!=private_cost.debt)return 0;
     o->quarantine_settled=1;o->result->phase="settled";o->result->outcome="refused";engine_current=NULL;dispose_private_engine=NULL;return 1;
@@ -3348,6 +3490,7 @@ static void engine_close_transferred(struct engine_owner *owner) {
         int fd=*fds[i];*fds[i]=-1;work++;
         if(close(fd)!=0)engine_failure(owner,"settlement_unknown","retained pipe close unresolved");
     }
+    if(owner->event_fd_live&&!owner->settlement_quarantined){work++;(void)engine_events_close(owner);}
     if(work)(void)private_end_unit(at);
 }
 
@@ -3369,14 +3512,15 @@ static int engine_command(struct engine_owner *o,struct engine_prepared *p,unsig
         if(!strcmp(test,"pause_resume")&&!o->case_fired){o->case_fired=1;o->foreground=1;o->hold_last_wall=engine_now(o,CLOCK_MONOTONIC);}
         if(o->foreground&&o->paused&&engine_now(o,CLOCK_MONOTONIC)-o->pause_ack_ns>=20000000)o->foreground=0;
         if(!engine_sample_gap(o,engine_now(o,CLOCK_MONOTONIC)))break;
+        if(!engine_events_service(o,0))break;
         int done=0;if(!known_exited(o->ticket.pid,&done)) {engine_failure(o,"settlement_unknown","original helper WNOWAIT unavailable");break;}if(done)break;
         if(engine_cancel_signal||engine_now(o,CLOCK_MONOTONIC)>=o->context->outer->deadline) {engine_failure(o,engine_cancel_signal?"cancelled":"deadline","original helper cancelled or deadline reached");break;}
         if(!engine_sample(o))break;
-        if(o->foreground) {if(!engine_pause(o))break;usleep(1000);continue;}
+        if(o->foreground) {if(!engine_pause(o)||!engine_events_service(o,1000000))break;continue;}
         if(o->paused&&!engine_resume(o))break;
         uint64_t now=engine_now(o,CLOCK_MONOTONIC);
         if(!o->sample_known||now==UINT64_MAX||now<o->last_sample_ns||now-o->last_sample_ns>ENGINE_SAMPLE_NS) {engine_failure(o,"coverage_unknown","live helper sample interval exceeded50ms");break;}
-        if(!engine_memory(o)||!engine_pipe_io(o)||!engine_checkpoint(o))break;
+        if(!engine_memory(o)||!engine_pipe_io(o)||!engine_events_service(o,1000000)||!engine_checkpoint(o))break;
     }
     if(o->ticket.pid>0)(void)engine_retire(o,status);
     else if(!o->native.attempted||o->native.error){engine_current=NULL;dispose_private_engine=NULL;}
@@ -3385,7 +3529,7 @@ prepared_done:
     if(!o->settlement_quarantined) {if(!o->failed)(void)engine_capture_drain(o);engine_close_transferred(o);}
     if(!o->failed&&!private_revalidate_context(o->context))engine_failure(o,private_error,private_detail);
     if(private_failed&&!o->failed)engine_failure(o,private_error,private_detail);
-    if(form==12&&o->verified_descendants!=1)return engine_failure(o,"coverage_unknown","signature lacks exactly one retained verifier");
+    if(form==12&&o->verified_descendants!=1)return engine_failure(o,"coverage_unknown",o->child_created?"signature lacks exactly one retained verifier":engine_missing_verifier_detail(o));
     return !o->failed;
 }
 

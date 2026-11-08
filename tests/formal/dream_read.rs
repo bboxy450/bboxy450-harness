@@ -2341,6 +2341,627 @@ fn helper_observer(control: u8, full_observer: bool) -> Model {
 
 
 
+/// Task66356: a disjoint finite protocol projection of the SAME helper owner.
+/// Profiles correlate a queued Darwin notification with a subsequent census;
+/// NOTE_FORK carries no child PID and notification counts are not birth counts.
+/// Native delivery/census/GS1/GS2/exit/wait4/clock success is not fair. The
+/// ordinary observation/FD unit retains its full abstract9x endpoint debt.
+/// Numeric budgets, native timing and exact GS1/GS2 byte/identity predicates
+/// remain the unchanged TotalBudget, HelperExec and GitSigTemp contracts.
+pub fn verifier_event_discovery(control: u8) -> Model {
+    let suffix = [
+        "",
+        "PollOnly",
+        "LateRegistration",
+        "EventAsProof",
+        "EarlyClose",
+        "SkipTerminalDrain",
+    ][control as usize];
+    let mut m = base(
+        &format!("DreamReadVerifierEvents{suffix}"),
+        control != 0,
+        &[
+            ("phase", 12, 0),
+            ("correlatedTimeline", 11, 0),
+            ("ownedKqueueFd", 1, 0),
+            ("kqueueClosed", 1, 0),
+            ("leaderRegistrationNoneSuccessFailure", 2, 0),
+            ("firstControlledRun", 1, 0),
+            ("queuedForkRecord", 1, 0),
+            ("queuedLeaderExecRecord", 1, 0),
+            ("leader_fork_events", 1, 0),
+            ("leader_exec_events", 1, 0),
+            ("censusUncheckedEmptyOneMultipleUnknown", 4, 0),
+            ("child_discovered_via", 2, 0),
+            ("immutableFirstDiscoveryCause", 2, 0),
+            ("childExecExitRegistration", 2, 0),
+            ("observedChildNotificationNoneExecExit", 2, 0),
+            ("retainedSourceBoundGs1", 1, 0),
+            ("actualOriginalExit", 1, 0),
+            ("actualOriginalOwnWait4", 1, 0),
+            ("positiveOriginalGroupGone", 1, 0),
+            ("retainedSourceBoundGs2", 1, 0),
+            ("verifierEvidenceAccepted", 1, 0),
+            ("refusalNoneCoverageNoVerifierMissedGs1", 4, 0),
+            ("fork_seen_child_missed", 1, 0),
+            ("freshOrdinaryDebtPending", 1, 0),
+            ("fullRetainedOrdinaryDebt", 9, 0),
+            ("ordinaryDebtActuallyPaid", 9, 0),
+            ("ownershipReleased", 1, 0),
+            ("sameOwnerQuarantine", 1, 0),
+            ("availableRecordsDrained", 1, 0),
+            ("forkRecordCensusPerformed", 1, 0),
+            ("kqueueCloseOnExec", 1, 0),
+            ("sourceQueuedForkRecord", 1, 0),
+        ],
+    );
+    const P: usize = 0;
+    const CASE: usize = 1;
+    const FD: usize = 2;
+    const CLOSED: usize = 3;
+    const REG: usize = 4;
+    const RUN: usize = 5;
+    const PENDING: usize = 6;
+    const EXEC_PENDING: usize = 7;
+    const FORKS: usize = 8;
+    const EXECS: usize = 9;
+    const CENSUS: usize = 10;
+    const VIA: usize = 11;
+    const FIRST: usize = 12;
+    const CHILD_REG: usize = 13;
+    const CHILD_NOTE: usize = 14;
+    const GS1: usize = 15;
+    const EXIT: usize = 16;
+    const REAP: usize = 17;
+    const GONE: usize = 18;
+    const GS2: usize = 19;
+    const PROOF: usize = 20;
+    const REFUSAL: usize = 21;
+    const MISSED: usize = 22;
+    const DEBT: usize = 23;
+    const DUE: usize = 24;
+    const PAID: usize = 25;
+    const RELEASE: usize = 26;
+    const QUAR: usize = 27;
+    const DRAINED: usize = 28;
+    const FORK_CENSUS: usize = 29;
+    const CLOEXEC: usize = 30;
+    const SOURCE_FORK: usize = 31;
+    // 1 fast fork+exit between polls, including leader exit before draining;
+    // 2 event discovers one child, 3 poll discovers first then fork notification;
+    // 4 never forks, 5 leader registration fails, 6 child registration fails;
+    // 7 GS1 fails, 8 unavailable native observation retains FD in quarantine;
+    // 9 leader EXEC record without fork, 10 child EXIT record without GS1;
+    // 11 multiple/unclosed child custody refuses and retains original owner.
+    for profile in 1..=11 {
+        act(
+            &mut m,
+            &format!("OwnCloseOnExecKqueueForTimeline{profile}"),
+            eq(P, 0),
+            &[
+                (P, Int(1)),
+                (CASE, Int(profile)),
+                (FD, Int(1)),
+                (CLOEXEC, Int(1)),
+                (DEBT, Int(1)),
+                (DUE, Int(9)),
+                (PAID, Int(0)),
+            ],
+        );
+        act(
+            &mut m,
+            &format!("RegisterLeaderForkExecExitBeforeRunning{profile}"),
+            all([eq(CASE, profile), eq(P, 1), eq(DEBT, 0)]),
+            &[
+                (P, Int(2)),
+                (REG, Int(if profile == 5 { 2 } else { 1 })),
+                (DEBT, Int(1)),
+                (DUE, Int(9)),
+                (PAID, Int(0)),
+            ],
+        );
+    }
+    act(
+        &mut m,
+        "ObserveEntireFreshOrdinaryRestEndpoint",
+        eq(DEBT, 1),
+        &[(DEBT, Int(0)), (PAID, Var(DUE))],
+    );
+    act(
+        &mut m,
+        "FirstControlledRunNeedsSuccessfulOriginalRegistration",
+        all([
+            eq(P, 2),
+            eq(DEBT, 0),
+            if control == 2 { Bool(true) } else { eq(REG, 1) },
+        ]),
+        &[(P, Int(3)), (RUN, Int(1)), (DEBT, Int(1)), (PAID, Int(0))],
+    );
+    act(
+        &mut m,
+        "RegistrationFailureRefusesWithoutControlledRun",
+        all([eq(P, 2), eq(REG, 2), eq(DEBT, 0)]),
+        &[(P, Int(8)), (REFUSAL, Int(1)), (DRAINED, Int(1))],
+    );
+    for profile in [1, 2, 3, 4, 6, 7, 9, 10, 11] {
+        let fork = i64::from(!matches!(profile, 4 | 9));
+        act(
+            &mut m,
+            &format!("SourceTimelineQueuesRecordsWithoutSupplyingChildPid{profile}"),
+            all([eq(CASE, profile), eq(P, 3), eq(DEBT, 0)]),
+            &[
+                (P, Int(4)),
+                (PENDING, Int(fork)),
+                (SOURCE_FORK, Int(fork)),
+                (EXEC_PENDING, Int(i64::from(profile == 9))),
+                (EXIT, Int(i64::from(profile == 1))),
+                (VIA, Int(i64::from(profile == 3))),
+                (FIRST, Int(i64::from(profile == 3))),
+                (CENSUS, Int(if profile == 3 { 2 } else { 0 })),
+                (DEBT, Int(1)),
+                (PAID, Int(0)),
+            ],
+        );
+    }
+    act(
+        &mut m,
+        "UnavailableEventObservationRetainsSameOwnerAndFd",
+        all([eq(CASE, 8), eq(P, 3), eq(DEBT, 0)]),
+        &[
+            (P, Int(12)),
+            (QUAR, Int(1)),
+            (REFUSAL, Int(1)),
+            (DEBT, Int(1)),
+            (PAID, Int(0)),
+        ],
+    );
+    act(
+        &mut m,
+        "DrainAvailableRecordsBeforeTerminalEarlyReturnOrCensus",
+        all([
+            eq(P, 4),
+            eq(DEBT, 0),
+            if control == 5 {
+                eq(CASE, 1).negate()
+            } else {
+                Bool(true)
+            },
+        ]),
+        &[
+            (P, Int(5)),
+            (FORKS, if control == 1 { Int(0) } else { Var(PENDING) }),
+            (EXECS, Var(EXEC_PENDING)),
+            (PENDING, Int(0)),
+            (EXEC_PENDING, Int(0)),
+            (DRAINED, Int(1)),
+            (DEBT, Int(1)),
+            (PAID, Int(0)),
+        ],
+    );
+    if control == 5 {
+        act(
+            &mut m,
+            "BrokenLeaderExitBypassesQueuedForkDrain",
+            all([eq(P, 4), eq(CASE, 1), eq(EXIT, 1), eq(DEBT, 0)]),
+            &[(P, Int(5)), (DEBT, Int(1)), (PAID, Int(0))],
+        );
+    }
+    for profile in [1, 2, 3, 4, 6, 7, 9, 10, 11] {
+        let one = matches!(profile, 2 | 3 | 6 | 7 | 10);
+        let empty = matches!(profile, 1 | 4 | 9);
+        for fork_seen in 0..=1 {
+            let cause = if profile == 3 {
+                1
+            } else if one && fork_seen == 1 {
+                2
+            } else if one {
+                1
+            } else {
+                0
+            };
+            act(
+                &mut m,
+                &format!("ImmediateExistingCensusTimeline{profile}ForkRecord{fork_seen}"),
+                all([
+                    eq(CASE, profile),
+                    eq(P, 5),
+                    eq(DEBT, 0),
+                    eq(FORKS, fork_seen),
+                ]),
+                &[
+                    (P, Int(if one { 6 } else { 8 })),
+                    (
+                        CENSUS,
+                        Int(if one {
+                            2
+                        } else if empty {
+                            1
+                        } else {
+                            3
+                        }),
+                    ),
+                    (VIA, Int(cause)),
+                    (FIRST, Int(cause)),
+                    (FORK_CENSUS, Int(fork_seen)),
+                    (MISSED, Int(i64::from(empty && fork_seen == 1))),
+                    (
+                        REFUSAL,
+                        Int(if empty {
+                            if fork_seen == 1 { 3 } else { 2 }
+                        } else if one {
+                            0
+                        } else {
+                            1
+                        }),
+                    ),
+                    (DEBT, Int(1)),
+                    (PAID, Int(0)),
+                ],
+            );
+        }
+    }
+    for profile in [2, 3, 6, 7, 10] {
+        act(
+            &mut m,
+            &format!("RegisterRetainedChildExecExitOnFirstAttachment{profile}"),
+            all([eq(CASE, profile), eq(P, 6), eq(DEBT, 0)]),
+            &[
+                (P, Int(7)),
+                (CHILD_REG, Int(if profile == 6 { 2 } else { 1 })),
+                (
+                    CHILD_NOTE,
+                    Int(if profile == 2 {
+                        1
+                    } else if profile == 10 {
+                        2
+                    } else {
+                        0
+                    }),
+                ),
+                (DEBT, Int(1)),
+                (PAID, Int(0)),
+            ],
+        );
+        act(
+            &mut m,
+            &format!("ExistingGs1StillNeedsActualRetainedVerifierEvidence{profile}"),
+            all([eq(CASE, profile), eq(P, 7), eq(DEBT, 0)]),
+            &[
+                (P, Int(8)),
+                (GS1, Int(i64::from(matches!(profile, 2 | 3)))),
+                (
+                    REFUSAL,
+                    Int(if profile == 6 {
+                        1
+                    } else if matches!(profile, 7 | 10) {
+                        4
+                    } else {
+                        0
+                    }),
+                ),
+                (DEBT, Int(1)),
+                (PAID, Int(0)),
+            ],
+        );
+    }
+    if control == 3 {
+        act(
+            &mut m,
+            "BrokenChildNotificationSubstitutesForGs1Gs2AndOwnReap",
+            all([eq(P, 7), eq(DEBT, 0), eq(CHILD_NOTE, 0).negate()]),
+            &[(PROOF, Int(1))],
+        );
+    }
+    if control == 4 {
+        act(
+            &mut m,
+            "BrokenCloseKqueueWhileOriginalEffectStillUnsettled",
+            all([eq(P, 3), eq(FD, 1), eq(DEBT, 0)]),
+            &[
+                (FD, Int(0)),
+                (CLOSED, Int(1)),
+                (DEBT, Int(1)),
+                (PAID, Int(0)),
+            ],
+        );
+    }
+    act(
+        &mut m,
+        "MultipleOrUnclosedChildCustodyKeepsOriginalQuarantine",
+        all([eq(P, 8), eq(CASE, 11), eq(DEBT, 0)]),
+        &[(P, Int(12)), (QUAR, Int(1)), (REFUSAL, Int(1))],
+    );
+    act(
+        &mut m,
+        "IndependentActualOriginalExitNotNotification",
+        all([eq(P, 8), eq(DEBT, 0), eq(CASE, 11).negate()]),
+        &[(P, Int(9)), (EXIT, Int(1)), (DEBT, Int(1)), (PAID, Int(0))],
+    );
+    act(
+        &mut m,
+        "ActualOriginalOwnWait4AndPositiveGroupSettlement",
+        all([
+            eq(P, 9),
+            eq(DEBT, 0),
+            eq(EXIT, 1),
+            if control == 5 {
+                Bool(true)
+            } else {
+                all([eq(DRAINED, 1), eq(PENDING, 0)])
+            },
+        ]),
+        &[
+            (P, Int(10)),
+            (REAP, Int(1)),
+            (GONE, Int(1)),
+            (DEBT, Int(1)),
+            (PAID, Int(0)),
+        ],
+    );
+    for gs1 in 0..=1 {
+        act(
+            &mut m,
+            &format!("ExistingGs2AfterActualLeaderSettlementGs1{gs1}"),
+            all([
+                eq(P, 10),
+                eq(DEBT, 0),
+                eq(GS1, gs1),
+                eq(REAP, 1),
+                eq(GONE, 1),
+            ]),
+            &[(P, Int(11)), (GS2, Int(gs1)), (PROOF, Int(gs1))],
+        );
+    }
+    act(
+        &mut m,
+        "ChargedKqueueCloseAfterOriginalEffectCannotAct",
+        all([eq(P, 11), eq(DEBT, 0), eq(REAP, 1), eq(GONE, 1)]),
+        &[
+            (P, Int(12)),
+            (FD, Int(0)),
+            (CLOSED, Int(1)),
+            (DEBT, Int(1)),
+            (PAID, Int(0)),
+        ],
+    );
+    act(
+        &mut m,
+        "ReleaseOnlyAfterPaidCloseAndActualSettlement",
+        all([
+            eq(P, 12),
+            eq(QUAR, 0),
+            eq(CLOSED, 1),
+            eq(DEBT, 0),
+            eq(REAP, 1),
+            eq(GONE, 1),
+            eq(RELEASE, 0),
+        ]),
+        &[(RELEASE, Int(1))],
+    );
+    safe(
+        &mut m,
+        "LeaderRegisteredBeforeFirstControlledRun",
+        eq(RUN, 0).or(eq(REG, 1)),
+    );
+    safe(
+        &mut m,
+        "FastForkIsMissedRefusalRatherThanNoVerifier",
+        all([
+            Var(P)
+                .lt(Int(8))
+                .or(eq(CENSUS, 1).negate())
+                .or(eq(SOURCE_FORK, 0))
+                .or(all([eq(MISSED, 1), eq(REFUSAL, 3)])),
+            eq(MISSED, 0).or(all([eq(VIA, 0), eq(GS1, 0), eq(PROOF, 0)])),
+        ]),
+    );
+    safe(
+        &mut m,
+        "QueuedForkDrainedAndCensusedBeforeActualReap",
+        eq(REAP, 0).or(all([
+            eq(DRAINED, 1),
+            eq(PENDING, 0),
+            eq(SOURCE_FORK, 0).or(eq(FORK_CENSUS, 1)),
+        ])),
+    );
+    safe(
+        &mut m,
+        "EventsNeverReplaceActualVerifierGs1Gs2OrSettlement",
+        eq(PROOF, 0).or(all([
+            eq(CENSUS, 2),
+            eq(CHILD_REG, 1),
+            eq(GS1, 1),
+            eq(GS2, 1),
+            eq(REAP, 1),
+            eq(GONE, 1),
+        ])),
+    );
+    safe(
+        &mut m,
+        "KqueueRetainedUntilActualOriginalSettlement",
+        eq(P, 0).or(eq(FD, 1).or(all([eq(REAP, 1), eq(GONE, 1)]))),
+    );
+    safe(
+        &mut m,
+        "FirstDiscoveryCauseIsImmutable",
+        Var(VIA).eq(Var(FIRST)),
+    );
+    safe(
+        &mut m,
+        "ActualGs1RequiresRegisteredRetainedSingleVerifier",
+        eq(GS1, 0).or(all([eq(CENSUS, 2), eq(CHILD_REG, 1), eq(VIA, 0).negate()])),
+    );
+    safe(
+        &mut m,
+        "KqueueIsCloseOnExecAndObservationDebtIsWhole",
+        all([
+            eq(P, 0).or(eq(CLOEXEC, 1)),
+            eq(DEBT, 0).or(all([eq(DUE, 9), eq(PAID, 0)])),
+        ]),
+    );
+    safe(
+        &mut m,
+        "ReleaseNeedsFullPaidCloseAndActualSettlement",
+        eq(RELEASE, 0).or(all([
+            eq(CLOSED, 1),
+            eq(FD, 0),
+            eq(REAP, 1),
+            eq(GONE, 1),
+            eq(DEBT, 0),
+            eq(PAID, 9),
+            eq(QUAR, 0),
+        ])),
+    );
+    m
+}
+
+#[cfg(test)]
+mod verifier_event_discovery_tests {
+    use super::*;
+
+    #[test]
+    fn queued_fork_discovery_preserves_custody_diagnostics_and_all_causal_controls() {
+        let good = verifier_event_discovery(0).check(100_000).unwrap();
+        println!(
+            "HarnessDreamReadVerifierEvents: {} states",
+            good.states.len()
+        );
+        assert!(good.violations.is_empty(), "{:?}", good.violations);
+        for profile in [2, 3] {
+            assert!(
+                good.states.iter().any(|s| s[1] == profile
+                    && s[20] == 1
+                    && s[15] == 1
+                    && s[19] == 1
+                    && s[17] == 1
+                    && s[26] == 1
+                    && s[9] == 0
+                    && s[11] == if profile == 3 { 1 } else { 2 }),
+                "retained verifier uses existing GS1/GS2; initial leader EXEC event is unnecessary"
+            );
+        }
+        assert!(
+            good.states.iter().any(|s| s[1] == 1
+                && s[16] == 1
+                && s[6] == 1
+                && s[8] == 0
+                && s[28] == 0
+                && s[2] == 1
+                && s[17] == 0),
+            "positive original exit cannot bypass the queued fast-fork record"
+        );
+        assert!(
+            good.states.iter().any(|s| s[1] == 1
+                && s[22] == 1
+                && s[21] == 3
+                && s[17] == 1
+                && s[18] == 1
+                && s[26] == 1
+                && s[20] == 0
+                && s[27] == 0),
+            "missed-verifier refusal may physically settle without inventing custody or trust"
+        );
+        for profile in [4, 9] {
+            assert!(
+                good.states.iter().any(|s| s[1] == profile
+                    && s[21] == 2
+                    && s[22] == 0
+                    && s[20] == 0
+                    && s[26] == 1),
+                "never-fork and leader-EXEC-only give created-no-verifier, not missed"
+            );
+        }
+        assert!(
+            good.states.iter().any(|s| s[1] == 5
+                && s[4] == 2
+                && s[5] == 0
+                && s[21] == 1
+                && s[26] == 1),
+            "failed registration refuses before controlled run"
+        );
+        assert!(
+            good.states.iter().any(|s| s[1] == 6
+                && s[13] == 2
+                && s[15] == 0
+                && s[21] == 1
+                && s[26] == 1),
+            "child registration failure never supplies GS1"
+        );
+        assert!(
+            good.states.iter().any(|s| s[1] == 7
+                && s[15] == 0
+                && s[21] == 4
+                && s[20] == 0
+                && s[26] == 1),
+            "event discovery does not waive failed GS1"
+        );
+        assert!(
+            good.states.iter().any(|s| s[1] == 10
+                && s[14] == 2
+                && s[16] == 0
+                && s[17] == 0
+                && s[15] == 0
+                && s[2] == 1),
+            "child EXIT notification supplies neither actual original exit/reap nor GS1"
+        );
+        for profile in [8, 11] {
+            assert!(
+                good.states.iter().any(|s| s[1] == profile
+                    && s[27] == 1
+                    && s[2] == 1
+                    && s[3] == 0
+                    && s[26] == 0
+                    && s[20] == 0),
+                "unavailable observation or unclosed child custody retains same owner and FD"
+            );
+        }
+        let expected = [
+            "FastForkIsMissedRefusalRatherThanNoVerifier",
+            "LeaderRegisteredBeforeFirstControlledRun",
+            "EventsNeverReplaceActualVerifierGs1Gs2OrSettlement",
+            "KqueueRetainedUntilActualOriginalSettlement",
+            "QueuedForkDrainedAndCensusedBeforeActualReap",
+        ];
+        for (index, property) in expected.into_iter().enumerate() {
+            let model = verifier_event_discovery((index + 1) as u8);
+            let result = model.check(100_000).unwrap();
+            println!("{}: {} states", model.name, result.states.len());
+            assert!(
+                result.violations.iter().any(|v| v.property == property),
+                "{} must causally violate {property}",
+                model.name
+            );
+            match index + 1 {
+                1 => assert!(result.states.iter().any(|s| s[1] == 1
+                    && s[31] == 1
+                    && s[8] == 0
+                    && s[21] == 2
+                    && s[22] == 0)),
+                2 => assert!(result.states.iter().any(|s| s[4] == 2 && s[5] == 1)),
+                3 => assert!(
+                    result
+                        .states
+                        .iter()
+                        .any(|s| s[14] != 0 && s[20] == 1 && s[15] == 0 && s[17] == 0)
+                ),
+                4 => assert!(
+                    result
+                        .states
+                        .iter()
+                        .any(|s| s[2] == 0 && s[3] == 1 && s[17] == 0 && s[5] == 1)
+                ),
+                5 => assert!(
+                    result
+                        .states
+                        .iter()
+                        .any(|s| s[1] == 1 && s[6] == 1 && s[28] == 0 && s[17] == 1)
+                ),
+                _ => unreachable!(),
+            }
+        }
+    }
+}
+
 /// Conditional foreground-pause/current-incarnation refinement. It starts
 /// from an actually observed paused clone, not mandatory suspended birth.
 /// Resume and exec invalidate old control receipts; retained old tokens are

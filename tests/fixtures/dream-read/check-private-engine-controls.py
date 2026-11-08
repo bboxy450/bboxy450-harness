@@ -31,10 +31,16 @@ VALIDATED = (b'if(!engine_owner_priority()||!engine_pretest_current(context)'
 # is re-labelled as a current pass.
 LEDGERS = ('hold-ledger.ndjson', 'hold-control-success', 'claim.json', 'charge-diagnostic.ndjson',
            'admitted-descriptor', 'retained-descriptor', 'deadline-result/stdout', 'deadline-result/result.json',
-           *(f'total-{i}.ndjson' for i in range(23)), *(f'live-race-{i}' for i in range(16,23)), 'rollup-2', 'rollup-2-terminal', 'rollup-2-release', 'release-6',
+           *(f'total-{i}.ndjson' for i in range(26)), *(f'live-race-{i}' for i in range(16,23)), *(f'event-release-{i}' for i in range(23,26)), 'rollup-2', 'rollup-2-terminal', 'rollup-2-release', 'release-6',
            *(f'pause-{i}-{phase}' for i in (9,10) for phase in ('start','done','release')),
            *('diagnostic-' + str(i) + '/' + name for i in range(4) for name in ('stderr', 'stdout', 'result.json')))
 ASSERTIONS = {
+ 'verifier-pre-registration-run': b'actual leader registration and owned close-on-exec queue precede first controlled continuation',
+ 'verifier-event-as-proof': b'fast scripted between-poll fork notification produces distinct honest missed-verifier refusal',
+ 'verifier-skip-terminal-drain': b'actual queued leader fork survives child reap and terminal precheck before census',
+ 'verifier-poll-only': b'actual queued leader fork survives child reap and terminal precheck before census',
+ 'verifier-ignore-registration': b'failed leader event registration refuses coverage before any controlled continuation and still settles original effect',
+ 'verifier-early-queue-close': b'owned event queue cannot close before original physical settlement',
  'live-sample-closing-no-rescue': b'closing TASKALLINFO ESRCH reuses the same qualified original terminal rescue',
  'live-sample-errno-as-exit': b'ESRCH while exact original remains live never substitutes errno for terminal proof',
  'live-sample-no-recheck': b'ESRCH after injected original exit rechecks qualified terminal proof and settles successfully',
@@ -280,6 +286,16 @@ def variants(source):
     result = {}
     def add(name, anchor, replacement, args):
         result[name] = (changed(source, anchor, replacement), args)
+    add('verifier-pre-registration-run', b'!engine_events_register(o,0,raw.pid)', b'0', ['verifier-event-control', '0'])
+    add('verifier-event-as-proof', b'o->leader_fork_events++;o->fork_census_pending=1;',
+        b'o->leader_fork_events++;o->fork_census_pending=1;o->verified_descendants++;', ['verifier-event-api'])
+    add('verifier-skip-terminal-drain', b'static int engine_events_service(struct engine_owner *o,uint64_t wait_ns) {',
+        b'static int engine_events_service(struct engine_owner *o,uint64_t wait_ns) {int terminal=0;if(known_exited(o->ticket.pid,&terminal)&&terminal)return 1;', ['verifier-event-control', '0'])
+    add('verifier-poll-only', b'if(event->fflags&NOTE_FORK)', b'if(0&&(event->fflags&NOTE_FORK))', ['verifier-event-control', '0'])
+    add('verifier-ignore-registration', b'if(result!=0)return engine_failure(o,"coverage_unknown","process event registration failed");',
+        b'if(0&&result!=0)return engine_failure(o,"coverage_unknown","process event registration failed");', ['verifier-event-control', '2'])
+    add('verifier-early-queue-close', b'if(o->ticket.pid>0&&(!o->direct_reaped||!o->result->group_gone))return engine_failure(o,"settlement_unknown","process event queue retained until original ownreap and groupgone");',
+        b'if(0&&o->ticket.pid>0&&(!o->direct_reaped||!o->result->group_gone))return engine_failure(o,"settlement_unknown","process event queue retained until original ownreap and groupgone");', ['verifier-event-api'])
     add('live-sample-closing-no-rescue', b'if(!control_observe(pid,&closing)) {\n        int read_error=errno;\n        if(engine_sample_terminal_after_error(owner,i,pid,read_error))return 1;',
         b'if(!control_observe(pid,&closing)) {\n        int read_error=errno;\n        if(0&&engine_sample_terminal_after_error(owner,i,pid,read_error))return 1;', ['live-sample-race-control', '6'])
     add('live-sample-errno-as-exit', b'if(engine_member_terminal(owner,i))return 1;', b'return 1;', ['live-sample-race-control', '5'])
@@ -363,9 +379,9 @@ def variants(source):
 
 
 def retain_current(stdout, report):
-    found=re.findall(rb'private_engine_controls=pass cases=79 total_budget_controls=8 synthetic_source_known=true real_candidate_created=0 runtime_approved=false retained=(/private/tmp/dream-private-engine-controls\.[A-Za-z0-9]+)\n',stdout)
+    found=re.findall(rb'private_engine_controls=pass cases=83 total_budget_controls=8 synthetic_source_known=true real_candidate_created=0 runtime_approved=false retained=(/private/tmp/dream-private-engine-controls\.[A-Za-z0-9]+)\n',stdout)
     if len(found)!=1:
-        raise ValueError('current fixture lacks exact79 remaining controls and eight total-budget witnesses')
+        raise ValueError('current fixture lacks exact83 remaining controls and eight total-budget witnesses')
     if os.fsdecode(found[0]) != report['commands'][-1]['fixture_capture']['source_dir']:
         raise ValueError('completed fixture root differs from original command binding')
     modes=re.findall(rb'private_total_budget_control_source_known mode=([0-9]+) original_pid=([0-9]+) actual_own_wait4=1 group_gone=1 terminal_cpu_ns=([0-9]+)',stdout)
@@ -399,7 +415,19 @@ def retain_current(stdout, report):
     if sorted((int(m),int(code)) for m,code in race_rows)!=[(0,0),(1,81),(2,81),(3,81),(4,81),(5,81),(6,0)]:
         raise ValueError('first-read ESRCH race cases lack complete original ownwait4 and group settlement')
     report['live_read_race_controls']={'modes':{'0':'actual gated original exits after first precheck; supplied readESRCH; qualified terminal recheck','1':'supplied foreign birth still coverage_unknown','2':'supplied mismatched full audit token still coverage_unknown','3':'nonESRCH EIO never retries despite actual terminal proof','4':'successful TASKALLINFO then injected clock failure sanitizes staleESRCH','5':'ESRCH on still-live exact original requires actual terminal proof and refuses','6':'actual exit injected at closing TASKALLINFO uses same rescue'},'actual_original_wait4_and_groupgone':True,'actual_OS_read_result_and_applied_fault_separate':True,'rescue_sites':['first TASKALLINFO','closing TASKALLINFO'],'successful_closing_lineage_and_QoS_checks':'unchanged','terminal_fields_changed':False,'real_candidate_created':0}
-    report['baseline_cases']=79
+    event_rows=re.findall(rb'private_verifier_event_completed_source_known mode=([0-2]) actual_own_wait4=1 group_gone=1 expected_exit=81',stdout)
+    if sorted(map(int,event_rows))!=[0,1,2]:
+        raise ValueError('three actual original event-discovery refusals lack complete settlement')
+    if stdout.count(b'private_verifier_event_api_source_known scripted_child_lifetime_ns=100000 notifications_coalesce=true native_process=false actual_queue_lifetime=true runtime_approved=false\n')!=1:
+        raise ValueError('scripted submillisecond event/census API or actual queue-lifetime witness missing')
+    report['verifier_event_controls']={'scripted_between_poll_child_lifetime_ns':100000,'scripted_times_are_OS_claims':False,
+        'owned_process_modes':{'0':'actual fork and child reap before census; actual queued event yields honest missed-verifier refusal',
+                               '1':'actual never-fork leader; distinct created-no-verifier refusal',
+                               '2':'injected registration EIO before CONT; actual original effect settled'},
+        'notifications_are_birth_counts':False,'GS1_or_whole_lifetime_proof_from_events':False,
+        'queue':'actual CLOEXEC fd retained until original ownwait4/groupgone and charged close',
+        'terminal_fields_changed':False,'ledger_fields':{'leader_fork_events':'u64','leader_exec_events':'u64','child_discovered_via':'none|poll|fork_event','fork_seen_child_missed':'bool'}}
+    report['baseline_cases']=83
     marker=b'private_total_retained_guard_source_known api=true supplied_clock_and_identity_values=true native_process=false runtime_approved=false\n'
     if stdout.count(marker)!=1:
         raise ValueError('current retained-clock/child production API witness missing or duplicated')
@@ -447,6 +475,13 @@ def verify(directory, inputs, report, total_only=False):
         expect(code,0,'owned closing TASKALLINFO terminal rescue')
         if b'private_live_sample_race_completed_source_known mode=6 actual_own_wait4=1 group_gone=1 expected_exit=0' not in stdout:
             raise ValueError('closing sample rescue lacks its actual original owner completion')
+    if not total_only:
+        for mode in range(3):
+            code,stdout,stderr=run([str(program),'verifier-event-control',str(mode)],current,'verifier-event-refusal-'+str(mode),report,fixture=True)
+            expect(code,81,'owned event-discovery refusal '+str(mode))
+            marker=(f'private_verifier_event_completed_source_known mode={mode} actual_own_wait4=1 group_gone=1 expected_exit=81').encode()
+            if marker not in stdout or b'probe refused:' in stderr:
+                raise ValueError('event refusal lacks its intended diagnostic and original owner cleanup')
     all_variants=variants(source)
     selected={k:v for k,v in all_variants.items() if not total_only or k.startswith('total-')}
     for name,(changed_source,args) in selected.items():

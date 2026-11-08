@@ -32,7 +32,7 @@ static void fixture_reset_cost(void) {
     source_known_tail_over_cpu=source_known_final_kill_eperm=source_known_terminal_rss_unavailable=0;
     source_known_taskall_pid=0;source_known_taskall_error=source_known_taskall_clock_failure=0;
     source_known_taskall_native_result=source_known_taskall_native_errno=0;source_known_before_live_read=NULL;source_known_live_rechecks=0;source_known_live_read_error=0;
-    source_known_process_create_case=0;source_known_flow_stage=source_known_flow_failure_stage=0;memset(&source_known_flow_failure_cost,0,sizeof(source_known_flow_failure_cost));
+    source_known_event_registration_failure=0;source_known_process_create_case=0;source_known_flow_stage=source_known_flow_failure_stage=0;memset(&source_known_flow_failure_cost,0,sizeof(source_known_flow_failure_cost));
 }
 static void fixture_cleanup(void) {
     struct engine_owner *o=fixture_live_owner;if(!o||o->ticket.pid<=0)return;
@@ -824,25 +824,28 @@ static int fixture_total_argument(unsigned mode,const char *root,char argument[4
     if(mode==9||mode==10)n=snprintf(argument,4097,"%s/pause-%u-start",root,mode);
     else if(mode==2||mode==6)n=snprintf(argument,4097,"%s/%s-%u",root,mode==2?"rollup":"release",mode);
     else if(mode>=16&&mode<=22)n=snprintf(argument,4097,"%s/live-race-%u",root,mode);
+    else if(mode>=23&&mode<=25)n=snprintf(argument,4097,"%s/event-release-%u",root,mode);
     else n=snprintf(argument,4097,"%llu",(unsigned long long)(mode==1?260000000:mode==3?500000000:mode==5?500000000:3000000));
     if(n<=0||n>=4097)return 0;
     if(mode==2)n=snprintf(release,4097,"%s-release",argument);
-    else if(mode==6||(mode>=16&&mode<=22))n=snprintf(release,4097,"%s",argument);
+    else if(mode==6||(mode>=16&&mode<=25))n=snprintf(release,4097,"%s",argument);
     else return 1;
     return n>0&&n<4097;
 }
 static int total_spawn(struct engine_owner *o,struct private_engine_result *r,const char *self,int dir,unsigned mode,const char *root) {
     memset(o,0,sizeof(*o));memset(r,0,sizeof(*r));reset();fixture(dir);
     source_known_process_create_case=mode>=13&&mode<=15?mode-12:0;
-    o->context=&context;o->result=r;o->slots=mode==2?2:1;o->source_admitted=1;o->controller_parent=getppid();
+    source_known_event_registration_failure=mode==25;
+    o->context=&context;o->result=r;o->slots=(mode==2||mode==23||mode==24)?2:1;o->source_admitted=1;o->controller_parent=getppid();
     o->input=o->output=o->errors=-1;o->ledger=-1;o->capture=malloc(ENGINE_CAPTURE_MAX);require(o->capture!=NULL,"bounded total-budget fixture capture");
     fixture_live_owner=o;fixture_release_path[0]=0;
     char ledger[48];snprintf(ledger,sizeof(ledger),"total-%u.ndjson",mode);o->ledger=openat(dir,ledger,O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,0600);require(o->ledger>=0,"owned total-budget fixture ledger");
     struct engine_prepared p;memset(&p,0,sizeof(p));for(unsigned i=0;i<2;i++)p.input[i]=p.output[i]=p.errors[i]=-1;
     strcpy(p.image,self);strcpy(p.descendant,self);strcpy(p.cwd,root);strcpy(o->image,self);strcpy(o->descendant,self);
-    const char *kind=mode==2?"rollup-child":(mode==6||(mode>=16&&mode<=22))?"held-child":mode==7?"exit-child":mode==8?"rss-child":mode==12?"long-wall-cpu-child":(mode==9||mode==10)?"pause-bypass-child":"burn-child";
+    const char *kind=(mode==23||mode==24)?"event-gated-leader":mode==2?"rollup-child":(mode==6||(mode>=16&&mode<=22)||mode==25)?"held-child":mode==7?"exit-child":mode==8?"rss-child":mode==12?"long-wall-cpu-child":(mode==9||mode==10)?"pause-bypass-child":"burn-child";
     char argument[4097];require(fixture_total_argument(mode,root,argument,fixture_release_path),"bounded fixture argument and exact original release path");
     require(engine_put(&p,self,&p.argv[p.argc++])&&engine_put(&p,kind,&p.argv[p.argc++])&&engine_put(&p,argument,&p.argv[p.argc++]),"bounded source-known helper argv");
+    if(mode==23||mode==24)require(engine_put(&p,mode==23?"fork":"none",&p.argv[p.argc++]),"bounded source-known event leader choice");
     if(mode==9||mode==10){char path[4097];snprintf(path,sizeof(path),"%s/pause-%u-done",root,mode);require(engine_put(&p,path,&p.argv[p.argc++]),"bounded actual pause done marker");snprintf(path,sizeof(path),"%s/pause-%u-release",root,mode);require(engine_put(&p,path,&p.argv[p.argc++]),"bounded actual pause release marker");strcpy(fixture_release_path,path);}
     p.argv[p.argc]=NULL;
     require(engine_put(&p,"PATH=/usr/bin:/bin",&p.env[p.envc++])&&engine_put(&p,"LANG=C",&p.env[p.envc++]),"bounded source-known helper environment");p.env[p.envc]=NULL;
@@ -1147,6 +1150,93 @@ static int live_sample_race_control(const char *self,const char *root,int dir,un
     return mode&&mode!=6?81:0;
 }
 
+// Deterministic production-API trace: child lifetime100us lies strictly
+// between polling instants. These supplied times are NOT OS timing claims.
+// The separate owned process cases below use actual kqueue notifications.
+static void verifier_event_api(void) {
+    reset();struct engine_owner o;struct private_engine_result r;memset(&o,0,sizeof(o));memset(&r,0,sizeof(r));o.context=&context;o.result=&r;
+    o.ticket.pid=getpid();o.slots=2;
+    const uint64_t previous_poll=1000000,fork_at=1100000,exit_at=1200000,next_poll=10000000;
+    require(previous_poll<fork_at&&fork_at<exit_at&&exit_at<next_poll&&exit_at-fork_at<1000000,"scripted fast verifier is absent at both finite poll instants");
+    struct kevent event;EV_SET(&event,(uintptr_t)o.ticket.pid,EVFILT_PROC,0,NOTE_FORK|NOTE_EXEC|NOTE_EXIT,999999,NULL);
+    require(engine_event_note(&o,&event),"coalesced original leader proc notification is accepted without child PID inference");
+    unsigned via=o.fork_census_pending?2:1;o.fork_census_pending=0;
+    int census=engine_census(&o,via,0);
+    require(!census&&o.leader_fork_events==1&&o.leader_exec_events==1&&o.fork_seen_child_missed
+        &&!o.child_created&&!o.members[1].state.pid&&!o.verified_descendants&&!r.created&&!r.reaped
+        &&!strcmp(private_detail,"verifier forked and exited before census"),
+        "fast scripted between-poll fork notification produces distinct honest missed-verifier refusal");
+    require(private_end_unit(private_cost.open_cpu),"scripted notification and actual empty census CPU fully paid");
+    reset();memset(&o,0,sizeof(o));o.context=&context;o.result=&r;
+    require(!strcmp(engine_missing_verifier_detail(&o),"signature leader created no verifier"),"no observed fork retains distinct created-no-verifier refusal");
+    // FIRST cause is retained; a later fork event cannot relabel an already
+    // admitted polling discovery. The notification alone creates no member.
+    o.ticket.pid=getpid();o.members[1].state.pid=123;o.child_discovered_via=1;
+    require(engine_event_note(&o,&event)&&o.child_discovered_via==1&&!o.child_created,"later fork notification never relabels first polling discovery or invents a birth");
+    require(!engine_event_note(&o,&(struct kevent){.ident=999999,.filter=EVFILT_PROC,.fflags=NOTE_EXIT}),"foreign process notification is not retained identity or settlement evidence");
+    require(private_end_unit(private_cost.open_cpu),"event API independent predicates fully paid");
+    reset();memset(&o,0,sizeof(o));memset(&r,0,sizeof(r));o.context=&context;o.result=&r;
+    int queue=kqueue();require(queue>=0&&fcntl(queue,F_SETFD,FD_CLOEXEC)==0,"event lifetime API owns one actual close-on-exec queue");
+    o.event_fd=queue;o.event_fd_live=1;o.ticket.pid=getpid();
+    require(!engine_events_close(&o)&&o.event_fd_live&&!o.event_close_attempted&&fcntl(queue,F_GETFD)>=0,"owned event queue cannot close before original physical settlement");
+    require(private_end_unit(private_cost.open_cpu),"event close refusal actual cost paid before supplied settlement");
+    o.direct_reaped=1;r.group_gone=1;
+    require(engine_events_close(&o)&&!o.event_fd_live&&o.event_close_attempted&&!o.event_close_errno,"event queue closes once only after supplied ownreap and groupgone API premises");
+    require(private_end_unit(private_cost.open_cpu),"actual event queue close is charged and paid");
+    printf("private_verifier_event_api_source_known scripted_child_lifetime_ns=100000 notifications_coalesce=true native_process=false actual_queue_lifetime=true runtime_approved=false\n");
+    require(fflush(stdout)==0&&private_end_unit(private_cost.open_cpu),"event API marker fully paid");controls++;reset();
+}
+static void verifier_event_leader(const char *gate,int forks) {
+    while(access(gate,F_OK)!=0)usleep(1000);
+    if(forks) {
+        pid_t child=fork();if(child<0)_exit(77);if(!child)_exit(0);
+        int status=0;pid_t got;do{got=waitpid(child,&status,0);}while(got<0&&errno==EINTR);
+        if(got!=child||!WIFEXITED(status)||WEXITSTATUS(status))_exit(77);
+    }
+    _exit(0);
+}
+static int verifier_event_control(const char *self,const char *root,int dir,unsigned mode) {
+    require(mode<3,"three owned verifier notification controls");
+    struct engine_owner o;struct private_engine_result r;int status=-1;
+    int born=total_spawn(&o,&r,self,dir,23+mode,root);source_known_event_registration_failure=0;
+    struct private_git_sig_temp missing_sig;memset(&missing_sig,0,sizeof(missing_sig));missing_sig.scratch_fd=missing_sig.signature_fd=missing_sig.transient_fd=-1;
+    if(mode!=2)o.command=12;
+    if(mode==1)o.git_signature=&missing_sig; // No real GS1 descriptor: GS2 must still refuse independently.
+    unsigned registered=o.event_registered_mask,held_before=o.event_fd_live;int queue=o.event_fd;
+    int missed_fork_observed=0;
+    if(mode!=2) {
+        int flags=held_before?fcntl(queue,F_GETFD):-1;
+        require(born&&registered==1&&held_before&&flags>=0&&(flags&FD_CLOEXEC),"actual leader registration and owned close-on-exec queue precede first controlled continuation");
+        fixture_touch(fixture_release_path);await_original(&o);
+        int observed=engine_events_service(&o,0);
+        if(!mode)missed_fork_observed=!observed&&o.leader_fork_events&&o.fork_seen_child_missed&&!o.child_created
+            &&!strcmp(private_detail,"verifier forked and exited before census");
+        else {
+            require(observed&&!o.leader_fork_events&&!o.fork_seen_child_missed&&!o.child_created,"actual never-fork leader has no invented verifier notification");
+        }
+    }
+    (void)engine_retire(&o,&status);
+    int settled=o.direct_reaped&&o.wait_observed&&r.group_gone&&r.retired_coverage&&!engine_current;
+    if(settled)fixture_live_owner=NULL;
+    require(settled&&o.helper_cost_retained&&o.helper_cost_paid&&private_cost.debt==private_cost.debt_paid
+        &&!o.event_fd_live&&o.event_close_attempted&&!o.event_close_errno,
+        "event refusal retains original owner through actual ownwait4 groupgone full CPU debt and paid queue close");
+    printf("private_verifier_event_axis_source_known mode=%u original_pid=%d actual_own_wait4=%u group_gone=%u leader_fork_events=%llu leader_exec_events=%llu fork_seen_child_missed=%u registered_mask=%u registration_errno=%d queue_held_before=%u close_attempted=%u close_errno=%d helper_CPU_ns=%llu helper_debt_delta_ns=%llu debt_ns=%llu paid_ns=%llu runtime_approved=false\n",
+        mode,o.ticket.pid,o.direct_reaped,r.group_gone,(unsigned long long)o.leader_fork_events,(unsigned long long)o.leader_exec_events,o.fork_seen_child_missed,registered,o.event_register_errno[0],held_before,o.event_close_attempted,o.event_close_errno,(unsigned long long)o.terminal_cpu_ns,(unsigned long long)o.helper_debt_delta_ns,(unsigned long long)private_cost.debt,(unsigned long long)private_cost.debt_paid);
+    require(fflush(stdout)==0&&private_end_unit(private_cost.open_cpu),"event refusal raw evidence fully paid");
+    if(!mode)require(missed_fork_observed,"actual queued leader fork survives child reap and terminal precheck before census");
+    if(mode==2)require(!born&&!registered&&held_before&&o.event_register_errno[0]==EIO&&!o.activation_ns&&private_errors[2].count,
+        "failed leader event registration refuses coverage before any controlled continuation and still settles original effect");
+    else if(mode==1)require(o.failed&&private_errors[2].count&&private_errors[7].count
+        &&!strcmp(r.error_detail,"signature leader created no verifier")&&missing_sig.quarantined,
+        "never-fork actual leader keeps created-no-verifier detail before independent missing-GS1 GS2 refusal");
+    else require(o.failed&&private_errors[2].count&&!o.verified_descendants,"missed real fork never claims verifier retention GS1 or whole-lifetime coverage");
+    engine_close_transferred(&o);require(close(o.ledger)==0,"event refusal original ledger close");free(o.capture);
+    require(private_end_unit(private_cost.open_cpu),"event refusal original disposal fully paid");controls++;
+    printf("private_verifier_event_completed_source_known mode=%u actual_own_wait4=1 group_gone=1 expected_exit=81 runtime_approved=false\n",mode);
+    require(fflush(stdout)==0&&private_end_unit(private_cost.open_cpu),"event refusal completion fully paid");return 81;
+}
+
 static void process_create_policy_api(void) {
     reset();
     require(native_budget_allowed(NATIVE_PROCESS_CREATE,500000,34000000,600000,100000)
@@ -1251,6 +1341,7 @@ static void total_retained_guard_api(void) {
     reset();controls++;printf("private_total_retained_guard_source_known api=true supplied_clock_and_identity_values=true native_process=false runtime_approved=false\n");
 }
 int main(int argc,char **argv) {
+    if(argc==4&&!strcmp(argv[1],"event-gated-leader"))verifier_event_leader(argv[2],!strcmp(argv[3],"fork"));
     if(argc==5&&!strcmp(argv[1],"pause-bypass-child")){pause_bypass_child(argv[2],argv[3],argv[4]);}
     if(argc==3&&!strcmp(argv[1],"rss-child")){size_t n=20u*1024u*1024u;volatile unsigned char *m=malloc(n);if(!m)_exit(77);for(size_t i=0;i<n;i+=4096)m[i]=1;_exit(0);}
     if(argc==2&&!strcmp(argv[1],"hold-gated-child")){char byte;ssize_t n=read(STDIN_FILENO,&byte,1);_exit(n==1?0:79);}
@@ -1274,7 +1365,9 @@ int main(int argc,char **argv) {
     unsigned native_api=argc==2&&!strcmp(argv[1],"process-create-policy-api");
     unsigned native_case=argc==3&&!strcmp(argv[1],"process-create-wall-control")?(unsigned)strtoul(argv[2],NULL,10):3;
     unsigned race_case=argc==3&&!strcmp(argv[1],"live-sample-race-control")?(unsigned)strtoul(argv[2],NULL,10):7;
-    require(argc==1||selected<12||diagnostics||setup||deadline||cpu_debt||expand||native_api||native_case<3||race_case<7||hold||flow||result_only||charge||boundary||retained,"private source-known controls argc");
+    unsigned event_api=argc==2&&!strcmp(argv[1],"verifier-event-api");
+    unsigned event_case=argc==3&&!strcmp(argv[1],"verifier-event-control")?(unsigned)strtoul(argv[2],NULL,10):3;
+    require(argc==1||selected<12||diagnostics||setup||deadline||cpu_debt||expand||native_api||native_case<3||race_case<7||event_api||event_case<3||hold||flow||result_only||charge||boundary||retained,"private source-known controls argc");
     require(atexit(dispose_owned)==0,"owned cleanup registration");
     char root[]="/private/tmp/dream-private-engine-controls.XXXXXX";require(mkdtemp(root)!=NULL,"owned fixture directory");
     int dir=open(root,O_RDONLY|O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC);require(dir>=0,"owned fixture root");
@@ -1305,6 +1398,8 @@ int main(int argc,char **argv) {
     if(retained){total_retained_guard_api();require(close(dir)==0,"owned retained guard API root close");return 0;}
     if(selected<12){total_control(self,root,dir,selected);require(close(dir)==0,"owned narrow fixture root close");return 0;}
     if(diagnostics){terminal_diagnostic_controls(dir);require(close(dir)==0,"owned diagnostic root close");return 0;}
+    if(event_api){verifier_event_api();require(close(dir)==0,"owned event API root close");return 0;}
+    if(event_case<3){int code=verifier_event_control(self,root,dir,event_case);require(close(dir)==0,"owned event control root close");return code;}
     if(race_case<7){int code=live_sample_race_control(self,root,dir,race_case);require(close(dir)==0,"owned live race root close");return code;}
     if(native_api){process_create_policy_api();require(close(dir)==0,"owned native policy API root close");return 0;}
     if(native_case<3){int code=process_create_wall_control(self,root,dir,native_case);require(close(dir)==0,"owned native policy process root close");return code;}
@@ -1318,6 +1413,8 @@ int main(int argc,char **argv) {
     process_create_policy_api();
     for(unsigned mode=0;mode<3;mode++)(void)process_create_wall_control(self,root,dir,mode);
     for(unsigned mode=0;mode<7;mode++)(void)live_sample_race_control(self,root,dir,mode);
+    verifier_event_api();
+    for(unsigned mode=0;mode<3;mode++)(void)verifier_event_control(self,root,dir,mode);
     total_boundary_api();
     total_retained_guard_api();
     quarantine_hold_process_control(self,root,dir);
