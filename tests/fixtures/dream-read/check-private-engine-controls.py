@@ -39,6 +39,11 @@ LEDGERS = ('final-conjunction-controls.ndjson', 'member-peak-census/total-6.ndjs
            *(f'pause-{i}-{phase}' for i in (9,10) for phase in ('start','done','release')),
            *('diagnostic-' + str(i) + '/' + name for i in range(4) for name in ('stderr', 'stdout', 'result.json')))
 ASSERTIONS = {
+ 'total-stopped-old-raw-gap': b'stable ACKed stop over50ms retains raw gap and admits both bounded running sides',
+ 'total-stopped-no-ACK': b'unACKed STOP earns no cadence exclusion even with supplied stable counters',
+ 'total-stopped-ignore-SYSTEM': b'SYSTEM growth invalidates the immutable ACK counter seal',
+ 'total-stopped-return-gap': b'post-resume RI query-return overshoot refuses and preserves every raw endpoint',
+ 'total-stopped-no-fresh-end': b'resume without a fresh stopped RI endpoint cannot supply stopped credit',
  'member-peak-drop-admission': b'actual same-wake retained-live peak reaches final conjunction after full original settlement',
  'final-conjunction-drop-term': b'final conjunction ledger contains every boolean term and first failing name',
  'custody-stop-ignore-current-RI': b'fresh current RI and sticky admission state gate the one verifier custody STOP',
@@ -84,7 +89,7 @@ ASSERTIONS = {
  'total-unknown-rss': b'unknown terminal RSS stays unavailable while full known wait4 CPU debt is paid',
  'total-negative-rss-as-zero': b'negative terminal RSS API remains unknown rather than zero or a finite breach',
  'total-terminal-rss': b'actual terminal wait4 RSS above16MiB refuses after ownreap and full CPU payment',
- 'total-sample-gap': b'known live and paused RI start gaps over50ms refuse without resetting prior evidence',
+ 'total-sample-gap': b'known running and unACKed paused RI gaps over50ms refuse without resetting prior evidence',
  'total-rest-slice': b'absolute-debt rest loop requests at most one millisecond per sleep',
  'total-ri-return-gap': b'RI-return API retains old begin through forty plus twenty milliseconds',
  'total-terminal-leader-skip-child': b'terminal leader API cannot skip required retained-member group kill',
@@ -331,6 +336,14 @@ def variants(source):
     result = {}
     def add(name, anchor, replacement, args):
         result[name] = (changed(source, anchor, replacement), args)
+    add('total-stopped-old-raw-gap', b'if(running_gap==UINT64_MAX||running_gap>ENGINE_SAMPLE_NS)',
+        b'if(gap==UINT64_MAX||gap>ENGINE_SAMPLE_NS)', ['stopped-gap-api'])
+    add('total-stopped-no-ACK', b'!(o->pause_ack_mask&bit)', b'0', ['stopped-gap-api'])
+    add('total-stopped-ignore-SYSTEM', b'return before!=UINT64_MAX&&after==before;',
+        b'(void)before;(void)after;return 1;', ['stopped-gap-api'])
+    add('total-stopped-return-gap', b'int pass=engine_sample_gap(o,ended);if(!pass)o->ri_gap_failed_mask|=bit;return pass;',
+        b'int pass=1;if(!pass)o->ri_gap_failed_mask|=bit;return pass;', ['stopped-gap-api'])
+    add('total-stopped-no-fresh-end', b'||resume_end<resume_begin', b'||0', ['stopped-gap-api'])
     add('member-peak-drop-admission', b'o->members[i].live_admitted=1;',
         b'if(i)return;o->members[i].live_admitted=1;', ['same-wake-admission-control'])
     add('final-conjunction-drop-term', b'n=snprintf(bytes+used,capacity-used,"\\\"%s\\\":%s,",engine_final_term_names[i],c->term[i]?"true":"false");',
@@ -406,7 +419,7 @@ def variants(source):
     add('total-stale-settlement-unknown', b'if(o->group_kill_pending) {o->group_kill_raced_exit=1;o->group_kill_pending=0;}',
         b'if(o->group_kill_pending) {o->group_kill_raced_exit=1;o->group_kill_pending=0;engine_failure(o,"settlement_unknown","mutant stale terminal unknown");}', ['total-control', '7'])
     add('total-terminal-rss', b'||(rss_known&&o->wait_rss>ENGINE_HELPER_RSS))', b'||0)', ['total-control', '8'])
-    add('total-sample-gap', b'gap>ENGINE_SAMPLE_NS', b'0', ['total-boundary-api'])
+    add('total-sample-gap', b'running_gap>ENGINE_SAMPLE_NS', b'0', ['total-boundary-api'])
     add('total-rest-slice', b'static uint64_t private_rest_slice_ns(uint64_t remaining) {return remaining>1000000?1000000:remaining;}', b'static uint64_t private_rest_slice_ns(uint64_t remaining) {return remaining;}', ['total-boundary-api'])
     add('total-ri-return-gap', b'int pass=engine_sample_gap(o,ended);if(!pass)o->ri_gap_failed_mask|=bit;return pass;', b'int pass=1;if(!pass)o->ri_gap_failed_mask|=bit;return pass;', ['total-retained-guard-api'])
     add('total-terminal-leader-skip-child', b'static int engine_final_kill_required(int original_terminal,int members_terminal) {return !(original_terminal&&members_terminal);}', b'static int engine_final_kill_required(int original_terminal,int members_terminal) {(void)members_terminal;return !original_terminal;}', ['total-retained-guard-api'])
@@ -478,10 +491,36 @@ def child_exit_witness_receipt(stdout):
             'scope':'actual source-known process/knote/rollup/accounting; GS1 admission supplied, no installed tool qualification'}
 
 
+def stopped_cadence_receipt(stdout):
+    rows=re.findall(rb'^private_stopped_gap_process_source_known ([^\n]+)\n',stdout,re.MULTILINE)
+    if len(rows)!=1:raise ValueError('actual positively stopped cadence process receipt missing or duplicated')
+    pairs=[part.split(b'=',1) for part in rows[0].split()]
+    if any(len(p)!=2 for p in pairs) or len({p[0] for p in pairs})!=len(pairs):
+        raise ValueError('stopped cadence receipt has malformed or duplicate fields')
+    row=dict(pairs)
+    names=('original_pid','ack_ns','ack_RI_begin_ns','ack_RI_return_ns','resume_RI_begin_ns','resume_RI_return_ns',
+        'resume_signal_ns','ACK_USER_raw','end_USER_raw','ACK_SYSTEM_raw','end_SYSTEM_raw','stopped_interval_ns',
+        'raw_gap_max_ns','running_gap_max_ns','helper_CPU_ns','helper_debt_delta_ns','debt_ns','paid_ns')
+    if any(not re.fullmatch(rb'[0-9]+',row.get(k.encode(),b'')) for k in names):
+        raise ValueError('stopped cadence numeric endpoints/counters unavailable')
+    n={k:int(row[k.encode()]) for k in names}
+    required={b'actual_own_wait4':b'1',b'group_gone':b'1',b'original_FD_closed':b'true',
+        b'native_process':b'true',b'installed_tool_qualification':b'false',b'runtime_approved':b'false'}
+    if (any(row.get(k)!=v for k,v in required.items()) or not n['original_pid']
+            or not 0<n['ack_ns']<=n['ack_RI_begin_ns']<=n['ack_RI_return_ns']<=n['resume_RI_begin_ns']<=n['resume_RI_return_ns']<=n['resume_signal_ns']
+            or n['ACK_USER_raw']!=n['end_USER_raw'] or n['ACK_SYSTEM_raw']!=n['end_SYSTEM_raw']
+            or n['stopped_interval_ns']!=n['resume_signal_ns']-n['ack_ns'] or n['stopped_interval_ns']<=50000000
+            or n['raw_gap_max_ns']<=50000000 or n['running_gap_max_ns']>50000000
+            or n['helper_debt_delta_ns']!=9*max(1000000,n['helper_CPU_ns']) or n['debt_ns']!=n['paid_ns']):
+        raise ValueError('actual stopped cadence lacks stable USER/SYSTEM, exact ACK/resume cut, bounded running sides or full paid settlement')
+    return dict(n,scope='actual owned STOP/RI/resume/ownwait4/groupgone; no installed tool qualification',
+        ledger_fields={'stopped_interval_ns':'u64','running_gap_max_ns':'u64'},runtime_approved=False)
+
+
 def retain_current(stdout, report):
-    found=re.findall(rb'private_engine_controls=pass cases=108 total_budget_controls=8 synthetic_source_known=true real_candidate_created=0 runtime_approved=false retained=(/private/tmp/dream-private-engine-controls\.[A-Za-z0-9]+)\n',stdout)
+    found=re.findall(rb'private_engine_controls=pass cases=109 total_budget_controls=8 synthetic_source_known=true real_candidate_created=0 runtime_approved=false retained=(/private/tmp/dream-private-engine-controls\.[A-Za-z0-9]+)\n',stdout)
     if len(found)!=1:
-        raise ValueError('current fixture lacks exact108 remaining controls and eight total-budget witnesses')
+        raise ValueError('current fixture lacks exact109 remaining controls and eight total-budget witnesses')
     if os.fsdecode(found[0]) != report['commands'][-1]['fixture_capture']['source_dir']:
         raise ValueError('completed fixture root differs from original command binding')
     modes=re.findall(rb'private_total_budget_control_source_known mode=([0-9]+) original_pid=([0-9]+) actual_own_wait4=1 group_gone=1 terminal_cpu_ns=([0-9]+)',stdout)
@@ -629,7 +668,12 @@ def retain_current(stdout, report):
         'ledger_bool_terms':list(FINAL_TERMS),'first_failure_field':'first_failing_term:string',
         'snapshot_cutoff':'before_this_diagnostic_format_write_fsync_close','writer_tail_all_costs_paid_before_completion':True,
         'API_rows':3,'source_known_full15_integration_variants':[0,3],'runtime_approved':False}
-    report['baseline_cases']=108
+    report['baseline_cases']=109
+    report['stopped_cadence_actual_process']=stopped_cadence_receipt(stdout)
+    stopped_api=b'private_stopped_gap_API_source_known cases=14 stopped_raw_gap_ns=130000000 stopped_running_gap_ns=20000000 exact_each_side_ns=50000000 no_ACK_refused=true running_over50_refused=true USER_SYSTEM_growth_refused=true query_return_overshoot_refused=true raw_endpoints_retained=true native_process=false values_supplied=true OS_timing_claimed=false runtime_approved=false\n'
+    if stdout.count(stopped_api)!=1:raise ValueError('fourteen supplied stopped/running cadence API guards missing or duplicated')
+    report['stopped_cadence_API']={'cases':14,'scope':'supplied clocks/ACK state/USER/SYSTEM and actual production interval predicates; no native signal or OS timing claim',
+        'old_raw_gap_over_refusal_control':True,'no_ACK_running_USER_SYSTEM_fresh_end_and_query_return_guards':True,'native_process':False,'runtime_approved':False}
     marker=b'private_total_retained_guard_source_known api=true supplied_clock_and_identity_values=true native_process=false runtime_approved=false\n'
     if stdout.count(marker)!=1:
         raise ValueError('current retained-clock/child production API witness missing or duplicated')
@@ -651,8 +695,11 @@ def verify(directory, inputs, report, total_only=False):
             expect(code,0,'current total-budget mode'+str(mode))
             if (f'private_total_budget_control_source_known mode={mode} ').encode() not in stdout:
                 raise ValueError('missing actual total-budget witness'+str(mode))
+            if mode==5:report['stopped_cadence_actual_process']=stopped_cadence_receipt(stdout)
         code,stdout,_=run([str(program),'total-retained-guard-api'],current,'retained-guard-api',report,fixture=True)
         expect(code,0,'current retained-clock/child production API')
+        code,stdout,_=run([str(program),'stopped-gap-api'],current,'stopped-gap-api',report,fixture=True)
+        expect(code,0,'current stopped/running cadence production API')
     else:
         code,stdout,stderr=run([str(program)],current,'controls',report,fixture=True)
         expect(code,0,'current remaining source-known controls')

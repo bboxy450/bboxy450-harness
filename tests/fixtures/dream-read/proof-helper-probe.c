@@ -2419,6 +2419,7 @@ struct engine_member {
     uint64_t user,system,child_user,child_system,exit_abstime,ri_started_ns,terminal_observed_ns;
     uint32_t exit_status;unsigned exit_status_known,attachment_stop,attachment_ready;
     unsigned exit_note_received,exit_note_witness,terminal_ri_non_esrch;
+    uint64_t stopped_ri_ack_ns; // Positive stopped observation BEFORE this sample's RI read.
 };
 struct engine_prepared {
     char bytes[ENGINE_ARGS_MAX],*argv[65],*env[12];size_t used;
@@ -2462,6 +2463,11 @@ struct engine_owner {
     uint64_t ri_previous_ns[2],ri_begin_ns[2],ri_end_ns[2];
     unsigned ri_previous_mask,ri_begin_mask,ri_end_mask,ri_gap_failed_mask;
     uint64_t pause_started_ns,pause_ack_ns,pause_user[2],pause_resume_ns,pause_rolled_user;
+    uint64_t pause_system[2],pause_observed_system[2],pause_member_ack_ns[2];
+    uint64_t pause_ack_ri_begin_ns[2],pause_ack_ri_end_ns[2],pause_resume_ri_begin_ns[2],pause_resume_ri_end_ns[2];
+    uint64_t pause_validated_ri_end_ns[2],pause_kill_ns,stopped_interval_ns,running_gap_ns,running_gap_max_ns;
+    uint64_t gap_failed_previous_ns[2],gap_failed_observed_ns,gap_failed_raw_ns[2],gap_failed_running_ns[2];
+    unsigned pause_counter_known_mask,pause_system_violation;
     uint64_t pause_observed_user[2],pause_user_baseline_ns,pause_terminal_user_ns,pause_user_excess_ns;
     unsigned pause_ack_mask,pause_baseline_known,pause_live_checked,pause_terminal_checked,pause_user_pass,pause_user_violation,pause_resume_admitted;
     unsigned pause_stop_attempted,pause_resume_attempted,pause_pending;
@@ -2490,6 +2496,7 @@ static int engine_retire(struct engine_owner *,int *);
 static int engine_pretest_current(const struct private_engine_context *);
 static int engine_kill_group(struct engine_owner *);
 static int engine_sample_gap(struct engine_owner *,uint64_t);
+static uint64_t engine_running_interval(const struct engine_owner *,unsigned,uint64_t,uint64_t);
 static int engine_ri_begin(struct engine_owner *,unsigned,uint64_t);
 static int engine_ri_end(struct engine_owner *,unsigned,uint64_t);
 static int engine_physical_exit(const struct engine_incarnation *);
@@ -2691,7 +2698,7 @@ static int engine_events_poll(struct engine_owner *o,uint64_t wait_ns) {
     if(wait_ns&&o->activation_ns&&!o->direct_reaped) {
         if(!engine_sample_gap(o,now))return 0;
         for(unsigned i=0;i<2;i++)if(o->members[i].state.pid&&o->members[i].phase!=ENGINE_EXITED&&o->members[i].ri_started_ns) {
-            uint64_t age=engine_interval(o->members[i].ri_started_ns,now);
+            uint64_t age=engine_running_interval(o,i,o->members[i].ri_started_ns,now);
             uint64_t left=age<ENGINE_SAMPLE_NS?ENGINE_SAMPLE_NS-age:0;if(wait_ns>left)wait_ns=left;
         }
     }
@@ -2814,6 +2821,18 @@ static int engine_pause_live_user(struct engine_owner *o,unsigned i,uint64_t use
     }
     o->pause_user_pass=!o->pause_user_violation;return !o->pause_user_violation;
 }
+// A stopped interval is usable only after a fresh RI inside an observed
+// stopped epoch. USER and SYSTEM are exact raw counters, never rounded debt.
+static int engine_pause_system_allowed(uint64_t before,uint64_t after) {return before!=UINT64_MAX&&after==before;}
+static int engine_pause_live_system(struct engine_owner *o,unsigned i,uint64_t system) {
+    if(!(o->pause_ack_mask&(1u<<i))||o->pause_resume_attempted||o->group_kill_attempted)return 1;
+    o->pause_observed_system[i]=system;
+    if(!engine_pause_system_allowed(o->pause_system[i],system)) {
+        o->pause_system_violation=1;o->pause_counter_known_mask&=~(1u<<i);
+        return engine_failure(o,"resource_limit","system CPU changed across observed stopped interval");
+    }
+    return 1;
+}
 static int engine_capture_pause_user(struct engine_owner *o) {
     if(o->pause_baseline_known)return 1;
     if(!(o->pause_ack_mask&1))return 1; // A retained exit alone makes no live-user ACK promise.
@@ -2822,6 +2841,7 @@ static int engine_capture_pause_user(struct engine_owner *o) {
     o->pause_baseline_known=1;return 1;
 }
 static int engine_terminal_pause_user(struct engine_owner *o) {
+    if(o->pause_system_violation)return 0;
     if(o->pause_resume_admitted||!o->pause_ack_mask)return !o->pause_user_violation;
     if(!o->pause_baseline_known)return engine_failure(o,"coverage_unknown","partial pause ACK lacks an immutable terminal user baseline");
     o->pause_terminal_checked=1;o->pause_terminal_user_ns=o->wait_user;
@@ -2840,7 +2860,8 @@ static int engine_usage(struct engine_owner *owner,unsigned i,const struct rusag
     m->state.start_absolute=u->ri_proc_start_abstime;m->user=u->ri_user_time;m->system=u->ri_system_time;
     m->child_user=u->ri_child_user_time;m->child_system=u->ri_child_system_time;m->exit_abstime=u->ri_proc_exit_abstime;
     for(unsigned j=0;j<owner->retired_count;j++)if(owner->retired[j].pid==m->state.pid&&owner->retired[j].current&&owner->retired[j].token.val[7]==m->token.val[7])owner->retired[j].start=m->state.start_absolute;
-    return engine_pause_live_user(owner,i,m->user);
+    int user_pass=engine_pause_live_user(owner,i,m->user),system_pass=engine_pause_live_system(owner,i,m->system);
+    return user_pass&&system_pass;
 }
 static int engine_child_note_terminal(struct engine_owner *owner,int ri_error,int token_gone) {
     struct engine_member *m=&owner->members[1];
@@ -2998,6 +3019,15 @@ static int engine_sample_member(struct engine_owner *owner,unsigned i,pid_t pid)
     if(closing.birth!=current.birth||closing.ppid!=current.ppid||closing.pgid!=current.pgid||closing.uid!=current.uid||closing.threads!=1||closing.runnable>1)return engine_failure(owner,"coverage_unknown","post-RI member identity continuity unavailable");
     if(!engine_priority(owner,i,&closing))return 0;
     m->state.status=closing.status;m->state.runnable=closing.runnable;m->state.rss=closing.rss;
+    // The opening positive ACK precedes RI; the closing read corroborates
+    // that the SAME epoch stayed stopped. A closing-only STOP needs the next
+    // fresh sample, rather than calling its earlier running RI an ACK sample.
+    m->stopped_ri_ack_ns=current.status==SSTOP&&current.runnable==0&&closing.status==SSTOP&&closing.runnable==0
+        &&current.observed_at&&current.observed_at!=UINT64_MAX&&ri_started>=current.observed_at
+        &&owner->ri_end_ns[i]>=ri_started&&closing.observed_at>=owner->ri_end_ns[i]?current.observed_at:0;
+    if((owner->pause_ack_mask&(1u<<i))&&!owner->pause_resume_attempted&&!owner->group_kill_attempted
+        &&m->stopped_ri_ack_ns&&!owner->pause_system_violation&&!owner->pause_user_violation)
+        owner->pause_validated_ri_end_ns[i]=owner->ri_end_ns[i];
     if((owner->pause_ack_mask&(1u<<i))&&!owner->pause_resume_admitted&&(closing.status!=SSTOP||closing.runnable!=0)) {
         owner->pause_user_violation=1;owner->pause_user_pass=0;return engine_failure(owner,"resource_limit","positive pause ACK member resumed without current admission");
     }
@@ -3056,6 +3086,7 @@ static int engine_kill_group(struct engine_owner *owner) {
     }
     if(owner->child_created&&!owner->child_rollup_known&&owner->members[1].phase!=ENGINE_EXITED)
         (void)engine_child_unproven(owner,"final kill touches a retained live child whose CPU is not proven in leader wait4");
+    owner->pause_kill_ns=engine_now(owner,CLOCK_MONOTONIC); // Ends exclusion before any final-kill effect.
     owner->group_kill_attempted=1;errno=0;int raw;
 #ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
     if(source_known_final_kill_eperm){raw=-1;errno=EPERM;}else {raw=kill(-owner->ticket.pgid,SIGKILL);}
@@ -3073,20 +3104,73 @@ static int engine_cpu_ticks(uint64_t raw,uint64_t *out) {
     mach_timebase_info_data_t t;if(mach_timebase_info(&t)!=KERN_SUCCESS||!t.numer||!t.denom)return 0;
     __uint128_t n=(__uint128_t)raw*t.numer;__uint128_t v=n/t.denom+(n%t.denom!=0);if(v>UINT64_MAX)return 0;*out=(uint64_t)v;return 1;
 }
+// Raw RI endpoints remain unchanged. Only the intersection with this member's
+// positively observed, counter-stable STOP is removed from RUNNING age. No
+// sent-only signal, clock reset, wait4 residual or saved idle can supply it.
+static uint64_t engine_running_interval(const struct engine_owner *o,unsigned i,uint64_t start,uint64_t end) {
+    uint64_t raw=engine_interval(start,end);unsigned bit=1u<<i;
+    if(raw==UINT64_MAX||!(o->pause_ack_mask&bit)||!(o->pause_counter_known_mask&bit)
+        ||o->pause_user_violation||o->pause_system_violation)return raw;
+    uint64_t ack=o->pause_member_ack_ns[i],begin=o->pause_ack_ri_begin_ns[i],returned=o->pause_ack_ri_end_ns[i];
+    if(!ack||ack==UINT64_MAX||begin<ack||returned<begin||returned==UINT64_MAX
+        ||o->pause_user[i]==UINT64_MAX||o->pause_observed_user[i]!=o->pause_user[i]
+        ||o->pause_system[i]==UINT64_MAX||o->pause_observed_system[i]!=o->pause_system[i])return raw;
+    uint64_t stopped_end=end;
+    if(o->pause_resume_attempted) {
+        uint64_t resume_begin=o->pause_resume_ri_begin_ns[i],resume_end=o->pause_resume_ri_end_ns[i];
+        if(!o->pause_resume_ns||o->pause_resume_ns==UINT64_MAX||resume_begin<returned
+            ||resume_end<resume_begin||resume_end==UINT64_MAX||resume_end>o->pause_resume_ns)return raw;
+        if(stopped_end>o->pause_resume_ns)stopped_end=o->pause_resume_ns;
+    }
+    if(o->group_kill_attempted) {if(!o->pause_kill_ns||o->pause_kill_ns==UINT64_MAX)return raw;if(stopped_end>o->pause_kill_ns)stopped_end=o->pause_kill_ns;}
+    uint64_t stopped_start=start>ack?start:ack;
+    if(stopped_end<=stopped_start)return raw;
+    // These are TWO independently bounded running sides, not a banked
+    // total duration. An RI query returning51ms after resume still fails.
+    uint64_t before=stopped_start-start,after=end-stopped_end;
+    return before>after?before:after;
+}
+static void engine_stopped_interval_record(struct engine_owner *o) {
+    if(!o->pause_ack_ns||o->pause_ack_ns==UINT64_MAX||!o->pause_ack_mask)return;
+    uint64_t end=UINT64_MAX;
+    for(unsigned i=0;i<2;i++)if(o->members[i].state.pid&&o->members[i].phase!=ENGINE_EXITED
+        &&!(o->pause_ack_mask&(1u<<i)))return;
+    for(unsigned i=0;i<2;i++)if(o->pause_ack_mask&(1u<<i)) {
+        if(!(o->pause_counter_known_mask&(1u<<i)))return;
+        uint64_t observed=o->pause_validated_ri_end_ns[i];if(!observed||observed==UINT64_MAX)return;
+        if(observed<end)end=observed;
+    }
+    // On admitted resume the actual signal cutoff follows the last fully
+    // corroborated stopped RI. Failed/never-resumed records claim only the
+    // common interval through the latest independently validated RI samples.
+    if(o->pause_resume_admitted)end=o->pause_resume_ns;
+    if(o->group_kill_attempted&&o->pause_kill_ns<end)end=o->pause_kill_ns;
+    if(end>=o->pause_ack_ns&&end!=UINT64_MAX&&end-o->pause_ack_ns>o->stopped_interval_ns)o->stopped_interval_ns=end-o->pause_ack_ns;
+}
 static int engine_sample_gap(struct engine_owner *o,uint64_t now) {
-    if(now==UINT64_MAX){o->sample_gap_ns=o->max_sample_gap_ns=UINT64_MAX;return engine_failure(o,"clock_unknown","RI unit beginning clock unknown");}
+    if(now==UINT64_MAX){o->sample_gap_ns=o->max_sample_gap_ns=o->running_gap_ns=o->running_gap_max_ns=UINT64_MAX;return engine_failure(o,"clock_unknown","RI unit beginning clock unknown");}
     if(!o->activation_ns||o->direct_reaped)return 1;
     if(o->sample_gap_checks==UINT64_MAX)return engine_failure(o,"clock_unknown","RI sample-gap counter overflow");o->sample_gap_checks++;
-    uint64_t gap=0;
+    uint64_t gap=0,running_gap=0,raw[2]={0},running[2]={0};
     for(unsigned i=0;i<2;i++)if(o->members[i].state.pid&&o->members[i].phase!=ENGINE_EXITED) {
         uint64_t start=o->members[i].ri_started_ns;
         // A newly discovered child gets its first actual read in this unit;
-        // an existing live/paused member never resets its prior raw start.
+        // an existing live member never resets its prior raw start.
         if(!start&&i&&o->members[i].phase==ENGINE_UNSEEN)continue;
-        uint64_t value=start?engine_interval(start,now):UINT64_MAX;if(value>gap)gap=value;
+        raw[i]=start?engine_interval(start,now):UINT64_MAX;
+        running[i]=start?engine_running_interval(o,i,start,now):UINT64_MAX;
+        if(raw[i]>gap)gap=raw[i];if(running[i]>running_gap)running_gap=running[i];
     }
     o->sample_gap_ns=gap;if(gap>o->max_sample_gap_ns)o->max_sample_gap_ns=gap;
-    if(gap==UINT64_MAX||gap>ENGINE_SAMPLE_NS){(void)engine_kill_group(o);return engine_failure(o,"resource_limit","observed live or paused RI start gap exceeds50ms");}
+    o->running_gap_ns=running_gap;if(running_gap>o->running_gap_max_ns)o->running_gap_max_ns=running_gap;
+    engine_stopped_interval_record(o);
+    if(running_gap==UINT64_MAX||running_gap>ENGINE_SAMPLE_NS) {
+        if(!o->gap_failed_observed_ns) {
+            o->gap_failed_observed_ns=now;
+            for(unsigned i=0;i<2;i++){o->gap_failed_previous_ns[i]=o->members[i].ri_started_ns;o->gap_failed_raw_ns[i]=raw[i];o->gap_failed_running_ns[i]=running[i];}
+        }
+        (void)engine_kill_group(o);return engine_failure(o,"resource_limit","observed running RI start gap exceeds50ms");
+    }
     return 1;
 }
 static int engine_ri_begin(struct engine_owner *o,unsigned i,uint64_t begin) {
@@ -3319,11 +3403,11 @@ static int engine_failed_record(struct engine_owner *o) {
     return engine_write_record(o,line,n);
 }
 static int engine_pause_record(struct engine_owner *o) {
-    char line[1024];int n=snprintf(line,sizeof(line),"{\"kind\":\"pause_user_and_terminal_rss\",\"ack_mask\":%u,\"baseline_known\":%u,\"ack_user_raw\":[%llu,%llu],\"observed_user_raw\":[%llu,%llu],\"baseline_user_ns\":%llu,\"terminal_user_ns\":%llu,\"user_excess_ns\":%llu,\"wait4_user_resolution_ns\":1000,\"live_checked\":%u,\"terminal_checked\":%u,\"pause_user_pass\":%u,\"sticky_violation\":%u,\"resume_admitted\":%u,\"rss_native_raw\":%lld,\"rss_known\":%u,\"rss_test_withheld\":%u,\"runtime_approved\":false}\n",o->pause_ack_mask,o->pause_baseline_known,(unsigned long long)o->pause_user[0],(unsigned long long)o->pause_user[1],(unsigned long long)o->pause_observed_user[0],(unsigned long long)o->pause_observed_user[1],(unsigned long long)o->pause_user_baseline_ns,(unsigned long long)o->pause_terminal_user_ns,(unsigned long long)o->pause_user_excess_ns,o->pause_live_checked,o->pause_terminal_checked,o->pause_user_pass,o->pause_user_violation,o->pause_resume_admitted,(long long)o->wait_rss_native_raw,o->wait_rss_known,o->wait_rss_test_withheld);
+    char line[2304];int n=snprintf(line,sizeof(line),"{\"kind\":\"pause_user_and_terminal_rss\",\"ack_mask\":%u,\"baseline_known\":%u,\"ack_ns\":%llu,\"member_ack_ns\":[%llu,%llu],\"ack_RI_begin_ns\":[%llu,%llu],\"ack_RI_return_ns\":[%llu,%llu],\"resume_RI_begin_ns\":[%llu,%llu],\"resume_RI_return_ns\":[%llu,%llu],\"resume_signal_ns\":%llu,\"final_kill_signal_ns\":%llu,\"counter_known_mask\":%u,\"ack_system_raw\":[%llu,%llu],\"observed_system_raw\":[%llu,%llu],\"system_violation\":%u,\"ack_user_raw\":[%llu,%llu],\"observed_user_raw\":[%llu,%llu],\"baseline_user_ns\":%llu,\"terminal_user_ns\":%llu,\"user_excess_ns\":%llu,\"wait4_user_resolution_ns\":1000,\"live_checked\":%u,\"terminal_checked\":%u,\"pause_user_pass\":%u,\"sticky_violation\":%u,\"resume_admitted\":%u,\"rss_native_raw\":%lld,\"rss_known\":%u,\"rss_test_withheld\":%u,\"runtime_approved\":false}\n",o->pause_ack_mask,o->pause_baseline_known,(unsigned long long)o->pause_ack_ns,(unsigned long long)o->pause_member_ack_ns[0],(unsigned long long)o->pause_member_ack_ns[1],(unsigned long long)o->pause_ack_ri_begin_ns[0],(unsigned long long)o->pause_ack_ri_begin_ns[1],(unsigned long long)o->pause_ack_ri_end_ns[0],(unsigned long long)o->pause_ack_ri_end_ns[1],(unsigned long long)o->pause_resume_ri_begin_ns[0],(unsigned long long)o->pause_resume_ri_begin_ns[1],(unsigned long long)o->pause_resume_ri_end_ns[0],(unsigned long long)o->pause_resume_ri_end_ns[1],(unsigned long long)o->pause_resume_ns,(unsigned long long)o->pause_kill_ns,o->pause_counter_known_mask,(unsigned long long)o->pause_system[0],(unsigned long long)o->pause_system[1],(unsigned long long)o->pause_observed_system[0],(unsigned long long)o->pause_observed_system[1],o->pause_system_violation,(unsigned long long)o->pause_user[0],(unsigned long long)o->pause_user[1],(unsigned long long)o->pause_observed_user[0],(unsigned long long)o->pause_observed_user[1],(unsigned long long)o->pause_user_baseline_ns,(unsigned long long)o->pause_terminal_user_ns,(unsigned long long)o->pause_user_excess_ns,o->pause_live_checked,o->pause_terminal_checked,o->pause_user_pass,o->pause_user_violation,o->pause_resume_admitted,(long long)o->wait_rss_native_raw,o->wait_rss_known,o->wait_rss_test_withheld);
     return engine_write_record(o,line,n);
 }
 static int engine_ri_record(struct engine_owner *o) {
-    char line[1024];int n=snprintf(line,sizeof(line),"{\"kind\":\"retained_RI_interval\",\"previous_begin_ns\":[%llu,%llu],\"current_begin_ns\":[%llu,%llu],\"current_return_ns\":[%llu,%llu],\"previous_valid_mask\":%u,\"begin_valid_mask\":%u,\"return_valid_mask\":%u,\"sticky_gap_failed_mask\":%u,\"max_sample_gap_ns\":%llu,\"runtime_approved\":false}\n",(unsigned long long)o->ri_previous_ns[0],(unsigned long long)o->ri_previous_ns[1],(unsigned long long)o->ri_begin_ns[0],(unsigned long long)o->ri_begin_ns[1],(unsigned long long)o->ri_end_ns[0],(unsigned long long)o->ri_end_ns[1],o->ri_previous_mask,o->ri_begin_mask,o->ri_end_mask,o->ri_gap_failed_mask,(unsigned long long)o->max_sample_gap_ns);
+    char line[1024];int n=snprintf(line,sizeof(line),"{\"kind\":\"retained_RI_interval\",\"previous_begin_ns\":[%llu,%llu],\"current_begin_ns\":[%llu,%llu],\"current_return_ns\":[%llu,%llu],\"previous_valid_mask\":%u,\"begin_valid_mask\":%u,\"return_valid_mask\":%u,\"sticky_gap_failed_mask\":%u,\"max_sample_gap_ns\":%llu,\"first_failed_check_ns\":%llu,\"first_failed_previous_begin_ns\":[%llu,%llu],\"first_failed_raw_gap_ns\":[%llu,%llu],\"first_failed_running_gap_ns\":[%llu,%llu],\"runtime_approved\":false}\n",(unsigned long long)o->ri_previous_ns[0],(unsigned long long)o->ri_previous_ns[1],(unsigned long long)o->ri_begin_ns[0],(unsigned long long)o->ri_begin_ns[1],(unsigned long long)o->ri_end_ns[0],(unsigned long long)o->ri_end_ns[1],o->ri_previous_mask,o->ri_begin_mask,o->ri_end_mask,o->ri_gap_failed_mask,(unsigned long long)o->max_sample_gap_ns,(unsigned long long)o->gap_failed_observed_ns,(unsigned long long)o->gap_failed_previous_ns[0],(unsigned long long)o->gap_failed_previous_ns[1],(unsigned long long)o->gap_failed_raw_ns[0],(unsigned long long)o->gap_failed_raw_ns[1],(unsigned long long)o->gap_failed_running_ns[0],(unsigned long long)o->gap_failed_running_ns[1]);
     return engine_write_record(o,line,n);
 }
 static int engine_child_record(struct engine_owner *o) {
@@ -3342,9 +3426,9 @@ static int engine_event_record(struct engine_owner *o) {
     return engine_write_record(o,line,n);
 }
 static int engine_record(struct engine_owner *o,const char *phase) {
-    char bytes[3072];int n=snprintf(bytes,sizeof(bytes),"{\"kind\":\"helper_total_budget\",\"decision\":66280,\"phase\":\"%s\",\"sequence\":%u,\"pid\":%d,\"birth\":%llu,\"start\":%llu,\"live_cpu_ns\":%llu,\"last_sample_ns\":%llu,\"sample_gap_ns\":%llu,\"max_sample_gap_ns\":%llu,\"sample_gap_checks\":%llu,\"activation_ns\":%llu,\"qos_checked_mask\":%u,\"priority\":[%d,%d],\"wait4_user_ns\":%llu,\"wait4_system_ns\":%llu,\"terminal_cpu_ns\":%llu,\"job_cpu_ns\":%llu,\"command_cap_ns\":%llu,\"job_cap_ns\":%llu,\"terminal_rss_bytes\":%llu,\"process_create_wall_excess_ns\":%llu,\"process_create_wall_excess_count\":%llu,\"process_create_wall_excess_known\":%u,\"process_create_wall_excess_scope\":\"original_prepared_spawn_snapshot\",\"native_budget_projection_case\":%u,\"native_actual_cpu_ns\":%llu,\"native_actual_wall_ns\":%llu,\"native_gate_cpu_ns\":%llu,\"native_gate_wall_ns\":%llu,\"native_gate_inclusive_ns\":%llu,\"helper_cost_retained\":%u,\"helper_cost_paid\":%u,\"helper_debt_target\":%llu,\"helper_debt_before_ns\":%llu,\"helper_cost_ns\":%llu,\"helper_debt_delta_ns\":%llu,\"helper_global_paid_after_ns\":%llu,\"debt_scope\":\"whole_controller_cumulative\",\"helper_debt_target_scope\":\"global_watermark\",\"debt_charged_ns\":%llu,\"debt_paid_ns\":%llu,\"group_kill_attempted\":%u,\"group_kill_errno\":%d,\"group_kill_pending\":%u,\"group_kill_raced_exit\":%u,\"actual_own_wait4\":%u,\"group_gone\":%u,\"quarantined\":%u,\"owner_lost\":%u,\"runtime_approved\":false}\n",
+    char bytes[3072];int n=snprintf(bytes,sizeof(bytes),"{\"kind\":\"helper_total_budget\",\"decision\":66280,\"phase\":\"%s\",\"sequence\":%u,\"pid\":%d,\"birth\":%llu,\"start\":%llu,\"live_cpu_ns\":%llu,\"last_sample_ns\":%llu,\"sample_gap_ns\":%llu,\"max_sample_gap_ns\":%llu,\"stopped_interval_ns\":%llu,\"running_gap_max_ns\":%llu,\"sample_gap_checks\":%llu,\"activation_ns\":%llu,\"qos_checked_mask\":%u,\"priority\":[%d,%d],\"wait4_user_ns\":%llu,\"wait4_system_ns\":%llu,\"terminal_cpu_ns\":%llu,\"job_cpu_ns\":%llu,\"command_cap_ns\":%llu,\"job_cap_ns\":%llu,\"terminal_rss_bytes\":%llu,\"process_create_wall_excess_ns\":%llu,\"process_create_wall_excess_count\":%llu,\"process_create_wall_excess_known\":%u,\"process_create_wall_excess_scope\":\"original_prepared_spawn_snapshot\",\"native_budget_projection_case\":%u,\"native_actual_cpu_ns\":%llu,\"native_actual_wall_ns\":%llu,\"native_gate_cpu_ns\":%llu,\"native_gate_wall_ns\":%llu,\"native_gate_inclusive_ns\":%llu,\"helper_cost_retained\":%u,\"helper_cost_paid\":%u,\"helper_debt_target\":%llu,\"helper_debt_before_ns\":%llu,\"helper_cost_ns\":%llu,\"helper_debt_delta_ns\":%llu,\"helper_global_paid_after_ns\":%llu,\"debt_scope\":\"whole_controller_cumulative\",\"helper_debt_target_scope\":\"global_watermark\",\"debt_charged_ns\":%llu,\"debt_paid_ns\":%llu,\"group_kill_attempted\":%u,\"group_kill_errno\":%d,\"group_kill_pending\":%u,\"group_kill_raced_exit\":%u,\"actual_own_wait4\":%u,\"group_gone\":%u,\"quarantined\":%u,\"owner_lost\":%u,\"runtime_approved\":false}\n",
         phase,o->ticket.sequence,o->ticket.pid,(unsigned long long)o->ticket.birth,(unsigned long long)o->ticket.start,
-        (unsigned long long)o->live_cpu_ns,(unsigned long long)o->last_sample_ns,(unsigned long long)o->sample_gap_ns,(unsigned long long)o->max_sample_gap_ns,(unsigned long long)o->sample_gap_checks,(unsigned long long)o->activation_ns,o->qos_checked_mask,o->members[0].state.priority,o->members[1].state.priority,
+        (unsigned long long)o->live_cpu_ns,(unsigned long long)o->last_sample_ns,(unsigned long long)o->sample_gap_ns,(unsigned long long)o->max_sample_gap_ns,(unsigned long long)o->stopped_interval_ns,(unsigned long long)o->running_gap_max_ns,(unsigned long long)o->sample_gap_checks,(unsigned long long)o->activation_ns,o->qos_checked_mask,o->members[0].state.priority,o->members[1].state.priority,
         (unsigned long long)o->wait_user,(unsigned long long)o->wait_system,(unsigned long long)o->terminal_cpu_ns,(unsigned long long)o->result->helper_job_cpu_ns,
         (unsigned long long)ENGINE_COMMAND_CPU_NS,(unsigned long long)ENGINE_JOB_CPU_NS,(unsigned long long)o->wait_rss,
         (unsigned long long)o->process_create_wall_excess_ns,(unsigned long long)o->process_create_wall_excess_count,o->process_create_wall_excess_known,o->native_budget_projection_case,
@@ -3363,9 +3447,16 @@ static int engine_pause(struct engine_owner *o) {
     for(;;) {
         int all=1;for(unsigned i=0;i<2;i++)if(o->members[i].state.pid&&o->members[i].phase!=ENGINE_EXITED) {
             if(!engine_sample_member(o,i,o->members[i].state.pid))return 0;
-            if(o->members[i].state.status!=SSTOP||o->members[i].state.runnable!=0)all=0;
-            if(o->members[i].state.status==SSTOP&&o->members[i].state.runnable==0&&!(o->pause_ack_mask&(1u<<i))) {
-                o->pause_user[i]=o->members[i].user;o->pause_observed_user[i]=o->members[i].user;o->pause_ack_mask|=1u<<i;
+            if(o->members[i].phase==ENGINE_EXITED)continue; // An exit is not a STOP ACK.
+            if(o->members[i].state.status!=SSTOP||o->members[i].state.runnable!=0||!o->members[i].stopped_ri_ack_ns)all=0;
+            if(o->members[i].stopped_ri_ack_ns&&!(o->pause_ack_mask&(1u<<i))) {
+                uint64_t ack=o->members[i].stopped_ri_ack_ns;
+                if(ack<o->pause_started_ns||o->ri_begin_ns[i]<ack||o->ri_end_ns[i]<o->ri_begin_ns[i])return engine_failure(o,"clock_unknown","pause ACK RI endpoints reversed");
+                o->pause_member_ack_ns[i]=ack;o->pause_ack_ri_begin_ns[i]=o->ri_begin_ns[i];o->pause_ack_ri_end_ns[i]=o->ri_end_ns[i];
+                o->pause_validated_ri_end_ns[i]=o->ri_end_ns[i];o->pause_counter_known_mask|=1u<<i;
+                o->pause_user[i]=o->members[i].user;o->pause_observed_user[i]=o->members[i].user;
+                o->pause_system[i]=o->members[i].system;o->pause_observed_system[i]=o->members[i].system;o->pause_ack_mask|=1u<<i;
+                if(ack>o->pause_ack_ns)o->pause_ack_ns=ack;
                 if(!i)o->pause_rolled_user=o->members[0].child_user;
             }
             if(!engine_checkpoint(o))return 0;
@@ -3373,7 +3464,7 @@ static int engine_pause(struct engine_owner *o) {
         uint64_t now=engine_now(o,CLOCK_MONOTONIC);
         if(now==UINT64_MAX||now<o->pause_started_ns||now-o->pause_started_ns>ENGINE_PAUSE_NS)return engine_failure(o,"resource_limit","foreground positive stopped ACK exceeded100ms");
         if(!engine_live_budget(o))return 0;
-        if(all) {if(!engine_capture_pause_user(o))return 0;o->pause_ack_ns=now;o->paused=1;o->running=0;return 1;}
+        if(all) {if(!engine_capture_pause_user(o))return 0;o->paused=1;o->running=0;engine_stopped_interval_record(o);return 1;}
         usleep(1000);
     }
 }
@@ -3385,15 +3476,23 @@ static int engine_resume(struct engine_owner *o) {
     }
     if(!engine_pretest_current(o->context)||!engine_checkpoint(o)||o->foreground||!private_context_same(o->context))return engine_failure(o,"coverage_unknown","foreground authority changed before resume");
     if(!engine_live_budget(o))return 0;
-    for(unsigned i=0;i<2;i++)if(o->members[i].state.pid&&o->members[i].phase!=ENGINE_EXITED)
-        if(!engine_sample_member(o,i,o->members[i].state.pid)||o->members[i].user!=o->pause_user[i])return engine_failure(o,"coverage_unknown","fresh resume RI lost paused user identity");
+    for(unsigned i=0;i<2;i++)if(o->members[i].state.pid&&o->members[i].phase!=ENGINE_EXITED) {
+        if(!(o->pause_counter_known_mask&(1u<<i))||!engine_sample_member(o,i,o->members[i].state.pid)
+            ||!o->members[i].stopped_ri_ack_ns||o->members[i].user!=o->pause_user[i]||o->members[i].system!=o->pause_system[i])
+            return engine_failure(o,"coverage_unknown","fresh resume RI lost stopped USER or SYSTEM identity");
+        o->pause_resume_ri_begin_ns[i]=o->ri_begin_ns[i];o->pause_resume_ri_end_ns[i]=o->ri_end_ns[i];
+    }
     if(o->failed||private_failed||engine_cancel_signal||o->foreground||o->retiring||engine_now(o,CLOCK_MONOTONIC)>=o->context->outer->deadline)return engine_failure(o,"cancelled","foreground resume lost current admission");
     int terminal=0;if(!known_exited(o->ticket.pid,&terminal))return engine_failure(o,"settlement_unknown","resume lacks original own-WNOWAIT");
     if(terminal){o->retiring=1;o->running=0;return 1;}
-    o->pause_resume_attempted=1;o->pause_resume_ns=engine_now(o,CLOCK_MONOTONIC);
+    o->pause_resume_ns=engine_now(o,CLOCK_MONOTONIC);
+    if(o->pause_resume_ns==UINT64_MAX||!engine_sample_gap(o,o->pause_resume_ns))return 0;
+    for(unsigned i=0;i<2;i++)if(o->pause_ack_mask&(1u<<i))
+        if(!o->pause_resume_ri_end_ns[i]||o->pause_resume_ri_end_ns[i]>o->pause_resume_ns)return engine_failure(o,"clock_unknown","resume signal lacks fresh stopped RI endpoint");
+    o->pause_resume_attempted=1;
     o->active_sample_ns=o->activation_ns=o->pause_resume_ns;
     if(kill(-o->ticket.pgid,SIGCONT)!=0)return engine_failure(o,"coverage_unknown","one foreground resume failed");
-    o->pause_resume_admitted=1;o->paused=0;o->running=1;return 1;
+    o->pause_resume_admitted=1;o->paused=0;o->running=1;engine_stopped_interval_record(o);return 1;
 }
 static int engine_put(struct engine_prepared *p,const char *text,char **out) {
     size_t n=strlen(text);
@@ -3845,7 +3944,7 @@ static int engine_command(struct engine_owner *o,struct engine_prepared *p,unsig
         if(o->foreground) {if(!engine_pause(o)||!engine_events_service(o,1000000))break;continue;}
         if(o->paused&&!engine_resume(o))break;
         uint64_t now=engine_now(o,CLOCK_MONOTONIC);
-        if(!o->sample_known||now==UINT64_MAX||now<o->last_sample_ns||now-o->last_sample_ns>ENGINE_SAMPLE_NS) {engine_failure(o,"coverage_unknown","live helper sample interval exceeded50ms");break;}
+        if(!o->sample_known||now==UINT64_MAX||now<o->last_sample_ns||!engine_sample_gap(o,now)) {engine_failure(o,"coverage_unknown","live helper sample interval exceeded50ms");break;}
         if(!engine_memory(o)||!engine_pipe_io(o)||!engine_events_service(o,1000000)||!engine_checkpoint_due(o))break;
     }
     if(o->ticket.pid>0)(void)engine_retire(o,status);
