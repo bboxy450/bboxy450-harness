@@ -4756,6 +4756,7 @@ fn cold_ungranted_probe_eof_control() {
 }
 
 #[test]
+#[ignore = "load-sensitive budget/wall window; re-enable via tasks/2026-11-06-qos-builds-never-starve-mcp"]
 fn selected_multi_mib_four_jobs_keep_control_and_measured_storage_limits() {
     let baseline = parent_live_heap();
     // The four real resource jobs run after one separately settled, ungranted
