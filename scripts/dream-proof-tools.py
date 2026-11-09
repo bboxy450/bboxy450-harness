@@ -3357,6 +3357,13 @@ def component_terminal(stderr, case, result=None, actual_exit=None, *, ledger=No
         # producer's injected unknown-clock/quarantine path, before terminal
         # observation starts. Other error classes remain an additional failure.
         if case == "clock_failure":
+            # INPUT71 ruling: one injected unknown cost produces three
+            # primary diagnostics; the wire retains count and endpoints.
+            clock = errors["clock_unknown"]
+            require(clock["count"] == 3
+                    and clock["first_detail"] == "fixture unknown creation ending clock retains actual effect"
+                    and clock["last_detail"] == "closed engine unit has unknown CPU",
+                    "clock auxiliary lacks frozen three-error causal order")
             allowed.add("resource_limit")
             if "resource_limit" in errors:
                 # Decision66331 changed this process-create wall gate to250ms.
@@ -3368,10 +3375,6 @@ def component_terminal(stderr, case, result=None, actual_exit=None, *, ledger=No
                 require(coverage["count"] == 1 and coverage["first_detail"] == coverage["last_detail"]
                         == "helper lacks its one in-process exec receipt" and row["stage"] == "settled"
                         and created == reaped == 1, "additional coverage failure in clock control")
-                clock = errors["clock_unknown"]
-                require(clock["count"] == 1 and clock["first_detail"] == clock["last_detail"]
-                        == "fixture unknown creation ending clock retains actual effect",
-                        "clock auxiliary lacks its one injected clock error")
                 clock_failure_pre_cont_ledger(ledger, result, actual_exit)
                 allowed.add("coverage_unknown")
         if case == "reap_delay":
@@ -4904,6 +4907,10 @@ class ComponentHandoffTests(unittest.TestCase):
             errors[causal[case]] = {"code": causal[case], "count": 1, "details_truncated": False,
                                   "first_detail": "INERT causal-control diagnostic", "last_detail": "INERT causal-control diagnostic",
                                   "kind": "private_candidate_error"}
+            if case == "clock_failure":
+                errors["clock_unknown"].update(count=3,
+                    first_detail="fixture unknown creation ending clock retains actual effect",
+                    last_detail="closed engine unit has unknown CPU")
         if extra_errors: errors.update(extra_errors)
         counts = {code: errors[code]["count"] if code in errors else 0 for code in codes}
         row = {"profile": "read-helper-native/1", "stage": "settled" if good else "settling",
@@ -5199,8 +5206,9 @@ class ComponentHandoffTests(unittest.TestCase):
         extra = {"coverage_unknown": {"code": "coverage_unknown", "count": 1, "details_truncated": False,
                                      "first_detail": detail, "last_detail": detail, "kind": "private_candidate_error"}}
         clock_detail = "fixture unknown creation ending clock retains actual effect"
-        extra["clock_unknown"] = {"code": "clock_unknown", "count": 1, "details_truncated": False,
-                                  "first_detail": clock_detail, "last_detail": clock_detail, "kind": "private_candidate_error"}
+        closed_detail = "closed engine unit has unknown CPU"
+        extra["clock_unknown"] = {"code": "clock_unknown", "count": 3, "details_truncated": False,
+                                  "first_detail": clock_detail, "last_detail": closed_detail, "kind": "private_candidate_error"}
         row, _, errors, raw = self.terminal_fixture("clock_failure", extra); row["stage"] = "settled"
         ledger = b"".join(canonical(entry) + b"\n" for entry in rows)
         component_terminal(raw(), "clock_failure", result, 81, ledger=ledger)
@@ -5210,11 +5218,24 @@ class ComponentHandoffTests(unittest.TestCase):
         resource_row, _, _, resource_raw = self.terminal_fixture("clock_failure", with_resource)
         resource_row["stage"] = "settled"
         component_terminal(resource_raw(), "clock_failure", result, 81, ledger=ledger)
-        for key, value in (("count", 2), ("first_detail", "unrelated clock error"), ("last_detail", "later clock error")):
+        for key, value in (("count", 1), ("count", 2), ("count", 4),
+                           ("first_detail", "unrelated clock error"), ("last_detail", "later clock error")):
             altered = copy.deepcopy(extra); altered["clock_unknown"][key] = value
             altered_row, _, _, altered_raw = self.terminal_fixture("clock_failure", altered); altered_row["stage"] = "settled"
-            with self.subTest(clock=key), self.assertRaisesRegex(Refused, "one injected clock"):
+            with self.subTest(clock=key, value=value), self.assertRaisesRegex(Refused, "three-error causal order"):
                 component_terminal(altered_raw(), "clock_failure", result, 81, ledger=ledger)
+        reordered = copy.deepcopy(extra)
+        reordered["clock_unknown"].update(first_detail=closed_detail, last_detail=clock_detail)
+        reordered_row, _, _, reordered_raw = self.terminal_fixture("clock_failure", reordered)
+        reordered_row["stage"] = "settled"
+        with self.assertRaisesRegex(Refused, "three-error causal order"):
+            component_terminal(reordered_raw(), "clock_failure", result, 81, ledger=ledger)
+        old_single = copy.deepcopy(extra)
+        old_single["clock_unknown"].update(count=1, last_detail=clock_detail)
+        single_row, _, _, single_raw = self.terminal_fixture("clock_failure", old_single)
+        single_row["stage"] = "settled"
+        with self.assertRaisesRegex(Refused, "three-error causal order"):
+            component_terminal(single_raw(), "clock_failure", result, 81, ledger=ledger)
         with self.assertRaises(Refused): component_terminal(raw(), "clock_failure", result, 81)
         for key, value in (("first_detail", "another coverage refusal"), ("last_detail", "altered receipt detail")):
             previous = errors["coverage_unknown"][key]; errors["coverage_unknown"][key] = value
@@ -5232,6 +5253,22 @@ class ComponentHandoffTests(unittest.TestCase):
             _, _, _, other = self.terminal_fixture(case, extra)
             with self.subTest(case=case), self.assertRaises(Refused):
                 component_terminal(other(), case, result, 81, ledger=ledger)
+
+    def test_clock_primary_shape_is_checked_without_coverage_auxiliary(self):
+        _, _, errors, raw = self.terminal_fixture("clock_failure")
+        component_terminal(raw(), "clock_failure", actual_exit=81)
+        original = errors["clock_unknown"]
+        for key, value in (("count", 1), ("count", 2), ("count", 4),
+                           ("first_detail", "unrelated clock error"), ("last_detail", "later clock error")):
+            changed = {**original, key: value}
+            _, _, _, bad = self.terminal_fixture("clock_failure", {"clock_unknown": changed})
+            with self.subTest(key=key, value=value), self.assertRaisesRegex(Refused, "three-error causal order"):
+                component_terminal(bad(), "clock_failure", actual_exit=81)
+        for changed in ({**original, "first_detail": original["last_detail"], "last_detail": original["first_detail"]},
+                        {**original, "count": 1, "last_detail": original["first_detail"]}):
+            _, _, _, bad = self.terminal_fixture("clock_failure", {"clock_unknown": changed})
+            with self.assertRaisesRegex(Refused, "three-error causal order"):
+                component_terminal(bad(), "clock_failure", actual_exit=81)
 
     def test_reap_delay_accepts_only_original_partial_snapshot_and_actual_later_settlement(self):
         row, _, _, raw = self.terminal_fixture("reap_delay")
