@@ -1016,6 +1016,19 @@ mod gui_polish_geometry {
                     );
                 }
             }
+            // Newer toolkits (term's in-tree bboxy450-doc) draw inline code themselves as a
+            // named `…/capsule`; the harness then paints no chip of its own. Either witness
+            // must stay inside the line it sits on.
+            for child in &node.children {
+                if matches!(&child.kind, c::LayoutKind::Named(n) if n.ends_with("/capsule")) {
+                    *chips += 1;
+                    let (chip, line) = (child.rect, node.rect);
+                    assert!(
+                        chip.x >= line.x - 0.5 && chip.right() <= line.right() + 0.5,
+                        "inline code capsule escaped its line: chip={chip:?} line={line:?}"
+                    );
+                }
+            }
             for child in &node.children {
                 check(child, chips);
             }

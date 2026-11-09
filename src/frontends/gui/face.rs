@@ -841,6 +841,14 @@ pub fn python_status(status: &str, exit: Option<i64>, ink: &Ink) -> Option<c::El
     }
     (!kids.is_empty()).then(|| hstack(kids, 6.))
 }
+/// An emitted object's entries in one documented order: keys sorted by bytes. serde_json
+/// keeps insertion order only with its `preserve_order` feature, which the term's
+/// embedded build lacks; sorting here renders identically in every build.
+fn sorted(map: &serde_json::Map<String, serde_json::Value>) -> Vec<(&String, &serde_json::Value)> {
+    let mut entries: Vec<_> = map.iter().collect();
+    entries.sort_unstable_by(|a, b| a.0.cmp(b.0));
+    entries
+}
 fn key_ink(ink: &Ink) -> Rgba {
     mix(ink.fg, ink.dim, 0.3)
 }
@@ -888,7 +896,7 @@ fn inline(value: &serde_json::Value, ink: &Ink, limit: usize, cut: &mut bool, ou
         }
         Value::Object(map) => {
             out.push(("{".into(), punct, 400, false));
-            for (i, (k, v)) in map.iter().enumerate() {
+            for (i, (k, v)) in sorted(map).into_iter().enumerate() {
                 if i > 0 {
                     out.push((", ".into(), punct, 400, false));
                 }
@@ -915,7 +923,10 @@ fn emit_rows(
 ) {
     use serde_json::Value;
     let entries: Vec<(String, &Value)> = match value {
-        Value::Object(map) => map.iter().map(|(k, v)| (k.clone(), v)).collect(),
+        Value::Object(map) => sorted(map)
+            .into_iter()
+            .map(|(k, v)| (k.clone(), v))
+            .collect(),
         Value::Array(items) => items
             .iter()
             .enumerate()
@@ -1077,7 +1088,7 @@ pub fn emit_preview(value: &serde_json::Value, ink: &Ink) -> Vec<Part> {
     let mut out = vec![];
     match value.as_object() {
         Some(map) => {
-            for (i, (k, v)) in map.iter().enumerate() {
+            for (i, (k, v)) in sorted(map).into_iter().enumerate() {
                 if i > 0 {
                     out.push(("   ".into(), ink.dim, 400, false));
                 }
@@ -3082,7 +3093,30 @@ mod python_emit_tests {
         let (block, cut) = emit_block(&json!({"path":"a.md","err":null}), false, &ink);
         let mut rows = vec![];
         texts(&block, &mut rows);
-        assert_eq!(rows, ["path  \"a.md\"", "err   null"]);
+        // Keys sort by bytes in every build (serde_json order is feature-dependent).
+        assert_eq!(rows, ["err   null", "path  \"a.md\""]);
+        let (block, _) = emit_block(
+            &json!({"zeta":1,"alpha":2,"mid":{"b":1,"a":2}}),
+            false,
+            &ink,
+        );
+        let mut rows = vec![];
+        texts(&block, &mut rows);
+        assert_eq!(
+            rows,
+            ["alpha  2", "mid    ", "  a  2", "  b  1", "zeta   1"]
+        );
+        let mut parts = vec![];
+        inline(&json!({"b":1,"a":2}), &ink, 96, &mut false, &mut parts);
+        assert_eq!(
+            parts.iter().map(|p| p.0.as_str()).collect::<String>(),
+            "{a: 2, b: 1}"
+        );
+        let preview: String = emit_preview(&json!({"path":"p","err":null}), &ink)
+            .into_iter()
+            .map(|p| p.0)
+            .collect();
+        assert!(preview.starts_with("err null"), "{preview}");
         assert!(
             !cut && tinted(&block).is_empty(),
             "a null err is not a failure"
