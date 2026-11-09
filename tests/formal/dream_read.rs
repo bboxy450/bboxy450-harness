@@ -3819,6 +3819,218 @@ pub fn helper_exec(control: u8) -> Model {
     m
 }
 
+// Task66427: a disjoint projection of the existing foreground STOP receipt.
+// It adds no ACK, exit, own-wait4, group absence or numeric cost from errno.
+// Native success and rest observations remain unfair; missing facts retain
+// the original owner. Numeric timestamps/OS errno causes remain C witnesses.
+fn foreground_stop_terminal_projection(m: &mut Model, control: u8) {
+    const CASE: usize = 93;
+    const PHASE: usize = 94;
+    const ERR: usize = 95; //0 none,1 ESRCH,2 EPERM,3 EINVAL,4 other
+    const ZOMBIE_ONLY: usize = 96;
+    const ATTEMPT: usize = 97;
+    const ACK: usize = 98;
+    const OWN_REAP: usize = 99;
+    const GONE: usize = 100;
+    const RAW_CPU: usize = 101;
+    const CPU_KNOWN: usize = 102;
+    const BILL: usize = 103;
+    const DUE: usize = 104;
+    const PAID: usize = 105;
+    const PENDING: usize = 106;
+    const RESULT: usize = 107; //0 undecided,1 complete verdict,2 refusal
+    const OWNER: usize = 108;
+    const RESUME: usize = 109;
+    const TERMINAL: usize = 110;
+    for (name, maximum) in [
+        ("foregroundStopRaceCase", 13),
+        ("foregroundStopRacePhase", 7),
+        ("foregroundStopRawNoneEsrchEpermEinvalOther", 4),
+        ("foregroundStopPositiveZombieOnlyGroup", 1),
+        ("foregroundStopOriginalAttemptCount", 1),
+        ("foregroundStopPositiveAck", 1),
+        ("foregroundStopActualOriginalOwnWait4", 1),
+        ("foregroundStopIndependentGroupGone", 1),
+        ("foregroundStopRawWait4CpuOrUnknown", 4),
+        ("foregroundStopWait4CpuKnown", 1),
+        ("foregroundStopAuthoritativeCpuBill", 3),
+        ("foregroundStopFullFreshDebtDue", 27),
+        ("foregroundStopActualFreshRestPaid", 27),
+        ("foregroundStopPendingTerminal", 1),
+        ("foregroundStopFinalDisposition", 2),
+        ("foregroundStopSameOriginalOwnerHeld", 1),
+        ("foregroundStopResumeCount", 1),
+        ("foregroundStopIndependentTerminalObserved", 1),
+    ] {
+        m.variables.push(Variable::new(name, 0, maximum, 0));
+    }
+    // All old actions, including the separate live-sample ESRCH companion,
+    // retain their exact guards/updates under CASE0; there is no cross-product.
+    for action in &mut m.actions {
+        action.guard = eq(CASE, 0).and(action.guard.clone());
+    }
+    // (raw errno, positive zombie-only, actual own reap, group gone,
+    //  raw CPU class, counter known, observed full payment).
+    // Unknown CPU uses raw class4 and the existing conservative27 pacing
+    // representative, never a finite authoritative bill or release credit.
+    let cases = [
+        (1, 0, 1, 1, 1, 1, 1), //ESRCH, later original ownwait4/full bill
+        (2, 1, 1, 1, 1, 1, 1), //EPERM plus positive zombie-only proof
+        (2, 0, 1, 1, 1, 1, 1), //EPERM without zombie-only proof refuses
+        (1, 0, 0, 0, 0, 0, 0), //ESRCH without actual ownwait4 stays pending
+        (3, 1, 1, 1, 1, 1, 1), //EINVAL is never terminal-before-stop
+        (4, 1, 1, 1, 1, 1, 1), //all other errors remain refusal
+        (1, 0, 1, 0, 1, 1, 1), //ownwait4 alone is not group-gone
+        (1, 0, 1, 1, 1, 1, 0), //unpaid full known debt retains owner
+        (1, 0, 1, 1, 3, 1, 1), //raw over-cap CPU fully billed then refused
+        (1, 0, 1, 1, 4, 0, 1), //unknown raw CPU never numeric credit
+        (1, 0, 1, 1, 0, 1, 1), //zero CPU still owes full ordinary floor9
+        (2, 1, 0, 0, 0, 0, 0), //zombie-only EPERM still needs ownwait4
+        (1, 0, 1, 1, 2, 1, 1), //exact abstract CPU cap/full18 debt
+    ];
+    for (index, &(error, zombie, reaped, gone, raw, known, paid)) in cases.iter().enumerate() {
+        let case = index as i64 + 1;
+        let eligible = error == 1 || (error == 2 && zombie == 1);
+        let due = if reaped == 0 {
+            0
+        } else if known == 0 {
+            27
+        } else {
+            9 * raw.max(1)
+        };
+        act(
+            m,
+            &format!("SelectOriginalForegroundStopRaceCase{case}"),
+            all([eq(CASE, 0), eq(0, 0), eq(45, 0), eq(82, 0)]),
+            &[(CASE, Int(case)), (OWNER, Int(1))],
+        );
+        act(
+            m,
+            &format!("RequestForegroundPauseBeforeOriginalStopAttempt{case}"),
+            all([eq(CASE, case), eq(PHASE, 0), eq(OWNER, 1), eq(OWN_REAP, 0)]),
+            &[(PHASE, Int(1))],
+        );
+        act(
+            m,
+            &format!("RecordActualFailedOriginalForegroundStopErrno{error}Case{case}"),
+            all([
+                eq(CASE, case),
+                eq(PHASE, 1),
+                eq(OWN_REAP, 0),
+                eq(ATTEMPT, 0),
+            ]),
+            &[
+                (PHASE, Int(2)),
+                (ERR, Int(error)),
+                (ATTEMPT, Int(1)),
+                (PENDING, Int(i64::from(error == 1 || error == 2))),
+            ],
+        );
+        act(
+            m,
+            &format!("ObserveIndependentOriginalTerminalAfterStopReceipt{case}"),
+            all([eq(CASE, case), eq(PHASE, 2)]),
+            &[
+                (PHASE, Int(3)),
+                (TERMINAL, Int(1)),
+                (ZOMBIE_ONLY, Int(zombie)),
+            ],
+        );
+        act(
+            m,
+            &format!("ObserveActualOriginalOwnWait4OrItsAbsenceCase{case}"),
+            all([eq(CASE, case), eq(PHASE, 3)]),
+            &[
+                (PHASE, Int(4)),
+                (OWN_REAP, Int(reaped)),
+                (RAW_CPU, Int(raw)),
+                (CPU_KNOWN, Int(known)),
+                (BILL, Int(if known == 1 { raw } else { 0 })),
+                (DUE, Int(due)),
+            ],
+        );
+        act(
+            m,
+            &format!("ObserveIndependentOriginalGroupGoneOrMissingCase{case}"),
+            all([eq(CASE, case), eq(PHASE, 4)]),
+            &[(PHASE, Int(5)), (GONE, Int(gone))],
+        );
+        act(
+            m,
+            &format!("ObserveFullFreshWait4DebtPaymentOrUnavailableCase{case}"),
+            all([eq(CASE, case), eq(PHASE, 5)]),
+            &[
+                (PHASE, Int(6)),
+                (PAID, Int(if paid == 1 { due } else { 0 })),
+            ],
+        );
+        let proof = eligible && reaped == 1 && gone == 1 && known == 1 && paid == 1;
+        let resolve = proof && control != 20;
+        act(
+            m,
+            &format!("ResolveForegroundStopOnlyFromOriginalPaidTerminalProofCase{case}"),
+            all([eq(CASE, case), eq(PHASE, 6)]),
+            &[
+                (PHASE, Int(7)),
+                (RESULT, Int(if resolve && raw < 3 { 1 } else { 2 })),
+                (PENDING, if resolve { Int(0) } else { Var(PENDING) }),
+                (OWNER, Int(i64::from(!resolve))),
+            ],
+        );
+    }
+    let eligible = eq(ERR, 1).or(all([eq(ERR, 2), eq(ZOMBIE_ONLY, 1)]));
+    let physical_paid = all([
+        eligible.clone(),
+        eq(ATTEMPT, 1),
+        eq(TERMINAL, 1),
+        eq(OWN_REAP, 1),
+        eq(GONE, 1),
+        eq(CPU_KNOWN, 1),
+        Var(BILL).eq(Var(RAW_CPU)),
+        Var(PAID).eq(Var(DUE)),
+        Int(0).lt(Var(DUE)),
+    ]);
+    let accepted = physical_paid.clone().and(Var(RAW_CPU).lt(Int(3)));
+    safe(
+        m,
+        "ForegroundStopErrnoNeverSuppliesAckOrResume",
+        all([eq(ACK, 0), eq(RESUME, 0)]),
+    );
+    safe(
+        m,
+        "ForegroundStopPendingRetainsRawReceiptAndOriginalOwner",
+        eq(PENDING, 0).or(all([
+            eq(OWNER, 1),
+            eq(ATTEMPT, 1),
+            eq(ERR, 1).or(eq(ERR, 2)),
+        ])),
+    );
+    safe(
+        m,
+        "ForegroundStopAuthoritativeBillAndFullDebtNeverClamp",
+        eq(OWN_REAP, 0).or(eq(CPU_KNOWN, 0)).or(all([
+            Var(BILL).eq(Var(RAW_CPU)),
+            eq(DUE, 9)
+                .and(eq(RAW_CPU, 0).or(eq(RAW_CPU, 1)))
+                .or(all([eq(RAW_CPU, 2), eq(DUE, 18)]))
+                .or(all([eq(RAW_CPU, 3), eq(DUE, 27)])),
+        ])),
+    );
+    safe(
+        m,
+        "ForegroundStopCompletionNeedsOriginalReapGroupAndPaidBill",
+        eq(RESULT, 1).negate().or(accepted.clone()),
+    );
+    safe(
+        m,
+        "ForegroundStopDispositionMatchesOriginalPaidTerminalProof",
+        eq(PHASE, 7).negate().or(accepted
+            .clone()
+            .and(eq(RESULT, 1))
+            .or(accepted.negate().and(eq(RESULT, 2)))),
+    );
+}
+
 /// Decision66280 replaces EXTERNAL per-grant windows with one original
 /// background helper and authoritative terminal totals. Numeric classes are
 /// cpu0..4/cap2, job0..5/cap4, debt0..36 and live reservations0..2.
@@ -3949,6 +4161,7 @@ fn total_budget_observer(control: u8, full_observer: bool, boundary: bool) -> Mo
         "UnknownRssTrust",
         "BlockedExitDrain",
         "MissingTerminalRecheck",
+        "MissingForegroundTerminal",
     ][control as usize];
     let mut m = base(
         "Q2HelperTotalBudget",
@@ -5833,6 +6046,7 @@ fn total_budget_observer(control: u8, full_observer: bool, boundary: bool) -> Mo
             .and(eq(LS_RESULT, 1))
             .or(same_original_terminal.negate().and(eq(LS_RESULT, 2)))),
     );
+    foreground_stop_terminal_projection(&mut m, control);
     if control != 0 && control != 18 && boundary {
         let names: &[&str] = match control {
             1 => &["BackgroundOnly"],
@@ -5859,6 +6073,7 @@ fn total_budget_observer(control: u8, full_observer: bool, boundary: bool) -> Mo
             ],
             17 => &["TrustWithinCap"],
             19 => &["LiveSampleDispositionMatchesSameOriginalTerminalProof"],
+            20 => &["ForegroundStopDispositionMatchesOriginalPaidTerminalProof"],
             _ => unreachable!(),
         };
         let valid = all(m
@@ -5896,7 +6111,7 @@ mod total_budget_tests {
         "SettlementHonest",
     ];
     #[test]
-    fn q2_helper_total_budget_safety_liveness_and_nineteen_causal_controls() {
+    fn q2_helper_total_budget_safety_liveness_and_twenty_causal_controls() {
         let good_model = total_budget(0);
         let good = good_model.check(100_000).unwrap();
         // Failure diagnostics consume the completed current graph, never a
@@ -6465,6 +6680,148 @@ mod total_budget_tests {
                 .any(|s| s[82] == 5 && s[83] == 4 && s[90] == 0 && s[92] == 2),
             "nonESRCH refuses without using terminal recovery"
         );
+        // Task66427's independent failed-foreground-STOP projection retains
+        // all original lifecycle fields at zero and adds no native success fairness.
+        for case in 1..=13 {
+            let accepted = matches!(case, 1 | 2 | 11 | 13);
+            assert!(
+                good.states.iter().any(|s| s[93] == case
+                    && s[94] == 7
+                    && s[107] == (if accepted { 1 } else { 2 })
+                    && s[97] == 1
+                    && s[98] == 0
+                    && s[109] == 0),
+                "failed foreground STOP case{case} reaches exact paid-terminal verdict or refusal without ACK/CONT"
+            );
+            assert!(
+                good.states.iter().any(|s| s[93] == case
+                    && s[94] == 2
+                    && s[95] != 0
+                    && s[97] == 1
+                    && s[98] == 0
+                    && s[99] == 0
+                    && s[100] == 0
+                    && s[104] == 0
+                    && s[108] == 1),
+                "raw failed STOP case{case} supplies neither ownwait4/groupgone nor numeric bill"
+            );
+        }
+        for case in [1, 2] {
+            assert!(
+                good.states.iter().any(|s| s[93] == case
+                    && s[94] == 7
+                    && s[99] == 1
+                    && s[100] == 1
+                    && s[101] == 1
+                    && s[103] == 1
+                    && s[104] == 9
+                    && s[105] == 9
+                    && s[106] == 0
+                    && s[107] == 1
+                    && s[108] == 0
+                    && s[110] == 1),
+                "ESRCH or zombie-only EPERM resolves only after actual ownreap/groupgone/full raw bill and fresh payment"
+            );
+        }
+        for case in [4, 12] {
+            assert!(
+                good.states.iter().any(|s| s[93] == case
+                    && s[94] == 7
+                    && s[99] == 0
+                    && s[106] == 1
+                    && s[107] == 2
+                    && s[108] == 1),
+                "independent terminal observation without original ownwait4 retains pending owner"
+            );
+        }
+        assert!(
+            good.states.iter().any(|s| s[93] == 3
+                && s[94] == 7
+                && s[95] == 2
+                && s[96] == 0
+                && s[99] == 1
+                && s[100] == 1
+                && s[105] == 9
+                && s[107] == 2),
+            "EPERM without positive zombie-only group proof never becomes terminal-before-stop"
+        );
+        for case in [5, 6] {
+            assert!(
+                good.states.iter().any(|s| s[93] == case
+                    && s[94] == 7
+                    && s[95] >= 3
+                    && s[99] == 1
+                    && s[100] == 1
+                    && s[103] == 1
+                    && s[105] == 9
+                    && s[107] == 2),
+                "EINVAL/other error remains refusal despite independently completed cost/physical proof"
+            );
+        }
+        assert!(
+            good.states.iter().any(|s| s[93] == 7
+                && s[94] == 7
+                && s[99] == 1
+                && s[100] == 0
+                && s[105] == 9
+                && s[108] == 1),
+            "ownwait4 without groupgone cannot resolve failed foreground STOP"
+        );
+        assert!(
+            good.states.iter().any(|s| s[93] == 8
+                && s[94] == 7
+                && s[99] == 1
+                && s[100] == 1
+                && s[104] == 9
+                && s[105] == 0
+                && s[106] == 1
+                && s[107] == 2
+                && s[108] == 1),
+            "full unpaid known debt remains retained after physical proof"
+        );
+        assert!(
+            good.states.iter().any(|s| s[93] == 9
+                && s[94] == 7
+                && s[101] == 3
+                && s[103] == 3
+                && s[104] == 27
+                && s[105] == 27
+                && s[106] == 0
+                && s[107] == 2),
+            "raw CPU overcap is fully billed and paid without converting terminal race resolution to budget success"
+        );
+        assert!(
+            good.states.iter().any(|s| s[93] == 10
+                && s[94] == 7
+                && s[101] == 4
+                && s[102] == 0
+                && s[103] == 0
+                && s[104] == 27
+                && s[105] == 27
+                && s[107] == 2
+                && s[108] == 1),
+            "unknown authoritative CPU keeps raw unknown and no finite credit despite conservative pacing"
+        );
+        assert!(
+            good.states.iter().any(|s| s[93] == 11
+                && s[94] == 7
+                && s[101] == 0
+                && s[103] == 0
+                && s[104] == 9
+                && s[105] == 9
+                && s[107] == 1),
+            "zero CPU retains full fresh floor-times9"
+        );
+        assert!(
+            good.states.iter().any(|s| s[93] == 13
+                && s[94] == 7
+                && s[101] == 2
+                && s[103] == 2
+                && s[104] == 18
+                && s[105] == 18
+                && s[107] == 1),
+            "exact abstract CPU cap retains full unrounded bill and debt"
+        );
         let expected = [
             "BackgroundOnly",
             "TrustWithinCap",
@@ -6485,6 +6842,7 @@ mod total_budget_tests {
             "TrustWithinCap",
             "PositiveExitGetsAccountingOnlyDrainOrOwnedQuarantine",
             "LiveSampleDispositionMatchesSameOriginalTerminalProof",
+            "ForegroundStopDispositionMatchesOriginalPaidTerminalProof",
         ];
         for (index, property) in expected.into_iter().enumerate() {
             let control = (index + 1) as u8;
@@ -6661,6 +7019,12 @@ mod total_budget_tests {
                         && s[92] == 2),
                     "missing-recheck mutant falsely refuses actual same-original terminal race, not TypeOK"
                 ),
+                20 => assert!(checked.states.iter().any(|s| s[93] == 1 && s[94] == 7
+                    && s[95] == 1 && s[97] == 1 && s[98] == 0
+                    && s[99] == 1 && s[100] == 1 && s[101] == 1 && s[103] == 1
+                    && s[104] == 9 && s[105] == 9 && s[106] == 1
+                    && s[107] == 2 && s[108] == 1),
+                    "omitting terminal-before-stop path falsely refuses fully paid actual original settlement, not TypeOK"),
                 _ => unreachable!(),
             }
             println!(
@@ -6780,7 +7144,7 @@ mod total_budget_tests {
                 std::fs::create_dir_all(root.join(variant)).unwrap();
             }
         }
-        for control in 0..=19 {
+        for control in 0..=20 {
             let full = total_budget_observer(control, true, true);
             let lower = total_budget(control);
             assert_eq!(

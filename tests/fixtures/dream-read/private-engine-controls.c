@@ -958,6 +958,90 @@ static void await_original(struct engine_owner *o) {
         require(engine_checkpoint(o),"bounded paid terminal observation unit");usleep(1000);
     }
 }
+// Actual exit-before-pause uses a positive original own-WNOWAIT before
+// engine_pause. It does NOT claim a real kernel ESRCH race or inject errno.
+static void pause_preobserved_exit_control(const char *self,const char *root,int dir) {
+    struct engine_owner o;struct private_engine_result r;int status=-1;
+    require(total_spawn(&o,&r,self,dir,7,root),"actual pre-pause exit uses unchanged prepared native birth and QoS gates");
+    await_original(&o);o.foreground=1;int paused=engine_pause(&o);
+    require(!paused&&!o.failed&&!private_failed&&o.pause_pending&&o.pause_terminal_candidate&&o.pause_terminal_preobserved
+        &&o.pause_terminal_observed_ns&&!o.pause_stop_attempted&&!o.pause_ack_mask&&!o.pause_resume_attempted,
+        "actual original exit before pause is pending terminal without any STOP ACK or resume");
+    (void)engine_retire(&o,&status);int settled=o.direct_reaped&&o.wait_observed&&r.group_gone&&r.retired_coverage&&!engine_current;
+    if(settled)fixture_live_owner=NULL;
+    require(settled&&status==0&&!o.failed&&!private_failed&&o.pause_terminal_resolved&&!o.pause_pending
+        &&o.terminal_budget_passed&&o.helper_cost_retained&&o.helper_cost_paid&&o.terminal_cpu_ns!=UINT64_MAX
+        &&o.helper_debt_delta_ns==9*engine_helper_cpu_cost(o.terminal_cpu_ns)&&private_cost.debt==private_cost.debt_paid,
+        "actual preobserved original exit resolves only after ownwait4 groupgone and full known bill");
+    printf("private_pause_preobserved_exit_process_source_known original_pid=%d pause_return=%d STOP_attempted=%u raw_STOP_errno=%d ACK_mask=%u resume_attempted=%u first_terminal_ns=%llu own_wait4_read_ns=%llu terminal_resolved=%u actual_original_own_wait4=1 original_group_gone=1 terminal_CPU_ns=%llu helper_debt_delta_ns=%llu debt_ns=%llu paid_ns=%llu actual_kernel_ESRCH_claimed=false native_process=true installed_tool_qualification=false runtime_approved=false\n",
+        o.ticket.pid,paused,o.pause_stop_attempted,o.pause_stop_errno,o.pause_ack_mask,o.pause_resume_attempted,(unsigned long long)o.pause_terminal_observed_ns,
+        (unsigned long long)o.wait_read_ns,o.pause_terminal_resolved,(unsigned long long)o.terminal_cpu_ns,(unsigned long long)o.helper_debt_delta_ns,
+        (unsigned long long)private_cost.debt,(unsigned long long)private_cost.debt_paid);
+    require(fflush(stdout)==0&&private_end_unit(private_cost.open_cpu),"actual preobserved terminal pause evidence fully paid");
+    engine_close_transferred(&o);require(close(o.ledger)==0,"actual preobserved terminal ledger close");free(o.capture);
+    require(private_end_unit(private_cost.open_cpu),"actual preobserved terminal owner disposal fully paid");controls++;
+}
+// Explicit supplied-result protocol projection. All original identity rows,
+// errno, terminal/wait4 times and rusage are inputs, never native observations.
+static void pause_stop_exit_api(void) {
+    static const char *const names[]={"esrch_settled","esrch_no_reap","esrch_no_group","einval_settled","eio_settled","eperm_zombie_settled","eperm_live_then_reaped","eperm_unknown_then_reaped","missing_STOP_clock","reversed_STOP_clock","missing_terminal_clock","reversed_terminal_clock","paid_receipt_missing","unknown_CPU","missing_wait4_clock","reversed_wait4_clock"};
+    unsigned passed=0;
+    for(unsigned which=0;which<16;which++) {
+        reset();struct engine_owner o;struct private_engine_result r;memset(&o,0,sizeof(o));memset(&r,0,sizeof(r));o.context=&context;o.result=&r;
+        o.source_admitted=1;o.slots=1;o.direct_custody=1;o.ticket.pid=o.ticket.pgid=100;o.ticket.birth=10;o.ticket.start=20;
+        o.members[0].state.pid=o.members[0].state.pgid=100;o.members[0].state.ppid=50;o.members[0].state.birth=10;o.members[0].state.start_absolute=20;
+        o.members[0].token_known=1;o.members[0].token.val[5]=100;o.members[0].token.val[7]=1;o.members[0].phase=ENGINE_EXPECTED;
+        o.retired_count=1;o.retired[0]=(struct engine_incarnation){.pid=100,.birth=10,.start=20,.token=o.members[0].token,.current=1};
+        o.pause_original_owned=(unsigned)engine_pause_stop_owned(&o);
+        int error=which==3?EINVAL:which==4?EIO:(which>=5&&which<=7)?EPERM:ESRCH;
+        uint64_t call=which==8?0:which==9?1200:1000,returned=1100;
+        int disposition=engine_pause_stop_receipt(&o,-1,error,call,returned);
+        int initial_ready=engine_pause_terminal_ready(&o);
+        uint64_t terminal=which==10?0:which==11?1000:2000;
+        (void)engine_pause_terminal_observe(&o,1,terminal);
+        if(which==5)(void)engine_pause_terminal_group_observe(&o,1,1,2500);
+        if(which==6||which==7) {
+            (void)engine_pause_terminal_group_observe(&o,1,0,2500);
+            o.group_kill_attempted=1;
+            // A later all-terminal cleanup must not retroactively admit EPERM.
+            (void)engine_pause_terminal_group_observe(&o,1,1,2600);
+        }
+        int no_group_ready=0;
+        if(which!=1) {
+            o.direct_reaped=o.wait_observed=1;o.direct_custody=0;o.wait_read_ns=which==14?0:which==15?1999:3000;
+            o.retained_wait.ru_utime.tv_usec=1000;o.retained_wait.ru_stime.tv_usec=1000;
+            if(which==13)o.retained_wait.ru_utime.tv_sec=(time_t)INT64_MAX;
+            o.wait_user=engine_timeval(&o.retained_wait.ru_utime);o.wait_system=engine_timeval(&o.retained_wait.ru_stime);o.wait_rss=1024;
+            (void)engine_terminal_budget(&o);
+            require(private_end_unit(private_cost.open_cpu),"supplied ownwait4 known or unknown full CPU bill is retained and paid before terminal disposition");
+            no_group_ready=engine_pause_terminal_ready(&o);
+            r.group_gone=which!=2;r.retired_coverage=1;
+            // Withhold the supplied payment receipt bit for this guard vector;
+            // do not erase any actual cost already retained/paid by the API.
+            if(which==12)o.helper_cost_paid=0;
+        }
+        int expected=which==0||which==5;
+        int ready=engine_pause_terminal_ready(&o),finished=engine_pause_terminal_finish(&o);
+        uint64_t helper_delta=o.helper_debt_delta_ns,job=r.helper_job_cpu_ns;
+        int idempotent=1;
+        if(finished) {
+            idempotent=engine_pause_terminal_finish(&o)&&engine_terminal_budget(&o)&&engine_helper_payment(&o)
+                &&helper_delta==o.helper_debt_delta_ns&&job==r.helper_job_cpu_ns;
+        }
+        require(private_end_unit(private_cost.open_cpu),"pause STOP error API complete scalar protocol and first verdict paid");
+        printf("private_pause_stop_exit_API_source_known case=%u name=%s raw_errno=%d disposition=%d original_owned=%u initial_ready=%d no_group_ready=%d ready=%d settled=%d expected_settled=%d supplied_ownwait4=%u supplied_group_gone=%u ACK_mask=%u resume_attempted=%u zombie_only_latched=%u terminal_resolved=%u supplied_terminal_CPU_ns=%llu supplied_helper_debt_delta_ns=%llu helper_cost_retained=%u helper_cost_paid=%u bill_idempotent=%d syscall_result_supplied=true rusage_supplied=true terminal_proofs_supplied=true actual_signal=false actual_ownwait4=false native_process=false runtime_approved=false\n",
+            which,names[which],error,disposition,o.pause_original_owned,initial_ready,no_group_ready,ready,finished,expected,o.wait_observed,r.group_gone,o.pause_ack_mask,o.pause_resume_attempted,
+            o.pause_terminal_zombie_only,o.pause_terminal_resolved,(unsigned long long)o.terminal_cpu_ns,(unsigned long long)o.helper_debt_delta_ns,o.helper_cost_retained,o.helper_cost_paid,idempotent);
+        require(fflush(stdout)==0&&private_end_unit(private_cost.open_cpu),"pause STOP error API explicit supplied evidence fully paid");
+        int bill=which==1?!o.helper_cost_retained:(o.helper_cost_retained&&helper_delta==9*engine_helper_cpu_cost(o.terminal_cpu_ns));
+        int matched=o.pause_original_owned&&!initial_ready&&!no_group_ready&&!o.pause_ack_mask&&!o.pause_resume_attempted
+            &&ready==expected&&finished==expected&&o.pause_terminal_resolved==(unsigned)expected&&idempotent&&bill;
+        if(which==0)require(matched,"ESRCH terminal-before-stop API settles only after original ownwait4 groupgone and full known paid bill");
+        require(matched,"pause STOP error API keeps unsupported EPERM clocks missing proof and unproven bill refused");passed++;
+    }
+    printf("private_pause_stop_exit_API_complete_source_known cases=16 passed=%u syscall_result_supplied=true rusage_supplied=true terminal_proofs_supplied=true actual_signal=false actual_ownwait4=false native_process=false runtime_approved=false\n",passed);
+    require(fflush(stdout)==0&&private_end_unit(private_cost.open_cpu),"pause STOP error API final summary paid");controls++;
+}
 static void member_peak_census_control(const char *self,const char *root,int parent) {
     require(mkdirat(parent,"member-peak-census",0700)==0,"fresh census-only member peak fixture");
     int dir=openat(parent,"member-peak-census",O_RDONLY|O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC);require(dir>=0,"owned census-only root");
@@ -2505,6 +2589,8 @@ int main(int argc,char **argv) {
     unsigned final_terms=argc==2&&!strcmp(argv[1],"final-conjunction-controls");
     unsigned member_census=argc==2&&!strcmp(argv[1],"member-peak-census-control");
     unsigned member_api=argc==2&&!strcmp(argv[1],"member-peak-admission-api");
+    unsigned pause_exit_api=argc==2&&!strcmp(argv[1],"pause-stop-exit-api");
+    unsigned pause_exit_process=argc==2&&!strcmp(argv[1],"pause-stop-exit-control");
     unsigned diagnostics=argc==2&&!strcmp(argv[1],"terminal-diagnostic-controls");
     unsigned setup=argc==2&&!strcmp(argv[1],"diagnostic-setup-budget-control");
     unsigned deadline=argc==2&&!strcmp(argv[1],"terminal-deadline-controls");
@@ -2528,7 +2614,7 @@ int main(int argc,char **argv) {
     unsigned custody_identity=argc==2&&!strcmp(argv[1],"custody-stop-identity-api");
     unsigned exit_before_api=argc==2&&!strcmp(argv[1],"same-wake-exit-api");
     unsigned event_case=argc==3&&!strcmp(argv[1],"verifier-event-control")?(unsigned)strtoul(argv[2],NULL,10):3;
-    require(argc==1||selected<12||diagnostics||setup||deadline||cpu_debt||expand||native_api||native_case<3||race_case<7||event_api||event_case<3||child_exit_api<9||child_exit_process||leader_refresh_api<5||composition||batch||nested_census||same_wake||delayed_ack||stop_ack_api||same_wake_api||event_wait_api||custody_identity||exit_before_api||hold||flow||result_only||final_terms||member_census||member_api||charge||boundary||stopped_api||stopped_process||pause_user_case<2||retained,"private source-known controls argc");
+    require(argc==1||selected<12||diagnostics||setup||deadline||cpu_debt||expand||native_api||native_case<3||race_case<7||event_api||event_case<3||child_exit_api<9||child_exit_process||leader_refresh_api<5||composition||batch||nested_census||same_wake||delayed_ack||stop_ack_api||same_wake_api||event_wait_api||custody_identity||exit_before_api||hold||flow||result_only||final_terms||member_census||member_api||pause_exit_api||pause_exit_process||charge||boundary||stopped_api||stopped_process||pause_user_case<2||retained,"private source-known controls argc");
     require(atexit(dispose_owned)==0,"owned cleanup registration");
     char root[]="/private/tmp/dream-private-engine-controls.XXXXXX";require(mkdtemp(root)!=NULL,"owned fixture directory");
     int dir=open(root,O_RDONLY|O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC);require(dir>=0,"owned fixture root");
@@ -2557,6 +2643,8 @@ int main(int argc,char **argv) {
     if(final_terms){final_conjunction_controls(dir);require(close(dir)==0,"owned final conjunction root close");return 0;}
     if(member_census){member_peak_census_control(self,root,dir);require(close(dir)==0,"owned member census root close");return 0;}
     if(member_api){member_peak_admission_api();require(close(dir)==0,"owned member admission API root close");return 0;}
+    if(pause_exit_api){pause_stop_exit_api();require(close(dir)==0,"owned pause STOP exit API root close");return 0;}
+    if(pause_exit_process){pause_preobserved_exit_control(self,root,dir);require(close(dir)==0,"owned actual pre-pause exit root close");return 0;}
     if(result_only){result_controls();require(close(dir)==0,"owned result root close");return 0;}
     if(boundary){total_boundary_api();require(close(dir)==0,"owned boundary API root close");return 0;}
     if(pause_user_case<2){pause_user_only_api(pause_user_case);require(close(dir)==0,"owned USER-only API root close");return 0;}
@@ -2607,7 +2695,7 @@ int main(int argc,char **argv) {
     verifier_event_api();
     for(unsigned mode=0;mode<3;mode++)(void)verifier_event_control(self,root,dir,mode);
     for(unsigned i=0;i<2;i++)pause_user_only_api(i);
-    stopped_gap_api();total_boundary_api();
+    stopped_gap_api();total_boundary_api();pause_stop_exit_api();
     total_retained_guard_api();
     quarantine_hold_process_control(self,root,dir);
     require(close(dir)==0,"owned fixture root close");

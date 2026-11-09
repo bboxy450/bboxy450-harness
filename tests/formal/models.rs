@@ -7064,6 +7064,7 @@ pub fn corpus() -> Vec<(Model, &'static str)> {
         (dream_read::total_budget(17), "safety"),
         (dream_read::total_budget(18), "liveness"),
         (dream_read::total_budget(19), "safety"),
+        (dream_read::total_budget(20), "safety"),
         (dream_read::qualification(0), "pass"),
         (dream_read::qualification(1), "pass"),
         (dream_read::qualification(2), "safety"),

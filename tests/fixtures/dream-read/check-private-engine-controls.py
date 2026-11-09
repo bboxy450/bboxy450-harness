@@ -39,6 +39,7 @@ LEDGERS = ('final-conjunction-controls.ndjson', 'member-peak-census/total-6.ndjs
            *(f'pause-{i}-{phase}' for i in (9,10) for phase in ('start','done','release')),
            *('diagnostic-' + str(i) + '/' + name for i in range(4) for name in ('stderr', 'stdout', 'result.json')))
 ASSERTIONS = {
+ 'pause-stop-exit-ignore-path': b'ESRCH terminal-before-stop API settles only after original ownwait4 groupgone and full known paid bill',
  'total-stopped-old-raw-gap': b'stable ACKed stop over50ms retains raw gap and admits both bounded running sides',
  'total-stopped-no-ACK': b'unACKed STOP earns no cadence exclusion even with supplied stable counters',
  'total-stopped-ignore-SYSTEM': b'SYSTEM beyond50us invalidates the immutable ACK counter seal',
@@ -338,6 +339,8 @@ def variants(source):
     result = {}
     def add(name, anchor, replacement, args):
         result[name] = (changed(source, anchor, replacement), args)
+    add('pause-stop-exit-ignore-path', b'static int engine_pause_stop_error_eligible(int error) {return error==ESRCH||error==EPERM;}',
+        b'static int engine_pause_stop_error_eligible(int error) {(void)error;return 0;}', ['pause-stop-exit-api'])
     add('total-stopped-old-raw-gap', b'if(running_gap==UINT64_MAX||running_gap>ENGINE_SAMPLE_NS)',
         b'if(gap==UINT64_MAX||gap>ENGINE_SAMPLE_NS)', ['stopped-gap-api'])
     add('total-stopped-no-ACK', b'!(o->pause_ack_mask&bit)', b'0', ['stopped-gap-api'])
@@ -529,9 +532,9 @@ def stopped_cadence_receipt(stdout):
 
 
 def retain_current(stdout, report):
-    found=re.findall(rb'private_engine_controls=pass cases=113 total_budget_controls=8 synthetic_source_known=true real_candidate_created=0 runtime_approved=false retained=(/private/tmp/dream-private-engine-controls\.[A-Za-z0-9]+)\n',stdout)
+    found=re.findall(rb'private_engine_controls=pass cases=114 total_budget_controls=8 synthetic_source_known=true real_candidate_created=0 runtime_approved=false retained=(/private/tmp/dream-private-engine-controls\.[A-Za-z0-9]+)\n',stdout)
     if len(found)!=1:
-        raise ValueError('current fixture lacks exact112 remaining controls and eight total-budget witnesses')
+        raise ValueError('current fixture lacks exact114 remaining controls and eight total-budget witnesses')
     if os.fsdecode(found[0]) != report['commands'][-1]['fixture_capture']['source_dir']:
         raise ValueError('completed fixture root differs from original command binding')
     modes=re.findall(rb'private_total_budget_control_source_known mode=([0-9]+) original_pid=([0-9]+) actual_own_wait4=1 group_gone=1 terminal_cpu_ns=([0-9]+)',stdout)
@@ -682,7 +685,8 @@ def retain_current(stdout, report):
     member_api=b'private_members_peak_admission_API_source_known cases=1 retained_live_count=2 members_max=2 exact_current_rows_supplied=2 final_conjunction_passed=true first_failing_term="none" final_error_code=none other_final_terms_supplied=true helper_births=0 native_process=false values_supplied=true actual_GS1=false actual_GS2=false actual_own_wait4=false actual_group_gone=false actual_helper_bill=false OS_timing_claimed=false full15_physical_run_claimed=false runtime_approved=false\n'
     if stdout.count(member_api)!=1:raise ValueError('supplied production member admission/count/final-classifier API positive missing or duplicated')
     report['member_peak_admission_API']={'cases':1,'retained_live_count':2,'members_max':2,'native_process':False,'values_supplied':True,'actual_own_wait4':False,'other_final_terms':'supplied; no full15 physical claim'}
-    report['baseline_cases']=113
+    report['baseline_cases']=114
+    report['pause_stop_exit_API']=pause_stop_exit_api_receipt(stdout)
     stop_ack=b'private_stop_ACK_API_source_known case=delayed_ACK admitted=1 supplied_CPU_ns=260000 supplied_STOP_to_ACK_ns=3000100 supplied_steps=3 sticky_child_cost_unproven=0 native_process=false values_supplied=true actual_STOP=false actual_native_wait=false actual_own_wait4=false OS_latency_claimed=false runtime_approved=false\n'
     never_ack=b'private_stop_ACK_API_source_known case=never_ACK at_bound=1 past_bound=0 supplied_STOP_elapsed_ns=25000001 remaining_request_ns=500 distinct_detail="stop ACK not observed within bound" native_process=false values_supplied=true actual_STOP=false actual_native_wait=false actual_own_wait4=false OS_latency_claimed=false runtime_approved=false\n'
     if stdout.count(stop_ack)!=1 or stdout.count(never_ack)!=1:raise ValueError('supplied post-STOP delayed/never ACK causal APIs missing or misclassified')
@@ -767,6 +771,80 @@ def delayed_ack_observation_receipt(stdout, command):
             'actual':fields,'bill':bill,'stdout':command['stdout'],'fixture_capture':command['fixture_capture']}
 
 
+def pause_stop_exit_api_receipt(stdout, mutant=False):
+    prefix=b'private_pause_stop_exit_API_source_known '
+    rows=[dict(x.decode('ascii').split('=',1) for x in line[len(prefix):].split()) for line in stdout.splitlines() if line.startswith(prefix)]
+    if not rows:raise ValueError('missing supplied STOP-error terminal protocol rows')
+    for row in rows:
+        for key in ('syscall_result_supplied','rusage_supplied','terminal_proofs_supplied'):
+            if row.get(key)!='true':raise ValueError('STOP-error API omitted supplied provenance '+key)
+        for key in ('actual_signal','actual_ownwait4','native_process','runtime_approved'):
+            if row.get(key)!='false':raise ValueError('STOP-error API overclaims native effect '+key)
+        if row['original_owned']!='1' or row['initial_ready']!='0' or row['no_group_ready']!='0' or row['ACK_mask']!='0' or row['resume_attempted']!='0':
+            raise ValueError('STOP-error API minted early settlement or stop/resume proof')
+    if mutant:
+        row=rows[0]
+        if not (row['case']=='0' and row['name']=='esrch_settled' and row['settled']=='0' and row['expected_settled']=='1'
+                and row['supplied_ownwait4']==row['supplied_group_gone']=='1' and row['supplied_terminal_CPU_ns']=='2002000'
+                and row['supplied_helper_debt_delta_ns']=='18018000' and row['helper_cost_retained']==row['helper_cost_paid']=='1'):
+            raise ValueError('missing-terminal-path mutant did not reach exact ESRCH paid own-reap over-refusal')
+        return {'scope':'supplied original identity/errno/terminal/rusage protocol; no native signal/wait4 claim','rows':rows}
+    if len(rows)!=16 or [int(x['case']) for x in rows]!=list(range(16)):
+        raise ValueError('STOP-error API lacks all16 bounded guard cases')
+    for row in rows:
+        expected=int(row['case']) in (0,5)
+        if not (int(row['settled'])==int(row['expected_settled'])==int(expected) and row['ready']==row['settled']
+                and int(row['terminal_resolved'])==int(expected) and row['bill_idempotent']=='1'):
+            raise ValueError('STOP-error API verdict differs from original own-reap/cost premises')
+    if rows[5]['zombie_only_latched']!='1' or rows[6]['zombie_only_latched']!='0' or rows[7]['zombie_only_latched']!='0':
+        raise ValueError('EPERM zombie-only proof was not independently latched before cleanup')
+    for index,row in enumerate(rows):
+        if index==1:
+            if row['helper_cost_retained']!='0':raise ValueError('no-ownwait4 vector invented a CPU receipt')
+        elif int(row['supplied_helper_debt_delta_ns'])!=9*max(1000000,int(row['supplied_terminal_CPU_ns'])) and int(row['supplied_terminal_CPU_ns'])!=2**64-1:
+            raise ValueError('known supplied wait4 CPU lost full9x bill')
+    marker=b'private_pause_stop_exit_API_complete_source_known cases=16 passed=16 syscall_result_supplied=true rusage_supplied=true terminal_proofs_supplied=true actual_signal=false actual_ownwait4=false native_process=false runtime_approved=false\n'
+    if stdout.count(marker)!=1:raise ValueError('STOP-error API incomplete exact summary')
+    return {'cases':16,'rows':rows,'scope':'supplied original identity/errno/timestamps/rusage and represented wait4/group proof; native-free production predicates and real budget/payment code','actual_signal':False,'actual_ownwait4':False,'native_process':False}
+
+
+def pause_preobserved_process_receipt(stdout, command):
+    prefix=b'private_pause_preobserved_exit_process_source_known '
+    rows=[dict(x.decode('ascii').split('=',1) for x in line[len(prefix):].split()) for line in stdout.splitlines() if line.startswith(prefix)]
+    if len(rows)!=1:raise ValueError('one deterministic preobserved original-exit witness required')
+    row=rows[0]
+    if not (int(row['original_pid'])>0 and all(row[k]=='0' for k in ('pause_return','STOP_attempted','raw_STOP_errno','ACK_mask','resume_attempted'))
+            and all(row[k]=='1' for k in ('terminal_resolved','actual_original_own_wait4','original_group_gone'))
+            and 0<int(row['first_terminal_ns'])<=int(row['own_wait4_read_ns'])
+            and int(row['helper_debt_delta_ns'])==9*max(1000000,int(row['terminal_CPU_ns']))
+            and int(row['debt_ns'])==int(row['paid_ns']) and row['actual_kernel_ESRCH_claimed']=='false'
+            and row['native_process']=='true' and row['installed_tool_qualification']==row['runtime_approved']=='false'):
+        raise ValueError('preobserved-exit process lost actual original terminal/cost proof or overclaimed errno')
+    return {'actual':row,'scope':'deterministic actual original exit before engine_pause; no kernel ESRCH race claimed','stdout':command['stdout'],'fixture_capture':command['fixture_capture']}
+
+
+def verify_pause_stop_exit(directory, inputs, report):
+    source=inputs[str(SOURCE)];current=directory/'current';current.mkdir(mode=0o700)
+    for name in (SOURCE,CONTROLS):report['snapshots'].append(retain(current/name.name,inputs[str(name)]))
+    program=compile_source(current,CONTROLS.name,report)
+    code,stdout,_=run([str(program),'pause-stop-exit-api'],current,'pause-stop-exit-api',report,fixture=True)
+    expect(code,0,'supplied failed STOP/own-reap terminal protocol')
+    report['pause_stop_exit_API']=pause_stop_exit_api_receipt(stdout)
+    code,stdout,_=run([str(program),'pause-stop-exit-control'],current,'preobserved-exit-process',report,fixture=True)
+    expect(code,0,'actual original exit before pause and original own-reap bill')
+    report['pause_preobserved_exit_process']=pause_preobserved_process_receipt(stdout,report['commands'][-1])
+    report['process_ledgers']+=report['commands'][-1]['fixture_capture']['files']
+    name='pause-stop-exit-ignore-path';changed_source,args=variants(source)[name];own=directory/name;own.mkdir(mode=0o700)
+    report['snapshots'].append(retain(own/SOURCE.name,changed_source));report['snapshots'].append(retain(own/CONTROLS.name,inputs[str(CONTROLS)]))
+    program=compile_source(own,CONTROLS.name,report)
+    code,stdout,stderr=run([str(program),*args],own,'controls',report,fixture=True)
+    expect(code,81,'causal missing terminal-before-stop path')
+    if ASSERTIONS[name] not in stderr:raise ValueError('terminal-before-stop mutant missed exact over-refusal assertion')
+    report['ignored_path_API']=pause_stop_exit_api_receipt(stdout,mutant=True)
+    report['source_mutants']=1;report['canonical_suite_receipt']=False
+    report['causal_mutants']=[{'name':name,'exit_code':code,'required_assertion':ASSERTIONS[name].decode(),'native_process':False,'syscall_result_supplied':True}]
+
+
 def verify(directory, inputs, report, total_only=False):
     source=inputs[str(SOURCE)]
     current=directory/'current';current.mkdir(mode=0o700)
@@ -788,6 +866,10 @@ def verify(directory, inputs, report, total_only=False):
         code,stdout,stderr=run([str(program)],current,'controls',report,fixture=True)
         expect(code,0,'current remaining source-known controls')
         retain_current(stdout,report)
+        code,pause_stdout,_=run([str(program),'pause-stop-exit-control'],current,'preobserved-exit-process',report,fixture=True)
+        expect(code,0,'actual original exit before foreground pause')
+        report['pause_preobserved_exit_process']=pause_preobserved_process_receipt(pause_stdout,report['commands'][-1])
+        report['process_ledgers']+=report['commands'][-1]['fixture_capture']['files']
         code,delayed_stdout,_=run([str(program),'same-wake-delayed-ack-control'],current,'delayed-ACK-observation-positive',report,fixture=True)
         expect(code,0,'actual first-ACK-observation delay through production bounded retained-knote wait')
         report['delayed_ACK_observation_process']=delayed_ack_observation_receipt(delayed_stdout,report['commands'][-1])
@@ -856,6 +938,7 @@ def verify(directory, inputs, report, total_only=False):
             marker=b'private_members_peak_admission_API_source_known cases=1 retained_live_count=1 members_max=1 exact_current_rows_supplied=2 final_conjunction_passed=false first_failing_term="members_max_complete" final_error_code=coverage_unknown other_final_terms_supplied=true helper_births=0 native_process=false values_supplied=true actual_GS1=false actual_GS2=false actual_own_wait4=false actual_group_gone=false actual_helper_bill=false OS_timing_claimed=false full15_physical_run_claimed=false runtime_approved=false\n'
             if marker not in stdout:
                 raise ValueError('missing-admission-peak API mutant missed exact supplied current-member count/classifier cause')
+        if name=='pause-stop-exit-ignore-path':report['ignored_path_API']=pause_stop_exit_api_receipt(stdout,mutant=True)
         if name=='custody-stop-ignore-current-RI':
             if b'private_custody_STOP_identity_API_source_known cases=7 accepted_mask=127 expected_mask=1' not in stdout:
                 raise ValueError('custody-STOP identity mutant missed its fresh-RI/failed-admission safety assertion')
@@ -890,6 +973,7 @@ def verify(directory, inputs, report, total_only=False):
         if name in ('total-pause-live-user','total-pause-terminal-user'):item.update(native_process=False,values_supplied=True,actual_own_wait4=False)
         if name=='member-peak-drop-admission':item.update(native_process=False,values_supplied=True,actual_GS1=False,actual_own_wait4=False,actual_helper_bill=False)
         if name=='same-wake-post-stop-nonblocking-only':item.update(native_process=False,values_supplied=True,actual_STOP=False,actual_native_wait=False,actual_own_wait4=False,OS_latency_claimed=False)
+        if name=='pause-stop-exit-ignore-path':item.update(native_process=False,values_supplied=True,actual_signal=False,actual_ownwait4=False,scope='supplied failed STOP/own-reap protocol; native-free predicates, no physical ESRCH claim')
         report.setdefault('causal_mutants',[]).append(item)
     if not total_only:
         production=directory/'production';production.mkdir(mode=0o700)
@@ -909,17 +993,20 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--target-dir',required=True)
     parser.add_argument('--total-budget-only',action='store_true',help='supplemental eight66280 plus four RSS/paused-user API/owned-process controls; not complete current C receipt')
+    parser.add_argument('--pause-stop-exit-only',action='store_true',help='affected supplied STOP-error/terminal protocol, deterministic preobserved-exit process and missing-path mutant only; not full C receipt')
     args=parser.parse_args();target=Path(args.target_dir)
+    if args.total_budget_only and args.pause_stop_exit_only:parser.error('choose only one supplemental control focus')
     if not target.is_absolute():parser.error('--target-dir must be absolute')
     target.mkdir(parents=True,exist_ok=True)
-    directory=Path(tempfile.mkdtemp(prefix='private-engine-total-budget-' if args.total_budget_only else 'private-engine-controls-',dir=target)).resolve()
-    report={'format':'bboxy.dream.private-engine-source-controls/1','decision':66280,'scope':'supplemental_total_budget' if args.total_budget_only else 'canonical_remaining_C_controls','synthetic_source_known':True,'real_candidate_created':0,'runtime_approved':False,'whole_command_lifetime_proof':False,'live_kernel_custody_after_probe_exit_proved':False,'recovery_handoff_proved':False,'same_controller_quarantine_hold_witness_required':True,'commands':[],'inputs':{},'snapshots':[],'executables':[],'process_ledgers':[]}
+    directory=Path(tempfile.mkdtemp(prefix='private-engine-pause-stop-exit-' if args.pause_stop_exit_only else 'private-engine-total-budget-' if args.total_budget_only else 'private-engine-controls-',dir=target)).resolve()
+    report={'format':'bboxy.dream.private-engine-source-controls/1','decision':66280,'scope':'supplemental_pause_stop_exit_race' if args.pause_stop_exit_only else 'supplemental_total_budget' if args.total_budget_only else 'canonical_remaining_C_controls','synthetic_source_known':True,'real_candidate_created':0,'runtime_approved':False,'whole_command_lifetime_proof':False,'live_kernel_custody_after_probe_exit_proved':False,'recovery_handoff_proved':False,'same_controller_quarantine_hold_witness_required':not args.pause_stop_exit_only,'commands':[],'inputs':{},'snapshots':[],'executables':[],'process_ledgers':[]}
     status=1
     try:
         inputs={str(p):read_stable(ROOT/p,1024*1024) for p in (SOURCE,CONTROLS,DRIVER)}
         archive=directory/'inputs';archive.mkdir(mode=0o700)
         for name,data in inputs.items():report['inputs'][name]=retain(archive/Path(name).name,data)
-        verify(directory,inputs,report,args.total_budget_only)
+        if args.pause_stop_exit_only:verify_pause_stop_exit(directory,inputs,report)
+        else:verify(directory,inputs,report,args.total_budget_only)
         if any(read_stable(ROOT/name,1024*1024)!=data for name,data in inputs.items()):raise ValueError('canonical C3 changed during verification')
         report['current_sources_unchanged']=True;report['status']='passed';status=0
     except (OSError,ValueError,subprocess.SubprocessError) as error:

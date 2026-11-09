@@ -2478,7 +2478,9 @@ struct engine_owner {
     uint64_t pause_observed_user[2],pause_user_baseline_ns,pause_terminal_user_ns,pause_user_excess_ns;
     unsigned pause_ack_mask,pause_baseline_known,pause_live_checked,pause_terminal_checked,pause_user_pass,pause_user_violation,pause_resume_admitted;
     unsigned pause_stop_attempted,pause_resume_attempted,pause_pending;
-    int pause_stop_errno;
+    int pause_stop_errno,pause_stop_result;
+    unsigned pause_original_owned,pause_terminal_candidate,pause_terminal_preobserved,pause_terminal_zombie_only,pause_terminal_resolved;
+    uint64_t pause_stop_call_ns,pause_stop_return_ns,pause_terminal_observed_ns,pause_terminal_zombie_only_ns;
     unsigned group_kill_attempted,group_kill_pending,group_kill_raced_exit;int group_kill_result;
     struct rusage retained_wait;int retained_status;uint64_t wait_read_ns,wait_user,wait_system,wait_rss,terminal_cpu_ns;
     int64_t wait_rss_native_raw;unsigned wait_rss_known,wait_rss_test_withheld;
@@ -2500,6 +2502,7 @@ static volatile sig_atomic_t engine_cancel_signal=0,engine_owner_loss_signal=0;
 static void engine_emergency_dispose(void);
 static void engine_quarantine_hold(struct engine_owner *);
 static int engine_retire(struct engine_owner *,int *);
+static int engine_group_observed_terminal(struct engine_owner *,int);
 static int engine_pretest_current(const struct private_engine_context *);
 static int engine_kill_group(struct engine_owner *);
 static int engine_sample_gap(struct engine_owner *,uint64_t);
@@ -3538,8 +3541,79 @@ static int engine_failed_record(struct engine_owner *o) {
     int n=snprintf(line,sizeof(line),"{\"kind\":\"ordinary_failed_charge\",\"count\":%llu,\"first_site\":\"%s\",\"first_line\":%u,\"first_open_ns\":%llu,\"first_end_ns\":%llu,\"first_actual_ns\":%llu,\"first_supplied_cost_ns\":%llu,\"first_cost_ns\":%llu,\"last_site\":\"%s\",\"last_line\":%u,\"last_actual_ns\":%llu,\"last_supplied_cost_ns\":%llu,\"last_cost_ns\":%llu}\n",(unsigned long long)o->failed_units,a->site?a->site:"none",a->line,(unsigned long long)a->open,(unsigned long long)a->end,(unsigned long long)a->actual,(unsigned long long)a->supplied_cost,(unsigned long long)a->cost,b->site?b->site:"none",b->line,(unsigned long long)b->actual,(unsigned long long)b->supplied_cost,(unsigned long long)b->cost);
     return engine_write_record(o,line,n);
 }
+enum engine_pause_stop_disposition {ENGINE_PAUSE_STOP_REFUSED,ENGINE_PAUSE_STOP_SENT,ENGINE_PAUSE_STOP_TERMINAL_PENDING};
+static int engine_pause_stop_error_eligible(int error) {return error==ESRCH||error==EPERM;}
+static int engine_pause_stop_owned(const struct engine_owner *o) {
+    return o->source_admitted&&o->ticket.pid>0&&o->ticket.pgid==o->ticket.pid
+        &&!o->direct_reaped&&!o->wait_observed&&o->direct_custody
+        &&engine_sample_owned_member(o,0,o->ticket.pid);
+}
+static int engine_pause_stop_receipt(struct engine_owner *o,int result,int error,uint64_t call,uint64_t returned) {
+    // Keep the consumed effect and raw result BEFORE any classification.
+    // Eligible errno is pending terminal observation, never stopped or exited.
+    o->pause_stop_attempted=1;o->pause_stop_result=result;o->pause_stop_errno=result?error:0;
+    o->pause_stop_call_ns=call;o->pause_stop_return_ns=returned;
+    if(result){o->pause_pending=1;o->running=0;}
+    if(!call||call==UINT64_MAX||returned==UINT64_MAX||returned<call)
+        return engine_failure(o,"clock_unknown","foreground STOP attempt clock unavailable");
+    if(!o->pause_original_owned)return engine_failure(o,"coverage_unknown","foreground STOP lacked original unreaped custody");
+    if(result==0)return ENGINE_PAUSE_STOP_SENT;
+    if(result!=-1||!engine_pause_stop_error_eligible(error))return engine_failure(o,"coverage_unknown","foreground STOP failed with unsupported signal error");
+    o->pause_terminal_candidate=1;return ENGINE_PAUSE_STOP_TERMINAL_PENDING;
+}
+static int engine_pause_terminal_observe(struct engine_owner *o,int terminal,uint64_t observed) {
+    if(!o->pause_pending||!terminal)return 1;
+    if(!o->pause_original_owned||!engine_sample_owned_member(o,0,o->ticket.pid))
+        return engine_failure(o,"coverage_unknown","foreground terminal observation lost original unreaped custody");
+    if(!observed||observed==UINT64_MAX||(o->pause_stop_attempted&&observed<o->pause_stop_return_ns))
+        return engine_failure(o,"clock_unknown","foreground terminal observation clock unavailable or reversed");
+    if(!o->pause_terminal_observed_ns)o->pause_terminal_observed_ns=observed;
+    return 1;
+}
+static int engine_pause_terminal_ready(const struct engine_owner *o) {
+    if(!o->pause_pending&&!o->pause_terminal_resolved)return 0;
+    int classified=!o->pause_stop_attempted?o->pause_terminal_preobserved:
+        o->pause_stop_result==-1&&engine_pause_stop_error_eligible(o->pause_stop_errno)
+        &&o->pause_stop_call_ns&&o->pause_stop_call_ns!=UINT64_MAX
+        &&o->pause_stop_return_ns!=UINT64_MAX&&o->pause_stop_return_ns>=o->pause_stop_call_ns
+        &&o->pause_terminal_observed_ns>=o->pause_stop_return_ns
+        &&(o->pause_stop_errno!=EPERM||(o->pause_terminal_zombie_only
+            &&o->pause_terminal_zombie_only_ns>=o->pause_terminal_observed_ns
+            &&o->pause_terminal_zombie_only_ns<=o->wait_read_ns));
+    return classified&&o->pause_original_owned&&o->pause_terminal_candidate
+        &&o->pause_terminal_observed_ns&&o->pause_terminal_observed_ns!=UINT64_MAX
+        &&o->wait_read_ns!=UINT64_MAX&&o->wait_read_ns>=o->pause_terminal_observed_ns
+        &&o->direct_reaped&&o->wait_observed&&!o->direct_custody&&o->result->group_gone&&o->result->retired_coverage
+        &&!o->coverage_lost&&!o->child_cost_unproven&&!o->pause_ack_mask&&!o->pause_resume_attempted&&!o->pause_resume_admitted
+        &&o->terminal_budget_checked&&o->terminal_budget_passed&&o->terminal_cpu_ns!=UINT64_MAX
+        &&o->helper_cost_retained&&o->helper_cost_paid&&private_cost.debt>=o->helper_debt_target
+        &&!private_has_retained_cost()&&!private_cost.retained_overflow&&private_cost.debt==private_cost.debt_paid
+        &&!o->failed&&!private_failed;
+}
+static int engine_pause_terminal_group_observe(struct engine_owner *o,int terminal,int members_terminal,uint64_t observed) {
+    if(!o->pause_pending||o->pause_stop_errno!=EPERM||!terminal||!members_terminal||o->group_kill_attempted)return 1;
+    if(!o->pause_terminal_observed_ns||observed==UINT64_MAX||observed<o->pause_terminal_observed_ns)
+        return engine_failure(o,"clock_unknown","foreground zombie-only observation clock unavailable or reversed");
+    if(!o->coverage_lost) {
+        o->pause_terminal_zombie_only=1;
+        if(!o->pause_terminal_zombie_only_ns)o->pause_terminal_zombie_only_ns=observed;
+    }
+    return 1;
+}
+static int engine_pause_terminal_finish(struct engine_owner *o) {
+    if(o->pause_terminal_resolved)return engine_pause_terminal_ready(o);
+    if(!engine_pause_terminal_ready(o))return engine_failure(o,"coverage_unknown","foreground STOP lacks original terminal settlement");
+    o->pause_terminal_resolved=1;o->pause_pending=0;o->paused=o->running=0;return 1;
+}
+static const char *engine_pause_stop_order(const struct engine_owner *o) {
+    if(!o->pause_terminal_observed_ns)return "terminal_not_observed";
+    if(o->pause_terminal_observed_ns==UINT64_MAX||o->pause_stop_call_ns==UINT64_MAX||o->pause_stop_return_ns==UINT64_MAX)return "clock_unknown";
+    if(!o->pause_stop_attempted)return "terminal_observed_without_stop_attempt";
+    if(o->pause_terminal_observed_ns<o->pause_stop_call_ns)return "terminal_observed_before_stop_attempt";
+    return o->pause_terminal_observed_ns>=o->pause_stop_return_ns?"stop_attempt_before_terminal_observation":"terminal_observation_inside_stop_call";
+}
 static int engine_pause_record(struct engine_owner *o) {
-    char line[2304];int n=snprintf(line,sizeof(line),"{\"kind\":\"pause_user_and_terminal_rss\",\"ack_mask\":%u,\"baseline_known\":%u,\"ack_ns\":%llu,\"member_ack_ns\":[%llu,%llu],\"ack_RI_begin_ns\":[%llu,%llu],\"ack_RI_return_ns\":[%llu,%llu],\"resume_RI_begin_ns\":[%llu,%llu],\"resume_RI_return_ns\":[%llu,%llu],\"resume_signal_ns\":%llu,\"final_kill_signal_ns\":%llu,\"counter_known_mask\":%u,\"ack_system_raw\":[%llu,%llu],\"observed_system_raw\":[%llu,%llu],\"system_growth_ns\":[%llu,%llu],\"system_timebase_numer\":%u,\"system_timebase_denom\":%u,\"system_growth_limit_ns\":50000,\"system_violation\":%u,\"ack_user_raw\":[%llu,%llu],\"observed_user_raw\":[%llu,%llu],\"baseline_user_ns\":%llu,\"terminal_user_ns\":%llu,\"user_excess_ns\":%llu,\"wait4_user_resolution_ns\":1000,\"live_checked\":%u,\"terminal_checked\":%u,\"pause_user_pass\":%u,\"sticky_violation\":%u,\"resume_admitted\":%u,\"rss_native_raw\":%lld,\"rss_known\":%u,\"rss_test_withheld\":%u,\"runtime_approved\":false}\n",o->pause_ack_mask,o->pause_baseline_known,(unsigned long long)o->pause_ack_ns,(unsigned long long)o->pause_member_ack_ns[0],(unsigned long long)o->pause_member_ack_ns[1],(unsigned long long)o->pause_ack_ri_begin_ns[0],(unsigned long long)o->pause_ack_ri_begin_ns[1],(unsigned long long)o->pause_ack_ri_end_ns[0],(unsigned long long)o->pause_ack_ri_end_ns[1],(unsigned long long)o->pause_resume_ri_begin_ns[0],(unsigned long long)o->pause_resume_ri_begin_ns[1],(unsigned long long)o->pause_resume_ri_end_ns[0],(unsigned long long)o->pause_resume_ri_end_ns[1],(unsigned long long)o->pause_resume_ns,(unsigned long long)o->pause_kill_ns,o->pause_counter_known_mask,(unsigned long long)o->pause_system[0],(unsigned long long)o->pause_system[1],(unsigned long long)o->pause_observed_system[0],(unsigned long long)o->pause_observed_system[1],(unsigned long long)o->pause_system_ns[0],(unsigned long long)o->pause_system_ns[1],o->pause_timebase_numer,o->pause_timebase_denom,o->pause_system_violation,(unsigned long long)o->pause_user[0],(unsigned long long)o->pause_user[1],(unsigned long long)o->pause_observed_user[0],(unsigned long long)o->pause_observed_user[1],(unsigned long long)o->pause_user_baseline_ns,(unsigned long long)o->pause_terminal_user_ns,(unsigned long long)o->pause_user_excess_ns,o->pause_live_checked,o->pause_terminal_checked,o->pause_user_pass,o->pause_user_violation,o->pause_resume_admitted,(long long)o->wait_rss_native_raw,o->wait_rss_known,o->wait_rss_test_withheld);
+    char line[3072];int n=snprintf(line,sizeof(line),"{\"kind\":\"pause_user_and_terminal_rss\",\"pause_stop_attempted\":%u,\"pause_stop_result\":%d,\"pause_stop_errno\":%d,\"pause_stop_call_ns\":%llu,\"pause_stop_return_ns\":%llu,\"pause_terminal_observed_ns\":%llu,\"pause_wait4_observed_ns\":%llu,\"pause_stop_order\":\"%s\",\"pause_terminal_candidate\":%u,\"pause_terminal_preobserved\":%u,\"pause_zombie_only_proven\":%u,\"pause_zombie_only_observed_ns\":%llu,\"pause_terminal_resolved\":%u,\"pause_pending_terminal\":%u,\"pause_original_owned\":%u,\"ack_mask\":%u,\"baseline_known\":%u,\"ack_ns\":%llu,\"member_ack_ns\":[%llu,%llu],\"ack_RI_begin_ns\":[%llu,%llu],\"ack_RI_return_ns\":[%llu,%llu],\"resume_RI_begin_ns\":[%llu,%llu],\"resume_RI_return_ns\":[%llu,%llu],\"resume_signal_ns\":%llu,\"final_kill_signal_ns\":%llu,\"counter_known_mask\":%u,\"ack_system_raw\":[%llu,%llu],\"observed_system_raw\":[%llu,%llu],\"system_growth_ns\":[%llu,%llu],\"system_timebase_numer\":%u,\"system_timebase_denom\":%u,\"system_growth_limit_ns\":50000,\"system_violation\":%u,\"ack_user_raw\":[%llu,%llu],\"observed_user_raw\":[%llu,%llu],\"baseline_user_ns\":%llu,\"terminal_user_ns\":%llu,\"user_excess_ns\":%llu,\"wait4_user_resolution_ns\":1000,\"live_checked\":%u,\"terminal_checked\":%u,\"pause_user_pass\":%u,\"sticky_violation\":%u,\"resume_admitted\":%u,\"rss_native_raw\":%lld,\"rss_known\":%u,\"rss_test_withheld\":%u,\"runtime_approved\":false}\n",o->pause_stop_attempted,o->pause_stop_result,o->pause_stop_errno,(unsigned long long)o->pause_stop_call_ns,(unsigned long long)o->pause_stop_return_ns,(unsigned long long)o->pause_terminal_observed_ns,(unsigned long long)o->wait_read_ns,engine_pause_stop_order(o),o->pause_terminal_candidate,o->pause_terminal_preobserved,o->pause_terminal_zombie_only,(unsigned long long)o->pause_terminal_zombie_only_ns,o->pause_terminal_resolved,o->pause_pending,o->pause_original_owned,o->pause_ack_mask,o->pause_baseline_known,(unsigned long long)o->pause_ack_ns,(unsigned long long)o->pause_member_ack_ns[0],(unsigned long long)o->pause_member_ack_ns[1],(unsigned long long)o->pause_ack_ri_begin_ns[0],(unsigned long long)o->pause_ack_ri_begin_ns[1],(unsigned long long)o->pause_ack_ri_end_ns[0],(unsigned long long)o->pause_ack_ri_end_ns[1],(unsigned long long)o->pause_resume_ri_begin_ns[0],(unsigned long long)o->pause_resume_ri_begin_ns[1],(unsigned long long)o->pause_resume_ri_end_ns[0],(unsigned long long)o->pause_resume_ri_end_ns[1],(unsigned long long)o->pause_resume_ns,(unsigned long long)o->pause_kill_ns,o->pause_counter_known_mask,(unsigned long long)o->pause_system[0],(unsigned long long)o->pause_system[1],(unsigned long long)o->pause_observed_system[0],(unsigned long long)o->pause_observed_system[1],(unsigned long long)o->pause_system_ns[0],(unsigned long long)o->pause_system_ns[1],o->pause_timebase_numer,o->pause_timebase_denom,o->pause_system_violation,(unsigned long long)o->pause_user[0],(unsigned long long)o->pause_user[1],(unsigned long long)o->pause_observed_user[0],(unsigned long long)o->pause_observed_user[1],(unsigned long long)o->pause_user_baseline_ns,(unsigned long long)o->pause_terminal_user_ns,(unsigned long long)o->pause_user_excess_ns,o->pause_live_checked,o->pause_terminal_checked,o->pause_user_pass,o->pause_user_violation,o->pause_resume_admitted,(long long)o->wait_rss_native_raw,o->wait_rss_known,o->wait_rss_test_withheld);
     return engine_write_record(o,line,n);
 }
 static int engine_ri_record(struct engine_owner *o) {
@@ -3574,16 +3648,32 @@ static int engine_record(struct engine_owner *o,const char *phase) {
     return engine_write_record(o,bytes,n)&&engine_failed_record(o)&&engine_pause_record(o)&&engine_ri_record(o)&&engine_child_record(o)&&engine_census_record(o)&&engine_event_record(o);
 }
 static int engine_pause(struct engine_owner *o) {
-    if(o->paused)return 1;if(o->pause_stop_attempted||o->retiring||o->group_kill_pending)return engine_failure(o,"coverage_unknown","consumed foreground STOP cannot be retried");
+    if(o->paused)return 1;if(o->pause_stop_attempted||o->pause_pending||o->retiring||o->group_kill_pending)return engine_failure(o,"coverage_unknown","consumed foreground STOP cannot be retried");
+    if(!engine_pause_stop_owned(o))return engine_failure(o,"coverage_unknown","foreground STOP lacks original unreaped custody");
+    o->pause_original_owned=1;
     o->pause_started_ns=engine_now(o,CLOCK_MONOTONIC);
     if(!engine_sample_gap(o,o->pause_started_ns))return 0;
+    int terminal=0;if(!known_exited(o->ticket.pid,&terminal))return engine_failure(o,"coverage_unknown","foreground STOP lacks original own-WNOWAIT observation");
+    if(terminal) {
+        o->pause_pending=o->pause_terminal_candidate=o->pause_terminal_preobserved=1;o->running=0;
+        (void)engine_pause_terminal_observe(o,terminal,engine_now(o,CLOCK_MONOTONIC));
+        (void)engine_checkpoint(o);return 0;
+    }
     mach_timebase_info_data_t timebase;
     if(mach_timebase_info(&timebase)!=KERN_SUCCESS||!timebase.numer||!timebase.denom)
         return engine_failure(o,"clock_unknown","pause ACK raw timebase unavailable before STOP");
     o->pause_timebase_numer=timebase.numer;o->pause_timebase_denom=timebase.denom;
-    o->pause_stop_attempted=1;
-    errno=0;int sent=kill(-o->ticket.pgid,SIGSTOP);o->pause_stop_errno=sent?errno:0;
-    if(sent) {o->pause_pending=1;return engine_failure(o,"coverage_unknown","foreground STOP pending independent terminal settlement");}
+    uint64_t call=engine_now(o,CLOCK_MONOTONIC);if(call==UINT64_MAX)return 0;
+    o->pause_stop_attempted=1;o->pause_stop_call_ns=call;
+    errno=0;int sent=kill(-o->ticket.pgid,SIGSTOP);int error=sent?errno:0;
+    o->pause_stop_result=sent;o->pause_stop_errno=error;
+    if(sent){o->pause_pending=1;o->running=0;}
+    uint64_t returned=engine_now(o,CLOCK_MONOTONIC);
+    if(engine_pause_stop_receipt(o,sent,error,call,returned)!=ENGINE_PAUSE_STOP_SENT) {
+        // End/pay the SAME attempted-STOP ordinary span before the command
+        // loop breaks directly to independent original-effect settlement.
+        (void)engine_checkpoint(o);return 0;
+    }
     for(;;) {
         int all=1;for(unsigned i=0;i<2;i++)if(o->members[i].state.pid&&o->members[i].phase!=ENGINE_EXITED) {
             if(!engine_sample_member(o,i,o->members[i].state.pid))return 0;
@@ -3838,6 +3928,16 @@ static int engine_observe_wait4(struct engine_owner *o) {
     // longer our original pin and must never be queried as a census source.
     (void)engine_events_poll(o,0);
     if(o->fork_census_pending){o->fork_census_pending=0;(void)engine_census(o,2,0);}
+    if(o->pause_pending) {
+        int terminal=0;
+        if(!known_exited(o->ticket.pid,&terminal))return engine_failure(o,"coverage_unknown","foreground terminal settlement lacks original own-WNOWAIT");
+        if(!terminal)return 0;
+        if(!engine_pause_terminal_observe(o,terminal,engine_now(o,CLOCK_MONOTONIC)))return 0;
+        if(o->pause_stop_errno==EPERM&&!o->pause_terminal_zombie_only&&!o->group_kill_attempted) {
+            int members_terminal=engine_group_observed_terminal(o,terminal);
+            if(!engine_pause_terminal_group_observe(o,terminal,members_terminal,engine_now(o,CLOCK_MONOTONIC)))return 0;
+        }
+    }
     struct rusage r;int status;errno=0;pid_t got=wait4(o->ticket.pid,&status,WNOHANG,&r);
     if(got==0||(got<0&&errno==EINTR))return 0;
     if(got!=o->ticket.pid) {o->direct_custody=0;return engine_failure(o,"settlement_unknown","original ownwait4 ownership unavailable");}
@@ -3981,7 +4081,10 @@ static int engine_retire(struct engine_owner *o,int *status) {
     (void)engine_events_poll(o,0);
     if(o->fork_census_pending){o->fork_census_pending=0;(void)engine_census(o,2,0);}
     int done=0;if(!known_exited(o->ticket.pid,&done))return engine_quarantine(o,"original WNOWAIT ownership unavailable");
+    if(o->pause_pending&&done&&!engine_pause_terminal_observe(o,done,engine_now(o,CLOCK_MONOTONIC)))return engine_quarantine(o,"foreground terminal observation remains unproven");
     engine_cleanup_escaped(o);int members_terminal=engine_group_observed_terminal(o,done);
+    if(o->pause_pending&&o->pause_stop_errno==EPERM&&done&&members_terminal&&!o->group_kill_attempted
+        &&!engine_pause_terminal_group_observe(o,done,members_terminal,engine_now(o,CLOCK_MONOTONIC)))return engine_quarantine(o,"foreground zombie-only observation remains unproven");
     if(engine_final_kill_required(done,members_terminal)) {
         if(done)(void)engine_child_unproven(o,"leader exited before every original member was terminal");
         if(!engine_kill_group(o))return engine_quarantine(o,"final kill raw error unresolved");
@@ -3997,6 +4100,12 @@ static int engine_retire(struct engine_owner *o,int *status) {
     (void)engine_checkpoint(o);(void)engine_terminal_budget(o);
     if(!o->helper_cost_paid)return engine_quarantine(o,"terminal helper CPU bill retained but unpaid");
     if(!engine_settle_proven(o))return engine_quarantine(o,"actual ownwait4 lacks original group/retired identity proof");
+    if(o->pause_pending) {
+        // Ownwait4, original group/retired proof and the unchanged CPU verdict
+        // precede resolution. Pay this observation unit too; errno made no ACK.
+        if(!engine_checkpoint(o))return engine_quarantine(o,"foreground terminal proof cost remains owned");
+        (void)engine_pause_terminal_finish(o);
+    }
     // Classify discovery only after the original queue was drained before
     // ownwait4, and before GS2 can report the separate missing-GS1 failure.
     if(o->command==12&&o->verified_descendants!=1)
