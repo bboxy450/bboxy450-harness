@@ -2081,6 +2081,36 @@ pub fn notice(text_value: &str, level: &Level, ink: &Ink) -> c::Element {
     )
 }
 
+/// MCP startup as one quiet row: `mcp  ● bboxy  ● bboxy_python ↻2`. A green
+/// dot is ready, a dim one still starting; a restart count shows past one start.
+pub fn mcp_strip(servers: &[(String, String, usize)], ink: &Ink) -> c::Element {
+    let mut items = vec![fixed(c::Element::Text(text("mcp", 11., 500, ink.dim, true)))];
+    for (server, state, starts) in servers {
+        let color = if state == "ready" { ink.ok } else { ink.dim };
+        let mut chip = vec![
+            fixed(frame(
+                Frame {
+                    padding: [1., 0., 0., 0.],
+                    ..Default::default()
+                },
+                vec![hstack(vec![fixed(dot(6., color))], 0.).into()],
+            )),
+            fixed(c::Element::Text(text(server.as_str(), 11.5, 400, ink.dim, false))),
+        ];
+        if *starts > 1 {
+            chip.push(fixed(c::Element::Text(text(
+                format!("\u{21bb}{starts}"),
+                10.5,
+                400,
+                ink.dim,
+                false,
+            ))));
+        }
+        items.push(fixed(hstack(chip, 5.)));
+    }
+    hstack(items, 12.)
+}
+
 /// What the header says on its right: one phase, coloured by tone.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tone {

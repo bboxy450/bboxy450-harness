@@ -50,6 +50,12 @@ pub(super) fn drawn(model: &Transcript, id: &ItemId) -> bool {
             && (r.kind != ItemKind::UserMessage || r.completed.is_some())
     })
 }
+/// An MCP server's lifecycle notice, `mcp <server>: starting|ready`. A run of
+/// them is startup chatter: it folds into one strip of server chips.
+pub(super) fn mcp_lifecycle(text: &str) -> Option<(&str, &str)> {
+    let (server, state) = text.strip_prefix("mcp ")?.split_once(": ")?;
+    (!server.contains(' ') && matches!(state, "starting" | "ready")).then_some((server, state))
+}
 fn python_cell(row: &ViewItem) -> Option<crate::frontends::face_core::PythonCell> {
     match &row.body {
         Item::ToolCall {
@@ -166,6 +172,23 @@ impl Folds {
             if let Some(to) = to {
                 f.parent.insert(*id, to);
                 f.kids.entry(to).or_default().push(*id);
+            }
+        }
+        // Consecutive MCP lifecycle notices fold into the first of their run.
+        let mut strip: Option<ItemId> = None;
+        for id in &model.order {
+            if f.parent.contains_key(id) || !drawn(model, id) {
+                continue;
+            }
+            match (&model.items[id].body, strip) {
+                (Item::Notice { text, .. }, Some(head)) if mcp_lifecycle(text).is_some() => {
+                    f.parent.insert(*id, head);
+                    f.kids.entry(head).or_default().push(*id);
+                }
+                (Item::Notice { text, .. }, None) if mcp_lifecycle(text).is_some() => {
+                    strip = Some(*id)
+                }
+                _ => strip = None,
             }
         }
         // harness.js mount(): a tool card mounted right after a tool card (or the group it
@@ -612,6 +635,25 @@ impl Preparer {
                     8.,
                 ),
             },
+            Item::Notice { text, .. } if mcp_lifecycle(text).is_some() => {
+                // one chip per server, its latest state; restarts counted
+                let mut servers: Vec<(String, String, usize)> = vec![];
+                let kids = folds.kids.get(&id).into_iter().flatten();
+                for r in std::iter::once(row).chain(kids.filter_map(|k| model.items.get(k))) {
+                    let Item::Notice { text, .. } = &r.body else { continue };
+                    let Some((server, state)) = mcp_lifecycle(text) else { continue };
+                    let at = match servers.iter().position(|s| s.0 == server) {
+                        Some(at) => at,
+                        None => {
+                            servers.push((server.into(), String::new(), 0));
+                            servers.len() - 1
+                        }
+                    };
+                    servers[at].1 = state.into();
+                    servers[at].2 += usize::from(state == "starting");
+                }
+                f::mcp_strip(&servers, &ink)
+            }
             Item::Notice { text, level } => f::notice(text, level, &ink),
             Item::Terminal { command, exit, .. } => {
                 let status = term_status(row, *exit);

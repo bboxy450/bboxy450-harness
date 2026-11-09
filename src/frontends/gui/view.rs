@@ -3743,6 +3743,62 @@ mod onboarding_markdown_tests {
         }).await;
     }
     #[test]
+    fn mcp_startup_notices_fold_into_one_strip_row() {
+        let mut model = Transcript::default();
+        let first = include_str!("../../../tests/fixtures/protocol/all-items.jsonl")
+            .lines()
+            .next()
+            .unwrap();
+        model.apply(&serde_json::from_str::<Envelope>(first).unwrap());
+        let notices = [
+            "mcp bboxy_python: starting",
+            "mcp bboxy: starting",
+            "mcp bboxy_python: ready",
+            "mcp bboxy: ready",
+            "mcp bboxy: starting",
+            "mcp bboxy: ready",
+            "mcp bboxy: dead",
+        ];
+        let mut seq = 1;
+        for (i, text) in notices.iter().enumerate() {
+            let item = format!("{:026}", 100 + i);
+            for event in [
+                serde_json::json!({"type":"item_started","item":item,"kind":"notice","parent":null,"turn":null,"head":null}),
+                serde_json::json!({"type":"item_completed","item":item,"status":{"status":"completed"},"body":{"kind":"notice","level":"info","text":text}}),
+            ] {
+                seq += 1;
+                let line = serde_json::json!({"at":seq,"cause":null,"epoch":1,"event":event,"seq":seq,"session":"00000000000000000000000001","ts_ms":seq,"v":{"major":1,"minor":0}});
+                model.apply(&serde_json::from_value::<Envelope>(line).unwrap());
+            }
+        }
+        let folds = super::Folds::of(&model, &Default::default());
+        let heads: Vec<_> = model
+            .order
+            .iter()
+            .filter(|id| !folds.parent.contains_key(id))
+            .collect();
+        // six lifecycle lines become one strip; the dead server stays its own notice
+        assert_eq!(heads.len(), 2, "{heads:?}");
+        assert_eq!(folds.parent.values().filter(|p| *p == heads[0]).count(), 5);
+        let strip = *heads[0];
+        let prepared = std::thread::spawn(move || {
+            Preparer::default().prepare(Arc::new(model), 640.).unwrap()
+        })
+        .join()
+        .unwrap();
+        let mut runs = vec![];
+        fn texts(node: &c::Layout, out: &mut Vec<String>) {
+            if let c::LayoutKind::Text { runs, .. } = &node.kind {
+                out.extend(runs.iter().map(|r| r.text.clone()));
+            }
+            for child in &node.children {
+                texts(child, out);
+            }
+        }
+        texts(&prepared.rows[&strip].layout, &mut runs);
+        assert_eq!(runs, ["mcp", "bboxy_python", "bboxy", "\u{21bb}2"]);
+    }
+    #[test]
     fn tool_header_and_reasoning_text_share_alignment() {
         let ctx = ui::Context::new(Theme::Light, Density::Cozy);
         let ink = super::super::face::ink(ctx);

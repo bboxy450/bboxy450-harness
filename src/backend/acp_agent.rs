@@ -1742,7 +1742,7 @@ impl AcpAgentActor {
                 }
                 call(agent, Call::NewSession, "session/new", params)?;
                 if fallback {
-                    self.notice(Level::Info, "This agent takes no session system prompt; launcher instructions go in the first prompt as context.".into()).await?;
+                    self.notice(Level::Info, "Launcher context rides with the first prompt (no system prompt on this agent).".into()).await?;
                 }
                 Ok(())
             }
