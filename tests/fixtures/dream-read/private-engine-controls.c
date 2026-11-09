@@ -32,6 +32,9 @@ static void fixture_reset_cost(void) {
     source_known_payment_interrupts=source_known_payment_fail_nth=source_known_schedule_interrupts=source_known_schedule_fail_nth=0;
     source_known_tail_over_cpu=source_known_final_kill_eperm=source_known_terminal_rss_unavailable=0;
     source_known_taskall_pid=0;source_known_taskall_error=source_known_taskall_clock_failure=0;
+    source_known_before_observation=NULL;source_known_after_observation=NULL;source_known_observation_selected=ENGINE_OBS_NONE;
+    source_known_observation_forced_domain=ENGINE_OBSERVATION_UNIX;source_known_observation_forced_code=0;
+    source_known_observation_hits=0;source_known_observation_seen_site=ENGINE_OBS_NONE;
     source_known_taskall_native_result=source_known_taskall_native_errno=0;source_known_before_live_read=NULL;source_known_live_rechecks=0;source_known_live_read_error=0;source_known_child_watch_bound=NULL;source_known_child_handoff=NULL;
     source_known_event_registration_failure=0;source_known_process_create_case=0;source_known_flow_stage=source_known_flow_failure_stage=0;memset(&source_known_flow_failure_cost,0,sizeof(source_known_flow_failure_cost));
 }
@@ -1631,6 +1634,358 @@ static int live_sample_race_control(const char *self,const char *root,int dir,un
     return mode&&mode!=6?81:0;
 }
 
+// Task66445: a forced raw result is injected only at the selected production
+// boundary. The callback independently terminates the original gated child;
+// supplied errno/phase state never claims a real kernel ESRCH or child birth.
+static unsigned observation_race_case,observation_race_hook_calls,observation_race_gate_released;
+static unsigned observation_race_before_ACK,observation_race_before_resume,observation_race_before_members,observation_race_before_child,observation_race_before_GS1;
+static unsigned observation_race_before_registered;
+static unsigned observation_resume_target_wave,observation_resume_openings,observation_resume_kills;
+static int observation_race_invoke(struct engine_owner *,enum engine_observation_site);
+static uint64_t observation_race_terminal_start,observation_race_terminal_exit;
+static enum engine_observation_site observation_race_site;
+// Exact route-return scalars: later strict cleanup remains visible separately.
+// This callback adds no clock, native observation, IO, policy or effect.
+struct observation_route_snapshot {
+    unsigned callbacks,member,pending,owner_failed,coverage,first_site_coverage;
+    enum engine_observation_site site;enum engine_observation_domain domain;
+    int code;enum engine_observe_outcome outcome;uint64_t before,after;
+};
+static struct observation_route_snapshot observation_selected_route;
+static void observation_race_after(struct engine_owner *o,unsigned i,enum engine_observation_site site,
+        enum engine_observation_domain domain,int code,enum engine_observe_outcome outcome,uint64_t before,uint64_t after) {
+    if(o!=fixture_live_owner||i||site!=observation_race_site||source_known_observation_hits!=1
+        ||source_known_observation_seen_site!=site)return;
+    observation_selected_route.callbacks++;
+    if(observation_selected_route.callbacks!=1)return;
+    observation_selected_route.member=i;observation_selected_route.site=site;observation_selected_route.domain=domain;
+    observation_selected_route.code=code;observation_selected_route.outcome=outcome;
+    observation_selected_route.before=before;observation_selected_route.after=after;
+    observation_selected_route.pending=o->obs_terminal_pending;observation_selected_route.owner_failed=o->failed;
+    observation_selected_route.coverage=private_errors[2].count;
+    observation_selected_route.first_site_coverage=!strcmp(private_error,"coverage_unknown")
+        &&!strcmp(private_detail,engine_observation_site_detail(site));
+}
+static void observation_race_before(struct engine_owner *o,unsigned i,enum engine_observation_site site,pid_t pid) {
+    source_known_before_observation=NULL;observation_race_hook_calls++;
+    require(site==observation_race_site&&o==fixture_live_owner&&i==0&&pid==o->ticket.pid
+        &&o->direct_custody&&!o->direct_reaped,"selected observation hook names only the original unreaped owned member");
+    observation_race_before_ACK=o->pause_ack_mask;observation_race_before_resume=o->pause_resume_admitted;
+    observation_race_before_members=o->result->members_max;observation_race_before_child=o->child_created;
+    observation_race_before_registered=o->event_registered_mask;observation_race_before_GS1=o->git_signature?o->git_signature->bound:0;
+    if(observation_race_case!=4) {
+        int fd=open(fixture_release_path,O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,0600);
+        require(fd>=0&&close(fd)==0,"selected observation releases only its original held gate");observation_race_gate_released=1;
+        if(observation_resume_target_wave) {
+            require(engine_kill_group(o)&&o->group_kill_attempted&&!o->group_kill_result&&o->pause_kill_ns,
+                "resume race ends the real stopped exclusion through the existing original group kill effect");
+            observation_resume_kills++;
+        }
+        await_original(o);
+        struct rusage_info_v1 u;memset(&u,0,sizeof(u));
+        require(proc_pid_rusage(pid,RUSAGE_INFO_V1,(rusage_info_t *)&u)==0
+            &&u.ri_proc_start_abstime==o->ticket.start&&u.ri_proc_exit_abstime,
+            "selected observation independently retains original terminal RI before the supplied raw error");
+        observation_race_terminal_start=u.ri_proc_start_abstime;observation_race_terminal_exit=u.ri_proc_exit_abstime;
+    }
+    if(observation_race_case==2)o->members[0].state.birth++;
+    if(observation_race_case==3)o->members[0].token.val[0]^=1;
+    if(observation_race_case==5)o->direct_reaped=1;
+    if(observation_race_case==6)o->direct_custody=0;
+    require(engine_checkpoint(o),"selected raw-call exit and supplied premise observation are fully charged and paid");
+}
+static enum engine_observation_domain observation_race_domain(unsigned site) {
+    return site==ENGINE_OBS_AUDIT_TASK_NAME||site==ENGINE_OBS_AUDIT_TASK_INFO?ENGINE_OBSERVATION_MACH:
+        site==ENGINE_OBS_AUDIT_TASK_NAME_NULL?ENGINE_OBSERVATION_NULL_PORT:ENGINE_OBSERVATION_UNIX;
+}
+static int observation_race_code(unsigned site) {
+    return site==ENGINE_OBS_AUDIT_TASK_NAME?KERN_FAILURE:site==ENGINE_OBS_AUDIT_TASK_INFO?KERN_INVALID_ARGUMENT:
+        site==ENGINE_OBS_AUDIT_TASK_NAME_NULL?0:site==ENGINE_OBS_GS1_PROCARGS?EINVAL:ESRCH;
+}
+
+static int observation_race_invoke(struct engine_owner *o,enum engine_observation_site site) {
+    // Sites1..9 enter the whole original member sampler. For the remaining
+    // sites the exact production raw boundary is exercised with explicitly
+    // supplied enclosing phase prerequisites, not claimed GS1/escaped-child
+    // execution. Every case still owns and settles its real original leader.
+    if(site<=ENGINE_OBS_LIVE_TASKALL_CLOSE)return engine_sample_member(o,0,o->ticket.pid);
+    struct engine_observed_signal signal;struct rusage_info_v1 u;struct proc_bsdinfo b;
+    char path[PROC_PIDPATHINFO_MAXSIZE];unsigned char procargs[4096];size_t size=sizeof(procargs);
+    uint64_t returned=0;int ids[3]={0},done=0;
+    switch(site) {
+    case ENGINE_OBS_GS1_IMAGE_PATH:return engine_observe_path(o,0,ENGINE_OBS_GS1_IMAGE_PATH,&o->members[0].token,path,sizeof(path));
+    case ENGINE_OBS_GS1_PROCARGS:return engine_observe_procargs(o,0,o->ticket.pid,procargs,&size);
+    case ENGINE_OBS_CHILD_STOP_SIGNAL:
+        signal=engine_observe_token_signal(o,0,ENGINE_OBS_CHILD_STOP_SIGNAL,&o->members[0].token,SIGSTOP);return (int)signal.outcome;
+    case ENGINE_OBS_CHILD_CONTINUE_SIGNAL:
+        signal=engine_observe_token_signal(o,0,ENGINE_OBS_CHILD_CONTINUE_SIGNAL,&o->members[0].token,SIGCONT);return (int)signal.outcome;
+    case ENGINE_OBS_INITIAL_CONTINUE_SIGNAL:
+        signal=engine_observe_token_signal(o,0,ENGINE_OBS_INITIAL_CONTINUE_SIGNAL,&o->members[0].token,SIGCONT);return (int)signal.outcome;
+    case ENGINE_OBS_FOREGROUND_STOP_SIGNAL:
+        signal=engine_observe_group_signal(o,ENGINE_OBS_FOREGROUND_STOP_SIGNAL,SIGSTOP);return (int)signal.outcome;
+    case ENGINE_OBS_FOREGROUND_CONTINUE_SIGNAL:
+        signal=engine_observe_group_signal(o,ENGINE_OBS_FOREGROUND_CONTINUE_SIGNAL,SIGCONT);return (int)signal.outcome;
+    case ENGINE_OBS_PREKILL_BSD:return engine_observe_bsd(o,0,ENGINE_OBS_PREKILL_BSD,o->ticket.pid,&b);
+    case ENGINE_OBS_FINAL_GROUP_KILL:
+        signal=engine_observe_group_signal(o,ENGINE_OBS_FINAL_GROUP_KILL,SIGKILL);return (int)signal.outcome;
+    case ENGINE_OBS_CHILDREN_CENSUS:return engine_list_children(o,0,o->ticket.pid,ids,sizeof(ids));
+    case ENGINE_OBS_GROUP_CENSUS:return engine_sample(o);
+    case ENGINE_OBS_EVENT_REGISTER:
+        // The original queue/watch is genuinely registered already. Clearing
+        // only this supplied logical phase makes the SAME registration raw
+        // boundary reachable; no successful registration is manufactured.
+        o->event_registered_mask&=~1u;o->event_watch[0].bound=0;
+        return engine_events_register(o,0,o->ticket.pid);
+    case ENGINE_OBS_EVENT_POLL:return engine_events_poll(o,0);
+    case ENGINE_OBS_EVENT_DELIVERY: {
+        struct kevent event;EV_SET(&event,(uintptr_t)o->ticket.pid,EVFILT_PROC,EV_ERROR,0,ESRCH,&o->event_watch[0]);
+        return engine_event_note(o,&event,engine_now(o,CLOCK_MONOTONIC));
+    }
+    case ENGINE_OBS_HANDOFF_RUSAGE:return engine_observe_rusage(o,0,ENGINE_OBS_HANDOFF_RUSAGE,o->ticket.pid,&u,&returned);
+    case ENGINE_OBS_ESCAPED_CLEANUP_BSD:return engine_observe_bsd(o,0,ENGINE_OBS_ESCAPED_CLEANUP_BSD,o->ticket.pid,&b);
+    case ENGINE_OBS_ESCAPED_CLEANUP_SIGNAL:
+        signal=engine_observe_token_signal(o,0,ENGINE_OBS_ESCAPED_CLEANUP_SIGNAL,&o->members[0].token,SIGKILL);return (int)signal.outcome;
+    case ENGINE_OBS_OWNED_TERMINAL_WAITID:return engine_observe_exited(o,&done);
+    default:require(0,"only the fixed production observation inventory is callable");return 0;
+    }
+}
+
+static int observation_race_control(const char *self,const char *root,int dir,unsigned id,unsigned mode) {
+    require(id>0&&id<ENGINE_OBS_SITE_COUNT&&mode<8,"fixed observation site and finite premise case");
+    struct engine_owner o;struct private_engine_result r;int status=-1;
+    require(total_spawn(&o,&r,self,dir,16,root),"observation race retains unchanged actual original prepared birth and priority");
+    require(engine_observation_identity_complete(&o,0)&&engine_checkpoint(&o),"observation race starts only after exact original full incarnation and paid prior debt");
+    struct engine_member original=o.members[0];unsigned owned=o.direct_custody,reaped=o.direct_reaped;
+    unsigned original_registered=o.event_registered_mask;struct engine_event_watch original_watch=o.event_watch[0];
+    observation_race_site=(enum engine_observation_site)id;observation_race_case=mode;
+    observation_resume_target_wave=observation_resume_openings=observation_resume_kills=0;
+    observation_race_hook_calls=observation_race_gate_released=0;observation_race_terminal_start=observation_race_terminal_exit=0;
+    source_known_observation_hits=0;source_known_observation_seen_site=ENGINE_OBS_NONE;
+    source_known_observation_forced_domain=observation_race_domain(id);source_known_observation_forced_code=observation_race_code(id);
+    if(mode==1) {
+        if(id==ENGINE_OBS_AUDIT_TASK_NAME_NULL)source_known_observation_forced_domain=ENGINE_OBSERVATION_SEMANTIC;
+        source_known_observation_forced_code=source_known_observation_forced_domain==ENGINE_OBSERVATION_MACH?KERN_PROTECTION_FAILURE:EACCES;
+    }
+    int raw_domain=(int)source_known_observation_forced_domain,raw_code=source_known_observation_forced_code;
+    memset(&observation_selected_route,0,sizeof(observation_selected_route));source_known_after_observation=observation_race_after;
+    source_known_before_observation=observation_race_before;source_known_observation_selected=observation_race_site;
+    int observed=observation_race_invoke(&o,observation_race_site);
+    struct observation_route_snapshot selected=observation_selected_route;source_known_after_observation=NULL;
+    unsigned hits=source_known_observation_hits,seen=(unsigned)source_known_observation_seen_site;
+    unsigned pending=o.obs_terminal_pending,owner_failed=o.failed;uint64_t takeovers=o.obs_terminal_takeovers;
+    uint64_t selected_delta=selected.after>=selected.before?selected.after-selected.before:UINT64_MAX;
+    uint64_t later_takeovers=takeovers>=selected.after?takeovers-selected.after:UINT64_MAX;
+    unsigned selected_boundary=selected.callbacks==1&&selected.member==0&&selected.site==observation_race_site
+        &&(int)selected.domain==raw_domain&&selected.code==raw_code;
+    unsigned selected_terminal=selected_boundary&&selected.outcome==ENGINE_OBSERVATION_TERMINAL
+        &&selected_delta==1&&selected.pending&&!selected.owner_failed&&!selected.coverage;
+    unsigned selected_refusal=selected_boundary&&selected.outcome==ENGINE_OBSERVATION_FAILED
+        &&!selected_delta&&!selected.pending&&selected.owner_failed&&selected.coverage&&selected.first_site_coverage;
+    unsigned coverage=private_errors[2].count,ACK_same=o.pause_ack_mask==observation_race_before_ACK;
+    unsigned CONT_same=o.pause_resume_admitted==observation_race_before_resume;
+    unsigned member_same=r.members_max==observation_race_before_members&&o.child_created==observation_race_before_child;
+    unsigned watch_same=id!=ENGINE_OBS_EVENT_REGISTER||o.event_registered_mask==observation_race_before_registered;
+    unsigned GS1_same=(o.git_signature?o.git_signature->bound:0)==observation_race_before_GS1;
+    unsigned census_unknown=id==ENGINE_OBS_CHILDREN_CENSUS?!(o.child_list_known_mask&1u):id==ENGINE_OBS_GROUP_CENSUS?!o.group_list_known:1;
+    source_known_before_observation=NULL;source_known_observation_selected=ENGINE_OBS_NONE;
+    // Restore only deliberately supplied premise mutations before the SAME
+    // original owner settles its actual child. Never change a kernel identity.
+    if(mode==2||mode==3)o.members[0]=original;
+    o.direct_custody=owned;o.direct_reaped=reaped;
+    if(id==ENGINE_OBS_EVENT_REGISTER){o.event_registered_mask=original_registered;o.event_watch[0]=original_watch;}
+    if(!observation_race_gate_released) {
+        int fd=open(fixture_release_path,O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,0600);
+        require(fd>=0&&close(fd)==0,"observation refusal releases only the original held fixture gate");observation_race_gate_released=1;
+    }
+    await_original(&o);(void)engine_retire(&o,&status);
+    int settled=o.direct_reaped&&o.wait_observed&&r.group_gone&&r.retired_coverage&&!engine_current;
+    if(settled)fixture_live_owner=NULL;
+    require(settled&&o.native.cpu_known&&o.native.wall_known&&o.native.cpu<=2000000&&o.native.wall<=250000000
+        &&r.inclusive_max_ns.known&&r.inclusive_max_ns.value<=3000000&&private_cost.ordinary_max<=1000000
+        &&o.helper_cost_retained&&o.helper_cost_paid&&o.terminal_cpu_ns!=UINT64_MAX
+        &&o.helper_debt_delta_ns==9*engine_helper_cpu_cost(o.terminal_cpu_ns)&&private_cost.debt==private_cost.debt_paid,
+        "selected observation retains actual original ownwait4 groupgone and full known paid bill");
+    printf("private_observation_race_source_known site_id=%u site=%s case=%u call_return=%d boundary_hits=%u seen_site=%u raw_domain=%d raw_code=%d terminal_pending=%u takeovers=%llu coverage_unknown=%u pipeline_owner_failed=%u pipeline_snapshot=before_retirement selected_callbacks=%u selected_site=%u selected_domain=%d selected_code=%d selected_outcome=%d selected_pending=%u selected_takeovers_before=%llu selected_takeovers_after=%llu selected_takeover_delta=%llu selected_owner_failed=%u selected_coverage=%u selected_first_site_coverage=%u later_takeovers_before_retire=%llu ACK_unchanged=%s CONT_unchanged=%s membership_unchanged=%s census_unknown_preserved=%s watch_not_fabricated=%s GS1_not_fabricated=%s original_pid=%d terminal_start=%llu terminal_exit=%llu actual_own_wait4=1 group_gone=1 retired_coverage=1 CPU_ns=%llu helper_debt_ns=%llu helper_cost_retained=1 helper_cost_paid=1 debt_ns=%llu paid_ns=%llu native_process=true terminal_proof_supplied=false raw_error_supplied=true target_syscall_invoked=false syscall_outcome_supplied=true enclosing_phase_supplied=%s identity_premise_mutated_supplied=%s independent_exit_withheld=%s advisory_waitable_supplied=%s advisory_OS_window_claimed=false consuming_WNOWAIT_fault=false actual_GS1=false actual_escaped_child=false installed_tool_qualification=false runtime_approved=false\n",
+        id,engine_observation_site_name(observation_race_site),mode,observed,hits,seen,raw_domain,raw_code,pending,(unsigned long long)takeovers,coverage,owner_failed,
+        selected.callbacks,(unsigned)selected.site,(int)selected.domain,selected.code,(int)selected.outcome,selected.pending,
+        (unsigned long long)selected.before,(unsigned long long)selected.after,(unsigned long long)selected_delta,
+        selected.owner_failed,selected.coverage,selected.first_site_coverage,(unsigned long long)later_takeovers,
+        ACK_same?"true":"false",CONT_same?"true":"false",member_same?"true":"false",census_unknown?"true":"false",watch_same?"true":"false",GS1_same?"true":"false",o.ticket.pid,
+        (unsigned long long)observation_race_terminal_start,(unsigned long long)observation_race_terminal_exit,(unsigned long long)o.terminal_cpu_ns,
+        (unsigned long long)o.helper_debt_delta_ns,(unsigned long long)private_cost.debt,(unsigned long long)private_cost.debt_paid,(id>ENGINE_OBS_LIVE_TASKALL_CLOSE&&id!=ENGINE_OBS_GROUP_CENSUS)?"true":"false",(mode==2||mode==3||mode==5||mode==6)?"true":"false",mode==4?"true":"false",mode==7?"0":"unknown_unqueried");
+    require(fflush(stdout)==0&&private_end_unit(private_cost.open_cpu),"selected production-boundary raw and actual-settlement evidence fully paid");
+    require(hits==1&&seen==id&&observation_race_hook_calls==1,"selected observation reaches its instrumented raw production boundary exactly once");
+    if(mode==7)require(selected_terminal&&pending&&takeovers==1&&!coverage&&!owner_failed&&ACK_same&&CONT_same&&member_same&&census_unknown&&watch_same&&GS1_same,
+        "advisory own-WNOWAIT not-ready does not veto independent original terminal RI proof");
+    else if(!mode)require(selected_terminal&&pending&&takeovers==1&&!coverage&&!owner_failed&&ACK_same&&CONT_same&&member_same&&census_unknown&&watch_same&&GS1_same,
+        "selected production observation boundary retains qualified terminal-only disposition");
+    else require(selected_refusal&&!pending&&!takeovers&&coverage&&ACK_same&&CONT_same&&member_same&&census_unknown&&watch_same&&GS1_same,
+        "selected observation refuses other error foreign identity or missing independent terminal proof");
+    engine_close_transferred(&o);require(close(o.ledger)==0,"observation race closes only original owned ledger");free(o.capture);
+    require(private_end_unit(private_cost.open_cpu),"observation race original owner disposal fully paid");controls++;
+    return mode&&mode!=7?81:0;
+}
+
+// The builder's second failed branch is checked through the SAME retirement
+// invocation: the original remains live at its first WNOWAIT, then exits only
+// at the selected pre-KILL BSD boundary. A fresh second retire cannot hide an
+// erroneous quarantine transition in the first call.
+static void observation_prekill_retirement_control(const char *self,const char *root,int dir) {
+    struct engine_owner o;struct private_engine_result r;int status=-1,done=0;
+    require(total_spawn(&o,&r,self,dir,16,root),"whole prekill race retains actual original prepared birth and background priority");
+    require(engine_observation_identity_complete(&o,0)&&known_exited(o.ticket.pid,&done)&&!done&&engine_checkpoint(&o),
+        "whole prekill race begins with its original live unreaped gate-held incarnation");
+    observation_race_site=ENGINE_OBS_PREKILL_BSD;observation_race_case=0;
+    observation_race_hook_calls=observation_race_gate_released=0;observation_race_terminal_start=observation_race_terminal_exit=0;
+    source_known_observation_hits=0;source_known_observation_seen_site=ENGINE_OBS_NONE;
+    source_known_observation_forced_domain=ENGINE_OBSERVATION_UNIX;source_known_observation_forced_code=ESRCH;
+    source_known_before_observation=observation_race_before;source_known_observation_selected=ENGINE_OBS_PREKILL_BSD;
+    int retired=engine_retire(&o,&status);
+    source_known_before_observation=NULL;source_known_observation_selected=ENGINE_OBS_NONE;
+    int settled=o.direct_reaped&&o.wait_observed&&r.group_gone&&r.retired_coverage&&!engine_current;
+    if(settled)fixture_live_owner=NULL;
+    require(retired&&settled&&status==0&&!o.failed&&!private_failed&&!o.settlement_quarantined
+        &&source_known_observation_hits==1&&source_known_observation_seen_site==ENGINE_OBS_PREKILL_BSD&&observation_race_hook_calls==1
+        &&o.obs_terminal_takeovers==1&&o.obs_terminal_site==ENGINE_OBS_PREKILL_BSD&&o.obs_terminal_errno==ESRCH
+        &&observation_race_terminal_start==o.ticket.start&&observation_race_terminal_exit
+        &&!o.pause_ack_mask&&!o.pause_resume_admitted&&o.helper_cost_retained&&o.helper_cost_paid
+        &&o.terminal_cpu_ns!=UINT64_MAX&&o.helper_debt_delta_ns==9*engine_helper_cpu_cost(o.terminal_cpu_ns)
+        &&private_cost.debt==private_cost.debt_paid&&private_cost.ordinary_max<=1000000
+        &&o.native.cpu_known&&o.native.cpu<=2000000&&o.native.wall_known&&o.native.wall<=250000000
+        &&r.inclusive_max_ns.known&&r.inclusive_max_ns.value<=3000000,
+        "prekill BSD terminal takeover completes the same retirement call without false quarantine");
+    printf("private_observation_prekill_retirement_process_source_known site=prekill_bsd site_id=17 original_pid=%d initial_original_live=true retirement_calls=1 selected_boundary_hits=%u seen_site=%u takeovers=%llu raw_errno=%d target_syscall_invoked=false syscall_outcome_supplied=true terminal_proof_supplied=false terminal_start=%llu terminal_exit=%llu actual_own_wait4=1 group_gone=1 retired_coverage=1 quarantine=0 ACK_mask=0 resume_admitted=0 CPU_ns=%llu helper_debt_ns=%llu helper_cost_retained=1 helper_cost_paid=1 debt_ns=%llu paid_ns=%llu native_process=true installed_tool_qualification=false runtime_approved=false\n",
+        o.ticket.pid,source_known_observation_hits,(unsigned)source_known_observation_seen_site,(unsigned long long)o.obs_terminal_takeovers,o.obs_terminal_errno,
+        (unsigned long long)observation_race_terminal_start,(unsigned long long)observation_race_terminal_exit,(unsigned long long)o.terminal_cpu_ns,
+        (unsigned long long)o.helper_debt_delta_ns,(unsigned long long)private_cost.debt,(unsigned long long)private_cost.debt_paid);
+    require(fflush(stdout)==0&&private_end_unit(private_cost.open_cpu),"whole prekill retirement provenance and full cost evidence paid");
+    engine_close_transferred(&o);require(close(o.ledger)==0,"whole prekill retirement original ledger close");free(o.capture);
+    require(private_end_unit(private_cost.open_cpu),"whole prekill retirement original disposal full cost paid");controls++;
+}
+
+static void observation_resume_arm(struct engine_owner *o,unsigned i,pid_t pid,unsigned position) {
+    if(position!=1)return;
+    require(o==fixture_live_owner&&i==0&&pid==o->ticket.pid,"resume arm retains only the original current member");
+    observation_resume_openings++;
+    if(observation_resume_openings==observation_resume_target_wave) {
+        source_known_before_live_read=NULL;
+        source_known_observation_selected=ENGINE_OBS_LIVE_TASKALL_OPEN;
+    }
+}
+static void observation_resume_terminal_control(const char *self,const char *root,int dir,unsigned wave) {
+    require(wave==1||wave==2,"two existing resume sample waves");
+    struct engine_owner o;struct private_engine_result r;int status=-1;
+    require(total_spawn(&o,&r,self,dir,16,root),"resume terminal fixture retains original prepared birth and priority");
+    o.foreground=1;
+    require(engine_pause(&o)&&o.paused&&o.pause_ack_mask==1&&o.pause_baseline_known&&o.pause_counter_known_mask==1,
+        "resume terminal fixture obtains actual positive STOP ACK and immutable raw baseline");
+    unsigned ACK=o.pause_ack_mask;
+    observation_race_site=ENGINE_OBS_LIVE_TASKALL_OPEN;observation_race_case=0;
+    observation_resume_target_wave=wave;observation_resume_openings=observation_resume_kills=0;
+    observation_race_hook_calls=observation_race_gate_released=0;observation_race_terminal_start=observation_race_terminal_exit=0;
+    source_known_observation_hits=0;source_known_observation_seen_site=ENGINE_OBS_NONE;
+    source_known_observation_forced_domain=ENGINE_OBSERVATION_UNIX;source_known_observation_forced_code=ESRCH;
+    source_known_observation_selected=ENGINE_OBS_NONE;source_known_before_observation=observation_race_before;
+    source_known_before_live_read=observation_resume_arm;
+    const struct private_source_known_effects effects={source_known_current,NULL};
+    private_guards.stage=2;private_source_known_effects=&effects;o.foreground=0;
+    int resumed=engine_resume(&o);
+    private_source_known_effects=NULL;source_known_before_live_read=NULL;source_known_before_observation=NULL;source_known_observation_selected=ENGINE_OBS_NONE;
+    unsigned pending=o.obs_terminal_pending,failed=o.failed,coverage=private_errors[2].count;
+    unsigned resume_attempted=o.pause_resume_attempted,resume_admitted=o.pause_resume_admitted;
+    uint64_t takeovers=o.obs_terminal_takeovers,kill_cut=o.pause_kill_ns;
+    observation_resume_target_wave=0;
+    (void)engine_retire(&o,&status);
+    int settled=o.direct_reaped&&o.wait_observed&&r.group_gone&&r.retired_coverage&&!engine_current;
+    if(settled)fixture_live_owner=NULL;
+    require(settled&&WIFSIGNALED(o.retained_status)&&WTERMSIG(o.retained_status)==SIGKILL
+        &&o.helper_cost_retained&&o.helper_cost_paid&&o.terminal_cpu_ns!=UINT64_MAX
+        &&o.helper_debt_delta_ns==9*engine_helper_cpu_cost(o.terminal_cpu_ns)&&private_cost.debt==private_cost.debt_paid
+        &&private_cost.ordinary_max<=1000000&&o.native.cpu_known&&o.native.cpu<=2000000
+        &&o.native.wall_known&&o.native.wall<=250000000&&r.inclusive_max_ns.known&&r.inclusive_max_ns.value<=3000000,
+        "resume terminal fixture pays the actual original SIGKILL wait4 CPU and retains full physical settlement");
+    printf("private_observation_resume_terminal_process_source_known wave=%u original_pid=%d resume_return=%d opening_samples=%u selected_boundary_hits=%u seen_site=%u takeovers=%llu terminal_pending=%u owner_failed_before_retire=%u coverage_unknown_before_retire=%u actual_ACK_mask=%u resume_attempted=%u resume_admitted=%u existing_group_kill_effects=%u actual_kill_cut_ns=%llu terminal_start=%llu terminal_exit=%llu actual_own_wait4=1 group_gone=1 retired_coverage=1 CPU_ns=%llu helper_debt_ns=%llu helper_cost_retained=1 helper_cost_paid=1 debt_ns=%llu paid_ns=%llu target_syscall_invoked=false syscall_outcome_supplied=true currentness_premise_supplied=true paused_phase_supplied=false actual_positive_ACK=true actual_SIGKILL=true spontaneous_exit_claimed=false native_process=true installed_tool_qualification=false runtime_approved=false\n",
+        wave,o.ticket.pid,resumed,observation_resume_openings,source_known_observation_hits,(unsigned)source_known_observation_seen_site,
+        (unsigned long long)takeovers,pending,failed,coverage,ACK,resume_attempted,resume_admitted,observation_resume_kills,
+        (unsigned long long)kill_cut,(unsigned long long)observation_race_terminal_start,(unsigned long long)observation_race_terminal_exit,
+        (unsigned long long)o.terminal_cpu_ns,(unsigned long long)o.helper_debt_delta_ns,(unsigned long long)private_cost.debt,(unsigned long long)private_cost.debt_paid);
+    require(fflush(stdout)==0&&private_end_unit(private_cost.open_cpu),"resume terminal and real kill provenance evidence fully paid");
+    require(!resumed&&pending&&takeovers==1&&!failed&&!coverage&&ACK==1&&!resume_attempted&&!resume_admitted
+        &&observation_resume_openings==wave&&observation_resume_kills==1&&source_known_observation_hits==1
+        &&source_known_observation_seen_site==ENGINE_OBS_LIVE_TASKALL_OPEN&&kill_cut&&kill_cut!=UINT64_MAX,
+        "resume sample terminal takeover stops before live predicates without false coverage failure");
+    engine_close_transferred(&o);require(close(o.ledger)==0,"resume terminal original ledger close");free(o.capture);
+    require(private_end_unit(private_cost.open_cpu),"resume terminal original disposal cost paid");controls++;
+}
+
+static void observation_event_interrupt_control(const char *self,const char *root,int dir,unsigned cancelled) {
+    require(cancelled<2,"bare or already-observed cancellation EINTR projection");
+    struct engine_owner o;struct private_engine_result r;int status=-1;
+    require(total_spawn(&o,&r,self,dir,16,root),"event interrupt fixture retains original prepared birth and priority");
+    source_known_observation_hits=0;source_known_observation_seen_site=ENGINE_OBS_NONE;
+    source_known_observation_selected=ENGINE_OBS_EVENT_POLL;source_known_observation_forced_domain=ENGINE_OBSERVATION_UNIX;source_known_observation_forced_code=EINTR;
+    source_known_before_observation=NULL;engine_cancel_signal=(sig_atomic_t)cancelled;
+    int polled=engine_events_poll(&o,0);unsigned coverage=private_errors[2].count;
+    int first_cancelled=!strcmp(private_error,"cancelled"),first_coverage=!strcmp(private_error,"coverage_unknown");
+    source_known_observation_selected=ENGINE_OBS_NONE;
+    int fd=open(fixture_release_path,O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,0600);
+    require(fd>=0&&close(fd)==0,"event interruption releases only original fixture gate");await_original(&o);
+    (void)engine_retire(&o,&status);engine_cancel_signal=0;
+    int settled=o.direct_reaped&&o.wait_observed&&r.group_gone&&r.retired_coverage&&!engine_current;
+    if(settled)fixture_live_owner=NULL;
+    require(settled&&o.helper_cost_retained&&o.helper_cost_paid&&o.terminal_cpu_ns!=UINT64_MAX
+        &&o.helper_debt_delta_ns==9*engine_helper_cpu_cost(o.terminal_cpu_ns)&&private_cost.debt==private_cost.debt_paid
+        &&private_cost.ordinary_max<=1000000&&o.native.cpu_known&&o.native.cpu<=2000000
+        &&o.native.wall_known&&o.native.wall<=250000000&&r.inclusive_max_ns.known&&r.inclusive_max_ns.value<=3000000,
+        "event interrupt fixture retains actual original ownwait4 groupgone and complete known bill");
+    printf("private_observation_event_interrupt_process_source_known cancelled_premise=%u original_pid=%d event_return=%d selected_boundary_hits=%u seen_site=%u raw_errno=%d coverage_unknown=%u first_cancelled=%d first_coverage=%d actual_own_wait4=1 group_gone=1 helper_cost_retained=1 helper_cost_paid=1 CPU_ns=%llu helper_debt_ns=%llu debt_ns=%llu paid_ns=%llu target_syscall_invoked=false syscall_outcome_supplied=true cancellation_state_supplied=true actual_signal_interruption=false native_process=true runtime_approved=false\n",
+        cancelled,o.ticket.pid,polled,source_known_observation_hits,(unsigned)source_known_observation_seen_site,EINTR,coverage,first_cancelled,first_coverage,
+        (unsigned long long)o.terminal_cpu_ns,(unsigned long long)o.helper_debt_delta_ns,(unsigned long long)private_cost.debt,(unsigned long long)private_cost.debt_paid);
+    require(fflush(stdout)==0&&private_end_unit(private_cost.open_cpu),"event interruption raw supplied premise and actual-settlement evidence paid");
+    require(!polled&&coverage&&first_cancelled==(int)cancelled&&first_coverage==(int)!cancelled
+        &&source_known_observation_hits==1&&source_known_observation_seen_site==ENGINE_OBS_EVENT_POLL,
+        "event EINTR refuses through exact site coverage while preserving an already observed cancellation first");
+    engine_close_transferred(&o);require(close(o.ledger)==0,"event interruption original ledger close");free(o.capture);
+    require(private_end_unit(private_cost.open_cpu),"event interruption original disposal paid");controls++;
+}
+
+// Pure source-known eligibility/error-domain checks. No supplied PID is used
+// for a native query, effect, terminal proof, ownwait4 or accounting credit.
+static void observation_race_predicate_api(void) {
+    reset();struct engine_owner o;struct private_engine_result r;memset(&o,0,sizeof(o));memset(&r,0,sizeof(r));
+    o.context=&context;o.result=&r;o.source_admitted=1;o.direct_custody=1;o.slots=1;o.ticket.pid=100;o.ticket.pgid=100;o.ticket.birth=1000;o.ticket.start=10;
+    struct engine_member *m=&o.members[0];m->state.pid=100;m->state.ppid=getpid();m->state.pgid=100;m->state.uid=geteuid();
+    m->state.birth=1000;m->state.start_absolute=10;m->token_known=1;m->phase=ENGINE_EXPECTED;m->token.val[5]=100;m->token.val[7]=1;
+    o.retired_count=1;o.retired[0]=(struct engine_incarnation){.pid=100,.birth=1000,.start=10,.token=m->token,.current=1};
+    require(engine_observation_identity_complete(&o,0),"observation eligibility requires one exact current supplied full incarnation");
+    m->state.birth++;require(!engine_observation_identity_complete(&o,0),"observation eligibility refuses supplied foreign birth");m->state.birth--;
+    m->token.val[0]^=1;require(!engine_observation_identity_complete(&o,0),"observation eligibility refuses any supplied full token difference");m->token.val[0]^=1;
+    m->state.start_absolute++;require(!engine_observation_identity_complete(&o,0),"observation eligibility refuses supplied foreign RI start");m->state.start_absolute--;
+    o.direct_reaped=1;require(!engine_observation_identity_complete(&o,0),"observation eligibility refuses original already consumed by ownwait4");o.direct_reaped=0;
+    o.direct_custody=0;require(!engine_observation_identity_complete(&o,0),"observation eligibility refuses missing original custody");o.direct_custody=1;
+    o.retired[1]=o.retired[0];o.retired_count=2;require(!engine_observation_identity_complete(&o,0),"observation eligibility refuses duplicate current rows");o.retired_count=1;
+    o.retired[0].current=0;require(!engine_observation_identity_complete(&o,0),"observation eligibility refuses missing current row");o.retired[0].current=1;
+    m->token.val[7]=o.retired[0].token.val[7]=0;require(!engine_observation_identity_complete(&o,0),"observation eligibility refuses zero token version even with matching supplied row");m->token.val[7]=o.retired[0].token.val[7]=1;
+    m->token.val[5]=o.retired[0].token.val[5]=101;require(!engine_observation_identity_complete(&o,0),"observation eligibility refuses token PID mismatch even with matching supplied row");m->token.val[5]=o.retired[0].token.val[5]=100;
+    unsigned sites=0;
+    for(unsigned id=1;id<ENGINE_OBS_SITE_COUNT;id++) {
+        enum engine_observation_site site=(enum engine_observation_site)id;
+        require(engine_observation_gone(site,observation_race_domain(id),observation_race_code(id)),"each fixed site has only its declared gone-equivalent raw domain");
+        require(!engine_observation_gone(site,ENGINE_OBSERVATION_UNIX,EIO)
+            &&!engine_observation_gone(site,ENGINE_OBSERVATION_UNIX,EACCES)
+            &&!engine_observation_gone(site,ENGINE_OBSERVATION_SEMANTIC,0),"other native errors and raw-success semantic mismatch cannot become terminal proof");
+        require(engine_observation_gone(site,ENGINE_OBSERVATION_UNIX,EINVAL)==(site==ENGINE_OBS_GS1_PROCARGS),
+            "EINVAL is gone-equivalent only at the reviewed procargs site");
+        if(site!=ENGINE_OBS_AUDIT_TASK_NAME)require(!engine_observation_gone(site,ENGINE_OBSERVATION_MACH,KERN_FAILURE),"Mach task-name failure never aliases UNIX EIO or another site");
+        if(site==ENGINE_OBS_AUDIT_TASK_NAME||site==ENGINE_OBS_AUDIT_TASK_INFO||site==ENGINE_OBS_AUDIT_TASK_NAME_NULL)
+            require(!engine_observation_gone(site,ENGINE_OBSERVATION_UNIX,ESRCH),"UNIX ESRCH cannot alias a Mach-only or successful-null-port site");
+        if(site==ENGINE_OBS_AUDIT_TASK_INFO)require(engine_observation_gone(site,ENGINE_OBSERVATION_MACH,MACH_SEND_INVALID_DEST),"task-info invalid destination remains explicitly domain-bound");
+        require(private_end_unit(private_cost.open_cpu),"each finite observation predicate group pays its full ordinary cost");sites++;
+    }
+    printf("private_observation_predicate_API_source_known sites=%u identity_cases=10 raw_domain_whitelist=true foreign_birth_start_full_token_refused=true reaped_unowned_duplicate_missing_row_refused=true native_process=false values_supplied=true actual_terminal_proof=false actual_own_wait4=false runtime_approved=false\n",sites);
+    require(fflush(stdout)==0&&private_end_unit(private_cost.open_cpu),"observation predicate API evidence fully paid");controls++;
+}
+
 // Deterministic production-API trace: child lifetime100us lies strictly
 // between polling instants. These supplied times are NOT OS timing claims.
 // The separate owned process cases below use actual kqueue notifications.
@@ -2517,6 +2872,50 @@ static void stopped_gap_api(void) {
 // Supplied USER-only production API witnesses. No PID, native RI, ownwait4,
 // OS CPU measurement or helper bill is fabricated. Actual physical modes9/10
 // remain independently mandatory with their original cost/custody assertions.
+// Supplied RI identity/counters and authoritative USER/CPU receipts exercise
+// independent strict policy diagnostics. No native RI, process or ownwait4 is
+// invented; only the existing production payment function performs real rest.
+static void terminal_both_policy_api(void) {
+    for(unsigned prior=0;prior<2;prior++) {
+        reset();struct engine_owner o;struct private_engine_result r;memset(&o,0,sizeof(o));memset(&r,0,sizeof(r));o.context=&context;o.result=&r;
+        o.pause_ack_mask=o.pause_counter_known_mask=1;o.pause_user[0]=o.pause_observed_user[0]=o.members[0].user=100;
+        o.pause_system[0]=o.pause_observed_system[0]=o.members[0].system=200;
+        o.pause_timebase_numer=o.pause_timebase_denom=1;o.members[0].state.start_absolute=77;
+        o.pause_baseline_known=1;o.pause_user_baseline_ns=100;o.wait_user=1101;
+        const char *first_code=NULL,*first_detail=NULL;
+        if(prior) {
+            (void)engine_failure(&o,"source_changed","supplied earlier independent source refusal");
+            first_code=private_error;first_detail=private_detail;
+        }
+        struct rusage_info_v1 u;memset(&u,0,sizeof(u));u.ri_proc_start_abstime=77;u.ri_proc_exit_abstime=99;
+        u.ri_user_time=101;u.ri_system_time=50201;
+        int terminal_identity=engine_terminal_usage(&o,0,&u);
+        if(!prior){first_code=private_error;first_detail=private_detail;}
+        int live_admitted=engine_usage(&o,0,&u);
+        int terminal_user_accepted=engine_terminal_pause_user(&o);
+        int first_preserved=private_error==first_code&&private_detail==first_detail;
+        int prior_source_first=!strcmp(private_error,"source_changed");
+        o.wait_observed=1;o.terminal_cpu_ns=10000000;
+        require(engine_helper_payment(&o)&&o.helper_cost_retained&&o.helper_cost_paid
+            &&o.helper_debt_delta_ns==90000000&&private_cost.debt==private_cost.debt_paid,
+            "both-axis supplied API retains and pays its complete known CPU bill despite refusal");
+        uint64_t target=private_cost.debt;
+        require(engine_helper_payment(&o)&&private_cost.debt==target,"both-axis supplied API never bills the same supplied receipt twice");
+        printf("private_terminal_both_policy_API_source_known case=%u prior_FIRST_supplied=%s terminal_identity=%d live_admitted=%d terminal_user_accepted=%d USER_violation=%u SYSTEM_violation=%u terminal_USER_checked=%u terminal_USER_ns=%llu baseline_USER_ns=100 terminal_delta_expected_ns=1001 USER_excess_ns=%llu SYSTEM_growth_ns=%llu first_preserved=%d prior_source_first=%d supplied_terminal_CPU_ns=10000000 helper_debt_ns=90000000 helper_cost_retained=1 helper_cost_paid=1 debt_ns=%llu paid_ns=%llu raw_RI_supplied=true raw_timebase_supplied=true terminal_USER_supplied=true actual_native_RI=false actual_own_wait4=false native_process=false runtime_approved=false\n",
+            prior,prior?"true":"false",terminal_identity,live_admitted,terminal_user_accepted,o.pause_user_violation,o.pause_system_violation,o.pause_terminal_checked,
+            (unsigned long long)o.pause_terminal_user_ns,(unsigned long long)o.pause_user_excess_ns,(unsigned long long)o.stopped_system_ns,
+            first_preserved,prior_source_first,(unsigned long long)private_cost.debt,(unsigned long long)private_cost.debt_paid);
+        require(fflush(stdout)==0&&private_end_unit(private_cost.open_cpu),"both-axis identity policy and FIRST diagnostic evidence fully paid");
+        require(terminal_identity&&!live_admitted&&!terminal_user_accepted&&o.members[0].state.start_absolute==77
+            &&o.members[0].exit_abstime==99&&o.members[0].user==101&&o.members[0].system==50201
+            &&o.pause_user_violation&&o.pause_system_violation&&o.pause_terminal_checked&&o.pause_terminal_user_ns==1101
+            &&o.pause_user_excess_ns>=1001&&o.stopped_system_ns==50001&&first_preserved&&prior_source_first==(int)prior,
+            "terminal USER diagnosis survives simultaneous strict SYSTEM refusal and preserves earlier FIRST error");
+        controls++;
+    }
+    reset();
+}
+
 static void pause_user_only_api(unsigned mode) {
     require(mode<2,"two USER-only supplied production API scopes");reset();
     struct engine_owner o;struct private_engine_result r;memset(&o,0,sizeof(o));memset(&r,0,sizeof(r));o.context=&context;o.result=&r;
@@ -2611,6 +3010,13 @@ int main(int argc,char **argv) {
     if(argc>=2&&!strcmp(argv[1],"rollup-child")){require(argc==3,"rollup child arguments");rollup_child(argv[0],argv[2]);}
     if(argc>=2&&!strcmp(argv[1],"exit-child"))_exit(0);
     if(argc>=2&&!strcmp(argv[1],"held-child")){require(argc==3,"held child arguments");while(access(argv[2],F_OK)!=0)usleep(1000);_exit(0);}
+    unsigned observation_api=argc==2&&!strcmp(argv[1],"observation-predicate-api");
+    unsigned both_policy_api=argc==2&&!strcmp(argv[1],"terminal-both-policy-api");
+    unsigned observation_prekill=argc==2&&!strcmp(argv[1],"observation-prekill-control");
+    unsigned observation_resume=argc==3&&!strcmp(argv[1],"observation-resume-control")?(unsigned)strtoul(argv[2],NULL,10):0;
+    unsigned observation_interrupt=argc==3&&!strcmp(argv[1],"observation-event-interrupt-control")?(unsigned)strtoul(argv[2],NULL,10):2;
+    unsigned observation_site=argc==4&&!strcmp(argv[1],"observation-race-control")?(unsigned)strtoul(argv[2],NULL,10):0;
+    unsigned observation_case=observation_site?(unsigned)strtoul(argv[3],NULL,10):7;
     unsigned boundary=argc==2&&!strcmp(argv[1],"total-boundary-api");
     unsigned pause_user_case=argc==3&&!strcmp(argv[1],"pause-user-api")?(unsigned)strtoul(argv[2],NULL,10):2;
     unsigned stopped_api=argc==2&&!strcmp(argv[1],"stopped-gap-api");
@@ -2649,7 +3055,7 @@ int main(int argc,char **argv) {
     unsigned custody_identity=argc==2&&!strcmp(argv[1],"custody-stop-identity-api");
     unsigned exit_before_api=argc==2&&!strcmp(argv[1],"same-wake-exit-api");
     unsigned event_case=argc==3&&!strcmp(argv[1],"verifier-event-control")?(unsigned)strtoul(argv[2],NULL,10):3;
-    require(argc==1||selected<12||diagnostics||setup||deadline||cpu_debt||expand||native_api||native_case<3||race_case<7||event_api||event_case<3||child_exit_api<9||child_exit_process||leader_refresh_api<5||composition||batch||nested_census||same_wake||delayed_ack||stop_ack_api||same_wake_api||event_wait_api||custody_identity||exit_before_api||hold||flow||result_only||final_terms||member_census||member_api||pause_exit_api||pause_exit_process||charge||boundary||stopped_api||stopped_process||pause_user_case<2||retained,"private source-known controls argc");
+    require(argc==1||both_policy_api||observation_api||observation_prekill||(observation_resume>0&&observation_resume<=2)||observation_interrupt<2||(observation_site>0&&observation_site<ENGINE_OBS_SITE_COUNT&&observation_case<8)||selected<12||diagnostics||setup||deadline||cpu_debt||expand||native_api||native_case<3||race_case<7||event_api||event_case<3||child_exit_api<9||child_exit_process||leader_refresh_api<5||composition||batch||nested_census||same_wake||delayed_ack||stop_ack_api||same_wake_api||event_wait_api||custody_identity||exit_before_api||hold||flow||result_only||final_terms||member_census||member_api||pause_exit_api||pause_exit_process||charge||boundary||stopped_api||stopped_process||pause_user_case<2||retained,"private source-known controls argc");
     require(atexit(dispose_owned)==0,"owned cleanup registration");
     char root[]="/private/tmp/dream-private-engine-controls.XXXXXX";require(mkdtemp(root)!=NULL,"owned fixture directory");
     int dir=open(root,O_RDONLY|O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC);require(dir>=0,"owned fixture root");
@@ -2672,6 +3078,12 @@ int main(int argc,char **argv) {
 
     char self[PROC_PIDPATHINFO_MAXSIZE];require(proc_pidpath(getpid(),self,sizeof(self))>0,"actual source-known image");
     require(engine_owner_priority(),"source-known controller nice10 utility priority");
+    if(both_policy_api){terminal_both_policy_api();require(close(dir)==0,"owned both-policy API root close");return 0;}
+    if(observation_resume){observation_resume_terminal_control(self,root,dir,observation_resume);require(close(dir)==0,"owned resume terminal root close");return 0;}
+    if(observation_interrupt<2){observation_event_interrupt_control(self,root,dir,observation_interrupt);require(close(dir)==0,"owned event interrupt root close");return 0;}
+    if(observation_prekill){observation_prekill_retirement_control(self,root,dir);require(close(dir)==0,"owned whole prekill root close");return 0;}
+    if(observation_api){observation_race_predicate_api();require(close(dir)==0,"owned observation API root close");return 0;}
+    if(observation_site){int code=observation_race_control(self,root,dir,observation_site,observation_case);require(close(dir)==0,"owned selected observation root close");return code;}
     if(charge){charge_diagnostic_control(dir);require(close(dir)==0,"owned charge root close");return 0;}
     if(hold){quarantine_hold_process_control(self,root,dir);require(close(dir)==0,"owned holder root close");return 0;}
     if(flow){flow_controls(root,dir);require(close(dir)==0,"owned flow root close");return 0;}

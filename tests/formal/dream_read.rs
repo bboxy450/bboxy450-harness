@@ -10470,3 +10470,572 @@ mod foreground_stop_terminal_tests {
         }
     }
 }
+
+// Task66445: separate failed-observation protocol; every legacy model above is
+// byte-preserved. Origin/credit policy:
+// https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
+// Names/IDs match the C fixed enum. Native-domain normalization is an explicit
+// source premise: Unix ESRCH and gs1_procargs-only EINVAL differ from Mach
+// TASK_NAME KERN_FAILURE/null port and TASK_INFO invalidated-port errors.
+// Unix ESRCH is not a Mach-site error. ZOMBIE_ROW/raw0 is a distinct candidate
+// only at live TASKALL opening/closing or prekill BSD after validated lineage.
+// Numeric equality across domains supplies no proof. This model observes
+// failed live-observation predicates only; it never
+// manufactures a successful syscall, census, registered watch, GS1 or ACK.
+pub const DREAM_READ_OBSERVATION_SITES: [&str; 27] = [
+    "live_taskall_open",
+    "audit_taskall_before",
+    "audit_task_name",
+    "audit_task_name_null",
+    "audit_task_info",
+    "audit_taskall_after",
+    "live_image_path",
+    "live_rusage",
+    "live_taskall_close",
+    "gs1_image_path",
+    "gs1_procargs",
+    "child_stop_signal",
+    "child_continue_signal",
+    "initial_continue_signal",
+    "foreground_stop_signal",
+    "foreground_continue_signal",
+    "prekill_bsd",
+    "final_group_kill",
+    "children_census",
+    "group_census",
+    "event_register",
+    "event_poll",
+    "event_delivery",
+    "handoff_rusage",
+    "escaped_cleanup_bsd",
+    "escaped_cleanup_signal",
+    "owned_terminal_waitid",
+];
+
+// (normalized error class, independent terminal kind, original owned pin,
+//  unreaped at call, current identity class, prior sticky failure, later actual
+//  ownwait4, later groupgone, raw CPU class, known CPU, actual full payment).
+// Error:1 domain-correct gone candidate,2 other native/domain error,
+// 3 existing signal EPERM pending,4 successful-read validation/stale errno.
+// Terminal:0 live/absent,1 RIexit,2 process-bound knote,3 same-original SZOMB
+// (for EPERM, this COMPOSITE fact additionally includes independent positive
+// zombie-only proof for the WHOLE original group, not just the leader),4 unknown.
+// Identity:0 incomplete,1 exact PID/birth/start/full-current-token,
+// 2 foreign birth,3 foreign start,4 wrong token/current row.
+const OBSERVATION_CASES: [[i64; 11]; 25] = [
+    [1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1], //same-original RI exit
+    [1, 2, 1, 1, 1, 0, 1, 1, 1, 1, 1], //same-process retained NOTE_EXIT
+    [1, 3, 1, 1, 1, 0, 1, 1, 1, 1, 1], //same-original SZOMB
+    [2, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1], //other error never rescued
+    [1, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0], //still live; no exit from error
+    [1, 4, 1, 1, 1, 0, 0, 0, 0, 0, 0], //unknown terminal proof
+    [1, 1, 1, 1, 2, 0, 0, 0, 0, 0, 0], //foreign birth
+    [1, 1, 1, 1, 3, 0, 0, 0, 0, 0, 0], //foreign start
+    [1, 1, 1, 1, 4, 0, 0, 0, 0, 0, 0], //full token/current row mismatch
+    [1, 1, 0, 1, 1, 0, 0, 0, 0, 0, 0], //unowned effect
+    [1, 1, 1, 0, 1, 0, 0, 0, 0, 0, 0], //already reaped: no live authority
+    [1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0], //terminal takeover, ownwait4 absent
+    [1, 1, 1, 1, 1, 0, 1, 0, 1, 1, 1], //ownwait4 alone not groupgone
+    [1, 1, 1, 1, 1, 0, 1, 1, 4, 0, 1], //unknown raw CPU, no finite credit
+    [1, 1, 1, 1, 1, 0, 1, 1, 3, 1, 1], //full overcap bill/debt, then refusal
+    [1, 1, 1, 1, 1, 0, 1, 1, 0, 1, 1], //zero CPU keeps fresh floor9
+    [1, 1, 1, 1, 1, 0, 1, 1, 2, 1, 1], //exact abstract cap/full18
+    [1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 0], //full known debt remains unpaid
+    [4, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1], //success+invalid read is not stale ESRCH
+    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], //independent prior failure never clears
+    [3, 3, 1, 1, 1, 0, 1, 1, 1, 1, 1], //EPERM: whole-group zombie proof, pending signal sites only
+    [3, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0], //EPERM without zombie-only group proof
+    [1, 4, 1, 1, 1, 0, 0, 0, 0, 0, 0], //unavailable independent recheck
+    [1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0], //incomplete retained identity
+    [2, 3, 1, 1, 1, 0, 1, 1, 1, 1, 1], //equal numeric codes in wrong native domain
+];
+
+pub fn systematic_observe_terminal(control: u8) -> Model {
+    let mut m = base("DreamReadObserveOrTerminal", control != 0, &[]);
+    if control != 0 {
+        m.name = "BrokenHarnessDreamReadObserveOrTerminalBypassSite".into();
+    }
+    const SITE: usize = 0;
+    const CASE: usize = 1;
+    const P: usize = 2;
+    const ERR: usize = 3;
+    const OWNED: usize = 4;
+    const UNREAPED: usize = 5;
+    const ID: usize = 6;
+    const PRIOR: usize = 7;
+    const TERMINAL: usize = 8;
+    const ROUTE: usize = 9;
+    const PENDING: usize = 10;
+    const REAP: usize = 11;
+    const GONE: usize = 12;
+    const RAW: usize = 13;
+    const KNOWN: usize = 14;
+    const BILL: usize = 15;
+    const DUE: usize = 16;
+    const PAID: usize = 17;
+    const OWNER: usize = 18;
+    const ACK: usize = 19;
+    const CONT: usize = 20;
+    const WORK: usize = 21;
+    const SUCCESS: usize = 22;
+    const REFUSAL: usize = 23;
+    const RESULT: usize = 24;
+    for (name, max) in [
+        ("observationSite", 27),
+        ("observationCase", 25),
+        ("observationPhase", 8),
+        ("siteNormalizedRawFailureClass", 4),
+        ("originalOwnedPin", 1),
+        ("originalUnreapedAtCall", 1),
+        ("originalCurrentIdentityClass", 4),
+        ("priorStickyFailure", 1),
+        ("independentlyObservedTerminalKind", 4),
+        ("failedObservationRoute", 3),
+        ("existingSignalEffectPending", 1),
+        ("actualOriginalOwnWait4", 1),
+        ("independentOriginalGroupGone", 1),
+        ("rawAuthoritativeCpuOrUnknown", 4),
+        ("authoritativeCpuKnown", 1),
+        ("fullUnclampedCpuBill", 3),
+        ("fullFreshDebtDue", 27),
+        ("actualFullRestPaid", 27),
+        ("sameOriginalCustodyHeld", 1),
+        ("positiveStopAck", 1),
+        ("newContinueCount", 1),
+        ("newProofWork", 1),
+        ("fabricatedNativeSuccess", 1),
+        ("stickyRefusal", 1),
+        ("finalAcceptedOrRefused", 2),
+    ] {
+        m.variables.push(Variable::new(name, 0, max, 0));
+    }
+    for (index, name) in DREAM_READ_OBSERVATION_SITES.iter().enumerate() {
+        act(
+            &mut m,
+            &format!("SelectOwnedObservationSite_{}_{name}", index + 1),
+            eq(P, 0),
+            &[(P, Int(1)), (SITE, Int(index as i64 + 1))],
+        );
+    }
+    for (index, c) in OBSERVATION_CASES.iter().enumerate() {
+        act(
+            &mut m,
+            &format!(
+                "CaptureSiteFailureAndRetainedOriginalFactsCase{}",
+                index + 1
+            ),
+            eq(P, 1),
+            &[
+                (P, Int(2)),
+                (CASE, Int(index as i64 + 1)),
+                (ERR, Int(c[0])),
+                (OWNED, Int(c[2])),
+                (UNREAPED, Int(c[3])),
+                (ID, Int(c[4])),
+                (PRIOR, Int(c[5])),
+                (REFUSAL, Int(c[5])),
+                (OWNER, Int(1)),
+            ],
+        );
+    }
+    // Pinned bboxy450-tlc0.1.1 has no conditional expression. Lower each
+    // piecewise update into mutually exclusive guarded actions, preserving
+    // every profile/phase/state value without changing the tool or bounds.
+    let selected_cases = |field: usize, value: i64| {
+        OBSERVATION_CASES
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| c[field] == value)
+            .fold(Bool(false), |guard, (i, _)| {
+                guard.or(eq(CASE, i as i64 + 1))
+            })
+    };
+    for kind in 0..=4 {
+        act(
+            &mut m,
+            &format!("ObserveIndependentSameOriginalTerminalKind{kind}"),
+            all([eq(P, 2), selected_cases(1, kind)]),
+            &[(P, Int(3)), (TERMINAL, Int(kind))],
+        );
+    }
+    let pending_site = eq(SITE, 15).or(eq(SITE, 18));
+    let identity = all([eq(OWNED, 1), eq(UNREAPED, 1), eq(ID, 1)]);
+    let positive_terminal = Int(0).lt(Var(TERMINAL)).and(Var(TERMINAL).lt(Int(4)));
+    let domain_gone = eq(ERR, 1).or(all([eq(ERR, 3), pending_site.clone(), eq(TERMINAL, 3)]));
+    let eligible = all([identity.clone(), domain_gone, positive_terminal]);
+    let pending = all([identity, pending_site, eq(ERR, 1).or(eq(ERR, 3))]);
+    let route_matches = eligible
+        .clone()
+        .and(eq(ROUTE, 2))
+        .or(all([
+            eligible.clone().negate(),
+            pending.clone(),
+            eq(ROUTE, 3),
+        ]))
+        .or(all([
+            eligible.clone().negate(),
+            pending.clone().negate(),
+            eq(ROUTE, 0),
+        ]));
+    let take = if control == 0 {
+        eligible.clone()
+    } else {
+        Bool(false)
+    };
+    for existing_pending in 0..=1 {
+        act(
+            &mut m,
+            &format!("ApplySharedTerminalTakeoverWithExistingPending{existing_pending}"),
+            all([
+                eq(P, 3),
+                take.clone(),
+                if existing_pending == 1 {
+                    pending.clone()
+                } else {
+                    pending.clone().negate()
+                },
+            ]),
+            &[
+                (P, Int(4)),
+                (ROUTE, Int(2)),
+                (PENDING, Int(existing_pending)),
+                (REFUSAL, Var(PRIOR)),
+            ],
+        );
+    }
+    act(
+        &mut m,
+        "PreserveOnlyExistingSignalPendingForSelectedSite",
+        all([eq(P, 3), take.clone().negate(), pending.clone()]),
+        &[
+            (P, Int(4)),
+            (ROUTE, Int(3)),
+            (PENDING, Int(1)),
+            (REFUSAL, Var(PRIOR)),
+        ],
+    );
+    act(
+        &mut m,
+        "RefuseUnprovedOrOtherErrorAtSelectedFixedSite",
+        all([eq(P, 3), take.negate(), pending.negate()]),
+        &[
+            (P, Int(4)),
+            (ROUTE, Int(0)),
+            (PENDING, Int(0)),
+            (REFUSAL, Int(1)),
+        ],
+    );
+    let mut cost_classes = std::collections::BTreeMap::<[i64; 3], Vec<i64>>::new();
+    for (i, c) in OBSERVATION_CASES.iter().enumerate() {
+        cost_classes
+            .entry([c[6], c[8], c[9]])
+            .or_default()
+            .push(i as i64 + 1);
+    }
+    for ([reaped, raw, known], cases) in cost_classes {
+        let due = if reaped == 0 {
+            0
+        } else if known == 0 {
+            27
+        } else {
+            9 * raw.max(1)
+        };
+        let profile = cases
+            .iter()
+            .fold(Bool(false), |guard, case| guard.or(eq(CASE, *case)));
+        act(
+            &mut m,
+            &format!("ObserveActualOwnWait4Reap{reaped}Raw{raw}Known{known}"),
+            all([eq(P, 4), profile]),
+            &[
+                (P, Int(5)),
+                (REAP, Int(reaped)),
+                (KNOWN, Int(known)),
+                (RAW, Int(raw)),
+                (BILL, Int(if known == 1 { raw } else { 0 })),
+                (DUE, Int(due)),
+            ],
+        );
+    }
+    for gone in 0..=1 {
+        act(
+            &mut m,
+            &format!("ObserveIndependentOriginalGroupGone{gone}"),
+            all([eq(P, 5), selected_cases(7, gone)]),
+            &[(P, Int(6)), (GONE, Int(gone))],
+        );
+    }
+    for paid in 0..=1 {
+        act(
+            &mut m,
+            &format!("ObserveActualFullFreshDebtPayment{paid}"),
+            all([eq(P, 6), selected_cases(10, paid)]),
+            &[
+                (P, Int(7)),
+                (PAID, if paid == 1 { Var(DUE) } else { Int(0) }),
+            ],
+        );
+    }
+    let physical_paid = all([
+        eq(REAP, 1),
+        eq(GONE, 1),
+        eq(KNOWN, 1),
+        Var(BILL).eq(Var(RAW)),
+        Int(0).lt(Var(DUE)),
+        Var(PAID).eq(Var(DUE)),
+    ]);
+    let accepted = all([
+        eq(ROUTE, 2),
+        eq(PRIOR, 0),
+        physical_paid.clone(),
+        Var(RAW).lt(Int(3)),
+    ]);
+    act(
+        &mut m,
+        "CompleteKnownPaidTerminalProtocolVerdict",
+        all([eq(P, 7), accepted.clone()]),
+        &[
+            (P, Int(8)),
+            (OWNER, Int(0)),
+            (PENDING, Int(0)),
+            (REFUSAL, Int(0)),
+            (RESULT, Int(1)),
+        ],
+    );
+    act(
+        &mut m,
+        "PhysicallySettleKnownPaidCostWhileKeepingRefusal",
+        all([eq(P, 7), physical_paid.clone(), accepted.clone().negate()]),
+        &[
+            (P, Int(8)),
+            (OWNER, Int(0)),
+            (PENDING, Int(0)),
+            (REFUSAL, Int(1)),
+            (RESULT, Int(2)),
+        ],
+    );
+    act(
+        &mut m,
+        "RetainOriginalOwnerForUnknownOrUnpaidSettlement",
+        all([eq(P, 7), physical_paid.clone().negate()]),
+        &[
+            (P, Int(8)),
+            (OWNER, Int(1)),
+            (REFUSAL, Int(1)),
+            (RESULT, Int(2)),
+        ],
+    );
+    safe(
+        &mut m,
+        "ObservationFailureNeverSuppliesAckContinueWorkOrNativeSuccess",
+        all([eq(ACK, 0), eq(CONT, 0), eq(WORK, 0), eq(SUCCESS, 0)]),
+    );
+    safe(
+        &mut m,
+        "ObservationTerminalTakeoverNeedsExactOriginalAndIndependentProof",
+        eq(ROUTE, 2).negate().or(eligible),
+    );
+    safe(
+        &mut m,
+        "ObservationDispositionMatchesEveryFixedSite",
+        Var(P).lt(Int(4)).or(route_matches),
+    );
+    safe(
+        &mut m,
+        "RawFailureAndTerminalTakeoverNeverInventOwnReapOrCpu",
+        Var(P).lt(Int(2)).or(Int(4).lt(Var(P))).or(all([
+            eq(REAP, 0),
+            eq(GONE, 0),
+            eq(KNOWN, 0),
+            eq(RAW, 0),
+            eq(BILL, 0),
+            eq(DUE, 0),
+            eq(PAID, 0),
+        ])),
+    );
+    safe(
+        &mut m,
+        "ObservationAuthoritativeCostAndFullDebtNeverClamp",
+        eq(REAP, 0).or(eq(KNOWN, 0)).or(all([
+            Var(BILL).eq(Var(RAW)),
+            eq(DUE, 9)
+                .and(eq(RAW, 0).or(eq(RAW, 1)))
+                .or(all([eq(RAW, 2), eq(DUE, 18)]))
+                .or(all([eq(RAW, 3), eq(DUE, 27)])),
+        ])),
+    );
+    safe(
+        &mut m,
+        "ObservationUnknownCostNeverBecomesFiniteCreditOrRelease",
+        eq(REAP, 0)
+            .or(eq(KNOWN, 1))
+            .or(all([eq(RAW, 4), eq(BILL, 0), eq(DUE, 27), eq(OWNER, 1)])),
+    );
+    safe(
+        &mut m,
+        "ObservationReleaseNeedsActualOriginalReapGroupAndFullPaidBill",
+        eq(OWNER, 1).or(eq(P, 0)).or(eq(P, 1)).or(physical_paid),
+    );
+    safe(
+        &mut m,
+        "ObservationPriorFailureNeverClears",
+        eq(PRIOR, 0).or(eq(REFUSAL, 1)),
+    );
+    safe(
+        &mut m,
+        "ObservationFinalVerdictMatchesTerminalAndBudgetProof",
+        eq(P, 8).negate().or(accepted
+            .clone()
+            .and(eq(RESULT, 1))
+            .or(accepted.negate().and(eq(RESULT, 2)))),
+    );
+    if control != 0 {
+        let valid = all(m.invariants.iter().map(|i| i.condition.clone()));
+        for action in &mut m.actions {
+            action.guard = action.guard.clone().and(valid.clone()).eq(Bool(true));
+        }
+        act(
+            &mut m,
+            "ObserverStopsAtFirstFailedContract",
+            valid.negate().eq(Bool(true)),
+            &[],
+        );
+    }
+    m
+}
+
+#[cfg(test)]
+mod systematic_observe_terminal_tests {
+    use super::*;
+    #[test]
+    fn every_fixed_observation_site_keeps_terminal_identity_full_cost_and_bypass_control() {
+        let gm = systematic_observe_terminal(0);
+        let good = gm.check(100_000).unwrap();
+        assert_eq!(gm.variables.len(), 25);
+        assert_eq!(gm.actions.len(), 74);
+        assert_eq!(gm.invariants.len(), 9);
+        assert!(gm.responses.is_empty() && gm.weak_fair.is_empty());
+        assert!(good.violations.is_empty(), "{:?}", good.violations);
+        assert_eq!(good.states.len(), 4753);
+        assert_eq!(good.edges.iter().map(Vec::len).sum::<usize>(), 4752);
+        let bm = systematic_observe_terminal(1);
+        let bad = bm.check(100_000).unwrap();
+        assert!(!bad.violations.iter().any(|v| v.property == "TypeOK"));
+        assert!(
+            bad.violations
+                .iter()
+                .any(|v| v.property == "ObservationDispositionMatchesEveryFixedSite")
+        );
+        for (site_index, name) in DREAM_READ_OBSERVATION_SITES.iter().enumerate() {
+            let site = site_index as i64 + 1;
+            let signal_pending = matches!(site, 15 | 18);
+            for (index, c) in OBSERVATION_CASES.iter().enumerate() {
+                let case = index as i64 + 1;
+                let identity = c[2] == 1 && c[3] == 1 && c[4] == 1;
+                let candidate = c[0] == 1 || (c[0] == 3 && signal_pending && c[1] == 3);
+                let proof = (1..=3).contains(&c[1]);
+                let route = if identity && candidate && proof {
+                    2
+                } else if identity && signal_pending && matches!(c[0], 1 | 3) {
+                    3
+                } else {
+                    0
+                };
+                let physical = c[6] == 1 && c[7] == 1 && c[9] == 1 && c[10] == 1;
+                let accepted = route == 2 && physical && c[5] == 0 && c[8] < 3;
+                let end = good
+                    .states
+                    .iter()
+                    .find(|s| s[0] == site && s[1] == case && s[2] == 8)
+                    .unwrap();
+                assert_eq!(
+                    end[9], route,
+                    "{name}/case{case} keeps distinct terminal-only/pending/refusal outcome"
+                );
+                assert_eq!(
+                    end[24],
+                    if accepted { 1 } else { 2 },
+                    "{name}/case{case} exact verdict"
+                );
+                assert_eq!(
+                    end[18],
+                    i64::from(!physical),
+                    "{name}/case{case} original ownership"
+                );
+                assert_eq!(
+                    &end[19..23],
+                    &[0, 0, 0, 0],
+                    "{name}/case{case} no ACK/CONT/work/native-success invention"
+                );
+                let cut = good
+                    .states
+                    .iter()
+                    .find(|s| s[0] == site && s[1] == case && s[2] == 4)
+                    .unwrap();
+                assert_eq!(
+                    &cut[11..18],
+                    &[0, 0, 0, 0, 0, 0, 0],
+                    "{name}/case{case} error/terminal recheck supplies no physical or numeric cost proof"
+                );
+                if c[6] == 1 {
+                    let due = if c[9] == 0 { 27 } else { 9 * c[8].max(1) };
+                    assert_eq!(end[13], c[8], "{name}/case{case} raw CPU retained");
+                    assert_eq!(
+                        end[15],
+                        if c[9] == 1 { c[8] } else { 0 },
+                        "{name}/case{case} authoritative credit"
+                    );
+                    assert_eq!(end[16], due, "{name}/case{case} full debt");
+                    assert_eq!(
+                        end[17],
+                        if c[10] == 1 { due } else { 0 },
+                        "{name}/case{case} actual payment"
+                    );
+                }
+            }
+            for case in 1..=3 {
+                assert!(
+                    bad.states.iter().any(|s| s[0] == site
+                        && s[1] == case
+                        && s[2] == 4
+                        && s[9] != 2
+                        && s[11] == 0
+                        && s[12] == 0
+                        && s[15] == 0
+                        && s[16] == 0
+                        && s[17] == 0),
+                    "per-site bypass {name}/case{case} falsely refuses positive exact-original terminal proof"
+                );
+            }
+        }
+        let output =
+            std::env::var_os("DREAM_OBSERVE_OR_TERMINAL_FORMAL_OUT").map(std::path::PathBuf::from);
+        let mut manifest = String::new();
+        for (model, checked, expected) in [(gm, good, "pass"), (bm, bad, "safety")] {
+            println!(
+                "{} states={} labelled_edges={} named={:?}",
+                model.name,
+                checked.states.len(),
+                checked.edges.iter().map(Vec::len).sum::<usize>(),
+                checked
+                    .violations
+                    .iter()
+                    .map(|v| &v.property)
+                    .collect::<Vec<_>>()
+            );
+            if let Some(root) = &output {
+                std::fs::create_dir_all(root).unwrap();
+                super::helper_observer_lowering_export::export(
+                    model,
+                    expected,
+                    root,
+                    &mut manifest,
+                )
+                .unwrap();
+            }
+        }
+        if let Some(root) = output {
+            std::fs::write(root.join("manifest.tsv"), manifest).unwrap();
+        }
+    }
+}

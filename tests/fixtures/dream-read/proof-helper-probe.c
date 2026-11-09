@@ -97,6 +97,174 @@ struct image {
     uint64_t thread_user_raw,thread_system_raw;
     char path[PROC_PIDPATHINFO_MAXSIZE];
 };
+struct engine_owner;
+enum engine_observation_site {
+    ENGINE_OBS_NONE=0,
+    ENGINE_OBS_LIVE_TASKALL_OPEN=1,
+    ENGINE_OBS_AUDIT_TASKALL_BEFORE=2,
+    ENGINE_OBS_AUDIT_TASK_NAME=3,
+    ENGINE_OBS_AUDIT_TASK_NAME_NULL=4,
+    ENGINE_OBS_AUDIT_TASK_INFO=5,
+    ENGINE_OBS_AUDIT_TASKALL_AFTER=6,
+    ENGINE_OBS_LIVE_IMAGE_PATH=7,
+    ENGINE_OBS_LIVE_RUSAGE=8,
+    ENGINE_OBS_LIVE_TASKALL_CLOSE=9,
+    ENGINE_OBS_GS1_IMAGE_PATH=10,
+    ENGINE_OBS_GS1_PROCARGS=11,
+    ENGINE_OBS_CHILD_STOP_SIGNAL=12,
+    ENGINE_OBS_CHILD_CONTINUE_SIGNAL=13,
+    ENGINE_OBS_INITIAL_CONTINUE_SIGNAL=14,
+    ENGINE_OBS_FOREGROUND_STOP_SIGNAL=15,
+    ENGINE_OBS_FOREGROUND_CONTINUE_SIGNAL=16,
+    ENGINE_OBS_PREKILL_BSD=17,
+    ENGINE_OBS_FINAL_GROUP_KILL=18,
+    ENGINE_OBS_CHILDREN_CENSUS=19,
+    ENGINE_OBS_GROUP_CENSUS=20,
+    ENGINE_OBS_EVENT_REGISTER=21,
+    ENGINE_OBS_EVENT_POLL=22,
+    ENGINE_OBS_EVENT_DELIVERY=23,
+    ENGINE_OBS_HANDOFF_RUSAGE=24,
+    ENGINE_OBS_ESCAPED_CLEANUP_BSD=25,
+    ENGINE_OBS_ESCAPED_CLEANUP_SIGNAL=26,
+    ENGINE_OBS_OWNED_TERMINAL_WAITID=27,
+    ENGINE_OBS_SITE_COUNT=28
+};
+enum engine_observation_domain {
+    ENGINE_OBSERVATION_UNIX=0, ENGINE_OBSERVATION_MACH=1,
+    ENGINE_OBSERVATION_NULL_PORT=2, ENGINE_OBSERVATION_ZOMBIE_ROW=3,
+    ENGINE_OBSERVATION_SEMANTIC=4
+};
+enum engine_observe_outcome {
+    ENGINE_OBSERVATION_FAILED=0, ENGINE_OBSERVATION_LIVE=1,
+    ENGINE_OBSERVATION_TERMINAL=2, ENGINE_OBSERVATION_PENDING=3
+};
+struct engine_observation_failure {
+    enum engine_observation_site site;
+    enum engine_observation_domain domain;
+    int code;
+};
+static const char *engine_observation_site_name(enum engine_observation_site);
+static int engine_observation_identity_complete(const struct engine_owner *,unsigned);
+static int engine_observation_gone(enum engine_observation_site,enum engine_observation_domain,int);
+static enum engine_observe_outcome observe_or_terminal(struct engine_owner *,unsigned,
+    enum engine_observation_site,enum engine_observation_domain,int);
+#ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
+static enum engine_observation_site source_known_observation_selected;
+static enum engine_observation_domain source_known_observation_forced_domain;
+static int source_known_observation_forced_code;
+static unsigned source_known_observation_hits;
+static enum engine_observation_site source_known_observation_seen_site;
+static void (*source_known_before_observation)(struct engine_owner *,unsigned,
+    enum engine_observation_site,pid_t);
+static void (*source_known_after_observation)(struct engine_owner *,unsigned,
+    enum engine_observation_site,enum engine_observation_domain,int,
+    enum engine_observe_outcome,uint64_t,uint64_t);
+#endif
+
+static const char *engine_observation_site_name(enum engine_observation_site site) {
+    static const char *const names[]={"none","live_taskall_open","audit_taskall_before","audit_task_name","audit_task_name_null","audit_task_info","audit_taskall_after","live_image_path","live_rusage","live_taskall_close","gs1_image_path","gs1_procargs","child_stop_signal","child_continue_signal","initial_continue_signal","foreground_stop_signal","foreground_continue_signal","prekill_bsd","final_group_kill","children_census","group_census","event_register","event_poll","event_delivery","handoff_rusage","escaped_cleanup_bsd","escaped_cleanup_signal","owned_terminal_waitid"};
+    return site>ENGINE_OBS_NONE&&site<ENGINE_OBS_SITE_COUNT?names[site]:"invalid_observation_site";
+}
+static const char *engine_observation_site_detail(enum engine_observation_site site) {
+    // private_fail retains this pointer; every entry has static lifetime.
+    static const char *const details[]={"invalid owned observation site","owned observation unavailable: live_taskall_open","owned observation unavailable: audit_taskall_before","owned observation unavailable: audit_task_name","owned observation unavailable: audit_task_name_null","owned observation unavailable: audit_task_info","owned observation unavailable: audit_taskall_after","owned observation unavailable: live_image_path","owned observation unavailable: live_rusage","owned observation unavailable: live_taskall_close","owned observation unavailable: gs1_image_path","owned observation unavailable: gs1_procargs","owned observation unavailable: child_stop_signal","owned observation unavailable: child_continue_signal","owned observation unavailable: initial_continue_signal","owned observation unavailable: foreground_stop_signal","owned observation unavailable: foreground_continue_signal","owned observation unavailable: prekill_bsd","owned observation unavailable: final_group_kill","owned observation unavailable: children_census","owned observation unavailable: group_census","owned observation unavailable: event_register","owned observation unavailable: event_poll","owned observation unavailable: event_delivery","owned observation unavailable: handoff_rusage","owned observation unavailable: escaped_cleanup_bsd","owned observation unavailable: escaped_cleanup_signal","owned observation unavailable: owned_terminal_waitid"};
+    return site>ENGINE_OBS_NONE&&site<ENGINE_OBS_SITE_COUNT?details[site]:details[0];
+}
+static int engine_observation_gone(enum engine_observation_site site,enum engine_observation_domain domain,int code) {
+    if(site<=ENGINE_OBS_NONE||site>=ENGINE_OBS_SITE_COUNT)return 0;
+    if(domain==ENGINE_OBSERVATION_UNIX)return site!=ENGINE_OBS_AUDIT_TASK_NAME&&site!=ENGINE_OBS_AUDIT_TASK_NAME_NULL&&site!=ENGINE_OBS_AUDIT_TASK_INFO
+        &&(code==ESRCH||(site==ENGINE_OBS_GS1_PROCARGS&&code==EINVAL));
+    if(domain==ENGINE_OBSERVATION_MACH) {
+        if(site==ENGINE_OBS_AUDIT_TASK_NAME)return code==KERN_FAILURE;
+        return site==ENGINE_OBS_AUDIT_TASK_INFO&&(code==KERN_INVALID_ARGUMENT||code==MACH_SEND_INVALID_DEST);
+    }
+    if(domain==ENGINE_OBSERVATION_NULL_PORT)return site==ENGINE_OBS_AUDIT_TASK_NAME_NULL&&code==KERN_SUCCESS;
+    return domain==ENGINE_OBSERVATION_ZOMBIE_ROW&&code==0
+        &&(site==ENGINE_OBS_LIVE_TASKALL_OPEN||site==ENGINE_OBS_LIVE_TASKALL_CLOSE||site==ENGINE_OBS_PREKILL_BSD);
+}
+static int engine_observation_existing_pending(enum engine_observation_site site,enum engine_observation_domain domain,int code) {
+    return domain==ENGINE_OBSERVATION_UNIX&&(code==ESRCH||code==EPERM)
+        &&(site==ENGINE_OBS_FOREGROUND_STOP_SIGNAL||site==ENGINE_OBS_FINAL_GROUP_KILL);
+}
+static void engine_observation_failure_set(struct engine_observation_failure *f,enum engine_observation_site site,enum engine_observation_domain domain,int code) {
+    f->site=site;f->domain=domain;f->code=code;
+}
+static int engine_observation_fault(struct engine_owner *owner,unsigned member,enum engine_observation_site site,pid_t pid,struct engine_observation_failure *f) {
+#ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
+    if(owner&&source_known_observation_selected==site) {
+        source_known_observation_selected=ENGINE_OBS_NONE;
+        source_known_observation_seen_site=site;source_known_observation_hits++;
+        if(source_known_before_observation)source_known_before_observation(owner,member,site,pid);
+        engine_observation_failure_set(f,site,source_known_observation_forced_domain,source_known_observation_forced_code);return 1;
+    }
+#else
+    (void)owner;(void)member;(void)site;(void)pid;(void)f;
+#endif
+    return 0;
+}
+static enum engine_observe_outcome engine_observe_live_taskall_open(struct engine_owner *,unsigned,enum engine_observation_domain,int);
+static enum engine_observe_outcome engine_observe_audit_taskall_before(struct engine_owner *,unsigned,enum engine_observation_domain,int);
+static enum engine_observe_outcome engine_observe_audit_task_name(struct engine_owner *,unsigned,enum engine_observation_domain,int);
+static enum engine_observe_outcome engine_observe_audit_task_name_null(struct engine_owner *,unsigned,enum engine_observation_domain,int);
+static enum engine_observe_outcome engine_observe_audit_task_info(struct engine_owner *,unsigned,enum engine_observation_domain,int);
+static enum engine_observe_outcome engine_observe_audit_taskall_after(struct engine_owner *,unsigned,enum engine_observation_domain,int);
+static enum engine_observe_outcome engine_observe_live_image_path(struct engine_owner *,unsigned,enum engine_observation_domain,int);
+static enum engine_observe_outcome engine_observe_live_rusage(struct engine_owner *,unsigned,enum engine_observation_domain,int);
+static enum engine_observe_outcome engine_observe_live_taskall_close(struct engine_owner *,unsigned,enum engine_observation_domain,int);
+static enum engine_observe_outcome engine_observe_gs1_image_path(struct engine_owner *,unsigned,enum engine_observation_domain,int);
+static enum engine_observe_outcome engine_observe_gs1_procargs(struct engine_owner *,unsigned,enum engine_observation_domain,int);
+static enum engine_observe_outcome engine_observe_child_stop_signal(struct engine_owner *,unsigned,enum engine_observation_domain,int);
+static enum engine_observe_outcome engine_observe_child_continue_signal(struct engine_owner *,unsigned,enum engine_observation_domain,int);
+static enum engine_observe_outcome engine_observe_initial_continue_signal(struct engine_owner *,unsigned,enum engine_observation_domain,int);
+static enum engine_observe_outcome engine_observe_foreground_stop_signal(struct engine_owner *,unsigned,enum engine_observation_domain,int);
+static enum engine_observe_outcome engine_observe_foreground_continue_signal(struct engine_owner *,unsigned,enum engine_observation_domain,int);
+static enum engine_observe_outcome engine_observe_prekill_bsd(struct engine_owner *,unsigned,enum engine_observation_domain,int);
+static enum engine_observe_outcome engine_observe_final_group_kill(struct engine_owner *,unsigned,enum engine_observation_domain,int);
+static enum engine_observe_outcome engine_observe_children_census(struct engine_owner *,unsigned,enum engine_observation_domain,int);
+static enum engine_observe_outcome engine_observe_group_census(struct engine_owner *,unsigned,enum engine_observation_domain,int);
+static enum engine_observe_outcome engine_observe_event_register(struct engine_owner *,unsigned,enum engine_observation_domain,int);
+static enum engine_observe_outcome engine_observe_event_poll(struct engine_owner *,unsigned,enum engine_observation_domain,int);
+static enum engine_observe_outcome engine_observe_event_delivery(struct engine_owner *,unsigned,enum engine_observation_domain,int);
+static enum engine_observe_outcome engine_observe_handoff_rusage(struct engine_owner *,unsigned,enum engine_observation_domain,int);
+static enum engine_observe_outcome engine_observe_escaped_cleanup_bsd(struct engine_owner *,unsigned,enum engine_observation_domain,int);
+static enum engine_observe_outcome engine_observe_escaped_cleanup_signal(struct engine_owner *,unsigned,enum engine_observation_domain,int);
+static enum engine_observe_outcome engine_observe_owned_terminal_waitid(struct engine_owner *,unsigned,enum engine_observation_domain,int);
+static enum engine_observe_outcome engine_observation_route(struct engine_owner *o,unsigned i,const struct engine_observation_failure *f) {
+    switch(f->site) {
+    case ENGINE_OBS_LIVE_TASKALL_OPEN:return engine_observe_live_taskall_open(o,i,f->domain,f->code);
+    case ENGINE_OBS_AUDIT_TASKALL_BEFORE:return engine_observe_audit_taskall_before(o,i,f->domain,f->code);
+    case ENGINE_OBS_AUDIT_TASK_NAME:return engine_observe_audit_task_name(o,i,f->domain,f->code);
+    case ENGINE_OBS_AUDIT_TASK_NAME_NULL:return engine_observe_audit_task_name_null(o,i,f->domain,f->code);
+    case ENGINE_OBS_AUDIT_TASK_INFO:return engine_observe_audit_task_info(o,i,f->domain,f->code);
+    case ENGINE_OBS_AUDIT_TASKALL_AFTER:return engine_observe_audit_taskall_after(o,i,f->domain,f->code);
+    case ENGINE_OBS_LIVE_IMAGE_PATH:return engine_observe_live_image_path(o,i,f->domain,f->code);
+    case ENGINE_OBS_LIVE_RUSAGE:return engine_observe_live_rusage(o,i,f->domain,f->code);
+    case ENGINE_OBS_LIVE_TASKALL_CLOSE:return engine_observe_live_taskall_close(o,i,f->domain,f->code);
+    case ENGINE_OBS_GS1_IMAGE_PATH:return engine_observe_gs1_image_path(o,i,f->domain,f->code);
+    case ENGINE_OBS_GS1_PROCARGS:return engine_observe_gs1_procargs(o,i,f->domain,f->code);
+    case ENGINE_OBS_CHILD_STOP_SIGNAL:return engine_observe_child_stop_signal(o,i,f->domain,f->code);
+    case ENGINE_OBS_CHILD_CONTINUE_SIGNAL:return engine_observe_child_continue_signal(o,i,f->domain,f->code);
+    case ENGINE_OBS_INITIAL_CONTINUE_SIGNAL:return engine_observe_initial_continue_signal(o,i,f->domain,f->code);
+    case ENGINE_OBS_FOREGROUND_STOP_SIGNAL:return engine_observe_foreground_stop_signal(o,i,f->domain,f->code);
+    case ENGINE_OBS_FOREGROUND_CONTINUE_SIGNAL:return engine_observe_foreground_continue_signal(o,i,f->domain,f->code);
+    case ENGINE_OBS_PREKILL_BSD:return engine_observe_prekill_bsd(o,i,f->domain,f->code);
+    case ENGINE_OBS_FINAL_GROUP_KILL:return engine_observe_final_group_kill(o,i,f->domain,f->code);
+    case ENGINE_OBS_CHILDREN_CENSUS:return engine_observe_children_census(o,i,f->domain,f->code);
+    case ENGINE_OBS_GROUP_CENSUS:return engine_observe_group_census(o,i,f->domain,f->code);
+    case ENGINE_OBS_EVENT_REGISTER:return engine_observe_event_register(o,i,f->domain,f->code);
+    case ENGINE_OBS_EVENT_POLL:return engine_observe_event_poll(o,i,f->domain,f->code);
+    case ENGINE_OBS_EVENT_DELIVERY:return engine_observe_event_delivery(o,i,f->domain,f->code);
+    case ENGINE_OBS_HANDOFF_RUSAGE:return engine_observe_handoff_rusage(o,i,f->domain,f->code);
+    case ENGINE_OBS_ESCAPED_CLEANUP_BSD:return engine_observe_escaped_cleanup_bsd(o,i,f->domain,f->code);
+    case ENGINE_OBS_ESCAPED_CLEANUP_SIGNAL:return engine_observe_escaped_cleanup_signal(o,i,f->domain,f->code);
+    case ENGINE_OBS_OWNED_TERMINAL_WAITID:return engine_observe_owned_terminal_waitid(o,i,f->domain,f->code);
+    default:return ENGINE_OBSERVATION_FAILED;
+    }
+}
+static int engine_control_observe_raw(struct engine_owner *,unsigned,enum engine_observation_site,pid_t,struct image *,struct engine_observation_failure *);
+static int engine_observe_control(struct engine_owner *,unsigned,enum engine_observation_site,pid_t,struct image *);
+static int engine_observe_path(struct engine_owner *,unsigned,enum engine_observation_site,const audit_token_t *,char *,size_t);
+
 #ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
 static pid_t source_known_taskall_pid;
 static int source_known_taskall_error,source_known_taskall_clock_failure;
@@ -121,7 +289,7 @@ static int control_observe(pid_t pid,struct image *out) {
 #endif
     if(!clock_known){errno=EIO;return 0;}
     struct proc_bsdinfo b=all.pbsd;struct proc_taskinfo t=all.ptinfo;
-    out->pid = pid; out->ppid = b.pbi_ppid; out->pgid = b.pbi_pgid;
+    out->pid = b.pbi_pid; out->ppid = b.pbi_ppid; out->pgid = b.pbi_pgid;
     out->uid=b.pbi_uid;out->nice=b.pbi_nice;out->priority=t.pti_priority;
     out->birth = (uint64_t)b.pbi_start_tvsec * 1000000ULL + b.pbi_start_tvusec;
     out->status = b.pbi_status;
@@ -133,6 +301,16 @@ static int control_observe(pid_t pid,struct image *out) {
     out->thread_state=-1;
     out->rss=t.pti_resident_size;
     if(!out->birth||out->pgid<=0){errno=EIO;return 0;}errno=0;return 1;
+}
+static int engine_control_observe_raw(struct engine_owner *o,unsigned i,enum engine_observation_site site,pid_t pid,struct image *out,struct engine_observation_failure *f) {
+    if(engine_observation_fault(o,i,site,pid,f))return 0;
+    if(control_observe(pid,out))return 1;
+    int error=errno;engine_observation_failure_set(f,site,error?ENGINE_OBSERVATION_UNIX:ENGINE_OBSERVATION_SEMANTIC,error);return 0;
+}
+static int engine_observe_control(struct engine_owner *o,unsigned i,enum engine_observation_site site,pid_t pid,struct image *out) {
+    struct engine_observation_failure f;
+    if(engine_control_observe_raw(o,i,site,pid,out,&f))return 1;
+    (void)engine_observation_route(o,i,&f);return 0;
 }
 static int observe(pid_t pid, struct image *out) {
     struct rusage_info_v1 usage;
@@ -157,14 +335,35 @@ static int observe(pid_t pid, struct image *out) {
     out->start_absolute=usage.ri_proc_start_abstime;
     return out->birth > 0 && out->pgid > 0;
 }
-static int known_control_token(pid_t pid,uint64_t birth,audit_token_t *out) {
-    struct image before,after;if(!control_observe(pid,&before)||before.birth!=birth)return 0;
-    mach_port_name_t task=MACH_PORT_NULL;int named=task_name_for_pid(mach_task_self(),pid,&task);
-    if(named!=KERN_SUCCESS||task==MACH_PORT_NULL){if(task!=MACH_PORT_NULL)mach_port_deallocate(mach_task_self(),task);return 0;}
+static int known_control_token_observed(struct engine_owner *o,unsigned i,pid_t pid,uint64_t birth,audit_token_t *out,struct engine_observation_failure *f) {
+    struct image before,after;
+    if(!engine_control_observe_raw(o,i,ENGINE_OBS_AUDIT_TASKALL_BEFORE,pid,&before,f))return 0;
+    if(before.birth!=birth){engine_observation_failure_set(f,ENGINE_OBS_AUDIT_TASKALL_BEFORE,ENGINE_OBSERVATION_SEMANTIC,0);return 0;}
+    mach_port_name_t task=MACH_PORT_NULL;
+    if(engine_observation_fault(o,i,ENGINE_OBS_AUDIT_TASK_NAME,pid,f)
+        ||engine_observation_fault(o,i,ENGINE_OBS_AUDIT_TASK_NAME_NULL,pid,f))return 0;
+    int named=task_name_for_pid(mach_task_self(),pid,&task);
+    if(named!=KERN_SUCCESS||task==MACH_PORT_NULL) {
+        if(task!=MACH_PORT_NULL)mach_port_deallocate(mach_task_self(),task);
+        engine_observation_failure_set(f,named==KERN_SUCCESS?ENGINE_OBS_AUDIT_TASK_NAME_NULL:ENGINE_OBS_AUDIT_TASK_NAME,
+            named==KERN_SUCCESS?ENGINE_OBSERVATION_NULL_PORT:ENGINE_OBSERVATION_MACH,named);return 0;
+    }
     audit_token_t token;mach_msg_type_number_t count=TASK_AUDIT_TOKEN_COUNT;
+    if(engine_observation_fault(o,i,ENGINE_OBS_AUDIT_TASK_INFO,pid,f)){mach_port_deallocate(mach_task_self(),task);return 0;}
     kern_return_t result=task_info(task,TASK_AUDIT_TOKEN,(task_info_t)&token,&count);mach_port_deallocate(mach_task_self(),task);
-    if(result!=KERN_SUCCESS||count!=TASK_AUDIT_TOKEN_COUNT||token.val[5]!=(unsigned)pid||!token.val[7]||!control_observe(pid,&after)||after.birth!=birth)return 0;
+    if(result!=KERN_SUCCESS){engine_observation_failure_set(f,ENGINE_OBS_AUDIT_TASK_INFO,ENGINE_OBSERVATION_MACH,result);return 0;}
+    if(count!=TASK_AUDIT_TOKEN_COUNT||token.val[5]!=(unsigned)pid||!token.val[7]){engine_observation_failure_set(f,ENGINE_OBS_AUDIT_TASK_INFO,ENGINE_OBSERVATION_SEMANTIC,0);return 0;}
+    if(!engine_control_observe_raw(o,i,ENGINE_OBS_AUDIT_TASKALL_AFTER,pid,&after,f))return 0;
+    if(after.birth!=birth){engine_observation_failure_set(f,ENGINE_OBS_AUDIT_TASKALL_AFTER,ENGINE_OBSERVATION_SEMANTIC,0);return 0;}
     *out=token;return 1;
+}
+static int known_control_token(pid_t pid,uint64_t birth,audit_token_t *out) {
+    struct engine_observation_failure f;return known_control_token_observed(NULL,0,pid,birth,out,&f);
+}
+static int engine_observe_token(struct engine_owner *o,unsigned i,pid_t pid,uint64_t birth,audit_token_t *out) {
+    struct engine_observation_failure f;
+    if(known_control_token_observed(o,i,pid,birth,out,&f))return 1;
+    (void)engine_observation_route(o,i,&f);return 0;
 }
 static audit_token_t capture_token(pid_t pid,uint64_t birth) {
     struct image before,after;require(observe(pid,&before)&&before.birth==birth,"token pre-identity");
@@ -2306,12 +2505,20 @@ static int private_sig_record(struct private_git_sig_temp *s,const char *phase,c
     if(s->records>=2||n<=0||(size_t)n>=sizeof(line))return private_sig_error(s,"resource_limit","two bounded Git signature evidence records exhausted",1);
     s->records++;if(write(STDERR_FILENO,line,(size_t)n)!=n)return private_sig_error(s,"coverage_unknown","Git signature evidence write effect unresolved; no retry",1);return 1;
 }
+static int engine_observe_procargs(struct engine_owner *o,unsigned i,pid_t pid,void *buffer,size_t *length) {
+    struct engine_observation_failure f;
+    if(engine_observation_fault(o,i,ENGINE_OBS_GS1_PROCARGS,pid,&f)){(void)engine_observation_route(o,i,&f);return 0;}
+    int mib[3]={CTL_KERN,KERN_PROCARGS2,pid};errno=0;int observed=sysctl(mib,3,buffer,length,NULL,0);int error=observed?errno:0;
+    if(observed==0)return 1;
+    engine_observation_failure_set(&f,ENGINE_OBS_GS1_PROCARGS,error?ENGINE_OBSERVATION_UNIX:ENGINE_OBSERVATION_SEMANTIC,error);
+    (void)engine_observation_route(o,i,&f);return 0;
+}
 static int private_sig_token_path(const audit_token_t *retained,char path[PROC_PIDPATHINFO_MAXSIZE],const char *expected) {
     audit_token_t token=*retained;
     int n=proc_pidpath_audittoken(&token,path,PROC_PIDPATHINFO_MAXSIZE);
     return n>0&&n<=PROC_PIDPATHINFO_MAXSIZE&&memchr(path,0,PROC_PIDPATHINFO_MAXSIZE)&&!strcmp(path,expected);
 }
-static __attribute__((unused)) int private_git_sig_gs1(const struct private_engine_context *ctx,struct private_git_sig_temp *s,pid_t pid,uint64_t birth,
+static int private_git_sig_gs1_owned(struct engine_owner *observation_owner,unsigned member,const struct private_engine_context *ctx,struct private_git_sig_temp *s,pid_t pid,uint64_t birth,
     const audit_token_t *retained,unsigned char *buffer,size_t capacity) {
     uint64_t begin;if(!known_clock_ns(CLOCK_THREAD_CPUTIME_ID,&begin))return private_sig_error(s,"clock_unknown","GS1 beginning clock unavailable",1);
     if(!s->ready||s->context!=ctx||!private_context_same(ctx)||s->bound||s->settled||s->quarantined||!retained
@@ -2319,14 +2526,26 @@ static __attribute__((unused)) int private_git_sig_gs1(const struct private_engi
         return private_sig_error(s,"coverage_unknown","GS1 does not name the retained current verifier incarnation",1);
     s->pid=pid;s->birth=birth;s->pidversion=retained->val[7];
     audit_token_t before,after;char path[PROC_PIDPATHINFO_MAXSIZE],gpg[4097];
-    if(!private_token_text(ctx->basis->build.tools[1].ref.path,gpg,sizeof(gpg))
-        ||!known_control_token(pid,birth,&before)||memcmp(&before,retained,sizeof(before))
-        ||!private_sig_token_path(retained,path,gpg))
+    if(!private_token_text(ctx->basis->build.tools[1].ref.path,gpg,sizeof(gpg)))
+        return private_sig_error(s,"coverage_unknown","GS1 pinned verifier path unavailable",1);
+    if(observation_owner) {
+        if(!engine_observe_token(observation_owner,member,pid,birth,&before)
+            ||!engine_observe_path(observation_owner,member,ENGINE_OBS_GS1_IMAGE_PATH,retained,path,sizeof(path)))return 0;
+        if(memcmp(&before,retained,sizeof(before))||strcmp(path,gpg))return private_sig_error(s,"coverage_unknown","GS1 opening verifier identity differs",1);
+    } else if(!known_control_token(pid,birth,&before)||memcmp(&before,retained,sizeof(before))||!private_sig_token_path(retained,path,gpg))
         return private_sig_error(s,"coverage_unknown","GS1 opening verifier token/path observation unavailable or changed",1);
-    int mib[3]={CTL_KERN,KERN_PROCARGS2,pid};size_t length=sizeof(s->procargs);
-    int observed=sysctl(mib,3,s->procargs,&length,NULL,0);
-    if(observed!=0||length>sizeof(s->procargs)||!private_sig_token_path(retained,path,gpg)
-        ||!known_control_token(pid,birth,&after)||memcmp(&before,&after,sizeof(after))||after.val[7]!=s->pidversion)
+    size_t length=sizeof(s->procargs);
+    if(!engine_observe_procargs(observation_owner,member,pid,s->procargs,&length)) {
+        if(observation_owner)return 0;
+        return private_sig_error(s,"coverage_unknown","GS1 bracketed procargs unavailable or verifier incarnation raced",1);
+    }
+    if(length>sizeof(s->procargs))return private_sig_error(s,"coverage_unknown","GS1 procargs returned length differs",1);
+    if(observation_owner) {
+        if(!engine_observe_path(observation_owner,member,ENGINE_OBS_GS1_IMAGE_PATH,retained,path,sizeof(path))
+            ||!engine_observe_token(observation_owner,member,pid,birth,&after))return 0;
+        if(strcmp(path,gpg)||memcmp(&before,&after,sizeof(after))||after.val[7]!=s->pidversion)
+            return private_sig_error(s,"coverage_unknown","GS1 bracketed verifier incarnation differs",1);
+    } else if(!private_sig_token_path(retained,path,gpg)||!known_control_token(pid,birth,&after)||memcmp(&before,&after,sizeof(after))||after.val[7]!=s->pidversion)
         return private_sig_error(s,"coverage_unknown","GS1 bracketed procargs unavailable or verifier incarnation raced",1);
     if(!private_git_sig_match_argv(ctx,s,s->procargs,length)||!private_sig_cost(s,begin))return 0;
     // Retain the returned signature fd before any stat/hash/mode verdict.
@@ -2347,6 +2566,10 @@ static __attribute__((unused)) int private_git_sig_gs1(const struct private_engi
     if(entries!=1)return private_sig_error(s,entries==0?"signature_unexpected":"coverage_unknown","GS1 scratch is not exclusively the actual Git signature",1);
     s->bound=1;
     if(!private_sig_record(s,"GS1",&held,digest)||!private_sig_cost(s,begin))return 0;return 1;
+}
+static __attribute__((unused)) int private_git_sig_gs1(const struct private_engine_context *ctx,struct private_git_sig_temp *s,pid_t pid,uint64_t birth,
+    const audit_token_t *retained,unsigned char *buffer,size_t capacity) {
+    return private_git_sig_gs1_owned(NULL,0,ctx,s,pid,birth,retained,buffer,capacity);
 }
 static __attribute__((unused)) int private_git_sig_gs2(struct private_git_sig_temp *s,int leader_actual_reaped,int normal_exit,unsigned char *buffer,size_t capacity) {
     uint64_t begin;if(!known_clock_ns(CLOCK_THREAD_CPUTIME_ID,&begin))return private_sig_error(s,"clock_unknown","GS2 beginning clock unavailable",1);
@@ -2448,6 +2671,8 @@ struct engine_owner {
     uint64_t native_gate_cpu_ns,native_gate_wall_ns,native_gate_inclusive_ns,native_gate_app_ns;
     struct engine_unit_observation failed_unit_first,failed_unit_last;uint64_t failed_units,last_poll_cpu,last_charged_cost;
     unsigned running,retiring,failed,foreground,paused,direct_reaped,direct_custody,coverage_lost;
+    enum engine_observation_site obs_terminal_site;int32_t obs_terminal_errno;
+    uint64_t obs_terminal_takeovers;unsigned obs_terminal_pending,obs_rechecking;
     unsigned command,case_fired,record_count,child_created,child_settled,source_admitted;
     // The live bit makes zero-initialized API/fixture owners safe: FD0 is never
     // an owned queue. Notifications are coalesced observations, not births.
@@ -2503,6 +2728,7 @@ static void engine_emergency_dispose(void);
 static void engine_quarantine_hold(struct engine_owner *);
 static int engine_retire(struct engine_owner *,int *);
 static int engine_group_observed_terminal(struct engine_owner *,int);
+static int engine_write_record(struct engine_owner *,const char *,int);
 static int engine_pretest_current(const struct private_engine_context *);
 static int engine_kill_group(struct engine_owner *);
 static int engine_sample_gap(struct engine_owner *,uint64_t);
@@ -2576,6 +2802,63 @@ static void engine_creation_wall_observation(struct engine_owner *o,uint64_t wal
 static int engine_token_signal(const audit_token_t *token,int signal) {
     errno=0;int result=proc_signal_with_audittoken((audit_token_t *)token,signal);return result==0?0:(result>0?result:errno);
 }
+#ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
+static unsigned source_known_final_kill_eperm,source_known_terminal_rss_unavailable;
+#endif
+static int engine_observe_path(struct engine_owner *o,unsigned i,enum engine_observation_site site,const audit_token_t *token,char *path,size_t capacity) {
+    struct engine_observation_failure f;int got;
+    if(engine_observation_fault(o,i,site,(pid_t)token->val[5],&f)){(void)engine_observation_route(o,i,&f);return 0;}
+    errno=0;got=proc_pidpath_audittoken((audit_token_t *)token,path,(uint32_t)capacity);int error=got<=0?errno:0;
+    if(got>0&&memchr(path,0,capacity))return 1;
+    engine_observation_failure_set(&f,site,got<=0&&error?ENGINE_OBSERVATION_UNIX:ENGINE_OBSERVATION_SEMANTIC,error);
+    (void)engine_observation_route(o,i,&f);return 0;
+}
+static int engine_observe_rusage(struct engine_owner *o,unsigned i,enum engine_observation_site site,pid_t pid,struct rusage_info_v1 *u,uint64_t *returned) {
+    struct engine_observation_failure f;int result;
+    if(engine_observation_fault(o,i,site,pid,&f)){if(returned)*returned=engine_now(o,CLOCK_MONOTONIC);(void)engine_observation_route(o,i,&f);return 0;}
+    errno=0;result=proc_pid_rusage(pid,RUSAGE_INFO_V1,(rusage_info_t *)u);int error=result?errno:0;
+    if(returned)*returned=engine_now(o,CLOCK_MONOTONIC);
+    if(result==0)return 1;
+    engine_observation_failure_set(&f,site,error?ENGINE_OBSERVATION_UNIX:ENGINE_OBSERVATION_SEMANTIC,error);
+    (void)engine_observation_route(o,i,&f);return 0;
+}
+static int engine_observe_bsd(struct engine_owner *o,unsigned i,enum engine_observation_site site,pid_t pid,struct proc_bsdinfo *b) {
+    struct engine_observation_failure f;int result;
+    if(engine_observation_fault(o,i,site,pid,&f)){(void)engine_observation_route(o,i,&f);return 0;}
+    errno=0;result=proc_pidinfo(pid,PROC_PIDTBSDINFO,0,b,sizeof(*b));int error=result!=(int)sizeof(*b)?errno:0;
+    if(result==(int)sizeof(*b))return 1;
+    engine_observation_failure_set(&f,site,error?ENGINE_OBSERVATION_UNIX:ENGINE_OBSERVATION_SEMANTIC,error);
+    (void)engine_observation_route(o,i,&f);return 0;
+}
+struct engine_observed_signal {int result,error;uint64_t returned_ns;enum engine_observe_outcome outcome;};
+static struct engine_observed_signal engine_observe_token_signal(struct engine_owner *o,unsigned i,enum engine_observation_site site,const audit_token_t *token,int signal) {
+    struct engine_observed_signal r;struct engine_observation_failure f;
+    if(engine_observation_fault(o,i,site,(pid_t)token->val[5],&f)){r.result=-1;r.error=f.code;}
+    else {r.error=engine_token_signal(token,signal);r.result=r.error?-1:0;engine_observation_failure_set(&f,site,ENGINE_OBSERVATION_UNIX,r.error);}
+    r.returned_ns=engine_now(o,CLOCK_MONOTONIC);
+    r.outcome=r.result?engine_observation_route(o,i,&f):ENGINE_OBSERVATION_LIVE;return r;
+}
+static struct engine_observed_signal engine_observe_group_signal(struct engine_owner *o,enum engine_observation_site site,int signal) {
+    struct engine_observed_signal r;struct engine_observation_failure f;
+    if(engine_observation_fault(o,0,site,o->ticket.pid,&f)){r.result=-1;r.error=f.code;}
+    else {
+        errno=0;
+#ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
+        if(site==ENGINE_OBS_FINAL_GROUP_KILL&&source_known_final_kill_eperm){r.result=-1;errno=EPERM;}else
+#endif
+        r.result=kill(-o->ticket.pgid,signal);
+        r.error=r.result?errno:0;engine_observation_failure_set(&f,site,ENGINE_OBSERVATION_UNIX,r.error);
+    }
+    r.returned_ns=engine_now(o,CLOCK_MONOTONIC);
+    r.outcome=r.result?engine_observation_route(o,0,&f):ENGINE_OBSERVATION_LIVE;return r;
+}
+static int engine_observe_exited(struct engine_owner *o,int *done) {
+    struct engine_observation_failure f;
+    if(engine_observation_fault(o,0,ENGINE_OBS_OWNED_TERMINAL_WAITID,o->ticket.pid,&f)){(void)engine_observation_route(o,0,&f);return 0;}
+    errno=0;if(known_exited(o->ticket.pid,done))return 1;
+    int error=errno;engine_observation_failure_set(&f,ENGINE_OBS_OWNED_TERMINAL_WAITID,error?ENGINE_OBSERVATION_UNIX:ENGINE_OBSERVATION_SEMANTIC,error);
+    (void)engine_observation_route(o,0,&f);return 0;
+}
 static int engine_token_gone(const audit_token_t *token) {
     char path[PROC_PIDPATHINFO_MAXSIZE];errno=0;int got=proc_pidpath_audittoken((audit_token_t *)token,path,sizeof(path));return got<=0&&errno==ESRCH;
 }
@@ -2589,15 +2872,22 @@ static int engine_child_rollup_covers(unsigned mask,uint64_t user,uint64_t syste
     return mask==31&&(user||system)&&user>=child_user&&system>=child_system;
 }
 static int engine_list_children(struct engine_owner *o,unsigned i,pid_t pid,void *buffer,int size) {
-    int error=0,count=native_child_count(pid,buffer,size,&error);unsigned bit=1u<<i;
-    o->child_list_count[i]=count;o->child_list_errno[i]=error;
-    if(native_pid_list_known(count,error))o->child_list_known_mask|=bit;else{o->child_list_known_mask&=~bit;o->child_list_failed_mask|=bit;}
+    struct engine_observation_failure f;int error=0,count;
+    if(engine_observation_fault(o,i,ENGINE_OBS_CHILDREN_CENSUS,pid,&f)){count=0;error=f.code;}
+    else {count=native_child_count(pid,buffer,size,&error);engine_observation_failure_set(&f,ENGINE_OBS_CHILDREN_CENSUS,error?ENGINE_OBSERVATION_UNIX:ENGINE_OBSERVATION_SEMANTIC,error);}
+    unsigned bit=1u<<i;o->child_list_count[i]=count;o->child_list_errno[i]=error;
+    if(native_pid_list_known(count,error))o->child_list_known_mask|=bit;else {
+        o->child_list_known_mask&=~bit;o->child_list_failed_mask|=bit;
+        (void)engine_observation_route(o,i,&f);
+    }
     return count;
 }
 static int engine_list_group(struct engine_owner *o,void *buffer,int size) {
-    int error=0,count=native_group_count(o->ticket.pgid,buffer,size,&error);
+    struct engine_observation_failure f;int error=0,count;
+    if(engine_observation_fault(o,0,ENGINE_OBS_GROUP_CENSUS,o->ticket.pid,&f)){count=0;error=f.code;}
+    else {count=native_group_count(o->ticket.pgid,buffer,size,&error);engine_observation_failure_set(&f,ENGINE_OBS_GROUP_CENSUS,error?ENGINE_OBSERVATION_UNIX:ENGINE_OBSERVATION_SEMANTIC,error);}
     o->group_list_count=count;o->group_list_errno=error;o->group_list_known=native_pid_list_known(count,error);
-    if(!o->group_list_known)o->group_list_failed=1;return count;
+    if(!o->group_list_known){o->group_list_failed=1;(void)engine_observation_route(o,0,&f);}return count;
 }
 // EVFILT_PROC never supplies a child PID (Darwin sys/event.h NOTE_FORK).
 // Only the existing native census admits a member; NOTE_TRACK is unsupported.
@@ -2658,17 +2948,36 @@ static int engine_events_register(struct engine_owner *o,unsigned i,pid_t pid) {
     if(o->members[i].state.pid!=pid||!engine_event_current_member(o,i))return engine_failure(o,"coverage_unknown","process event watch lacks retained current birth start and full token");
     struct engine_event_watch *watch=&o->event_watch[i];watch->pid=pid;watch->birth=o->members[i].state.birth;watch->start=o->members[i].state.start_absolute;watch->token=o->members[i].token;
     struct kevent change;EV_SET(&change,(uintptr_t)pid,EVFILT_PROC,EV_ADD|EV_ENABLE|EV_CLEAR,NOTE_EXEC|NOTE_EXIT|(i?0:NOTE_FORK),0,watch);
-    errno=0;int result;
+    struct engine_observation_failure failure;int result,error;
+    if(engine_observation_fault(o,i,ENGINE_OBS_EVENT_REGISTER,pid,&failure)){result=-1;error=failure.code;}
+    else {
+        errno=0;
 #ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
-    if(source_known_event_registration_failure){result=-1;errno=EIO;}else
+        if(source_known_event_registration_failure){result=-1;errno=EIO;}else
 #endif
-    result=kevent(o->event_fd,&change,1,NULL,0,NULL);
-    int error=result<0?errno:0;o->event_register_errno[i]=error;
-    if(result!=0)return engine_failure(o,"coverage_unknown","process event registration failed");
+        result=kevent(o->event_fd,&change,1,NULL,0,NULL);
+        error=result<0?errno:0;engine_observation_failure_set(&failure,ENGINE_OBS_EVENT_REGISTER,error?ENGINE_OBSERVATION_UNIX:ENGINE_OBSERVATION_SEMANTIC,error);
+    }
+    o->event_register_errno[i]=error;
+    if(result!=0){(void)engine_observation_route(o,i,&failure);return 0;}
     watch->bound=1;o->event_registered_mask|=1u<<i;return 1;
 }
 static int engine_event_note(struct engine_owner *o,const struct kevent *event,uint64_t receipt_ns) {
-    if(event->filter!=EVFILT_PROC||(event->flags&EV_ERROR))return engine_failure(o,"coverage_unknown","process event delivery error or unexpected filter");
+    if(event->filter!=EVFILT_PROC)return engine_observe_event_delivery(o,0,ENGINE_OBSERVATION_SEMANTIC,0)==ENGINE_OBSERVATION_LIVE;
+    unsigned member=event->ident==(uintptr_t)o->ticket.pid?0:1;
+    struct engine_observation_failure failure;
+    int forced=engine_observation_fault(o,member,ENGINE_OBS_EVENT_DELIVERY,(pid_t)event->ident,&failure);
+    if(forced||(event->flags&EV_ERROR)) {
+        int bound=member<2&&event->ident==(uintptr_t)o->members[member].state.pid
+            &&event->udata==&o->event_watch[member]&&(o->event_registered_mask&(1u<<member))
+            &&o->event_watch[member].bound&&(member?engine_child_watch_matches(o):engine_event_current_member(o,0));
+        if(!bound)return engine_observe_event_delivery(o,member,ENGINE_OBSERVATION_SEMANTIC,0)==ENGINE_OBSERVATION_LIVE;
+        if(!forced) {
+            int error=event->data>0&&event->data<=INT32_MAX?(int)event->data:0;
+            engine_observation_failure_set(&failure,ENGINE_OBS_EVENT_DELIVERY,error?ENGINE_OBSERVATION_UNIX:ENGINE_OBSERVATION_SEMANTIC,error);
+        }
+        (void)engine_observation_route(o,member,&failure);return 0;
+    }
     if(event->ident==(uintptr_t)o->ticket.pid) {
         if(event->fflags&NOTE_FORK) {
             if(o->leader_fork_events==UINT64_MAX)return engine_failure(o,"coverage_unknown","leader fork notification counter overflow");
@@ -2716,8 +3025,10 @@ static int engine_events_poll(struct engine_owner *o,uint64_t wait_ns) {
     int track_stop_wait=child->attachment_stop&&!child->attachment_stop_ack_ns&&!o->retiring;
     uint64_t wait_begin=track_stop_wait?engine_now(o,CLOCK_MONOTONIC):0;
     if(track_stop_wait&&wait_begin==UINT64_MAX)return 0;
-    struct timespec timeout={0,(long)wait_ns};struct kevent events[4];errno=0;
-    int n=kevent(o->event_fd,NULL,0,events,4,&timeout);int error=n<0?errno:0;
+    struct timespec timeout={0,(long)wait_ns};struct kevent events[4];struct engine_observation_failure failure;int n,error;
+    if(engine_observation_fault(o,0,ENGINE_OBS_EVENT_POLL,o->ticket.pid,&failure)){n=-1;error=failure.code;}
+    else {errno=0;n=kevent(o->event_fd,NULL,0,events,4,&timeout);error=n<0?errno:0;
+        engine_observation_failure_set(&failure,ENGINE_OBS_EVENT_POLL,error?ENGINE_OBSERVATION_UNIX:ENGINE_OBSERVATION_SEMANTIC,error);}
     o->event_wait_errno=error;
     uint64_t wait_end=track_stop_wait?engine_now(o,CLOCK_MONOTONIC):0;
     uint64_t receipt_ns=n>0?(track_stop_wait?wait_end:engine_now(o,CLOCK_MONOTONIC)):0;
@@ -2737,7 +3048,10 @@ static int engine_events_poll(struct engine_owner *o,uint64_t wait_ns) {
         child->attachment_wait_wall_ns=total;
         if(elapsed>child->attachment_wait_max_ns)child->attachment_wait_max_ns=elapsed;
     }
-    if(n<0){if(error==EINTR)return 1;return engine_failure(o,"coverage_unknown","owned process event wait unavailable");}
+    if(n<0) {
+        if(error==EINTR&&engine_cancel_signal)(void)engine_failure(o,"cancelled","original helper cancelled or deadline reached");
+        (void)engine_observation_route(o,0,&failure);return 0;
+    }
     if(n>0&&receipt_ns==UINT64_MAX)return 0;
     for(int i=0;i<n;i++)if(!engine_event_note(o,&events[i],receipt_ns))return 0;
     return 1;
@@ -2890,8 +3204,7 @@ static int engine_capture_pause_user(struct engine_owner *o) {
     o->pause_baseline_known=1;return 1;
 }
 static int engine_terminal_pause_user(struct engine_owner *o) {
-    if(o->pause_system_violation)return 0;
-    if(o->pause_resume_admitted||!o->pause_ack_mask)return !o->pause_user_violation;
+    if(o->pause_resume_admitted||!o->pause_ack_mask)return !o->pause_user_violation&&!o->pause_system_violation;
     if(!o->pause_baseline_known)return engine_failure(o,"coverage_unknown","partial pause ACK lacks an immutable terminal user baseline");
     o->pause_terminal_checked=1;o->pause_terminal_user_ns=o->wait_user;
     uint64_t excess=o->wait_user>=o->pause_user_baseline_ns?o->wait_user-o->pause_user_baseline_ns:0;
@@ -2899,18 +3212,33 @@ static int engine_terminal_pause_user(struct engine_owner *o) {
     int pass=engine_pause_user_allowed(o->pause_user_baseline_ns,o->wait_user,1000);
     if(!pass)o->pause_user_violation=1;
     o->pause_user_pass=pass&&!o->pause_user_violation;
-    return o->pause_user_pass?1:engine_failure(o,"resource_limit","terminal user CPU exceeds immutable pause ACK plus exact1us wait4 resolution");
+    if(!o->pause_user_pass)return engine_failure(o,"resource_limit","terminal user CPU exceeds immutable pause ACK plus exact1us wait4 resolution");
+    return !o->pause_system_violation;
 }
-static int engine_usage(struct engine_owner *owner,unsigned i,const struct rusage_info_v1 *u) {
+static int engine_usage_identity(struct engine_owner *owner,unsigned i,const struct rusage_info_v1 *u) {
     struct engine_member *m=&owner->members[i];
-    if(!u->ri_proc_start_abstime||(m->state.start_absolute&&u->ri_proc_start_abstime!=m->state.start_absolute)
+    if(!u||!u->ri_proc_start_abstime||(m->state.start_absolute&&u->ri_proc_start_abstime!=m->state.start_absolute)
         ||u->ri_user_time<m->user||u->ri_system_time<m->system||u->ri_child_user_time<m->child_user||u->ri_child_system_time<m->child_system)
         return engine_failure(owner,"coverage_unknown","foreign or reversed live helper resource identity");
     m->state.start_absolute=u->ri_proc_start_abstime;m->user=u->ri_user_time;m->system=u->ri_system_time;
     m->child_user=u->ri_child_user_time;m->child_system=u->ri_child_system_time;m->exit_abstime=u->ri_proc_exit_abstime;
     for(unsigned j=0;j<owner->retired_count;j++)if(owner->retired[j].pid==m->state.pid&&owner->retired[j].current&&owner->retired[j].token.val[7]==m->token.val[7])owner->retired[j].start=m->state.start_absolute;
+    return 1;
+}
+static int engine_usage_policy(struct engine_owner *owner,unsigned i) {
+    struct engine_member *m=&owner->members[i];
     int user_pass=engine_pause_live_user(owner,i,m->user),system_pass=engine_pause_live_system(owner,i,m->system);
     return user_pass&&system_pass;
+}
+static int engine_usage(struct engine_owner *owner,unsigned i,const struct rusage_info_v1 *u) {
+    return engine_usage_identity(owner,i,u)&&engine_usage_policy(owner,i);
+}
+static int engine_terminal_usage(struct engine_owner *owner,unsigned i,const struct rusage_info_v1 *u) {
+    if(!u||!u->ri_proc_exit_abstime||!engine_usage_identity(owner,i,u))return 0;
+    // Strict policy failures remain sticky and independently diagnosed. They
+    // cannot turn a genuine same-original exit into an unobserved live process.
+    // This success supplies terminal identity only, never functional approval.
+    (void)engine_usage_policy(owner,i);return 1;
 }
 static int engine_child_note_terminal(struct engine_owner *owner,int ri_error,int token_gone) {
     struct engine_member *m=&owner->members[1];
@@ -2955,10 +3283,25 @@ static int engine_member_terminal_observe(struct engine_owner *owner,unsigned i,
         if(i&&usage_error==ESRCH&&!m->terminal_ri_non_esrch&&!engine_events_poll(owner,0))return 0;
         if(i&&usage_error==ESRCH&&engine_child_note_terminal(owner,usage_error,engine_token_gone(&m->token)))return 1;
         if(i&&usage_error!=ESRCH){m->terminal_ri_non_esrch=1;return engine_failure(owner,"coverage_unknown","child terminal RI failure is not ESRCH");}
+        if(!i&&!fresh&&usage_error==ESRCH) {
+            // Independent proof layer: an original unreaped leader may retain
+            // a same-birth SZOMB row after its RI is unavailable. The full
+            // original unreaped pin/start/token remains required; waitability
+            // is checked later, immediately before consuming ownwait4.
+            struct proc_bsdinfo zombie;errno=0;
+            int got=proc_pidinfo(m->state.pid,PROC_PIDTBSDINFO,0,&zombie,sizeof(zombie));
+            uint64_t birth=got==(int)sizeof(zombie)?(uint64_t)zombie.pbi_start_tvsec*1000000+zombie.pbi_start_tvusec:0;
+            if(got==(int)sizeof(zombie)&&zombie.pbi_pid==(uint32_t)owner->ticket.pid&&birth==owner->ticket.birth
+                &&zombie.pbi_ppid==(uint32_t)getpid()&&zombie.pbi_pgid==(uint32_t)owner->ticket.pgid
+                &&zombie.pbi_uid==geteuid()&&zombie.pbi_status==SZOMB&&engine_observation_identity_complete(owner,0)) {
+                observed=engine_now(owner,CLOCK_MONOTONIC);if(!observed||observed==UINT64_MAX)return 0;
+                m->phase=ENGINE_EXITED;if(!m->terminal_observed_ns)m->terminal_observed_ns=observed;return 1;
+            }
+        }
         return 0;
     }
     if(fresh&&(i||!engine_fresh_leader_ri_valid(owner,&u,usage_result,begin,observed)))return engine_failure(owner,"coverage_unknown","fresh original leader terminal RI identity counter or receipt interval differs");
-    if(observed==UINT64_MAX||!u.ri_proc_exit_abstime||!engine_usage(owner,i,&u))return 0;
+    if(observed==UINT64_MAX||!u.ri_proc_exit_abstime||!engine_terminal_usage(owner,i,&u))return 0;
     struct proc_bsdinfo b;int n=proc_pidinfo(m->state.pid,PROC_PIDTBSDINFO,0,&b,sizeof(b));
     if(n==(int)sizeof(b)) {
         uint64_t birth=(uint64_t)b.pbi_start_tvsec*1000000+b.pbi_start_tvusec;
@@ -3018,9 +3361,9 @@ static int engine_child_send_stop(struct engine_owner *o,const audit_token_t *to
     if(m->attachment_stop)return engine_failure(o,"coverage_unknown","verifier custody STOP already consumed");
     uint64_t begin=engine_now(o,CLOCK_MONOTONIC);if(begin==UINT64_MAX)return 0;
     m->attachment_stop=1;m->attachment_stop_call_ns=begin;
-    m->attachment_stop_errno=engine_token_signal(token,SIGSTOP);
-    m->attachment_stop_return_ns=engine_now(o,CLOCK_MONOTONIC);
-    if(m->attachment_stop_errno)return engine_failure(o,"coverage_unknown","verifier custody STOP unavailable");
+    struct engine_observed_signal stopped=engine_observe_token_signal(o,1,ENGINE_OBS_CHILD_STOP_SIGNAL,token,SIGSTOP);
+    m->attachment_stop_errno=stopped.error;m->attachment_stop_return_ns=stopped.returned_ns;
+    if(stopped.outcome!=ENGINE_OBSERVATION_LIVE)return 0;
     return engine_child_stop_bound(o,m->attachment_stop_return_ns);
 }
 static int engine_child_observed_stop_ack(struct engine_owner *o,const struct image *closing) {
@@ -3043,18 +3386,96 @@ static void (*source_known_child_handoff)(struct engine_owner *,unsigned,unsigne
 #else
 #define engine_child_handoff_diag(o,stage,steps,used,result) ((void)0)
 #endif
-static int engine_sample_terminal_after_error(struct engine_owner *owner,unsigned i,pid_t pid,int read_error) {
-#ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
-    source_known_live_read_error=read_error;
-#endif
-    if(read_error==ESRCH&&engine_sample_owned_member(owner,i,pid)) {
-#ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
-        source_known_live_rechecks++;
-#endif
-        if(engine_member_terminal(owner,i))return 1;
-    }
-    return 0;
+static int engine_observation_identity_complete(const struct engine_owner *o,unsigned i) {
+    return o&&o->source_admitted&&i<2&&o->members[i].token.val[5]==(unsigned)o->members[i].state.pid
+        &&o->members[i].token.val[7]!=0&&engine_sample_owned_member(o,i,o->members[i].state.pid);
 }
+// Terminal evidence and waitability are distinct. A supplied/unknown advisory
+// waitable value cannot erase an independently qualified same-original exit.
+// The consuming ownwait4 gate below still requires actual positive WNOWAIT.
+static int engine_observation_terminal_classified(int qualified,int waitable) {
+    (void)waitable;return qualified;
+}
+static enum engine_observe_outcome observe_or_terminal(struct engine_owner *o,unsigned i,enum engine_observation_site site,enum engine_observation_domain domain,int code) {
+    int pending=engine_observation_existing_pending(site,domain,code);
+#ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
+    if((site==ENGINE_OBS_LIVE_TASKALL_OPEN||site==ENGINE_OBS_LIVE_TASKALL_CLOSE)&&domain==ENGINE_OBSERVATION_UNIX)
+        source_known_live_read_error=code;
+#endif
+    if(!o||!engine_observation_identity_complete(o,i)||o->obs_rechecking
+        ||(!pending&&!engine_observation_gone(site,domain,code))) {
+        if(o)(void)engine_failure(o,"coverage_unknown",engine_observation_site_detail(site));
+        return ENGINE_OBSERVATION_FAILED;
+    }
+#ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
+    if((site==ENGINE_OBS_LIVE_TASKALL_OPEN||site==ENGINE_OBS_LIVE_TASKALL_CLOSE)&&domain==ENGINE_OBSERVATION_UNIX&&code==ESRCH)source_known_live_rechecks++;
+#endif
+    o->obs_rechecking=1;
+    int terminal=engine_observation_terminal_classified(engine_member_terminal(o,i),0);
+    if(terminal&&pending&&code==EPERM)terminal=engine_group_observed_terminal(o,1);
+    o->obs_rechecking=0;
+    if(terminal) {
+        char line[256];int n=snprintf(line,sizeof(line),"{\"kind\":\"observation_terminal\",\"obs_terminal_site\":\"%s\",\"obs_terminal_errno\":%d}\n",engine_observation_site_name(site),code);
+        if(o->obs_terminal_takeovers==UINT64_MAX){(void)engine_failure(o,"resource_limit","observation terminal receipt count overflow");return ENGINE_OBSERVATION_FAILED;}
+        if(!engine_write_record(o,line,n))return ENGINE_OBSERVATION_FAILED;
+        o->obs_terminal_site=site;o->obs_terminal_errno=code;o->obs_terminal_takeovers++;o->obs_terminal_pending=1;o->running=0;
+        return ENGINE_OBSERVATION_TERMINAL;
+    }
+    if(pending){o->obs_terminal_pending=1;o->running=0;return ENGINE_OBSERVATION_PENDING;}
+    (void)engine_failure(o,"coverage_unknown",engine_observation_site_detail(site));return ENGINE_OBSERVATION_FAILED;
+}
+// Each production raw call routes through one fixed-site instance. Controls
+// replace only its ROUTE with BYPASS, never a generic helper(site==N) test.
+#ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
+// Scalar-only selected-route receipts precede any enclosing RI-gap/cleanup
+// path. Cumulative later takeovers cannot impersonate this fixed-site result.
+#define engine_observation_route_begin(o) uint64_t observation_takeovers_before=(o)?(o)->obs_terminal_takeovers:0
+#define engine_observation_route_end(o,i,site,domain,code,outcome) do { \
+    if((o)&&source_known_after_observation)source_known_after_observation((o),(i),(site),(domain),(code),(outcome),observation_takeovers_before,(o)->obs_terminal_takeovers); \
+}while(0)
+#else
+#define engine_observation_route_begin(o) ((void)0)
+#define engine_observation_route_end(o,i,site,domain,code,outcome) ((void)0)
+#endif
+#define ENGINE_OBSERVATION_ROUTE(name,site) \
+static enum engine_observe_outcome engine_observe_##name(struct engine_owner *o,unsigned i,enum engine_observation_domain domain,int code) { \
+    engine_observation_route_begin(o); \
+    enum engine_observe_outcome outcome=observe_or_terminal(o,i,site,domain,code); \
+    engine_observation_route_end(o,i,site,domain,code,outcome);return outcome; \
+}
+#define ENGINE_OBSERVATION_BYPASS(name,site) \
+static enum engine_observe_outcome engine_observe_##name(struct engine_owner *o,unsigned i,enum engine_observation_domain domain,int code) { \
+    engine_observation_route_begin(o); \
+    (void)i;(void)domain;(void)code;(void)engine_failure(o,"coverage_unknown",engine_observation_site_detail(site)); \
+    engine_observation_route_end(o,i,site,domain,code,ENGINE_OBSERVATION_FAILED);return ENGINE_OBSERVATION_FAILED; \
+}
+ENGINE_OBSERVATION_ROUTE(live_taskall_open, ENGINE_OBS_LIVE_TASKALL_OPEN)
+ENGINE_OBSERVATION_ROUTE(audit_taskall_before, ENGINE_OBS_AUDIT_TASKALL_BEFORE)
+ENGINE_OBSERVATION_ROUTE(audit_task_name, ENGINE_OBS_AUDIT_TASK_NAME)
+ENGINE_OBSERVATION_ROUTE(audit_task_name_null, ENGINE_OBS_AUDIT_TASK_NAME_NULL)
+ENGINE_OBSERVATION_ROUTE(audit_task_info, ENGINE_OBS_AUDIT_TASK_INFO)
+ENGINE_OBSERVATION_ROUTE(audit_taskall_after, ENGINE_OBS_AUDIT_TASKALL_AFTER)
+ENGINE_OBSERVATION_ROUTE(live_image_path, ENGINE_OBS_LIVE_IMAGE_PATH)
+ENGINE_OBSERVATION_ROUTE(live_rusage, ENGINE_OBS_LIVE_RUSAGE)
+ENGINE_OBSERVATION_ROUTE(live_taskall_close, ENGINE_OBS_LIVE_TASKALL_CLOSE)
+ENGINE_OBSERVATION_ROUTE(gs1_image_path, ENGINE_OBS_GS1_IMAGE_PATH)
+ENGINE_OBSERVATION_ROUTE(gs1_procargs, ENGINE_OBS_GS1_PROCARGS)
+ENGINE_OBSERVATION_ROUTE(child_stop_signal, ENGINE_OBS_CHILD_STOP_SIGNAL)
+ENGINE_OBSERVATION_ROUTE(child_continue_signal, ENGINE_OBS_CHILD_CONTINUE_SIGNAL)
+ENGINE_OBSERVATION_ROUTE(initial_continue_signal, ENGINE_OBS_INITIAL_CONTINUE_SIGNAL)
+ENGINE_OBSERVATION_ROUTE(foreground_stop_signal, ENGINE_OBS_FOREGROUND_STOP_SIGNAL)
+ENGINE_OBSERVATION_ROUTE(foreground_continue_signal, ENGINE_OBS_FOREGROUND_CONTINUE_SIGNAL)
+ENGINE_OBSERVATION_ROUTE(prekill_bsd, ENGINE_OBS_PREKILL_BSD)
+ENGINE_OBSERVATION_ROUTE(final_group_kill, ENGINE_OBS_FINAL_GROUP_KILL)
+ENGINE_OBSERVATION_ROUTE(children_census, ENGINE_OBS_CHILDREN_CENSUS)
+ENGINE_OBSERVATION_ROUTE(group_census, ENGINE_OBS_GROUP_CENSUS)
+ENGINE_OBSERVATION_ROUTE(event_register, ENGINE_OBS_EVENT_REGISTER)
+ENGINE_OBSERVATION_ROUTE(event_poll, ENGINE_OBS_EVENT_POLL)
+ENGINE_OBSERVATION_ROUTE(event_delivery, ENGINE_OBS_EVENT_DELIVERY)
+ENGINE_OBSERVATION_ROUTE(handoff_rusage, ENGINE_OBS_HANDOFF_RUSAGE)
+ENGINE_OBSERVATION_ROUTE(escaped_cleanup_bsd, ENGINE_OBS_ESCAPED_CLEANUP_BSD)
+ENGINE_OBSERVATION_ROUTE(escaped_cleanup_signal, ENGINE_OBS_ESCAPED_CLEANUP_SIGNAL)
+ENGINE_OBSERVATION_ROUTE(owned_terminal_waitid, ENGINE_OBS_OWNED_TERMINAL_WAITID)
 static int engine_sample_member(struct engine_owner *owner,unsigned i,pid_t pid) {
     struct engine_member *m=&owner->members[i];struct image current;
     unsigned failed_before_precheck=owner->failed;
@@ -3065,18 +3486,16 @@ static int engine_sample_member(struct engine_owner *owner,unsigned i,pid_t pid)
 #ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
     if(source_known_before_live_read)source_known_before_live_read(owner,i,pid,1);
 #endif
-    if(!control_observe(pid,&current)) {
-        int read_error=errno;
-        if(engine_sample_terminal_after_error(owner,i,pid,read_error))return 1;
-        errno=read_error;return engine_failure(owner,"coverage_unknown","live helper observation unavailable");
-    }
+    if(!engine_observe_control(owner,i,ENGINE_OBS_LIVE_TASKALL_OPEN,pid,&current))return owner->obs_terminal_pending&&m->phase==ENGINE_EXITED;
     if(current.pid!=pid||current.pgid!=owner->ticket.pgid||current.ppid!=(i?owner->ticket.pid:getpid())||current.uid!=geteuid()
-        ||(m->state.birth&&current.birth!=m->state.birth)||current.threads!=1||current.runnable>1)
-        return engine_failure(owner,"coverage_unknown","helper lineage birth group or single-thread predicate differs");
-    audit_token_t token;if(!known_control_token(pid,current.birth,&token))return engine_failure(owner,"coverage_unknown","current helper audit identity unavailable");
+        ||(m->state.birth&&current.birth!=m->state.birth))
+        return engine_failure(owner,"coverage_unknown","helper lineage birth or group predicate differs");
+    if(current.status==SZOMB)return engine_observe_live_taskall_open(owner,i,ENGINE_OBSERVATION_ZOMBIE_ROW,0)==ENGINE_OBSERVATION_TERMINAL;
+    if(current.threads!=1||current.runnable>1)return engine_failure(owner,"coverage_unknown","helper live single-thread predicate differs");
+    audit_token_t token;if(!engine_observe_token(owner,i,pid,current.birth,&token))return owner->obs_terminal_pending&&m->phase==ENGINE_EXITED;
     // Preserve every actual recipient before any path/exec/QoS verdict.
     if(!engine_owned_token(owner,pid,current.birth,m->state.start_absolute,&token))return 0;
-    char path[PROC_PIDPATHINFO_MAXSIZE];if(proc_pidpath_audittoken(&token,path,sizeof(path))<=0||!memchr(path,0,sizeof(path)))return engine_failure(owner,"coverage_unknown","current helper image unavailable");
+    char path[PROC_PIDPATHINFO_MAXSIZE];if(!engine_observe_path(owner,i,ENGINE_OBS_LIVE_IMAGE_PATH,&token,path,sizeof(path)))return owner->obs_terminal_pending&&m->phase==ENGINE_EXITED;
     unsigned old_version=m->token_known?m->token.val[7]:0;
     if(i&&old_version&&memcmp(&m->token,&token,sizeof(token))
         &&(m->phase!=ENGINE_CLONE||strcmp(path,owner->descendant)||token.val[7]<=old_version))
@@ -3088,9 +3507,9 @@ static int engine_sample_member(struct engine_owner *owner,unsigned i,pid_t pid)
     // full-token checks above bind its recipient before registration.
     if(!engine_priority(owner,i,&current))return 0;
     uint64_t ri_started=engine_now(owner,CLOCK_MONOTONIC);if(!engine_ri_begin(owner,i,ri_started))return 0;
-    struct rusage_info_v1 u;int usage_result=proc_pid_rusage(pid,RUSAGE_INFO_V1,(rusage_info_t *)&u);
-    if(!engine_ri_end(owner,i,engine_now(owner,CLOCK_MONOTONIC)))return 0;
-    if(usage_result!=0)return engine_failure(owner,"coverage_unknown","current helper resource snapshot unavailable");
+    struct rusage_info_v1 u;uint64_t usage_returned;int usage_known=engine_observe_rusage(owner,i,ENGINE_OBS_LIVE_RUSAGE,pid,&u,&usage_returned);
+    if(!engine_ri_end(owner,i,usage_returned))return 0;
+    if(!usage_known)return owner->obs_terminal_pending&&m->phase==ENGINE_EXITED;
     if(!engine_usage(owner,i,&u))return 0;
     // Only a SUCCESSFUL fresh RI with the original retained start permits
     // the existing one-shot custody STOP. Cached watch/start plus a fresh
@@ -3103,12 +3522,10 @@ static int engine_sample_member(struct engine_owner *owner,unsigned i,pid_t pid)
 #ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
     if(source_known_before_live_read)source_known_before_live_read(owner,i,pid,2);
 #endif
-    if(!control_observe(pid,&closing)) {
-        int read_error=errno;
-        if(engine_sample_terminal_after_error(owner,i,pid,read_error))return 1;
-        errno=read_error;return engine_failure(owner,"coverage_unknown","post-RI member identity continuity unavailable");
-    }
-    if(closing.birth!=current.birth||closing.ppid!=current.ppid||closing.pgid!=current.pgid||closing.uid!=current.uid||closing.threads!=1||closing.runnable>1)return engine_failure(owner,"coverage_unknown","post-RI member identity continuity unavailable");
+    if(!engine_observe_control(owner,i,ENGINE_OBS_LIVE_TASKALL_CLOSE,pid,&closing))return owner->obs_terminal_pending&&m->phase==ENGINE_EXITED;
+    if(closing.birth!=current.birth||closing.ppid!=current.ppid||closing.pgid!=current.pgid||closing.uid!=current.uid)return engine_failure(owner,"coverage_unknown","post-RI member identity continuity unavailable");
+    if(closing.status==SZOMB)return engine_observe_live_taskall_close(owner,i,ENGINE_OBSERVATION_ZOMBIE_ROW,0)==ENGINE_OBSERVATION_TERMINAL;
+    if(closing.threads!=1||closing.runnable>1)return engine_failure(owner,"coverage_unknown","post-RI live single-thread predicate differs");
     if(!engine_priority(owner,i,&closing))return 0;
     if(i&&!engine_child_observed_stop_ack(owner,&closing))return 0;
     m->state.status=closing.status;m->state.runnable=closing.runnable;m->state.rss=closing.rss;
@@ -3151,7 +3568,10 @@ static int engine_sample_member(struct engine_owner *owner,unsigned i,pid_t pid)
             if(!engine_unit_cut(owner,ENGINE_MEMBER_GS1))return 0;
             if(owner->retiring||owner->group_kill_pending||owner->pause_pending||engine_cancel_signal||engine_now(owner,CLOCK_MONOTONIC)>=owner->context->outer->deadline)
                 return engine_failure(owner,"cancelled","verifier GS1 lost admission after its prior paid observation");
-            if(!owner->git_signature||!private_git_sig_gs1(owner->context,owner->git_signature,pid,current.birth,&token,owner->signature_buffer,owner->signature_capacity))return engine_failure(owner,private_error,private_detail);
+            if(!owner->git_signature||!private_git_sig_gs1_owned(owner,1,owner->context,owner->git_signature,pid,current.birth,&token,owner->signature_buffer,owner->signature_capacity)) {
+                if(owner->obs_terminal_pending)return engine_child_unproven(owner,"verifier terminal before required GS1 custody completed");
+                return engine_failure(owner,private_error,private_detail);
+            }
             m->phase=ENGINE_EXPECTED;m->attachment_ready=1;owner->child_image_admitted=1;owner->verified_descendants++;
             if(!engine_checkpoint(owner))return 0;
             // Splitting owns extra fresh9x rest. While the verifier remains
@@ -3160,40 +3580,54 @@ static int engine_sample_member(struct engine_owner *owner,unsigned i,pid_t pid)
             if(!engine_sample_member(owner,0,owner->ticket.pid))return 0;
             if(owner->members[0].phase==ENGINE_EXITED)return engine_failure(owner,"coverage_unknown","leader terminated before verifier activation");
             if(!engine_checkpoint(owner))return 0;
-            if(!owner->foreground&&!owner->retiring&&!engine_cancel_signal&&engine_now(owner,CLOCK_MONOTONIC)<owner->context->outer->deadline) {if(engine_token_signal(&token,SIGCONT))return engine_failure(owner,"coverage_unknown","verifier custody continuation unavailable");m->attachment_ready=0;}
+            if(!owner->foreground&&!owner->retiring&&!engine_cancel_signal&&engine_now(owner,CLOCK_MONOTONIC)<owner->context->outer->deadline) {struct engine_observed_signal continued=engine_observe_token_signal(owner,1,ENGINE_OBS_CHILD_CONTINUE_SIGNAL,&token,SIGCONT);if(continued.outcome!=ENGINE_OBSERVATION_LIVE)return 0;m->attachment_ready=0;}
         }
     } else if(!strcmp(path,owner->image)&&m->phase!=ENGINE_EXPECTED) {m->phase=ENGINE_CLONE;engine_member_live_admission(owner,i);}
     else return engine_failure(owner,"coverage_unknown","unapproved helper exec path");
     return 1;
 }
-#ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
-static unsigned source_known_final_kill_eperm,source_known_terminal_rss_unavailable;
-#endif
+// A terminal takeover is a separate result, never a fabricated BSD success.
+// Classification retains the original pin and qualified receipt without
+// requiring the separate waitable publication to have completed already.
+static int engine_takeover_original_terminal(struct engine_owner *o) {
+    return engine_observation_terminal_classified(o->obs_terminal_pending&&engine_observation_identity_complete(o,0)
+        &&o->members[0].phase==ENGINE_EXITED&&o->members[0].terminal_observed_ns
+        &&o->members[0].terminal_observed_ns!=UINT64_MAX,0);
+}
 static int engine_kill_group(struct engine_owner *owner) {
     if(owner->group_kill_attempted)return owner->group_kill_result==0||owner->group_kill_pending;
     if(owner->direct_reaped||!owner->direct_custody||owner->ticket.pid<=0)return engine_failure(owner,"settlement_unknown","no original unreaped group pin for final kill");
-    int terminal=0;if(!known_exited(owner->ticket.pid,&terminal))return engine_failure(owner,"settlement_unknown","final kill lacks original own-WNOWAIT pin");
-    if(!terminal) {
-        struct proc_bsdinfo b;int n=proc_pidinfo(owner->ticket.pid,PROC_PIDTBSDINFO,0,&b,sizeof(b));
-        uint64_t birth=n==(int)sizeof(b)?(uint64_t)b.pbi_start_tvsec*1000000+b.pbi_start_tvusec:0;
-        if(n!=(int)sizeof(b)||b.pbi_pid!=(uint32_t)owner->ticket.pid||b.pbi_ppid!=(uint32_t)getpid()||b.pbi_pgid!=(uint32_t)owner->ticket.pgid||b.pbi_uid!=geteuid()||(owner->ticket.birth&&birth!=owner->ticket.birth))
-            return engine_failure(owner,"settlement_unknown","live final group kill lacks original current group identity");
+    int terminal=0;
+    if(!engine_observe_exited(owner,&terminal)) {
+        if(!engine_takeover_original_terminal(owner))return 0;
+        terminal=1;
     }
+    if(!terminal) {
+        struct proc_bsdinfo b;int row=engine_observe_bsd(owner,0,ENGINE_OBS_PREKILL_BSD,owner->ticket.pid,&b);
+        if(!row) {
+            if(!engine_takeover_original_terminal(owner))return 0;
+            terminal=1;
+        } else {
+            uint64_t birth=(uint64_t)b.pbi_start_tvsec*1000000+b.pbi_start_tvusec;
+            if(b.pbi_pid!=(uint32_t)owner->ticket.pid||b.pbi_ppid!=(uint32_t)getpid()||b.pbi_pgid!=(uint32_t)owner->ticket.pgid||b.pbi_uid!=geteuid()||(owner->ticket.birth&&birth!=owner->ticket.birth))
+                return engine_failure(owner,"settlement_unknown","live final group kill lacks original current group identity");
+            if(b.pbi_status==SZOMB) {
+                if(engine_observe_prekill_bsd(owner,0,ENGINE_OBSERVATION_ZOMBIE_ROW,0)!=ENGINE_OBSERVATION_TERMINAL)return 0;
+                terminal=1;
+            }
+        }
+    }
+    // A terminal leader cannot hide a retained live child. Only a fresh known
+    // original group proof can make the cleanup effect unnecessary.
+    if(owner->obs_terminal_pending&&terminal&&engine_group_observed_terminal(owner,1)){owner->group_kill_not_attempted_terminal=1;return 1;}
     if(owner->child_created&&!owner->child_rollup_known&&owner->members[1].phase!=ENGINE_EXITED)
         (void)engine_child_unproven(owner,"final kill touches a retained live child whose CPU is not proven in leader wait4");
-    owner->pause_kill_ns=engine_now(owner,CLOCK_MONOTONIC); // Ends exclusion before any final-kill effect.
-    owner->group_kill_attempted=1;errno=0;int raw;
-#ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
-    if(source_known_final_kill_eperm){raw=-1;errno=EPERM;}else {raw=kill(-owner->ticket.pgid,SIGKILL);}
-#else
-    raw=kill(-owner->ticket.pgid,SIGKILL);
-#endif
-    owner->group_kill_result=raw?errno:0;
-#ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
-    (void)raw;
-#endif
-    if(owner->group_kill_result==EPERM||owner->group_kill_result==ESRCH) {owner->group_kill_pending=1;return 1;}
-    return owner->group_kill_result==0?1:engine_failure(owner,"settlement_unknown","final group kill has unresolved raw errno");
+    owner->pause_kill_ns=engine_now(owner,CLOCK_MONOTONIC);
+    owner->group_kill_attempted=1;
+    struct engine_observed_signal killed=engine_observe_group_signal(owner,ENGINE_OBS_FINAL_GROUP_KILL,SIGKILL);
+    owner->group_kill_result=killed.error;
+    if(killed.result&&(killed.error==EPERM||killed.error==ESRCH)) {owner->group_kill_pending=1;return killed.outcome!=ENGINE_OBSERVATION_FAILED;}
+    return killed.outcome==ENGINE_OBSERVATION_LIVE;
 }
 static int engine_cpu_ticks(uint64_t raw,uint64_t *out) {
     mach_timebase_info_data_t t;if(mach_timebase_info(&t)!=KERN_SUCCESS||!t.numer||!t.denom)return 0;
@@ -3342,17 +3776,11 @@ static int engine_child_handoff_wait(struct engine_owner *o,uint64_t requested) 
         if(!engine_sample_owned_member(o,1,m->state.pid)||!engine_child_watch_matches(o))return engine_failure(o,"coverage_unknown","post-STOP wait lost original verifier RI identity");
         uint64_t begin=engine_now(o,CLOCK_MONOTONIC);if(!engine_ri_begin(o,1,begin))return 0;
         m->attachment_wait_ri_begin_ns=begin;
-        struct rusage_info_v1 u;errno=0;
-        int result=proc_pid_rusage(m->state.pid,RUSAGE_INFO_V1,(rusage_info_t *)&u);int error=result?errno:0;
-        uint64_t end=engine_now(o,CLOCK_MONOTONIC);
+        struct rusage_info_v1 u;uint64_t end;
+        int result=engine_observe_rusage(o,1,ENGINE_OBS_HANDOFF_RUSAGE,m->state.pid,&u,&end)?0:-1;
         m->attachment_wait_ri_return_ns=end;
         if(!engine_ri_end(o,1,end))return 0;
-        if(result!=0) {
-            // Preserve EXIT-before-ACK classification if its retained knote
-            // arrived during the failed RI; no errno alone proves exit.
-            if(error==ESRCH&&(!engine_events_poll(o,0)||!engine_child_admission_terminal_guard(o)))return 0;
-            return engine_failure(o,"coverage_unknown","post-STOP wait verifier resource snapshot unavailable");
-        }
+        if(result!=0)return 0; // Shared route owns the raw failure and any terminal takeover.
         if(!engine_usage(o,1,&u)||!engine_sample_gap(o,end))return 0;
         if(end>=o->context->outer->deadline)return engine_failure(o,"deadline","original deadline expired during post-STOP verifier RI");
         if(!engine_child_stop_bound(o,end))return 0;
@@ -3411,6 +3839,7 @@ static int engine_child_pre_sample_cut(struct engine_owner *o) {
 }
 static int engine_census(struct engine_owner *owner,unsigned via,int observe) {
     int ids[3]={0};int n=engine_list_children(owner,0,owner->ticket.pid,ids,sizeof(ids));
+    if(!native_pid_list_known(n,owner->child_list_errno[0])&&owner->obs_terminal_pending)return 0;
     if(!native_pid_list_known(n,owner->child_list_errno[0])||n>1||((n||via==2)&&owner->slots!=2)) {owner->coverage_lost=1;return engine_child_unproven(owner,"unexpected or unknown child census or omitted helper member");}
     if(n==1) {
         if(owner->members[1].state.pid&&owner->members[1].state.pid!=ids[0])return engine_failure(owner,"coverage_unknown","a second descendant replaced original helper");
@@ -3425,6 +3854,7 @@ static int engine_census(struct engine_owner *owner,unsigned via,int observe) {
         uint64_t member_epoch=private_cost.open_cpu;
         if(!engine_sample_child_same_wake(owner,ids[0])||!engine_observation_finish(owner,member_epoch))return 0;
         int children[2]={0};int count=engine_list_children(owner,1,ids[0],children,sizeof(children));
+        if(!native_pid_list_known(count,owner->child_list_errno[1])&&owner->obs_terminal_pending)return 0;
         if(!native_pid_list_empty(count,owner->child_list_errno[1]))return engine_child_unproven(owner,"descendant child edge not known empty");
     } else if(via==2&&!owner->child_created) {
         owner->fork_seen_child_missed=1;
@@ -3444,17 +3874,18 @@ static int engine_observing_census(struct engine_owner *o,int observe,int (*cens
     return census(o,2,observe);
 }
 static int engine_events_service(struct engine_owner *o,uint64_t wait_ns) {
+    if(o->obs_terminal_pending&&!o->retiring)return 0;
     if(!engine_events_poll(o,wait_ns))return 0;
     int done=0;
     if(o->fork_census_pending) {
         o->fork_census_pending=0;
-        if(!known_exited(o->ticket.pid,&done))return engine_failure(o,"settlement_unknown","fork census lacks original WNOWAIT custody");
+        if(!engine_observe_exited(o,&done))return 0;
         // Census in this same ordinary iteration, before the next paid rest.
         int observe=!done&&!o->retiring;
         if(!engine_observing_census(o,observe,engine_census))return 0;
     }
     if(o->child_event_pending&&!o->retiring) {
-        if(!known_exited(o->ticket.pid,&done))return engine_failure(o,"settlement_unknown","child event lacks original WNOWAIT custody");
+        if(!engine_observe_exited(o,&done))return 0;
         o->child_event_pending=0;if(done)return 1;
         // An EXEC wake invokes the SAME strict incarnation/GS1 sampler,
         // including its existing one-shot custody STOP and continuation.
@@ -3465,16 +3896,18 @@ static int engine_events_service(struct engine_owner *o,uint64_t wait_ns) {
     return 1;
 }
 static int engine_sample(struct engine_owner *owner) {
+    if(owner->obs_terminal_pending&&!owner->retiring)return 0;
     if(!engine_events_poll(owner,0))return 0;
     unsigned via=owner->fork_census_pending?2:1;owner->fork_census_pending=0;
-    int done=0;if(!known_exited(owner->ticket.pid,&done))return engine_failure(owner,"settlement_unknown","original WNOWAIT unavailable");
+    int done=0;if(!engine_observe_exited(owner,&done))return 0;
     if(done)return via==2?engine_census(owner,via,0):1;
     if(!engine_census(owner,via,1))return 0;
     owner->child_event_pending=0;
     int n=owner->child_list_count[0];
-    if(!engine_sample_member(owner,0,owner->ticket.pid))return 0;
+    if(!engine_sample_member(owner,0,owner->ticket.pid)||owner->obs_terminal_pending)return 0;
     if(owner->child_disappeared&&!engine_qualify_child_rollup(owner,owner->members[1].terminal_observed_ns!=0,native_pid_list_empty(n,owner->child_list_errno[0]),1))return 0;
     int group[3]={0};n=engine_list_group(owner,group,sizeof(group));
+    if(owner->obs_terminal_pending)return 0;
     if(!owner->group_list_known||n<1||n>2)return engine_failure(owner,"coverage_unknown","live group census unknown or not within exact source bound");
     for(int i=0;i<n;i++)if(group[i]!=owner->ticket.pid&&group[i]!=owner->members[1].state.pid) {owner->coverage_lost=1;return engine_failure(owner,"coverage_unknown","unknown live group identity");}
     if((unsigned)n>owner->result->members_max)owner->result->members_max=(uint8_t)n;
@@ -3491,7 +3924,7 @@ static int engine_pipe_io(struct engine_owner *owner) {
             // EACH bounded write, including the next chunk of a partial input.
             // Pending/terminal observation permits output drain and charging,
             // but never new payload for a paused, pending, or retiring original helper.
-            if(!owner->pause_pending&&!owner->group_kill_pending&&!owner->retiring&&!owner->foreground&&!owner->paused) {
+            if(!owner->obs_terminal_pending&&!owner->pause_pending&&!owner->group_kill_pending&&!owner->retiring&&!owner->foreground&&!owner->paused) {
                 ssize_t sent=write(owner->input,owner->stdin_bytes+owner->sent,n);
                 if(sent>0)owner->sent+=(size_t)sent;
                 else if(sent==0||(errno!=EAGAIN&&errno!=EWOULDBLOCK&&errno!=EINTR))return engine_failure(owner,"coverage_unknown","owned nonblocking stdin failed");
@@ -3656,12 +4089,13 @@ static int engine_record(struct engine_owner *o,const char *phase) {
     return engine_write_record(o,bytes,n)&&engine_failed_record(o)&&engine_pause_record(o)&&engine_ri_record(o)&&engine_child_record(o)&&engine_census_record(o)&&engine_event_record(o);
 }
 static int engine_pause(struct engine_owner *o) {
+    if(o->obs_terminal_pending)return 0;
     if(o->paused)return 1;if(o->pause_stop_attempted||o->pause_pending||o->retiring||o->group_kill_pending)return engine_failure(o,"coverage_unknown","consumed foreground STOP cannot be retried");
     if(!engine_pause_stop_owned(o))return engine_failure(o,"coverage_unknown","foreground STOP lacks original unreaped custody");
     o->pause_original_owned=1;
     o->pause_started_ns=engine_now(o,CLOCK_MONOTONIC);
     if(!engine_sample_gap(o,o->pause_started_ns))return 0;
-    int terminal=0;if(!known_exited(o->ticket.pid,&terminal))return engine_failure(o,"coverage_unknown","foreground STOP lacks original own-WNOWAIT observation");
+    int terminal=0;if(!engine_observe_exited(o,&terminal))return 0;
     if(terminal) {
         o->pause_pending=o->pause_terminal_candidate=o->pause_terminal_preobserved=1;o->running=0;
         (void)engine_pause_terminal_observe(o,terminal,engine_now(o,CLOCK_MONOTONIC));
@@ -3673,10 +4107,11 @@ static int engine_pause(struct engine_owner *o) {
     o->pause_timebase_numer=timebase.numer;o->pause_timebase_denom=timebase.denom;
     uint64_t call=engine_now(o,CLOCK_MONOTONIC);if(call==UINT64_MAX)return 0;
     o->pause_stop_attempted=1;o->pause_stop_call_ns=call;
-    errno=0;int sent=kill(-o->ticket.pgid,SIGSTOP);int error=sent?errno:0;
+    struct engine_observed_signal stopped=engine_observe_group_signal(o,ENGINE_OBS_FOREGROUND_STOP_SIGNAL,SIGSTOP);
+    int sent=stopped.result,error=stopped.error;
     o->pause_stop_result=sent;o->pause_stop_errno=error;
     if(sent){o->pause_pending=1;o->running=0;}
-    uint64_t returned=engine_now(o,CLOCK_MONOTONIC);
+    uint64_t returned=stopped.returned_ns;
     if(engine_pause_stop_receipt(o,sent,error,call,returned)!=ENGINE_PAUSE_STOP_SENT) {
         // End/pay the SAME attempted-STOP ordinary span before the command
         // loop breaks directly to independent original-effect settlement.
@@ -3684,7 +4119,7 @@ static int engine_pause(struct engine_owner *o) {
     }
     for(;;) {
         int all=1;for(unsigned i=0;i<2;i++)if(o->members[i].state.pid&&o->members[i].phase!=ENGINE_EXITED) {
-            if(!engine_sample_member(o,i,o->members[i].state.pid))return 0;
+            if(!engine_sample_member(o,i,o->members[i].state.pid)||o->obs_terminal_pending)return 0;
             if(o->members[i].phase==ENGINE_EXITED)continue; // An exit is not a STOP ACK.
             if(o->members[i].state.status!=SSTOP||o->members[i].state.runnable!=0||!o->members[i].stopped_ri_ack_ns)all=0;
             if(o->members[i].stopped_ri_ack_ns&&!(o->pause_ack_mask&(1u<<i))) {
@@ -3707,16 +4142,21 @@ static int engine_pause(struct engine_owner *o) {
     }
 }
 static int engine_resume(struct engine_owner *o) {
+    if(o->obs_terminal_pending)return 0;
     if(!o->paused||o->foreground||o->retiring||o->pause_pending||o->pause_resume_attempted)return engine_failure(o,"coverage_unknown","foreground resume not currently admitted");
     for(unsigned i=0;i<2;i++)if(o->members[i].state.pid&&o->members[i].phase!=ENGINE_EXITED) {
-        if(!engine_sample_member(o,i,o->members[i].state.pid)||o->members[i].state.status!=SSTOP||o->members[i].state.runnable!=0||o->members[i].user!=o->pause_user[i])return engine_failure(o,"coverage_unknown","paused helper user CPU grew before admitted resume");
+        int sampled=engine_sample_member(o,i,o->members[i].state.pid);
+        if(o->obs_terminal_pending)return 0;
+        if(!sampled||o->members[i].state.status!=SSTOP||o->members[i].state.runnable!=0||o->members[i].user!=o->pause_user[i])return engine_failure(o,"coverage_unknown","paused helper user CPU grew before admitted resume");
         if(!engine_checkpoint(o))return 0;
     }
     if(!engine_pretest_current(o->context)||!engine_checkpoint(o)||o->foreground||!private_context_same(o->context))return engine_failure(o,"coverage_unknown","foreground authority changed before resume");
     if(!engine_live_budget(o))return 0;
     for(unsigned i=0;i<2;i++)if(o->members[i].state.pid&&o->members[i].phase!=ENGINE_EXITED) {
         uint64_t stopped_system;
-        if(!(o->pause_counter_known_mask&(1u<<i))||!engine_sample_member(o,i,o->members[i].state.pid)
+        int sampled=(o->pause_counter_known_mask&(1u<<i))?engine_sample_member(o,i,o->members[i].state.pid):0;
+        if(o->obs_terminal_pending)return 0;
+        if(!(o->pause_counter_known_mask&(1u<<i))||!sampled
             ||!o->members[i].stopped_ri_ack_ns||o->members[i].user!=o->pause_user[i]
             ||!engine_pause_system_delta(o->pause_system[i],o->members[i].system,o->pause_timebase_numer,o->pause_timebase_denom,&stopped_system)
             ||!engine_pause_system_ns_allowed(stopped_system))
@@ -3724,7 +4164,7 @@ static int engine_resume(struct engine_owner *o) {
         o->pause_resume_ri_begin_ns[i]=o->ri_begin_ns[i];o->pause_resume_ri_end_ns[i]=o->ri_end_ns[i];
     }
     if(o->failed||private_failed||engine_cancel_signal||o->foreground||o->retiring||engine_now(o,CLOCK_MONOTONIC)>=o->context->outer->deadline)return engine_failure(o,"cancelled","foreground resume lost current admission");
-    int terminal=0;if(!known_exited(o->ticket.pid,&terminal))return engine_failure(o,"settlement_unknown","resume lacks original own-WNOWAIT");
+    int terminal=0;if(!engine_observe_exited(o,&terminal))return 0;
     if(terminal){o->retiring=1;o->running=0;return 1;}
     o->pause_resume_ns=engine_now(o,CLOCK_MONOTONIC);
     if(o->pause_resume_ns==UINT64_MAX||!engine_sample_gap(o,o->pause_resume_ns))return 0;
@@ -3732,7 +4172,8 @@ static int engine_resume(struct engine_owner *o) {
         if(!o->pause_resume_ri_end_ns[i]||o->pause_resume_ri_end_ns[i]>o->pause_resume_ns)return engine_failure(o,"clock_unknown","resume signal lacks fresh stopped RI endpoint");
     o->pause_resume_attempted=1;
     o->active_sample_ns=o->activation_ns=o->pause_resume_ns;
-    if(kill(-o->ticket.pgid,SIGCONT)!=0)return engine_failure(o,"coverage_unknown","one foreground resume failed");
+    struct engine_observed_signal continued=engine_observe_group_signal(o,ENGINE_OBS_FOREGROUND_CONTINUE_SIGNAL,SIGCONT);
+    if(continued.outcome!=ENGINE_OBSERVATION_LIVE)return 0;
     o->pause_resume_admitted=1;o->paused=0;o->running=1;engine_stopped_interval_record(o);return 1;
 }
 static int engine_put(struct engine_prepared *p,const char *text,char **out) {
@@ -3876,7 +4317,7 @@ static int engine_birth(struct engine_owner *o,struct engine_prepared *p) {
     if(!native_budget_allowed(NATIVE_PROCESS_CREATE,o->native_gate_cpu_ns,o->native_gate_wall_ns,o->native_gate_inclusive_ns,o->native_gate_app_ns))
         return engine_failure(o,"resource_limit","process creation native2ms wall250ms application1ms inclusive3ms gate");
     if(!paid||o->failed)return 0;
-    if(!engine_sample_member(o,0,raw.pid)||!engine_events_register(o,0,raw.pid)||!engine_checkpoint(o))return 0;
+    if(!engine_sample_member(o,0,raw.pid)||o->obs_terminal_pending||!engine_events_register(o,0,raw.pid)||!engine_checkpoint(o))return 0;
     if(o->members[0].state.status!=SSTOP)return engine_failure(o,"coverage_unknown","initial custody was not stopped");
     o->source_admitted=1; // Actual initial live-slot admission recorded its own count above.
     if(!engine_live_budget(o)||!engine_checkpoint(o))return 0;
@@ -3884,11 +4325,12 @@ static int engine_birth(struct engine_owner *o,struct engine_prepared *p) {
     if(!strcmp(o->context->outer->case_name,"debt_overlap")){(void)private_retain_closed_cost(1);return engine_failure(o,"coverage_unknown","fixture pending debt forbids initial helper continuation");}
     // A real final RI read follows initial held/debt work. Its raw start is
     // retained; the CONT timestamp is a separate effect, never a fake read.
-    if(!engine_sample_member(o,0,raw.pid))return 0;
+    if(!engine_sample_member(o,0,raw.pid)||o->obs_terminal_pending)return 0;
     o->active_sample_ns=o->activation_ns=engine_now(o,CLOCK_MONOTONIC);
     if(o->activation_ns==UINT64_MAX)return 0;
     if(o->failed||private_failed||engine_cancel_signal||o->activation_ns>=o->context->outer->deadline)return engine_failure(o,"cancelled","initial continuation lost current admission");
-    if(engine_token_signal(&o->members[0].token,SIGCONT))return engine_failure(o,"coverage_unknown","initial custody continuation failed");
+    struct engine_observed_signal continued=engine_observe_token_signal(o,0,ENGINE_OBS_INITIAL_CONTINUE_SIGNAL,&o->members[0].token,SIGCONT);
+    if(continued.outcome!=ENGINE_OBSERVATION_LIVE)return 0;
     o->running=1;return engine_checkpoint(o);
 }
 static uint64_t engine_timeval(const struct timeval *v) {
@@ -3936,10 +4378,17 @@ static int engine_observe_wait4(struct engine_owner *o) {
     // longer our original pin and must never be queried as a census source.
     (void)engine_events_poll(o,0);
     if(o->fork_census_pending){o->fork_census_pending=0;(void)engine_census(o,2,0);}
+    int terminal=0;
+    // Independent proof layer, not a live-read retry: a consuming wait always
+    // requires a fresh positive observation of this original unreaped child.
+    if(!known_exited(o->ticket.pid,&terminal))return engine_failure(o,"coverage_unknown","terminal settlement lacks original own-WNOWAIT");
+    if(!terminal)return 0;
+    if(o->child_list_failed_mask&&!(o->child_list_known_mask&1u)) {
+        int ids[3]={0};int count=engine_list_children(o,0,o->ticket.pid,ids,sizeof(ids));
+        if(!native_pid_list_known(count,o->child_list_errno[0]))return 0;
+        if(count>1||(count==1&&ids[0]!=o->members[1].state.pid)){o->coverage_lost=1;return engine_child_unproven(o,"terminal census differs from original admitted roster");}
+    }
     if(o->pause_pending) {
-        int terminal=0;
-        if(!known_exited(o->ticket.pid,&terminal))return engine_failure(o,"coverage_unknown","foreground terminal settlement lacks original own-WNOWAIT");
-        if(!terminal)return 0;
         if(!engine_pause_terminal_observe(o,terminal,engine_now(o,CLOCK_MONOTONIC)))return 0;
         if(o->pause_stop_errno==EPERM&&!o->pause_terminal_zombie_only&&!o->group_kill_attempted) {
             int members_terminal=engine_group_observed_terminal(o,terminal);
@@ -4035,12 +4484,13 @@ static void engine_cleanup_escaped(struct engine_owner *o) {
     if(o->direct_reaped||!o->direct_custody)return;
     for(unsigned i=0;i<o->retired_count;i++) {
         struct engine_incarnation *m=&o->retired[i];if(!m->current||m->cleanup_checked)continue;
-        struct proc_bsdinfo b;int n=proc_pidinfo(m->pid,PROC_PIDTBSDINFO,0,&b,sizeof(b));
+        unsigned member=m->pid==o->ticket.pid?0:1;
+        struct proc_bsdinfo b;int n=engine_observe_bsd(o,member,ENGINE_OBS_ESCAPED_CLEANUP_BSD,m->pid,&b)?(int)sizeof(b):0;
         uint64_t birth=n==(int)sizeof(b)?(uint64_t)b.pbi_start_tvsec*1000000+b.pbi_start_tvusec:0;
         if(!engine_token_cleanup_required(m->current,n==(int)sizeof(b)&&birth==m->birth,n==(int)sizeof(b)&&b.pbi_pgid!=(uint32_t)o->ticket.pgid))continue;
         (void)engine_child_unproven(o,"escaped retained member CPU is not included in leader wait4");m->cleanup_checked=1;o->escaped_cleanup_checks++;
-        audit_token_t current;int exact=known_control_token(m->pid,m->birth,&current)&&!memcmp(&current,&m->token,sizeof(current));
-        if(exact){m->cleanup_attempted=1;o->escaped_kill_attempts++;m->cleanup_errno=engine_token_signal(&m->token,SIGKILL);}else m->cleanup_errno=ESTALE;
+        audit_token_t current;int exact=engine_observe_token(o,member,m->pid,m->birth,&current)&&!memcmp(&current,&m->token,sizeof(current));
+        if(exact){m->cleanup_attempted=1;o->escaped_kill_attempts++;struct engine_observed_signal killed=engine_observe_token_signal(o,member,ENGINE_OBS_ESCAPED_CLEANUP_SIGNAL,&m->token,SIGKILL);m->cleanup_errno=killed.error;}else m->cleanup_errno=ESTALE;
         if(m->cleanup_errno){o->escaped_kill_failures++;o->escaped_kill_errno=m->cleanup_errno;}
     }
 }
@@ -4192,16 +4642,16 @@ static int engine_command(struct engine_owner *o,struct engine_prepared *p,unsig
     strcpy(o->image,p->image);strcpy(o->descendant,p->descendant);
     if(!private_end_unit(private_cost.open_cpu))goto prepared_done;
     engine_current=o;dispose_private_engine=engine_emergency_dispose;int born=engine_birth(o,p);
-    while(born&&!o->failed) {
+    while(born&&!o->failed&&!o->obs_terminal_pending) {
         const char *test=o->context->outer->case_name;
         if(!strcmp(test,"cancel")&&!o->case_fired){o->case_fired=1;engine_cancel_signal=1;}
         if(!strcmp(test,"pause_resume")&&!o->case_fired){o->case_fired=1;o->foreground=1;o->hold_last_wall=engine_now(o,CLOCK_MONOTONIC);}
         if(o->foreground&&o->paused&&engine_now(o,CLOCK_MONOTONIC)-o->pause_ack_ns>=20000000)o->foreground=0;
         if(!engine_sample_gap(o,engine_now(o,CLOCK_MONOTONIC)))break;
         if(!engine_events_service(o,0))break;
-        int done=0;if(!known_exited(o->ticket.pid,&done)) {engine_failure(o,"settlement_unknown","original helper WNOWAIT unavailable");break;}if(done)break;
+        int done=0;if(!engine_observe_exited(o,&done))break;if(done)break;
         if(engine_cancel_signal||engine_now(o,CLOCK_MONOTONIC)>=o->context->outer->deadline) {engine_failure(o,engine_cancel_signal?"cancelled":"deadline","original helper cancelled or deadline reached");break;}
-        if(!engine_sample(o))break;
+        if(!engine_sample(o)||o->obs_terminal_pending)break;
         if(o->foreground) {if(!engine_pause(o)||!engine_events_service(o,1000000))break;continue;}
         if(o->paused&&!engine_resume(o))break;
         uint64_t now=engine_now(o,CLOCK_MONOTONIC);

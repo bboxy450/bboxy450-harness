@@ -24,6 +24,40 @@ CONTROLS = SOURCE.with_name('private-engine-controls.c')
 DRIVER = SOURCE.with_name('check-private-engine-controls.py')
 FLAGS = ['-O2', '-std=c11', '-Wall', '-Wextra', '-Werror']
 DISPATCH = b'return private_command_engine(context,result);'
+# Task66445 fixed production observation boundaries. A per-site control must
+# reach that boundary's forced raw receipt; no direct shared-helper success is
+# accepted as caller-wiring evidence. UNIX and Mach result domains stay distinct.
+OBSERVATION_SITES = (
+    'live_taskall_open',
+    'audit_taskall_before',
+    'audit_task_name',
+    'audit_task_name_null',
+    'audit_task_info',
+    'audit_taskall_after',
+    'live_image_path',
+    'live_rusage',
+    'live_taskall_close',
+    'gs1_image_path',
+    'gs1_procargs',
+    'child_stop_signal',
+    'child_continue_signal',
+    'initial_continue_signal',
+    'foreground_stop_signal',
+    'foreground_continue_signal',
+    'prekill_bsd',
+    'final_group_kill',
+    'children_census',
+    'group_census',
+    'event_register',
+    'event_poll',
+    'event_delivery',
+    'handoff_rusage',
+    'escaped_cleanup_bsd',
+    'escaped_cleanup_signal',
+    'owned_terminal_waitid',
+)
+OBSERVATION_ASSERTION = b'selected production observation boundary retains qualified terminal-only disposition'
+
 VALIDATED = (b'if(!engine_owner_priority()||!engine_pretest_current(context)'
              b'||!engine_signature_boundary_available(context))goto refused;')
 
@@ -330,6 +364,185 @@ def compile_source(directory, filename, report):
 
 
 
+def observation_production_bindings(source):
+    # This is a source-bound caller map, not a second C interpreter. Actual
+    # matrix commands enter the same raw wrappers and prove selected receipts;
+    # these checks also reject an omitted/mis-tagged enclosing production call.
+    mask = re.sub(rb"""/\*.*?\*/|//[^\n]*|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'""",
+                  lambda m: bytes(10 if b == 10 else 32 for b in m.group()), source, flags=re.DOTALL)
+    def body(name):
+        pattern = rb'(?m)^static\b[^;{}]*\b' + name.encode() + rb'\([^;{}]*\)\s*\{'
+        matches = list(re.finditer(pattern, mask))
+        if len(matches) != 1:
+            raise ValueError('one production function body required: ' + name)
+        start = matches[0].start(); opening = matches[0].end() - 1; depth = 1; end = opening + 1
+        while end < len(mask) and depth:
+            depth += (mask[end] == ord('{')) - (mask[end] == ord('}'));end += 1
+        if depth:
+            raise ValueError('incomplete production function body: ' + name)
+        return source[start:end], source[:start].count(b'\n') + 1
+    maps = [
+        ('live_taskall_open', 'engine_sample_member', ('ENGINE_OBS_LIVE_TASKALL_OPEN',)),
+        *[(name, 'known_control_token_observed', ('ENGINE_OBS_' + name.upper(),)) for name in OBSERVATION_SITES[1:6]],
+        ('live_image_path', 'engine_sample_member', ('engine_observe_path', 'ENGINE_OBS_LIVE_IMAGE_PATH')),
+        ('live_rusage', 'engine_sample_member', ('engine_observe_rusage', 'ENGINE_OBS_LIVE_RUSAGE')),
+        ('live_taskall_close', 'engine_sample_member', ('ENGINE_OBS_LIVE_TASKALL_CLOSE',)),
+        ('gs1_image_path', 'private_git_sig_gs1_owned', ('engine_observe_path', 'ENGINE_OBS_GS1_IMAGE_PATH')),
+        ('gs1_procargs', 'private_git_sig_gs1_owned', ('engine_observe_procargs',)),
+        ('child_stop_signal', 'engine_child_send_stop', ('engine_observe_token_signal', 'ENGINE_OBS_CHILD_STOP_SIGNAL')),
+        ('child_continue_signal', 'engine_sample_member', ('engine_observe_token_signal', 'ENGINE_OBS_CHILD_CONTINUE_SIGNAL')),
+        ('initial_continue_signal', 'engine_birth', ('engine_observe_token_signal', 'ENGINE_OBS_INITIAL_CONTINUE_SIGNAL')),
+        ('foreground_stop_signal', 'engine_pause', ('engine_observe_group_signal', 'ENGINE_OBS_FOREGROUND_STOP_SIGNAL')),
+        ('foreground_continue_signal', 'engine_resume', ('engine_observe_group_signal', 'ENGINE_OBS_FOREGROUND_CONTINUE_SIGNAL')),
+        ('prekill_bsd', 'engine_kill_group', ('engine_observe_bsd', 'ENGINE_OBS_PREKILL_BSD')),
+        ('final_group_kill', 'engine_kill_group', ('engine_observe_group_signal', 'ENGINE_OBS_FINAL_GROUP_KILL')),
+        ('children_census', 'engine_list_children', ('engine_observation_fault', 'ENGINE_OBS_CHILDREN_CENSUS', 'native_child_count')),
+        ('group_census', 'engine_list_group', ('engine_observation_fault', 'ENGINE_OBS_GROUP_CENSUS', 'native_group_count')),
+        ('event_register', 'engine_events_register', ('engine_observation_fault', 'ENGINE_OBS_EVENT_REGISTER', 'kevent')),
+        ('event_poll', 'engine_events_poll', ('engine_observation_fault', 'ENGINE_OBS_EVENT_POLL', 'kevent')),
+        ('event_delivery', 'engine_event_note', ('engine_observation_fault', 'ENGINE_OBS_EVENT_DELIVERY')),
+        ('handoff_rusage', 'engine_child_handoff_wait', ('engine_observe_rusage', 'ENGINE_OBS_HANDOFF_RUSAGE')),
+        ('escaped_cleanup_bsd', 'engine_cleanup_escaped', ('engine_observe_bsd', 'ENGINE_OBS_ESCAPED_CLEANUP_BSD')),
+        ('escaped_cleanup_signal', 'engine_cleanup_escaped', ('engine_observe_token_signal', 'ENGINE_OBS_ESCAPED_CLEANUP_SIGNAL')),
+        ('owned_terminal_waitid', 'engine_observe_exited', ('engine_observation_fault', 'ENGINE_OBS_OWNED_TERMINAL_WAITID', 'known_exited')),
+    ]
+    records = []
+    if [row[0] for row in maps] != list(OBSERVATION_SITES):
+        raise ValueError('production binding map differs from fixed observation inventory')
+    for site, name, required in maps:
+        data, line = body(name)
+        if any(token.encode() not in data for token in required):
+            raise ValueError('production enclosing caller missing fixed raw boundary: ' + site)
+        records.append({'site': site, 'production_function': name, 'line': line, 'function_sha256': sha(data),
+                        'required_source_tokens': list(required),
+                        'scope': 'source binding; runtime matrix separately exercises actual wrapper plus supplied phase where labelled'})
+    # TERMINAL2/PENDING3 must not be promoted through a generic truthy enum.
+    if re.search(rb'if\s*\(\s*!?\s*(?:engine_observation_route|observe_or_terminal)\s*\(', mask):
+        raise ValueError('terminal outcome used as a native-data boolean')
+    if re.search(rb'if\s*\(\s*!?\s*[A-Za-z_][A-Za-z_0-9]*\.outcome\s*\)', mask):
+        raise ValueError('terminal enum2 must be distinguished from live native-data enum1')
+    return records
+
+
+def observation_variants(source):
+    result = {}
+    for number, site in enumerate(OBSERVATION_SITES, 1):
+        pattern = rb'ENGINE_OBSERVATION_ROUTE\(' + site.encode() + rb'\s*,\s*ENGINE_OBS_' + site.upper().encode() + rb'\)'
+        matches = list(re.finditer(pattern, source))
+        if len(matches) != 1:
+            raise ValueError('one production observation route required: ' + site)
+        anchor = matches[0].group()
+        name = 'observation-bypass-' + site
+        ASSERTIONS[name] = OBSERVATION_ASSERTION
+        result[name] = (changed(source, anchor, anchor.replace(b'ENGINE_OBSERVATION_ROUTE', b'ENGINE_OBSERVATION_BYPASS', 1)),
+                        ['observation-race-control', str(number), '0'])
+    name = 'observation-advisory-wnowait-gate'
+    ASSERTIONS[name] = b'advisory own-WNOWAIT not-ready does not veto independent original terminal RI proof'
+    result[name] = (changed(source, b'(void)waitable;return qualified;', b'(void)waitable;return qualified&&waitable;'),
+                    ['observation-race-control', '1', '7'])
+    extra = [
+        ('observation-group-census-fatal',
+         b'n=engine_list_group(owner,group,sizeof(group));\n    if(owner->obs_terminal_pending)return 0;',
+         b'n=engine_list_group(owner,group,sizeof(group));\n    if(0&&owner->obs_terminal_pending)return 0;',
+         ['observation-race-control','20','0'], OBSERVATION_ASSERTION),
+        ('observation-resume-first-fatal',
+         b'int sampled=engine_sample_member(o,i,o->members[i].state.pid);\n        if(o->obs_terminal_pending)return 0;\n        if(!sampled||o->members[i].state.status!=SSTOP',
+         b'int sampled=engine_sample_member(o,i,o->members[i].state.pid);\n        if(!sampled||o->obs_terminal_pending||o->members[i].state.status!=SSTOP',
+         ['observation-resume-control','1'], b'resume sample terminal takeover stops before live predicates without false coverage failure'),
+        ('observation-resume-fresh-fatal',
+         b'int sampled=(o->pause_counter_known_mask&(1u<<i))?engine_sample_member(o,i,o->members[i].state.pid):0;\n        if(o->obs_terminal_pending)return 0;\n        if(!(o->pause_counter_known_mask&(1u<<i))||!sampled',
+         b'int sampled=(o->pause_counter_known_mask&(1u<<i))?engine_sample_member(o,i,o->members[i].state.pid):0;\n        if(!(o->pause_counter_known_mask&(1u<<i))||!sampled||o->obs_terminal_pending',
+         ['observation-resume-control','2'], b'resume sample terminal takeover stops before live predicates without false coverage failure'),
+        ('observation-event-eintr-success',
+         b'if(n<0) {\n        if(error==EINTR&&engine_cancel_signal)',
+         b'if(n<0) {if(error==EINTR)return 1;\n        if(error==EINTR&&engine_cancel_signal)',
+         ['observation-event-interrupt-control','0'], b'event EINTR refuses through exact site coverage while preserving an already observed cancellation first'),
+    ]
+    extra.append(('observation-normal-terminal-kill-skip',
+                  b'if(owner->obs_terminal_pending&&terminal&&engine_group_observed_terminal(owner,1))',
+                  b'if(terminal&&engine_group_observed_terminal(owner,1))',
+                  ['total-control','7'],
+                  b'natural-exit pending final kill resolves errno after ownreap groupgone without stale unknown'))
+    extra.append(('observation-terminal-user-sys-early',
+                  b'static int engine_terminal_pause_user(struct engine_owner *o) {',
+                  b'static int engine_terminal_pause_user(struct engine_owner *o) {if(o->pause_system_violation)return 0;',
+                  ['terminal-both-policy-api'],
+                  b'terminal USER diagnosis survives simultaneous strict SYSTEM refusal and preserves earlier FIRST error'))
+    for name, anchor, replacement, args, assertion in extra:
+        ASSERTIONS[name] = assertion
+        result[name] = (changed(source,anchor,replacement),args)
+    return result
+
+
+def observation_race_receipt(stdout, number, case=0, *, mutant=False, fatal_guard=False):
+    prefix = b'private_observation_race_source_known '
+    rows = [dict(part.decode('ascii').split('=', 1) for part in line[len(prefix):].split())
+            for line in stdout.splitlines() if line.startswith(prefix)]
+    if len(rows) != 1:
+        raise ValueError('one selected production observation receipt required')
+    row = rows[0]
+    if (row.get('enclosing_phase_supplied') != ('true' if number > 9 and number != 20 else 'false')
+            or row.get('actual_GS1') != 'false' or row.get('actual_escaped_child') != 'false'):
+        raise ValueError('wrapper projection must not claim whole GS1 or escaped-child execution')
+    if (int(row['site_id']) != number or row['site'] != OBSERVATION_SITES[number - 1]
+            or int(row['case']) != case or row['boundary_hits'] != '1' or int(row['seen_site']) != number
+            or row['raw_error_supplied'] != 'true' or row['target_syscall_invoked'] != 'false'
+            or row['syscall_outcome_supplied'] != 'true' or row['runtime_approved'] != 'false'):
+        raise ValueError('selected raw production boundary/site provenance differs')
+    if (row['advisory_OS_window_claimed'] != 'false' or row['consuming_WNOWAIT_fault'] != 'false'
+            or (case == 7 and row['advisory_waitable_supplied'] != '0')):
+        raise ValueError('advisory classification must not fake consuming WNOWAIT or claim a native publication window')
+    for field in ('ACK_unchanged', 'CONT_unchanged', 'membership_unchanged', 'census_unknown_preserved',
+                  'watch_not_fabricated', 'GS1_not_fabricated'):
+        if row[field] != 'true':
+            raise ValueError('observation recovery invented live success: ' + field)
+    accepted = case in (0, 7) and not mutant
+    qualified = accepted or fatal_guard
+    before, after = int(row['selected_takeovers_before']), int(row['selected_takeovers_after'])
+    later = int(row['later_takeovers_before_retire'])
+    if (row['pipeline_snapshot'] != 'before_retirement' or row['selected_callbacks'] != '1'
+            or int(row['selected_site']) != number or row['selected_domain'] != row['raw_domain']
+            or row['selected_code'] != row['raw_code'] or after < before
+            or int(row['selected_takeover_delta']) != after - before
+            or later < 0 or int(row['takeovers']) != after + later):
+        raise ValueError('selected route-return snapshot or later cumulative provenance differs')
+    if (int(row['selected_outcome']) != (2 if qualified else 0)
+            or int(row['selected_pending']) != int(qualified)
+            or after - before != int(qualified)
+            or bool(int(row['selected_owner_failed'])) == qualified
+            or bool(int(row['selected_coverage'])) == qualified
+            or (not qualified and row['selected_first_site_coverage'] != '1')):
+        raise ValueError('selected production route outcome does not match terminal proof/premises')
+    if accepted:
+        # Local success never replaces the original whole-caller/cost verdict.
+        if (row['terminal_pending'] != '1' or row['takeovers'] != '1'
+                or row['coverage_unknown'] != '0' or row['pipeline_owner_failed'] != '0' or later):
+            raise ValueError('nominal observation later violated its whole-caller success guards')
+    elif fatal_guard:
+        if row['terminal_pending'] != '1' or not int(row['coverage_unknown']) or row['pipeline_owner_failed'] != '1':
+            raise ValueError('restored outer fatal guard did not refuse its selected terminal takeover')
+    elif mutant:
+        # A later independent strict-cadence cleanup may legitimately take over
+        # another site. It cannot stand in for this bypassed selected route.
+        if not int(row['coverage_unknown']) or row['pipeline_owner_failed'] != '1':
+            raise ValueError('selected bypass lacks retained whole-caller coverage refusal')
+    elif row['terminal_pending'] != '0' or row['takeovers'] != '0' or not int(row['coverage_unknown']):
+        raise ValueError('negative observation premises did not preserve whole-caller refusal')
+    if row['native_process'] == 'true':
+        if (row['terminal_proof_supplied'] != 'false' or row['actual_own_wait4'] != '1'
+                or row['group_gone'] != '1' or row['retired_coverage'] != '1'
+                or row['helper_cost_retained'] != '1' or row['helper_cost_paid'] != '1'
+                or int(row['original_pid']) <= 0 or int(row['CPU_ns']) >= 2**64 - 1
+                or int(row['helper_debt_ns']) != 9 * max(1000000, int(row['CPU_ns']))
+                or row['debt_ns'] != row['paid_ns']):
+            raise ValueError('observation process lacks original ownwait4/groupgone/full known CPU debt')
+        if case != 4 and (int(row['terminal_start']) <= 0 or int(row['terminal_exit']) <= 0):
+            raise ValueError('observation process lacks independent original terminal RI')
+    elif row['native_process'] != 'false' or row['terminal_proof_supplied'] != 'true' or row['actual_own_wait4'] != 'false':
+        raise ValueError('supplied observation API overclaims native process or ownwait4')
+    return row
+
+
 def changed(source, anchor, replacement):
     if source.count(anchor) != 1:
         raise ValueError('causal mutation anchor differs: ' + repr(anchor))
@@ -383,19 +596,22 @@ def variants(source):
     add('verifier-skip-terminal-drain', b'static int engine_events_service(struct engine_owner *o,uint64_t wait_ns) {',
         b'static int engine_events_service(struct engine_owner *o,uint64_t wait_ns) {int terminal=0;if(known_exited(o->ticket.pid,&terminal)&&terminal)return 1;', ['verifier-event-control', '0'])
     add('verifier-poll-only', b'if(event->fflags&NOTE_FORK)', b'if(0&&(event->fflags&NOTE_FORK))', ['verifier-event-control', '0'])
-    add('verifier-ignore-registration', b'if(result!=0)return engine_failure(o,"coverage_unknown","process event registration failed");',
-        b'if(0&&result!=0)return engine_failure(o,"coverage_unknown","process event registration failed");', ['verifier-event-control', '2'])
+    add('verifier-ignore-registration', b'o->event_register_errno[i]=error;\n    if(result!=0){(void)engine_observation_route(o,i,&failure);return 0;}',
+        b'o->event_register_errno[i]=error;\n    if(0&&result!=0){(void)engine_observation_route(o,i,&failure);return 0;}', ['verifier-event-control', '2'])
     add('verifier-early-queue-close', b'if(o->ticket.pid>0&&(!o->direct_reaped||!o->result->group_gone))return engine_failure(o,"settlement_unknown","process event queue retained until original ownreap and groupgone");',
         b'if(0&&o->ticket.pid>0&&(!o->direct_reaped||!o->result->group_gone))return engine_failure(o,"settlement_unknown","process event queue retained until original ownreap and groupgone");', ['verifier-event-api'])
-    add('live-sample-closing-no-rescue', b'if(!control_observe(pid,&closing)) {\n        int read_error=errno;\n        if(engine_sample_terminal_after_error(owner,i,pid,read_error))return 1;',
-        b'if(!control_observe(pid,&closing)) {\n        int read_error=errno;\n        if(0&&engine_sample_terminal_after_error(owner,i,pid,read_error))return 1;', ['live-sample-race-control', '6'])
-    add('live-sample-errno-as-exit', b'if(engine_member_terminal(owner,i))return 1;', b'return 1;', ['live-sample-race-control', '5'])
-    add('live-sample-no-recheck', b'if(read_error==ESRCH&&engine_sample_owned_member(owner,i,pid))',
-        b'if(0&&read_error==ESRCH&&engine_sample_owned_member(owner,i,pid))', ['live-sample-race-control', '0'])
-    add('live-sample-ignore-owned-row', b'if(read_error==ESRCH&&engine_sample_owned_member(owner,i,pid))',
-        b'(void)pid;if(read_error==ESRCH)', ['live-sample-race-control', '2'])
-    add('live-sample-any-error', b'if(read_error==ESRCH&&engine_sample_owned_member(owner,i,pid))',
-        b'if(read_error!=0&&engine_sample_owned_member(owner,i,pid))', ['live-sample-race-control', '3'])
+    # Preserve the original first/closing/foreign/clock witnesses through the
+    # new shared routes; only the old guard's implementation anchor changed.
+    add('live-sample-closing-no-rescue', b'ENGINE_OBSERVATION_ROUTE(live_taskall_close, ENGINE_OBS_LIVE_TASKALL_CLOSE)',
+        b'ENGINE_OBSERVATION_BYPASS(live_taskall_close, ENGINE_OBS_LIVE_TASKALL_CLOSE)', ['live-sample-race-control', '6'])
+    add('live-sample-errno-as-exit', b'int terminal=engine_observation_terminal_classified(engine_member_terminal(o,i),0);',
+        b'int terminal=engine_observation_terminal_classified(1,0);', ['live-sample-race-control', '5'])
+    add('live-sample-no-recheck', b'ENGINE_OBSERVATION_ROUTE(live_taskall_open, ENGINE_OBS_LIVE_TASKALL_OPEN)',
+        b'ENGINE_OBSERVATION_BYPASS(live_taskall_open, ENGINE_OBS_LIVE_TASKALL_OPEN)', ['live-sample-race-control', '0'])
+    add('live-sample-ignore-owned-row', b'!engine_observation_identity_complete(o,i)',
+        b'(site==ENGINE_OBS_LIVE_TASKALL_OPEN?0:!engine_observation_identity_complete(o,i))', ['live-sample-race-control', '2'])
+    add('live-sample-any-error', b'(!pending&&!engine_observation_gone(site,domain,code))',
+        b'(!pending&&!(site==ENGINE_OBS_LIVE_TASKALL_OPEN&&domain==ENGINE_OBSERVATION_UNIX&&code==EIO)&&!engine_observation_gone(site,domain,code))', ['live-sample-race-control', '3'])
     add('process-create-old25', b'kind==NATIVE_PROCESS_CREATE?250000000:25000000',
         b'kind==NATIVE_PROCESS_CREATE?25000000:25000000', ['process-create-wall-control', '0'])
     add('process-create-ignore-cpu', b'return cpu<=2000000&&wall<=native_wall_limit(kind)&&inclusive<=3000000&&app<=1000000;',
@@ -425,7 +641,8 @@ def variants(source):
         b'owner->live_over_cap=1;owner->live_kill_attempted=0;', ['total-control', '3'])
     add('total-skip-helper-debt', b'static int engine_helper_payment(struct engine_owner *o) {',
         b'static int engine_helper_payment(struct engine_owner *o) { o->helper_cost_paid=1;return 1;', ['total-control', '4'])
-    add('total-no-foreground-stop', b'int sent=kill(-o->ticket.pgid,SIGSTOP);', b'int sent=0;', ['total-control', '5'])
+    add('total-no-foreground-stop', b'struct engine_observed_signal stopped=engine_observe_group_signal(o,ENGINE_OBS_FOREGROUND_STOP_SIGNAL,SIGSTOP);',
+        b'struct engine_observed_signal stopped={.result=0,.error=0,.returned_ns=engine_now(o,CLOCK_MONOTONIC),.outcome=ENGINE_OBSERVATION_LIVE};', ['total-control', '5'])
     add('total-false-eperm-settlement', b'if(!o->direct_reaped||!engine_original_group_gone(o))return 0;',
         b'if(o->group_kill_pending){o->result->group_gone=o->result->retired_coverage=1;return 1;}\n    if(!o->direct_reaped||!engine_original_group_gone(o))return 0;', ['total-control', '6'])
     add('total-stale-settlement-unknown', b'if(o->group_kill_pending) {o->group_kill_raced_exit=1;o->group_kill_pending=0;}',
@@ -871,6 +1088,346 @@ def verify_pause_stop_exit(directory, inputs, report):
 
 
 
+def observation_resume_terminal_receipt(stdout, wave, *, mutant=False):
+    prefix=b'private_observation_resume_terminal_process_source_known '
+    rows=[dict(x.decode('ascii').split('=',1) for x in line[len(prefix):].split()) for line in stdout.splitlines() if line.startswith(prefix)]
+    if len(rows)!=1:raise ValueError('one actual resume terminal wave receipt required')
+    row=rows[0]
+    if (int(row['wave'])!=wave or int(row['opening_samples'])!=wave or row['resume_return']!='0'
+            or row['selected_boundary_hits']!='1' or row['seen_site']!='1' or row['takeovers']!='1' or row['terminal_pending']!='1'
+            or row['owner_failed_before_retire']!=str(int(mutant)) or bool(int(row['coverage_unknown_before_retire']))!=mutant
+            or row['actual_ACK_mask']!='1' or row['resume_attempted']!='0' or row['resume_admitted']!='0'
+            or row['existing_group_kill_effects']!='1' or int(row['actual_kill_cut_ns'])<=0
+            or int(row['terminal_start'])<=0 or int(row['terminal_exit'])<=0):
+        raise ValueError('resume terminal wave was promoted into live failure or resumed work')
+    for key in ('actual_own_wait4','group_gone','retired_coverage','helper_cost_retained','helper_cost_paid'):
+        if row[key]!='1':raise ValueError('resume wave lacks actual original physical/full cost closure '+key)
+    for key in ('syscall_outcome_supplied','currentness_premise_supplied','actual_positive_ACK','actual_SIGKILL','native_process'):
+        if row[key]!='true':raise ValueError('resume wave omits actual/supplied scope '+key)
+    for key in ('target_syscall_invoked','paused_phase_supplied','spontaneous_exit_claimed','installed_tool_qualification','runtime_approved'):
+        if row[key]!='false':raise ValueError('resume wave overclaims '+key)
+    if row['debt_ns']!=row['paid_ns'] or int(row['helper_debt_ns'])!=9*max(1000000,int(row['CPU_ns'])):
+        raise ValueError('resume wave loses full actual CPU debt')
+    return row
+
+
+def observation_event_interrupt_receipt(stdout, cancelled, *, mutant=False):
+    prefix=b'private_observation_event_interrupt_process_source_known '
+    rows=[dict(x.decode('ascii').split('=',1) for x in line[len(prefix):].split()) for line in stdout.splitlines() if line.startswith(prefix)]
+    if len(rows)!=1:raise ValueError('one supplied EINTR/cancellation original-owner receipt required')
+    row=rows[0]
+    if (int(row['cancelled_premise'])!=cancelled or row['event_return']!=str(int(mutant))
+            or row['selected_boundary_hits']!='1' or row['seen_site']!='22' or int(row['raw_errno'])!=errno.EINTR
+            or bool(int(row['coverage_unknown']))==mutant
+            or row['first_cancelled']!=str(int(bool(cancelled) and not mutant))
+            or row['first_coverage']!=str(int(not cancelled and not mutant))):
+        raise ValueError('event EINTR was hidden or overwrote an already-observed FIRST cancellation')
+    if any(row[k]!='1' for k in ('actual_own_wait4','group_gone','helper_cost_retained','helper_cost_paid')):
+        raise ValueError('EINTR fixture lacks actual original effect/cost settlement')
+    if any(row[k]!='true' for k in ('syscall_outcome_supplied','cancellation_state_supplied','native_process')) or any(row[k]!='false' for k in ('target_syscall_invoked','actual_signal_interruption','runtime_approved')):
+        raise ValueError('EINTR fixture overclaims native signal timing')
+    if row['debt_ns']!=row['paid_ns'] or int(row['helper_debt_ns'])!=9*max(1000000,int(row['CPU_ns'])):
+        raise ValueError('EINTR fixture loses full actual CPU debt')
+    return row
+
+
+def observation_mutant_receipt(stdout,args,name):
+    if args[0]=='terminal-both-policy-api':return terminal_both_policy_api_receipt(stdout,mutant=True)
+    if args[0]=='total-control' and args[1]=='7':return observation_kill_compat_receipt(stdout,mutant=True)
+    if args[0]=='observation-resume-control':return observation_resume_terminal_receipt(stdout,int(args[1]),mutant=True)
+    if args[0]=='observation-event-interrupt-control':return observation_event_interrupt_receipt(stdout,int(args[1]),mutant=True)
+    return observation_race_receipt(stdout,int(args[1]),int(args[2]),mutant=True,fatal_guard=name=='observation-group-census-fatal')
+
+
+def observation_kill_compat_receipt(stdout, *, mutant=False):
+    prefix=b'private_total_property_axis_source_known '
+    rows=[dict(x.decode('ascii').split('=',1) for x in line[len(prefix):].split()) for line in stdout.splitlines() if line.startswith(prefix)]
+    if len(rows)!=1:raise ValueError('one unchanged old mode7 physical/cost prerequisite axis required')
+    row=rows[0]
+    if (row['mode']!='7' or row['own_wait4']!='1' or row['group_gone']!='1' or row['terminal_pass']!='1'
+            or int(row['terminal_cpu_ns'])!=int(row['authoritative_cpu_ns']) or int(row['terminal_cpu_ns'])>=2**64-1
+            or row['runtime_approved']!='false'):
+        raise ValueError('old mode7 lost original physical/full-known-cost prerequisites')
+    prefix=b'private_total_budget_control_source_known '
+    complete=[dict(x.decode('ascii').split('=',1) for x in line[len(prefix):].split()) for line in stdout.splitlines() if line.startswith(prefix)]
+    if mutant:
+        if complete:raise ValueError('unconditional skip mutant unexpectedly passed old natural-exit assertion')
+        return {'actual_axis':row,'scope':'unchanged old source asserts actual native/cost/ownreap/groupgone prerequisites before this axis; named raced-exit assertion then fails',
+                'old_named_assertion_reached':True,'runtime_approved':False}
+    if len(complete)!=1:raise ValueError('old mode7 positive lacks final pending/raced-exit bill receipt')
+    bill=complete[0]
+    if (bill['mode']!='7' or bill['actual_own_wait4']!='1' or bill['group_gone']!='1' or bill['raced_exit']!='1'
+            or bill['helper_cost_retained']!='1' or bill['helper_cost_paid']!='1'
+            or int(bill['terminal_cpu_ns'])!=int(row['terminal_cpu_ns']) or bill['debt_ns']!=bill['paid_ns']):
+        raise ValueError('normal preobserved kill lost its unchanged original raced-exit settlement')
+    return {'actual_axis':row,'bill':bill,'scope':'existing physical original-ownwait4/fullbill witness; final raw EPERM source-known seam, not claimed kernel EPERM timing',
+            'runtime_approved':False}
+
+
+def terminal_both_policy_api_receipt(stdout, *, mutant=False):
+    prefix=b'private_terminal_both_policy_API_source_known '
+    rows=[dict(x.decode('ascii').split('=',1) for x in line[len(prefix):].split()) for line in stdout.splitlines() if line.startswith(prefix)]
+    if len(rows)!=(1 if mutant else 2):raise ValueError('both-policy API must retain each supplied prior-FIRST case')
+    for i,row in enumerate(rows):
+        if (int(row['case'])!=i or row['prior_FIRST_supplied']!=('true' if i else 'false')
+                or row['terminal_identity']!='1' or row['live_admitted']!='0' or row['terminal_user_accepted']!='0'
+                or row['USER_violation']!='1' or row['SYSTEM_violation']!='1'
+                or row['terminal_USER_checked']!=str(int(not mutant))
+                or row['terminal_USER_ns']!=('0' if mutant else '1101') or row['baseline_USER_ns']!='100'
+                or row['terminal_delta_expected_ns']!='1001' or row['SYSTEM_growth_ns']!='50001'
+                or row['first_preserved']!='1' or int(row['prior_source_first'])!=i):
+            raise ValueError('SYSTEM refusal suppressed independent terminal USER diagnosis or changed FIRST')
+        if not mutant and int(row['USER_excess_ns'])<1001:raise ValueError('terminal USER excess was not retained')
+        for key in ('raw_RI_supplied','raw_timebase_supplied','terminal_USER_supplied'):
+            if row[key]!='true':raise ValueError('both-policy API missing supplied provenance '+key)
+        for key in ('actual_native_RI','actual_own_wait4','native_process','runtime_approved'):
+            if row[key]!='false':raise ValueError('both-policy API overclaims native effect '+key)
+        if (row['supplied_terminal_CPU_ns']!='10000000' or row['helper_debt_ns']!='90000000'
+                or row['helper_cost_retained']!='1' or row['helper_cost_paid']!='1' or row['debt_ns']!=row['paid_ns']):
+            raise ValueError('both-policy API dropped or duplicated full supplied known CPU bill')
+    return {'rows':rows,'scope':'supplied positive RI-exit/start/counters and terminal USER/CPU; production identity/policy/diagnosis/payment functions, no native RI/ownwait4/OS CPU claim'}
+
+
+def terminal_policy_physical_receipt(stdout, command):
+    prefix=b'private_total_budget_control_source_known '
+    bills=[dict(x.decode('ascii').split('=',1) for x in line[len(prefix):].split()) for line in stdout.splitlines() if line.startswith(prefix)]
+    if len(bills)!=1:raise ValueError('unchanged actual mode9 lacks final original bill receipt')
+    bill=bills[0]
+    if (bill['mode']!='9' or bill['actual_own_wait4']!='1' or bill['group_gone']!='1'
+            or bill['helper_cost_retained']!='1' or bill['helper_cost_paid']!='1'
+            or int(bill['terminal_cpu_ns'])>=2**64-1 or bill['debt_ns']!=bill['paid_ns']):
+        raise ValueError('actual mode9 lost original physical/full CPU closure')
+    files=[x for x in command['fixture_capture']['files'] if x['path'].endswith('/total-9.ndjson')]
+    if len(files)!=1:raise ValueError('mode9 lacks same-owned retained ledger')
+    rows=[json.loads(x) for x in read_stable(files[0]['path'],2*1024*1024).splitlines()]
+    pauses=[x for x in rows if x.get('kind')=='pause_user_and_terminal_rss']
+    if not pauses:raise ValueError('actual mode9 lacks terminal independent USER diagnostics')
+    pause=pauses[-1]
+    if (pause['terminal_checked']!=1 or pause['sticky_violation']!=1 or pause['pause_user_pass']!=0
+            or pause['resume_admitted']!=0 or pause['terminal_user_ns']<=pause['baseline_user_ns']+1000):
+        raise ValueError('actual mode9 skipped terminal USER diagnosis or admitted burned USER')
+    return {'bill':bill,'pause':pause,'ledger':files[0],
+            'scope':'unchanged real external-CONT terminal USER mode9; SYSTEM may also refuse; no new physical timing premise'}
+
+
+def observation_prekill_retirement_receipt(stdout):
+    prefix = b'private_observation_prekill_retirement_process_source_known '
+    rows = [dict(part.decode('ascii').split('=', 1) for part in line[len(prefix):].split())
+            for line in stdout.splitlines() if line.startswith(prefix)]
+    if len(rows) != 1:
+        raise ValueError('one same-retirement prekill terminal process receipt required')
+    row = rows[0]
+    for field in ('initial_original_live', 'syscall_outcome_supplied', 'native_process'):
+        if row[field] != 'true':
+            raise ValueError('whole prekill receipt omitted actual/supplied provenance: ' + field)
+    for field in ('target_syscall_invoked', 'terminal_proof_supplied', 'installed_tool_qualification', 'runtime_approved'):
+        if row[field] != 'false':
+            raise ValueError('whole prekill receipt overclaims native error or qualification: ' + field)
+    if (row['site'] != 'prekill_bsd' or row['site_id'] != '17' or row['retirement_calls'] != '1'
+            or row['selected_boundary_hits'] != '1' or row['seen_site'] != '17' or row['takeovers'] != '1'
+            or int(row['raw_errno']) != errno.ESRCH or int(row['original_pid']) <= 0
+            or int(row['terminal_start']) <= 0 or int(row['terminal_exit']) <= 0
+            or any(row[k] != '1' for k in ('actual_own_wait4', 'group_gone', 'retired_coverage', 'helper_cost_retained', 'helper_cost_paid'))
+            or any(row[k] != '0' for k in ('quarantine', 'ACK_mask', 'resume_admitted'))
+            or int(row['CPU_ns']) >= 2**64 - 1 or int(row['helper_debt_ns']) != 9 * max(1000000, int(row['CPU_ns']))
+            or row['debt_ns'] != row['paid_ns']):
+        raise ValueError('prekill takeover did not finish original custody/cost in its SAME retirement invocation')
+    return row
+
+
+def observation_baselines(program, current, report):
+    report['observation_production_bindings'] = observation_production_bindings(read_stable(current / SOURCE.name, 1024 * 1024))
+    code, stdout, _ = run([str(program), 'observation-predicate-api'], current, 'observation-predicate-api', report, fixture=True)
+    expect(code, 0, 'fixed observation identity and raw-domain API')
+    marker = (b'private_observation_predicate_API_source_known sites=27 identity_cases=10 raw_domain_whitelist=true '
+              b'foreign_birth_start_full_token_refused=true reaped_unowned_duplicate_missing_row_refused=true '
+              b'native_process=false values_supplied=true actual_terminal_proof=false actual_own_wait4=false runtime_approved=false\n')
+    if stdout.count(marker) != 1:
+        raise ValueError('all fixed observation domain/identity predicates require explicit supplied scope')
+    rows = []
+    for number, site in enumerate(OBSERVATION_SITES, 1):
+        code, stdout, _ = run([str(program), 'observation-race-control', str(number), '0'], current,
+                              'observation-positive-' + site, report, fixture=True)
+        expect(code, 0, 'selected production observation terminal path ' + site)
+        rows.append(observation_race_receipt(stdout, number))
+        report['process_ledgers'] += report['commands'][-1]['fixture_capture']['files']
+    negatives = []
+    for case in range(1, 7):
+        code, stdout, stderr = run([str(program), 'observation-race-control', '1', str(case)], current,
+                                   'observation-refusal-' + str(case), report, fixture=True)
+        expect(code, 81, 'other error/foreign identity/missing terminal proof observation ' + str(case))
+        negatives.append(observation_race_receipt(stdout, 1, case))
+        if b'probe refused:' in stderr:
+            raise ValueError('observation refusal failed a fixture premise instead of its completed protocol')
+        report['process_ledgers'] += report['commands'][-1]['fixture_capture']['files']
+    code, stdout, _ = run([str(program), 'observation-race-control', '1', '7'], current, 'observation-advisory-notready', report, fixture=True)
+    expect(code, 0, 'independent terminal RI proof is sufficient despite supplied advisory waitability zero')
+    report['observation_advisory_notready'] = observation_race_receipt(stdout, 1, 7)
+    report['process_ledgers'] += report['commands'][-1]['fixture_capture']['files']
+    code, stdout, _ = run([str(program), 'observation-prekill-control'], current, 'observation-prekill-whole-retirement', report, fixture=True)
+    expect(code, 0, 'actual prekill terminal takeover through same original retirement invocation')
+    report['observation_prekill_whole_retirement'] = observation_prekill_retirement_receipt(stdout)
+    report['process_ledgers'] += report['commands'][-1]['fixture_capture']['files']
+    report['observation_resume_terminal_waves']=[]
+    for wave in (1,2):
+        code, stdout, _ = run([str(program), 'observation-resume-control', str(wave)], current, 'observation-resume-wave-'+str(wave), report, fixture=True)
+        expect(code, 0, 'whole resume terminal sample wave '+str(wave))
+        report['observation_resume_terminal_waves'].append(observation_resume_terminal_receipt(stdout,wave))
+        report['process_ledgers'] += report['commands'][-1]['fixture_capture']['files']
+    report['observation_event_interrupts']=[]
+    for cancelled in (0,1):
+        code, stdout, _ = run([str(program), 'observation-event-interrupt-control', str(cancelled)], current, 'observation-event-EINTR-'+str(cancelled), report, fixture=True)
+        expect(code, 0, 'supplied bare/cancelled event EINTR '+str(cancelled))
+        report['observation_event_interrupts'].append(observation_event_interrupt_receipt(stdout,cancelled))
+        report['process_ledgers'] += report['commands'][-1]['fixture_capture']['files']
+    code, stdout, _ = run([str(program), 'terminal-both-policy-api'], current, 'terminal-both-policy-api', report, fixture=True)
+    expect(code, 0, 'supplied independent terminal USER and SYSTEM policy diagnostics')
+    report['terminal_both_policy_API']=terminal_both_policy_api_receipt(stdout)
+    report['observation_terminal_matrix'] = {
+        'fixed_sites': list(OBSERVATION_SITES), 'positive_receipts': rows, 'negative_receipts': negatives,
+        'negative_cases': {'1':'other native error','2':'supplied foreign birth','3':'supplied FULL token difference','4':'actual original still live, missing independent terminal proof','5':'supplied already-reaped flag on still-owned fixture','6':'supplied missing original custody flag'},
+        'baseline_commands': 41, 'raw_error_injected': True,
+        'scope': 'selected production raw boundary and caller wiring; each receipt distinguishes actual original settlement from supplied phase/proof inputs',
+        'runtime_approved': False}
+
+
+
+def verify_observation_selected_route(directory, inputs, report):
+    # One changed selected-route method: preserve strict outer cleanup while
+    # measuring the actual fixed-site disposition before that cleanup can run.
+    source=inputs[str(SOURCE)]
+    current=directory/'current';current.mkdir(mode=0o700)
+    for name in (SOURCE,CONTROLS):report['snapshots'].append(retain(current/name.name,inputs[str(name)]))
+    program=compile_source(current,CONTROLS.name,report)
+    report['observation_production_bindings']=observation_production_bindings(source)
+    code,stdout,_=run([str(program),'observation-race-control','8','0'],current,'selected-live-rusage',report,fixture=True)
+    expect(code,0,'selected live_rusage qualified terminal route and whole-caller success')
+    report['selected_route_positive']=observation_race_receipt(stdout,8)
+    report['process_ledgers']+=report['commands'][-1]['fixture_capture']['files']
+    name='observation-bypass-live_rusage';changed_source,args=observation_variants(source)[name]
+    own=directory/name;own.mkdir(mode=0o700)
+    report['snapshots'].append(retain(own/SOURCE.name,changed_source));report['snapshots'].append(retain(own/CONTROLS.name,inputs[str(CONTROLS)]))
+    mutant=compile_source(own,CONTROLS.name,report)
+    code,stdout,stderr=run([str(mutant),*args],own,'controls',report,fixture=True)
+    expect(code,81,'selected live_rusage bypass refuses at its exact production route')
+    if ASSERTIONS[name] not in stderr:raise ValueError('selected bypass missed its original intended terminal-disposition assertion')
+    report['causal_mutants']=[{'name':name,'exit_code':code,'required_assertion':ASSERTIONS[name].decode(),
+        'receipt':observation_race_receipt(stdout,8,mutant=True),
+        'scope':'actual selected route-return snapshot; later independent strict cleanup remains separately visible'}]
+    report['process_ledgers']+=report['commands'][-1]['fixture_capture']['files']
+    report['baseline_commands']=1;report['source_mutants']=1;report['canonical_suite_receipt']=False
+
+
+def verify_terminal_policy(directory, inputs, report):
+    source=inputs[str(SOURCE)]
+    current=directory/'current';current.mkdir(mode=0o700)
+    for name in (SOURCE,CONTROLS):report['snapshots'].append(retain(current/name.name,inputs[str(name)]))
+    program=compile_source(current,CONTROLS.name,report)
+    code,stdout,_=run([str(program),'terminal-both-policy-api'],current,'both-policy-api',report,fixture=True)
+    expect(code,0,'supplied BOTH policy axes and prior FIRST diagnosis')
+    report['terminal_both_policy_API']=terminal_both_policy_api_receipt(stdout)
+    code,stdout,_=run([str(program),'total-control','9'],current,'unchanged-physical-mode9',report,fixture=True)
+    expect(code,0,'unchanged actual terminal USER mode9')
+    report['actual_terminal_USER_mode9']=terminal_policy_physical_receipt(stdout,report['commands'][-1])
+    report['process_ledgers']+=report['commands'][-1]['fixture_capture']['files']
+    name='observation-terminal-user-sys-early';changed_source,args=observation_variants(source)[name]
+    own=directory/name;own.mkdir(mode=0o700)
+    report['snapshots'].append(retain(own/SOURCE.name,changed_source));report['snapshots'].append(retain(own/CONTROLS.name,inputs[str(CONTROLS)]))
+    mutant=compile_source(own,CONTROLS.name,report)
+    code,stdout,stderr=run([str(mutant),*args],own,'controls',report,fixture=True)
+    expect(code,81,'restored SYSTEM-first terminal USER diagnostic omission')
+    if ASSERTIONS[name] not in stderr:raise ValueError('terminal USER omission missed its independent-diagnostic assertion')
+    report['causal_mutants']=[{'name':name,'exit_code':code,'required_assertion':ASSERTIONS[name].decode(),
+                              'receipt':terminal_both_policy_api_receipt(stdout,mutant=True),'native_process':False}]
+    report['source_mutants']=1;report['canonical_suite_receipt']=False
+
+
+def verify_observation_kill_compat(directory, inputs, report):
+    source=inputs[str(SOURCE)]
+    current=directory/'current';current.mkdir(mode=0o700)
+    for name in (SOURCE,CONTROLS):report['snapshots'].append(retain(current/name.name,inputs[str(name)]))
+    program=compile_source(current,CONTROLS.name,report)
+    code,stdout,_=run([str(program),'total-control','7'],current,'old-natural-exit-mode7',report,fixture=True)
+    expect(code,0,'unchanged preobserved original final-kill raced-exit witness')
+    report['legacy_mode7']=observation_kill_compat_receipt(stdout)
+    report['process_ledgers']+=report['commands'][-1]['fixture_capture']['files']
+    code,stdout,_=run([str(program),'observation-prekill-control'],current,'new-prekill-takeover',report,fixture=True)
+    expect(code,0,'new PREKILL takeover same-retirement witness')
+    report['observation_prekill_whole_retirement']=observation_prekill_retirement_receipt(stdout)
+    report['process_ledgers']+=report['commands'][-1]['fixture_capture']['files']
+    name='observation-normal-terminal-kill-skip';changed_source,args=observation_variants(source)[name]
+    own=directory/name;own.mkdir(mode=0o700)
+    report['snapshots'].append(retain(own/SOURCE.name,changed_source));report['snapshots'].append(retain(own/CONTROLS.name,inputs[str(CONTROLS)]))
+    mutant=compile_source(own,CONTROLS.name,report)
+    code,stdout,stderr=run([str(mutant),*args],own,'controls',report,fixture=True)
+    expect(code,81,'restored unconditional terminal-group kill skip')
+    if ASSERTIONS[name] not in stderr:raise ValueError('unconditional kill-skip mutant missed unchanged old assertion')
+    report['causal_mutants']=[{'name':name,'exit_code':code,'required_assertion':ASSERTIONS[name].decode(),
+                              'receipt':observation_kill_compat_receipt(stdout,mutant=True)}]
+    report['source_mutants']=1;report['canonical_suite_receipt']=False
+
+
+def verify_observation_outer_tail(directory, inputs, report):
+    # Changed mutant methodology only: reuse the four affected whole-caller
+    # baselines and three exact old-policy restorations, without replaying the
+    # already-observed27 independent raw-boundary process positives.
+    source=inputs[str(SOURCE)]
+    current=directory/'current';current.mkdir(mode=0o700)
+    for name in (SOURCE,CONTROLS):report['snapshots'].append(retain(current/name.name,inputs[str(name)]))
+    program=compile_source(current,CONTROLS.name,report)
+    report['observation_production_bindings']=observation_production_bindings(source)
+    report['outer_resume_waves']=[];report['outer_event_interrupts']=[]
+    for wave in (1,2):
+        code,stdout,_=run([str(program),'observation-resume-control',str(wave)],current,'resume-wave-'+str(wave),report,fixture=True)
+        expect(code,0,'whole terminal resume wave '+str(wave))
+        report['outer_resume_waves'].append(observation_resume_terminal_receipt(stdout,wave))
+        report['process_ledgers']+=report['commands'][-1]['fixture_capture']['files']
+    for cancelled in (0,1):
+        code,stdout,_=run([str(program),'observation-event-interrupt-control',str(cancelled)],current,'event-EINTR-'+str(cancelled),report,fixture=True)
+        expect(code,0,'event EINTR/cancelled premise '+str(cancelled))
+        report['outer_event_interrupts'].append(observation_event_interrupt_receipt(stdout,cancelled))
+        report['process_ledgers']+=report['commands'][-1]['fixture_capture']['files']
+    variants=observation_variants(source)
+    names=('observation-resume-first-fatal','observation-resume-fresh-fatal','observation-event-eintr-success')
+    report['causal_mutants']=[]
+    for name in names:
+        changed_source,args=variants[name];own=directory/name;own.mkdir(mode=0o700)
+        report['snapshots'].append(retain(own/SOURCE.name,changed_source));report['snapshots'].append(retain(own/CONTROLS.name,inputs[str(CONTROLS)]))
+        mutant=compile_source(own,CONTROLS.name,report)
+        code,stdout,stderr=run([str(mutant),*args],own,'controls',report,fixture=True)
+        expect(code,81,'exact old outer policy '+name)
+        if ASSERTIONS[name] not in stderr:raise ValueError('outer policy mutant missed intended assertion '+name)
+        row=observation_mutant_receipt(stdout,args,name)
+        report['causal_mutants'].append({'name':name,'exit_code':code,'required_assertion':ASSERTIONS[name].decode(),'receipt':row,
+                                        'scope':'exact old compound terminal-fatal or EINTR-success policy, actual/supplied facts distinguished'})
+    report['source_mutants']=len(names);report['canonical_suite_receipt']=False
+
+
+def verify_observation_races(directory, inputs, report):
+    source = inputs[str(SOURCE)]
+    current = directory / 'current';current.mkdir(mode=0o700)
+    for name in (SOURCE, CONTROLS):
+        report['snapshots'].append(retain(current / name.name, inputs[str(name)]))
+    program = compile_source(current, CONTROLS.name, report)
+    observation_baselines(program, current, report)
+    report['causal_mutants'] = []
+    mutations=observation_variants(source)
+    for name, (changed_source, args) in mutations.items():
+        own = directory / name;own.mkdir(mode=0o700)
+        report['snapshots'].append(retain(own / SOURCE.name, changed_source))
+        report['snapshots'].append(retain(own / CONTROLS.name, inputs[str(CONTROLS)]))
+        mutant = compile_source(own, CONTROLS.name, report)
+        code, stdout, stderr = run([str(mutant), *args], own, 'controls', report, fixture=True)
+        expect(code, 81, 'bypassed selected production observation route ' + name)
+        if ASSERTIONS[name] not in stderr:
+            raise ValueError('observation mutation missed its selected caller assertion: ' + name)
+        row = observation_mutant_receipt(stdout,args,name)
+        report['causal_mutants'].append({'name': name, 'exit_code': code, 'required_assertion': ASSERTIONS[name].decode(),
+                                        'receipt': row, 'scope': 'fixed production route bypass or named outer fatal-guard/error-classification restoration; actual/supplied facts remain explicit in receipt'})
+    report['source_mutants'] = len(mutations)
+    report['canonical_suite_receipt'] = False
+
+
 def verify(directory, inputs, report, total_only=False):
     source=inputs[str(SOURCE)]
     current=directory/'current';current.mkdir(mode=0o700)
@@ -892,6 +1449,7 @@ def verify(directory, inputs, report, total_only=False):
         code,stdout,stderr=run([str(program)],current,'controls',report,fixture=True)
         expect(code,0,'current remaining source-known controls')
         retain_current(stdout,report)
+        observation_baselines(program,current,report)
         code,pause_stdout,_=run([str(program),'pause-stop-exit-control'],current,'preobserved-exit-process',report,fixture=True)
         expect(code,0,'actual original exit before foreground pause')
         report['pause_preobserved_exit_process']=pause_preobserved_process_receipt(pause_stdout,report['commands'][-1])
@@ -943,6 +1501,7 @@ def verify(directory, inputs, report, total_only=False):
             if marker not in stdout or b'probe refused:' in stderr:
                 raise ValueError('fresh leader RI API negative lacks exact intended cache/identity/clock refusal')
     all_variants=variants(source)
+    if not total_only:all_variants.update(observation_variants(source))
     selected={k:v for k,v in all_variants.items() if not total_only or k.startswith('total-')}
     for name,(changed_source,args) in selected.items():
         own=directory/name;own.mkdir(mode=0o700)
@@ -960,6 +1519,8 @@ def verify(directory, inputs, report, total_only=False):
             mode=0 if name=='total-pause-live-user' else 1
             marker=(f'private_pause_USER_only_API_source_known mode={mode} observed_accepted=1 expected_refused=true SYSTEM_before_raw=200 SYSTEM_after_raw=200 SYSTEM_violation=0 USER_violation=0 full_known_cost_supplied_ns=10000000 helper_debt_delta_ns=90000000 helper_cost_retained=1 helper_cost_paid=1 helper_births=0 actual_own_wait4=false native_process=false values_supplied=true OS_CPU_claimed=false runtime_approved=false').encode()
             if marker not in stdout:raise ValueError('USER mutant did not reach isolated wrong acceptance with unchanged SYSTEM')
+        if name.startswith('observation-'):
+            report['commands'][-1]['observation_terminal_receipt']=observation_mutant_receipt(stdout,args,name)
         if name=='member-peak-drop-admission':
             marker=b'private_members_peak_admission_API_source_known cases=1 retained_live_count=1 members_max=1 exact_current_rows_supplied=2 final_conjunction_passed=false first_failing_term="members_max_complete" final_error_code=coverage_unknown other_final_terms_supplied=true helper_births=0 native_process=false values_supplied=true actual_GS1=false actual_GS2=false actual_own_wait4=false actual_group_gone=false actual_helper_bill=false OS_timing_claimed=false full15_physical_run_claimed=false runtime_approved=false\n'
             if marker not in stdout:
@@ -1022,18 +1583,28 @@ def main():
     parser.add_argument('--target-dir',required=True)
     parser.add_argument('--total-budget-only',action='store_true',help='supplemental eight66280 plus four RSS/paused-user API/owned-process controls; not complete current C receipt')
     parser.add_argument('--pause-stop-exit-only',action='store_true',help='affected supplied STOP-error/terminal protocol, deterministic preobserved-exit process and missing-path mutant only; not full C receipt')
+    parser.add_argument('--observation-selected-route-only',action='store_true',help='selected live_rusage route-return positive and exact bypass with original full settlement; not full C receipt')
+    parser.add_argument('--observation-races-only',action='store_true',help='fixed27 production observation callsites, eligibility/domain negatives and per-callsite bypass mutants only; not full C receipt')
+    parser.add_argument('--observation-outer-tail-only',action='store_true',help='whole resume two waves and bare/cancelled EINTR with their three exact old-policy mutants; not full C receipt')
+    parser.add_argument('--observation-kill-compat-only',action='store_true',help='unchanged old natural-exit mode7, new whole PREKILL takeover, and unconditional-skip mutant; not full C receipt')
+    parser.add_argument('--terminal-policy-only',action='store_true',help='supplied BOTH-axis/prior-FIRST API, unchanged actual mode9 and SYSTEM-early diagnostic mutant; not full C receipt')
     args=parser.parse_args();target=Path(args.target_dir)
-    if args.total_budget_only and args.pause_stop_exit_only:parser.error('choose only one supplemental control focus')
+    if sum((args.total_budget_only,args.pause_stop_exit_only,args.observation_races_only,args.observation_outer_tail_only,args.observation_kill_compat_only,args.terminal_policy_only,args.observation_selected_route_only))>1:parser.error('choose only one supplemental control focus')
     if not target.is_absolute():parser.error('--target-dir must be absolute')
     target.mkdir(parents=True,exist_ok=True)
-    directory=Path(tempfile.mkdtemp(prefix='private-engine-pause-stop-exit-' if args.pause_stop_exit_only else 'private-engine-total-budget-' if args.total_budget_only else 'private-engine-controls-',dir=target)).resolve()
-    report={'format':'bboxy.dream.private-engine-source-controls/1','decision':66280,'scope':'supplemental_pause_stop_exit_race' if args.pause_stop_exit_only else 'supplemental_total_budget' if args.total_budget_only else 'canonical_remaining_C_controls','synthetic_source_known':True,'real_candidate_created':0,'runtime_approved':False,'whole_command_lifetime_proof':False,'live_kernel_custody_after_probe_exit_proved':False,'recovery_handoff_proved':False,'same_controller_quarantine_hold_witness_required':not args.pause_stop_exit_only,'commands':[],'inputs':{},'snapshots':[],'executables':[],'process_ledgers':[]}
+    directory=Path(tempfile.mkdtemp(prefix='private-engine-observation-selected-' if args.observation_selected_route_only else 'private-engine-terminal-policy-' if args.terminal_policy_only else 'private-engine-observation-kill-compat-' if args.observation_kill_compat_only else 'private-engine-observation-outer-' if args.observation_outer_tail_only else 'private-engine-observation-races-' if args.observation_races_only else 'private-engine-pause-stop-exit-' if args.pause_stop_exit_only else 'private-engine-total-budget-' if args.total_budget_only else 'private-engine-controls-',dir=target)).resolve()
+    report={'format':'bboxy.dream.private-engine-source-controls/1','decision':66280,'scope':'supplemental_selected_observation_route' if args.observation_selected_route_only else 'supplemental_terminal_policy_diagnosis' if args.terminal_policy_only else 'supplemental_observation_kill_compatibility' if args.observation_kill_compat_only else 'supplemental_observation_outer_tail' if args.observation_outer_tail_only else 'supplemental_observation_terminal_races' if args.observation_races_only else 'supplemental_pause_stop_exit_race' if args.pause_stop_exit_only else 'supplemental_total_budget' if args.total_budget_only else 'canonical_remaining_C_controls','synthetic_source_known':True,'real_candidate_created':0,'runtime_approved':False,'whole_command_lifetime_proof':False,'live_kernel_custody_after_probe_exit_proved':False,'recovery_handoff_proved':False,'same_controller_quarantine_hold_witness_required':not args.pause_stop_exit_only,'commands':[],'inputs':{},'snapshots':[],'executables':[],'process_ledgers':[]}
     status=1
     try:
         inputs={str(p):read_stable(ROOT/p,1024*1024) for p in (SOURCE,CONTROLS,DRIVER)}
         archive=directory/'inputs';archive.mkdir(mode=0o700)
         for name,data in inputs.items():report['inputs'][name]=retain(archive/Path(name).name,data)
-        if args.pause_stop_exit_only:verify_pause_stop_exit(directory,inputs,report)
+        if args.observation_selected_route_only:verify_observation_selected_route(directory,inputs,report)
+        elif args.terminal_policy_only:verify_terminal_policy(directory,inputs,report)
+        elif args.observation_kill_compat_only:verify_observation_kill_compat(directory,inputs,report)
+        elif args.observation_outer_tail_only:verify_observation_outer_tail(directory,inputs,report)
+        elif args.observation_races_only:verify_observation_races(directory,inputs,report)
+        elif args.pause_stop_exit_only:verify_pause_stop_exit(directory,inputs,report)
         else:verify(directory,inputs,report,args.total_budget_only)
         if any(read_stable(ROOT/name,1024*1024)!=data for name,data in inputs.items()):raise ValueError('canonical C3 changed during verification')
         report['current_sources_unchanged']=True;report['status']='passed';status=0

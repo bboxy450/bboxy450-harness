@@ -2202,3 +2202,13 @@ frontend = "project"
 name = "BrokenHarnessQ2HelperTotalBudgetMissingForegroundTerminal"
 expected = "safety"
 frontend = "project"
+
+[[model]]
+name = "HarnessDreamReadObserveOrTerminal"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessDreamReadObserveOrTerminalBypassSite"
+expected = "safety"
+frontend = "project"
