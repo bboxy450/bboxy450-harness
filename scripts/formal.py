@@ -10,6 +10,7 @@
 """Mandatory native/reference differential gate; never accepts partial checking."""
 from concurrent.futures import ThreadPoolExecutor
 import argparse
+import ctypes
 import hashlib
 import json
 import os
@@ -336,7 +337,40 @@ def evidence_receipt(target, root=ROOT, *, require_clean=True):
             "models": len(models), "crates": len(records), "contracts": len(contract_records)}
 
 
-def archive_evidence(target, root=ROOT):
+def clone_archive_file(source, destination):
+    """Use clonefile's explicit result; cp -c may silently perform a plain copy."""
+    try:
+        clone = ctypes.CDLL(None, use_errno=True).clonefile
+    except (OSError, AttributeError) as error:
+        return False, str(error)
+    clone.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_int]
+    clone.restype = ctypes.c_int
+    ctypes.set_errno(0)
+    result = clone(os.fsencode(source), os.fsencode(destination), 0)
+    error = ctypes.get_errno()
+    return result == 0, None if result == 0 else f"errno {error}: {os.strerror(error)}"
+
+
+def archive_copy_file(source, destination, *, clone=clone_archive_file):
+    """Clone owned archive data when supported; retain a logged portable fallback."""
+    # Match the mode an ordinary copy into this absent staging path creates.
+    # Working proof caches can be0600; their modes are not the archive format.
+    with destination.open("xb"):
+        pass
+    mode = destination.stat().st_mode & 0o777
+    destination.unlink()
+    cloned, reason = clone(source, destination)
+    if not cloned:
+        destination.unlink(missing_ok=True)  # Only this new staging destination.
+        shutil.copyfile(source, destination)
+    destination.chmod(mode)
+    method = "clone" if cloned else "copy"
+    print("formal: archive copy " + json.dumps({"file": source.name, "method": method,
+          "fallback_reason": None if cloned else reason}, sort_keys=True), flush=True)
+    return method
+
+
+def archive_evidence(target, root=ROOT, *, copy_file=archive_copy_file):
     """Keep reviewable evidence after an owned checking slot is removed."""
     target, root = Path(target).resolve(), Path(root).resolve()
     store = root / "verification/evidence"
@@ -347,10 +381,17 @@ def archive_evidence(target, root=ROOT):
         with tempfile.TemporaryDirectory(prefix="staging-", dir=store) as own:
             staged = Path(own) / "evidence"
             (staged / "models").mkdir(parents=True)
-            shutil.copyfile(target / "evidence.json", staged / "evidence.json")
+            files = [(target / "evidence.json", staged / "evidence.json")]
             for path in (target / "models").iterdir():
                 if path.is_file():
-                    shutil.copyfile(path, staged / "models" / path.name)
+                    files.append((path, staged / "models" / path.name))
+            for source, copied in files:
+                copy_file(source, copied)
+            # Check every staged byte against its source before atomic publication.
+            for source, copied in files:
+                with source.open("rb") as original, copied.open("rb") as retained:
+                    if hashlib.file_digest(original, "sha256").digest() != hashlib.file_digest(retained, "sha256").digest():
+                        raise ValueError(f"formal archive checksum mismatch: {source}")
             try:
                 staged.rename(destination)
             except OSError:
@@ -359,12 +400,63 @@ def archive_evidence(target, root=ROOT):
     return destination
 
 
+def archive_self_test():
+    """Exercise real host storage, clone/fallback branches and pre-publish refusal."""
+    with tempfile.TemporaryDirectory(prefix="formal-archive-self-test-") as own:
+        base = Path(own)
+        target = base / "target"
+        (target / "models").mkdir(parents=True)
+        (target / "evidence.json").write_bytes(b'{"archive_self_test":true}\n')
+        (target / "models/model.states").write_bytes(b"0,1\n1,2\n")
+        (target / "models/model.states").chmod(0o600)
+        (target / "models/other.states").write_bytes(b"2,3\n")
+        (target / "models/other.states").chmod(0o640)
+        reference = base / "plain-copy-reference"
+        shutil.copyfile(target / "models/model.states", reference)
+        archive_mode = reference.stat().st_mode & 0o777
+
+        def clone(source, destination):
+            shutil.copyfile(source, destination)
+            return True, None
+
+        def fallback(source, destination):
+            destination.write_bytes(b"partial clone")
+            return False, "controlled clone failure"
+
+        for name, cloner in [("clone", clone), ("copy", fallback), ("host", clone_archive_file)]:
+            print(f"formal: archive self-test {name}; " +
+                  ("actual host copy" if name == "host" else "controlled copy result"), flush=True)
+            methods = []
+            def copy(source, destination):
+                methods.append(archive_copy_file(source, destination, clone=cloner))
+            archive = archive_evidence(target, base / name, copy_file=copy)
+            assert len(methods) == 3 and (name == "host" or set(methods) == {name})
+            for path in [archive / "evidence.json", *sorted((archive / "models").iterdir())]:
+                assert path.stat().st_mode & 0o777 == archive_mode, "formal archive mode differs from ordinary-copy creation"
+            assert (archive / "models/model.states").read_bytes() == b"0,1\n1,2\n"
+
+        def corrupt(source, destination):
+            archive_copy_file(source, destination, clone=clone)
+            if source.suffix == ".states":
+                destination.write_bytes(b"corrupt")
+        print("formal: archive self-test hash-mismatch; controlled corrupt staged copy", flush=True)
+        try:
+            archive_evidence(target, base / "mismatch", copy_file=corrupt)
+        except ValueError as error:
+            assert "formal archive checksum mismatch" in str(error)
+        else:
+            raise AssertionError("formal archive published a hash mismatch")
+        assert not any(p.is_dir() for p in (base / "mismatch/verification/evidence").iterdir())
+    print("formal: archive self-test clone/fallback/hash-mismatch ok")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--target", type=Path, required=True)
     parser.add_argument("--verify-evidence", action="store_true")
     parser.add_argument("--native", action="store_true")
     args = parser.parse_args()
+    archive_self_test()
     source_pins()
     target = args.target.resolve()
     if args.verify_evidence:
