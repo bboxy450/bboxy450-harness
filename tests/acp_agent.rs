@@ -1188,8 +1188,7 @@ async fn session_gauges_rearm_the_quiet_deadline_of_an_open_agent_turn() {
     );
     let last_gauge = events
         .iter()
-        .filter(|e| matches!(e.event, Event::ItemCompleted { body: Item::Usage { .. }, .. }))
-        .last()
+        .rfind(|e| matches!(e.event, Event::ItemCompleted { body: Item::Usage { .. }, .. }))
         .unwrap()
         .ts_ms;
     let end = events.last().unwrap();
