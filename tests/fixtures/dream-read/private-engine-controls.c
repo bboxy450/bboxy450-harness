@@ -727,6 +727,9 @@ static void quarantine_hold_process_control(const char *self,const char *root,in
     // The child redirects stdout to the result pipe and later exits normally;
     // flush only this fixture's inherited stdio buffers before that fork.
     require(fflush(stdout)==0&&fflush(stderr)==0,"source-known observer stdio boundary before controller fork");
+    // Pipes and inherited stdio preparation are complete before this effect.
+    // Pay that whole unit; fork and parent custody setup keep their own cap.
+    require(private_end_unit(private_cost.open_cpu),"source-known observer channels and stdio preparation fully paid before fork");
     pid_t controller=fork();require(controller>=0,"owned source-known controller fork");
     if(controller==0) {
         close(wire[0]);close(release[1]);close(status_pipe[0]);
