@@ -840,11 +840,24 @@ def compile_sources(run, candidate):
     return qualify_candidate(run, candidate, basis)
 
 
-def build_git(run, candidate, compiler, sdk, buildenv):
+def git_cflags(candidate, sdk, *, DREAM_PROOF_GPG_TARGET=None):
+    # Explicit recipe input only; ambient environment cannot select an exec
+    # target. Phase A may bind a build-only shim witness before its freeze.
+    target = str(candidate / "bin/gpg")
+    if DREAM_PROOF_GPG_TARGET is not None:
+        target = DREAM_PROOF_GPG_TARGET
+        require(type(target) is str and len(target.encode()) <= 4096
+                and re.fullmatch(r"/[A-Za-z0-9_./+\-]+", target) is not None
+                and target != "/" and not target.startswith("//") and target == posixpath.normpath(target),
+                "DREAM_PROOF_GPG_TARGET must be a literal-safe absolute normalized path")
+    return "-O2 -g0 -isysroot " + sdk + " -DDREAM_PROOF_GPG='\"" + target + "\"'"
+
+
+def build_git(run, candidate, compiler, sdk, buildenv, *, DREAM_PROOF_GPG_TARGET=None):
     # Git's release tarball is already generated, so no autotools or external
     # package discovery is used. Real supported read/signature paths remain.
     work = run / "src/git-2.54.0"
-    cflags = "-O2 -g0 -isysroot " + sdk + " -DDREAM_PROOF_GPG='\"" + str(candidate / "bin/gpg") + "\"'"
+    cflags = git_cflags(candidate, sdk, DREAM_PROOF_GPG_TARGET=DREAM_PROOF_GPG_TARGET)
     # config.mak.uname already disables the Darwin fsmonitor backend under
     # NO_PTHREADS; its unconditional CoreServices link is unnecessary for these
     # forms. The upstream make variable removes that unused framework, with
@@ -3870,6 +3883,21 @@ class Q2InputAdapterIngestionTests(unittest.TestCase):
 
 
 class ProvisioningTests(unittest.TestCase):
+    def test_git_verifier_target_preserves_default_and_requires_explicit_safe_override(self):
+        candidate, sdk = Path("/private/witness"), "/private/SDK"
+        original = "-O2 -g0 -isysroot /private/SDK -DDREAM_PROOF_GPG='\"/private/witness/bin/gpg\"'"
+        self.assertEqual(git_cflags(candidate, sdk), original)
+        with mock.patch.dict(os.environ, {"DREAM_PROOF_GPG_TARGET": "/untrusted/ambient"}):
+            self.assertEqual(git_cflags(candidate, sdk), original)
+        shim = "/private/shim/dream-exec-shim"
+        self.assertEqual(git_cflags(candidate, sdk, DREAM_PROOF_GPG_TARGET=shim),
+                         original.replace("/private/witness/bin/gpg", shim))
+        for target in ("", "/", "relative/shim", "/private/../shim", "/private//shim", "//private/shim",
+                       "/private/shim path", "/private/shim'", '/private/shim"',
+                       "/private/$(effect)", "/private/shim\n", "/" + "a" * 4096, 1):
+            with self.subTest(target=target), self.assertRaises(Refused):
+                git_cflags(candidate, sdk, DREAM_PROOF_GPG_TARGET=target)
+
     def test_closure_resolution_cannot_escape_then_reenter_or_disguise_candidate_as_cache(self):
         corpus = closure_authority_file("closure-boundary-vectors.json", CLOSURE_VECTORS_SHA, 8 * 1024 * 1024)
         vector = next(row for row in corpus["vectors"] if row["id"] == "valid-complete-candidate-graph")
