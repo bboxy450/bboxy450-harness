@@ -2764,3 +2764,42 @@ async fn python_cell_states_render_structured_cards() {
     })
     .await;
 }
+
+// A short viewport must not elide the diagram canvas: the fullscreen viewer
+// copies it, so its offscreen nodes would vanish there (operator, 2026-11-09).
+#[tokio::test]
+async fn retained_mermaid_canvas_keeps_offscreen_nodes() {
+    let temp = tempfile::tempdir().unwrap();
+    let chain: String = (0..24).map(|i| format!("  N{i}[\"node {i}\"] --> N{}\n", i + 1)).collect();
+    let (path, _) = markdown_replay(
+        temp.path(),
+        vec![(
+            Item::AgentMessage { markdown: format!("Intro\n\n```mermaid\nflowchart TB\n{chain}```\n") },
+            Some(ItemStatus::Completed),
+        )],
+    );
+    let mut bridge = Bridge::new(Arc::new(Wake));
+    bridge.replay(path);
+    ready(&mut bridge).await;
+    fn count(n: &bbt_ui::components::Layout, out: &mut [usize; 2]) {
+        match &n.kind {
+            bbt_ui::components::LayoutKind::Text { runs, .. } => out[0] += runs.len(),
+            bbt_ui::components::LayoutKind::Box { .. } => out[1] += 1,
+            _ => {}
+        }
+        for c in &n.children {
+            count(c, out);
+        }
+    }
+    let mut view = HarnessView::default();
+    let mut seen = vec![];
+    for height in [400., 4000.] {
+        let frame = view.render(&bridge.state, [900., height]).unwrap();
+        let canvas = frame.links.diagram("diagram/0").expect("retained canvas");
+        let mut n = [0; 2];
+        count(&canvas, &mut n);
+        seen.push(n);
+    }
+    assert_eq!(seen[0], seen[1], "short viewport elided canvas nodes");
+    assert!(seen[0][0] >= 25, "every node label is retained: {seen:?}");
+}

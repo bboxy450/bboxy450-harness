@@ -3181,6 +3181,13 @@ fn visible_layout(
     if let Some(name) = name {
         runs.enter(name);
     }
+    // A diagram canvas is retained whole for the fullscreen viewer
+    // (`Regions::retained`): eliding its offscreen nodes would drop them there.
+    let viewport = if name.is_some_and(|n| n.ends_with("/canvas")) {
+        Rect::new(-1e9, -1e9, 2e9, 2e9)
+    } else {
+        viewport
+    };
     let children = node
         .children
         .iter()
