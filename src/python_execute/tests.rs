@@ -854,6 +854,7 @@ async fn invalid_arguments_do_not_create_execution_and_concurrent_duplicates_sha
     rig.close().await;
 }
 
+#[cfg(feature = "acp-agent")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn acp_shared_relay_forwards_live_catalogue_notifications() {
     let mut rig = Rig::start().await;
@@ -902,6 +903,7 @@ async fn acp_shared_relay_forwards_live_catalogue_notifications() {
     rig.close().await;
 }
 
+#[cfg(feature = "acp-agent")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn acp_shared_relay_runs_python_and_reconnects_without_retiring_other_clients() {
     let mut rig = Rig::start().await;
