@@ -109,6 +109,73 @@ def preserve_dream_observer_outputs():
     print(f"land: retained five Dream observer outputs at {manifest}", flush=True)
 
 
+# Serialized timing lane. These lib-test families measure real processes and
+# millisecond deadlines; the canonical Dream targets run them optimized and one
+# at a time (Makefile test-dream-c1 and test-dream-mcp: `--release ... --lib
+# <family> -- --test-threads=1`). The concurrent debug nextest pass excludes
+# them and land runs each one here the same way. Mirror the Makefile exactly;
+# every entry is a full lib-test path prefix ending in `::`.
+SERIALIZED_LIB_FAMILIES = (
+    "dream::bootstrap::",                                  # Makefile test-dream-c1
+    "dream::c1::",                                         # Makefile test-dream-c1
+    "dream::fingerprint::",                                # Makefile test-dream-c1
+    "frontends::headless::dream_c1_fixture_environment_tests::",  # test-dream-c1
+    "mcp::source_tests::",                                 # Makefile test-dream-c1
+    "dream::read_wire::",                                  # Makefile test-dream-mcp
+    "dream::worker::tests::",                              # Makefile test-dream-mcp
+    "dream::resolve::prepared_qualification_tests::",      # Makefile test-dream-mcp
+    "dream::resolve::selected_helper_process_tests::",     # test-dream-mcp; flaked in land
+    "dream::read::helper_tests::",                         # test-dream-mcp; flaked in land
+)
+LAND_LIB_FEATURES = "acp-agent,test-fixtures"
+
+
+def concurrent_lib_filter(families=SERIALIZED_LIB_FAMILIES):
+    """Nextest filterset that leaves every serialized family out of the concurrent pass."""
+    return "not (" + " | ".join(f"test(/^{re.escape(f)}/)" for f in families) + ")"
+
+
+def serialized_lib_commands(families=SERIALIZED_LIB_FAMILIES):
+    return [["cargo", "test", "--offline", "--locked", "--release", "--jobs", "2", "-p", "bboxy450-harness",
+             "--features", LAND_LIB_FEATURES, "--target-dir", TARGET, "--lib", family, "--", "--test-threads=1"]
+            for family in families]
+
+
+def check_serialized_lane(excluded_filter, commands):
+    """A family left out of the concurrent pass must be run in the serialized lane, and vice versa."""
+    excluded = re.findall(r"test\(/\^(.*?)/\)", excluded_filter)
+    excluded = [re.sub(r"\\(.)", r"\1", f) for f in excluded]
+    serialized = [c[c.index("--lib") + 1] for c in commands]
+    if not excluded or len(set(excluded)) != len(excluded):
+        raise RuntimeError(f"serialized timing filter is empty or repeats a family: {excluded}")
+    missing = sorted(set(excluded) - set(serialized))
+    if missing:
+        raise RuntimeError(f"excluded from the concurrent pass but never run serialized: {missing}")
+    extra = sorted(set(serialized) - set(excluded))
+    if extra:
+        raise RuntimeError(f"run serialized but not excluded from the concurrent pass: {extra}")
+    for command in commands:
+        if command[-2:] != ["--", "--test-threads=1"] or "--release" not in command:
+            raise RuntimeError(f"serialized timing command is not release/--test-threads=1: {command}")
+    for family in serialized:
+        if not family.endswith("::"):
+            raise RuntimeError(f"serialized family is not a full path prefix: {family}")
+
+
+def run_serialized_family(args, env):
+    """Run one family; a family that matches zero tests was excluded yet never run."""
+    print("land:", " ".join(map(str, args)), flush=True)
+    result = subprocess.run(list(map(str, args)), cwd=ROOT, env=env, stdout=subprocess.PIPE, text=True)
+    sys.stdout.write(result.stdout)
+    sys.stdout.flush()
+    counts = [int(n) for n in re.findall(r"^running (\d+) tests?$", result.stdout, re.M)]
+    ROWS.append({"argv": list(map(str, args)), "cwd": str(ROOT), "exit": result.returncode, "tests": sum(counts)})
+    if result.returncode:
+        raise RuntimeError(f"gate failed: serialized timing family {args[args.index('--lib') + 1]} exited {result.returncode}")
+    if sum(counts) == 0:
+        raise RuntimeError(f"serialized timing family {args[args.index('--lib') + 1]} ran zero tests")
+
+
 def test_features(name):
     """Features an integration-test file gates itself on with `#![cfg(feature = "...")]`."""
     head = (ROOT / "tests" / f"{name}.rs").read_text().split("\nfn ", 1)[0]
@@ -121,6 +188,30 @@ def self_test():
     for name in ("gui_rich", "gui_render", "gui_card_bounds"):
         assert test_features(name) == ("embedded",), (name, test_features(name))
     assert test_features("mcp_client") == ("test-fixtures",), test_features("mcp_client")
+    # The two lane lists agree, and a family excluded but not run is an error.
+    check_serialized_lane(concurrent_lib_filter(), serialized_lib_commands())
+    for family in ("dream::resolve::selected_helper_process_tests::", "dream::read::helper_tests::"):
+        assert family in SERIALIZED_LIB_FAMILIES, family
+    dropped = serialized_lib_commands(SERIALIZED_LIB_FAMILIES[:-1])
+    try:
+        check_serialized_lane(concurrent_lib_filter(), dropped)
+    except RuntimeError as error:
+        assert "never run serialized" in str(error), error
+    else:
+        raise AssertionError("an excluded family without a serialized run must fail the gate")
+    try:
+        check_serialized_lane(concurrent_lib_filter(SERIALIZED_LIB_FAMILIES[1:]), serialized_lib_commands())
+    except RuntimeError as error:
+        assert "not excluded" in str(error), error
+    else:
+        raise AssertionError("a serialized family still in the concurrent pass must fail the gate")
+    # Every Makefile `--release ... --lib <family> -- --test-threads=1` is mirrored.
+    makefile = (ROOT / "Makefile").read_text()
+    canonical = set(re.findall(r"--release[^\n]*?--lib (\S+) -- --test-threads=1", makefile))
+    mirrored = {f for f in SERIALIZED_LIB_FAMILIES}
+    unmatched = [c for c in canonical if not any(c in f for f in mirrored)]
+    assert not unmatched, f"Makefile serializes lib families land does not: {unmatched}"
+    assert all(any(c in f for c in canonical) for f in mirrored), (canonical, mirrored)
 
 
 def gate(base):
@@ -163,7 +254,11 @@ def gate(base):
         run(["make", "check-embedded-lints", f"TARGET_DIR={TARGET}"], env=env)
         run(["cargo", "clippy", "--offline", "--locked", "--jobs", "2", "-p", "bboxy450-harness", "--all-targets", "--features", "acp-agent", "--target-dir", TARGET, "--", "-D", "warnings"], env=env)
         run(["cargo", "clippy", "--offline", "--locked", "--jobs", "2", "-p", "bboxy450-harness", "--features", "acp-agent,test-fixtures", "--lib", "--test", "mcp_client", "--test", "acp_launch_context", "--test", "formal_models", "--target-dir", TARGET, "--", "-D", "warnings"], env=env)
-        run(["cargo", "nextest", "run", "--offline", "--locked", "--jobs", "2", "-p", "bboxy450-harness", "--features", "acp-agent,test-fixtures", "--lib", "--target-dir", TARGET], env=env)
+        lib_filter, serialized = concurrent_lib_filter(), serialized_lib_commands()
+        check_serialized_lane(lib_filter, serialized)
+        run(["cargo", "nextest", "run", "--offline", "--locked", "--jobs", "2", "-p", "bboxy450-harness", "--features", LAND_LIB_FEATURES, "--lib", "--target-dir", TARGET, "-E", lib_filter], env=env)
+        for command in serialized:
+            run_serialized_family(command, env)
         integrations = {Path(p).stem for p in changed if p.startswith("tests/") and p.count("/") == 1 and p.endswith(".rs")}
         if "dream_c1" in integrations:
             # These native process fixtures require the explicitly prepared

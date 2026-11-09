@@ -69,6 +69,7 @@ Drive the harness through its flags, sockets, `--replay`, `--capture` and script
 ## Rules for every change
 
 - `make test` runs fully unattended.
+- `make land` keeps real-process Dream timing families out of its concurrent debug lib pass and runs each one in a serialized lane (`cargo test --release --lib <family> -- --test-threads=1`, as the Makefile's Dream targets do); the families are `SERIALIZED_LIB_FAMILIES` in `scripts/land.py`, and a family excluded from the concurrent pass but not run serialized, or one that runs zero tests, fails the gate.
 - Every source file carries the header from `ATTRIBUTION.md`.
 - Keys are never written to the repository or to logs.
 - Every `.md` file under `.bboxy/` is an indexed record. It needs frontmatter with an `id` and a `number`, or the knowledge index refuses every write. Put run reports and logs in `.bboxy/runs/` as `.log` or `.json`, never as `.md`.
