@@ -2154,11 +2154,6 @@ expected = "safety"
 frontend = "project"
 
 [[model]]
-name = "BrokenHarnessQ2HelperTotalBudgetMissingForegroundTerminal"
-expected = "safety"
-frontend = "project"
-
-[[model]]
 name = "HarnessDreamReadVerifierEvents"
 expected = "pass"
 frontend = "project"
@@ -2195,5 +2190,15 @@ frontend = "project"
 
 [[model]]
 name = "BrokenHarnessDreamReadVerifierEventsUnboundChildExit"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "HarnessDreamReadForegroundStopTerminal"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessQ2HelperTotalBudgetMissingForegroundTerminal"
 expected = "safety"
 frontend = "project"
