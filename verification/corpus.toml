@@ -2054,102 +2054,102 @@ frontend = "project"
 # Decision66236: paired named measured-basis, conservation and wall controls.
 
 [[model]]
-name = "Q2HelperTotalBudget"
+name = "HelperShimBudget"
 expected = "pass"
 frontend = "project"
 
 [[model]]
-name = "BrokenHarnessQ2HelperTotalBudgetNoQos"
+name = "BrokenHarnessHelperShimBudgetArgv"
 expected = "safety"
 frontend = "project"
 
 [[model]]
-name = "BrokenHarnessQ2HelperTotalBudgetLiveOnlyTrust"
+name = "BrokenHarnessHelperShimBudgetEnvironment"
 expected = "safety"
 frontend = "project"
 
 [[model]]
-name = "BrokenHarnessQ2HelperTotalBudgetDropChildRollup"
+name = "BrokenHarnessHelperShimBudgetGs1"
 expected = "safety"
 frontend = "project"
 
 [[model]]
-name = "BrokenHarnessQ2HelperTotalBudgetNoLiveKill"
+name = "BrokenHarnessHelperShimBudgetSelfQos"
 expected = "safety"
 frontend = "project"
 
 [[model]]
-name = "BrokenHarnessQ2HelperTotalBudgetSkipDebt"
+name = "BrokenHarnessHelperShimBudgetObservedFork"
 expected = "safety"
 frontend = "project"
 
 [[model]]
-name = "BrokenHarnessQ2HelperTotalBudgetForegroundResume"
+name = "BrokenHarnessHelperShimBudgetWait4Unknown"
 expected = "safety"
 frontend = "project"
 
 [[model]]
-name = "BrokenHarnessQ2HelperTotalBudgetEpermSettled"
+name = "BrokenHarnessHelperShimBudgetCommandCpu"
 expected = "safety"
 frontend = "project"
 
 [[model]]
-name = "BrokenHarnessQ2HelperTotalBudgetStaleUnknown"
+name = "BrokenHarnessHelperShimBudgetJobCpu"
 expected = "safety"
 frontend = "project"
 
 [[model]]
-name = "BrokenHarnessQ2HelperTotalBudgetTerminalPauseUser"
+name = "BrokenHarnessHelperShimBudgetRss"
 expected = "safety"
 frontend = "project"
 
 [[model]]
-name = "BrokenHarnessQ2HelperTotalBudgetNoAttemptLiveChild"
+name = "BrokenHarnessHelperShimBudgetDebt"
 expected = "safety"
 frontend = "project"
 
 [[model]]
-name = "BrokenHarnessQ2HelperTotalBudgetSkipEscapedCleanup"
+name = "BrokenHarnessHelperShimBudgetReap"
 expected = "safety"
 frontend = "project"
 
 [[model]]
-name = "BrokenHarnessQ2HelperTotalBudgetLeaderOnlySettlement"
+name = "BrokenHarnessHelperShimBudgetCensus"
 expected = "safety"
 frontend = "project"
 
 [[model]]
-name = "BrokenHarnessQ2HelperTotalBudgetUnqualifiedRollup"
+name = "BrokenHarnessHelperShimBudgetGs2"
 expected = "safety"
 frontend = "project"
 
 [[model]]
-name = "BrokenHarnessQ2HelperTotalBudgetDropNativeErrno"
+name = "BrokenHarnessHelperShimBudgetPauseUser"
 expected = "safety"
 frontend = "project"
 
 [[model]]
-name = "BrokenHarnessQ2HelperTotalBudgetReapSeal"
+name = "BrokenHarnessHelperShimBudgetPauseSystem"
 expected = "safety"
 frontend = "project"
 
 [[model]]
-name = "BrokenHarnessQ2HelperTotalBudgetUnknownCpuRelease"
+name = "BrokenHarnessHelperShimBudgetDoubleContinue"
 expected = "safety"
 frontend = "project"
 
 [[model]]
-name = "BrokenHarnessQ2HelperTotalBudgetUnknownRssTrust"
+name = "BrokenHarnessHelperShimBudgetLiveOverCap"
 expected = "safety"
 frontend = "project"
 
 [[model]]
-name = "BrokenHarnessQ2HelperTotalBudgetBlockedExitDrain"
-expected = "liveness"
+name = "BrokenHarnessHelperShimBudgetFailedLiveReadRefuses"
+expected = "safety"
 frontend = "project"
 
 [[model]]
-name = "BrokenHarnessQ2HelperTotalBudgetMissingTerminalRecheck"
+name = "BrokenHarnessHelperShimBudgetDeadline"
 expected = "safety"
 frontend = "project"
 
@@ -2199,7 +2199,7 @@ expected = "pass"
 frontend = "project"
 
 [[model]]
-name = "BrokenHarnessQ2HelperTotalBudgetMissingForegroundTerminal"
+name = "BrokenHarnessHelperShimBudgetMissingForegroundTerminal"
 expected = "safety"
 frontend = "project"
 

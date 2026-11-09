@@ -79,7 +79,7 @@ def controls(root, report):
     alias.unlink()
     report['assertions'].append('lexical pthread.h alias, regular forwarder and terminal bytes all retained separately')
 
-    frozen = {name: ('frozen:' + name).encode() for name in (M['SOURCE'], M['SCHEMA'], M['VECTORS'], *M['READSET'])}
+    frozen = {name: ('frozen:' + name).encode() for name in (M['SOURCE'], M['SHIM'], M['SHIM_HEADER'], M['SCHEMA'], M['VECTORS'], *M['READSET'])}
     current = {name: ('current:' + name).encode() for name in (*frozen, *M['PREPARATION'])}
     selected, preparation = M['select_inputs']('frozen', 'current', lambda commit, name: (frozen if commit == 'frozen' else current)[name])
     require(selected == frozen and all(preparation[name] == current[name] for name in M['PREPARATION']),

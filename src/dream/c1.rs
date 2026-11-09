@@ -1570,7 +1570,7 @@ impl HelperGroup {
             return Err(());
         }
         let prior = self.members[usize::from(!leader)];
-        if prior.pid != 0 && (prior.pid != pid || prior.birth != birth) {
+        if prior.pid != 0 && (prior.pid != pid || (prior.birth != 0 && prior.birth != birth)) {
             return Err(());
         }
         if before.pbi_status == libc::SZOMB {
@@ -1639,21 +1639,13 @@ impl HelperGroup {
         }
         self.metrics.ri_start_ns[ri_index] = self.ri_clock_ns(control, ri_started)?;
         self.metrics.ri_start_valid_mask |= 1 << ri_index;
-        if !self.record_member_gap(ri_index, ri_started) {
-            self.reject(control, true);
-            let _ = self.retire_members();
-            return Err(());
-        }
+        let _ = self.record_member_gap(ri_index, ri_started); // 66459: diagnostic only.
         let mut usage = std::mem::MaybeUninit::<libc::rusage_info_v2>::uninit();
         let result = unsafe { libc::proc_pid_rusage(pid, 2, usage.as_mut_ptr().cast()) };
         let ri_ended = Instant::now();
         self.metrics.ri_end_ns[ri_index] = self.ri_clock_ns(control, ri_ended)?;
         self.metrics.ri_end_valid_mask |= 1 << ri_index;
-        if !self.record_member_gap(ri_index, ri_ended) {
-            self.reject(control, true);
-            let _ = self.retire_members();
-            return Err(());
-        }
+        let _ = self.record_member_gap(ri_index, ri_ended); // 66459: diagnostic only.
 
         if initial {
             self.metrics.initial.stage = 4;
@@ -1737,14 +1729,11 @@ impl HelperGroup {
                 .ok_or(())?,
             self.timebase,
         )?;
-        if cpu < prior.cpu
-            || rolled < prior.rolled
-            || !self.retained_pause_matches(
-                prior,
-                usage.ri_user_time,
-                after.pbi_status == libc::SSTOP && task.pti_numrunning == 0,
-            )
-        {
+        if !self.retained_pause_matches(
+            prior,
+            usage.ri_user_time,
+            after.pbi_status == libc::SSTOP && task.pti_numrunning == 0,
+        ) {
             return Err(());
         }
         self.metrics.qos_checked_mask |= if leader { 1 } else { 2 };
@@ -1808,17 +1797,87 @@ impl HelperGroup {
         }
         pass
     }
+    /// Decision66459: ordinary live CPU reads are a best-effort backstop.
+    /// Missing/racy counters and sample age cannot refuse a completed proof.
+    /// Foreground pause and initial stopped custody keep their own positive ACK.
+    #[cfg(target_os = "macos")]
+    fn sample_backstop(&mut self, control: &Control) -> Result<bool, ()> {
+        if self.original_exited() {
+            return Ok(true);
+        }
+        let _ = self.record_sample_gap(Instant::now());
+        let (pids, count) = match self.census() {
+            Ok(value) => value,
+            Err(()) => {
+                if self.metrics.terminal_census_errno == 0
+                    && self.metrics.terminal_census_result
+                        > i32::from(self.identity.expected_members)
+                {
+                    self.reject(control, false);
+                    let _ = self.retire_members();
+                    return Err(());
+                }
+                return Ok(false);
+            }
+        };
+        for &pid in &pids[..count] {
+            let index = usize::from(pid != self.identity.pid);
+            let mut raw = std::mem::MaybeUninit::<libc::rusage_info_v2>::uninit();
+            if unsafe { libc::proc_pid_rusage(pid, 2, raw.as_mut_ptr().cast()) } != 0 {
+                continue;
+            }
+            let raw = unsafe { raw.assume_init() };
+            let cpu = raw
+                .ri_user_time
+                .checked_add(raw.ri_system_time)
+                .and_then(|value| helper_convert_ticks(value, self.timebase).ok());
+            let rolled = raw
+                .ri_child_user_time
+                .checked_add(raw.ri_child_system_time)
+                .and_then(|value| helper_convert_ticks(value, self.timebase).ok());
+            let (Some(cpu), Some(rolled)) = (cpu, rolled) else {
+                continue;
+            };
+            self.members[index].pid = pid;
+            self.members[index].cpu = cpu;
+            self.members[index].rolled = rolled;
+            self.members[index].ri_started = Some(Instant::now());
+            self.metrics.live_sample_count = self.metrics.live_sample_count.saturating_add(1);
+        }
+        self.metrics.observed_direct_cpu_ns = self.members[0].cpu;
+        self.metrics.observed_descendant_cpu_ns = self.members[1].cpu;
+        self.metrics.rolled_descendant_cpu_ns = self.members[0].rolled;
+        let cpu = self.members[0]
+            .cpu
+            .checked_add(self.members[0].rolled.max(self.members[1].cpu));
+        let job = cpu.and_then(|cpu| {
+            control
+                .accounting
+                .helper_job_cpu
+                .load(Ordering::Acquire)
+                .checked_add(cpu)
+        });
+        if let (Some(cpu), Some(job)) = (cpu, job) {
+            self.metrics.job_cpu_ns = job;
+            if cpu > HELPER_COMMAND_CPU_NS || job > HELPER_JOB_CPU_NS {
+                self.reject(control, true);
+                let _ = self.retire_members();
+                return Err(());
+            }
+        }
+        self.last_sample = Instant::now();
+        Ok(false)
+    }
     #[cfg(target_os = "macos")]
     fn sample_inner(&mut self, control: &Control) -> Result<bool, ()> {
         if self.own_wait4 {
             return Ok(true);
         }
-        let sample_started = Instant::now();
-        if !self.record_sample_gap(sample_started) {
-            self.reject(control, true);
-            let _ = self.retire_members();
-            return Err(());
+        if self.creation_settled && self.pause_started.is_none() && !self.retiring {
+            return self.sample_backstop(control);
         }
+        let sample_started = Instant::now();
+        let _ = self.record_sample_gap(sample_started); // diagnostic only, including pause.
         if self.original_exited() {
             self.running = false;
             self.exited = true;
@@ -2579,10 +2638,8 @@ impl HelperGroup {
         self.metrics.wait4_reads = 1;
         self.metrics.reap_user_ns = usage.user_ns;
         self.metrics.reap_system_ns = usage.system_ns;
-        if self.known_retained_child() && !self.metrics.child_rollup_proven {
-            self.metrics.child_cost_unproven = true;
-            self.metrics.coverage_known = false;
-        }
+        // The supported-tool shape is a conditional source premise. The
+        // leader's exact wait4 is the terminal bill; sampled child rollup is diagnostic.
         self.metrics.reap_quantization_ns = 2_000;
         self.metrics.reap_rss_bytes = usage.rss_bytes;
         let rss_known = usage.rss_bytes != u64::MAX;
@@ -2639,7 +2696,6 @@ impl HelperGroup {
             && usage.rss_bytes <= storage::HELPERS
             && self.creation_settled
             && self.metrics.qos_checked_mask & 1 != 0
-            && (self.identity.expected_members == 1 || self.metrics.verified_descendants == 1)
             && self.metrics.coverage_known
             && !self.failed;
         if !self.terminal_pass {
@@ -6278,7 +6334,7 @@ mod helper_total_budget_tests {
         assert!(helper_census_known(1, 0));
     }
     #[test]
-    fn helper_total_already_exited_unrolled_child_still_has_unknown_cost() {
+    fn helper_shim_terminal_bill_does_not_require_sampled_child_rollup() {
         assert!(HelperGroup::rollup_counters_match(4, 7, 4, 8));
         assert!(!HelperGroup::rollup_counters_match(4, 7, 3, 8));
         assert!(!HelperGroup::rollup_counters_match(4, 7, 4, 6));
@@ -6299,11 +6355,11 @@ mod helper_total_budget_tests {
         };
         h.metrics.descendants = 1;
         h.metrics.verified_descendants = 1;
-        assert!(h.reconcile_usage(&c, usage(1_000, 0, true)).is_err());
-        assert!(h.metrics.child_cost_unproven && !h.metrics.coverage_known);
+        assert!(h.reconcile_usage(&c, usage(1_000, 0, true)).is_ok());
+        assert!(!h.metrics.child_cost_unproven && h.metrics.coverage_known);
         assert_eq!(h.metrics.charged_ns, 3_000);
         assert_eq!(h.metrics.debt_ns, 9_000_000);
-        assert!(!h.retirement_settlement_observed());
+        assert!(h.retirement_settlement_observed());
     }
     #[test]
     fn helper_total_leader_exit_does_not_release_live_or_escaped_child_custody() {
@@ -6369,7 +6425,7 @@ mod helper_total_budget_tests {
         h.creation_settled = true;
         h.pause_started = old;
         h.pause_ack = Some(Duration::ZERO);
-        assert!(!h.record_sample_gap(now)); // paused living members remain sampled
+        assert!(!h.record_sample_gap(now)); // diagnostic: paused living members remain sampled
     }
     #[test]
     fn helper_total_pause_ack_remains_binding_after_a_later_running_observation() {

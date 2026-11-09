@@ -19,6 +19,8 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[3]
 SOURCE = 'tests/fixtures/dream-read/proof-helper-probe.c'
+SHIM = 'tests/fixtures/dream-read/dream-exec-shim.c'
+SHIM_HEADER = 'tests/fixtures/dream-read/dream-exec-shim.h'
 SCHEMA = 'tests/fixtures/dream-proof-tools/closure-boundary.schema.json'
 VECTORS = 'tests/fixtures/dream-proof-tools/closure-boundary-vectors.json'
 READSET = ['src/dream/' + n + '.rs' for n in ('resolve', 'trust', 'c1', 'read')]
@@ -200,7 +202,7 @@ def signed_commit(revision):
 
 
 def select_inputs(source_commit, preparation_commit, read_blob):
-    source = {name: read_blob(source_commit, name) for name in (SOURCE, SCHEMA, VECTORS, *READSET)}
+    source = {name: read_blob(source_commit, name) for name in (SOURCE, SHIM, SHIM_HEADER, SCHEMA, VECTORS, *READSET)}
     preparation = {name: read_blob(preparation_commit, name) for name in PREPARATION}
     return source, preparation
 
@@ -211,6 +213,12 @@ def source_digest(wires):
         wire = wires[name]
         result.update(Path(name).name.encode() + b'\0' + len(wire).to_bytes(8, 'little') + wire)
     return result.hexdigest()
+
+
+def shim_allowlist_digest(wire):
+    form = wire[wire.index(b'static int fixed_form('):wire.index(b'static int public_config(')]
+    env = wire[wire.index(b'const char *fixed[]='):wire.index(b'if(envc!=config.envc)return refuse();')]
+    return digest(b'bboxy.dream.exec-shim/allowlist/1\0' + form + b'\0' + env)
 
 
 def main():
@@ -248,11 +256,35 @@ def main():
     own = retained_compile_directory(target)
     source = own / 'proof-helper-probe.c'
     compile_input = retain(source, source_wires[SOURCE])
+    shim_source = own / 'dream-exec-shim.c'
+    shim_input = retain(shim_source, source_wires[SHIM])
+    retain(own / 'dream-exec-shim.h', source_wires[SHIM_HEADER])
+    shim_dependencies_argv = [str(compiler), *flags, '-M', '-MT', 'dream-exec-shim', str(shim_source)]
+    shim_dependencies = run(shim_dependencies_argv)
+    shim_dependency_output = retain(own / 'shim-dependencies.log', shim_dependencies)
+    shim_headers = header_closure(shim_dependencies.decode(), shim_source)
+    shim_argv = [str(compiler), '-v', *flags, str(shim_source), '-o', str(own / 'dream-exec-shim')]
+    shim_build = subprocess.run(shim_argv, cwd=own, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60, check=False)
+    shim_stdout = retain(own / 'shim-build.stdout.log', shim_build.stdout)
+    shim_stderr = retain(own / 'shim-build.stderr.log', shim_build.stderr)
+    if shim_build.returncode:
+        raise RuntimeError(f'shim compile exit {shim_build.returncode}: retained {shim_stderr["path"]}')
+    (own / 'dream-exec-shim').chmod(0o500)
+    shim_executable = file_identity(own / 'dream-exec-shim')
+    shim_allowlist = shim_allowlist_digest(source_wires[SHIM])
+    shim_bindings = {'allowlist_sha256': shim_allowlist,
+                     'compiler_sha256': compiler_identity['sha256'],
+                     'exe_sha256': shim_executable['sha256'],
+                     'source_sha256': digest(source_wires[SHIM])}
+    for name, value in [('SHA256', shim_bindings['exe_sha256']),
+                        ('SOURCE_SHA256', shim_bindings['source_sha256']),
+                        ('ALLOWLIST_SHA256', shim_bindings['allowlist_sha256'])]:
+        flags.append('-DDREAM_EXEC_SHIM_' + name + '="' + value + '"')
     dependency_argv = [str(compiler), *flags, '-M', '-MT', 'probe', str(source)]
     dependency_wire = run(dependency_argv)
     dependencies = dependency_wire.decode()
     dependency_output = retain(own / 'dependencies.log', dependency_wire)
-    headers = header_closure(dependencies, source)
+    headers = {**shim_headers, **header_closure(dependencies, source)}
     argv = [str(compiler), '-v', *flags, str(source), '-o', str(own / 'probe')]
     build = subprocess.run(argv, cwd=own, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60, check=False)
     stdout_output = retain(own / 'build.stdout.log', build.stdout)
@@ -308,6 +340,14 @@ def main():
                   'stdout': build.stdout.decode(errors='strict'), 'stderr': build.stderr.decode(errors='strict'),
                   'retained_stdout': stdout_output, 'retained_stderr': stderr_output},
         'executable': executable_identity,
+        'shim': {'source': shim_input, 'executable': shim_executable,
+                 'controller_embedded_sha256': shim_executable['sha256'],
+                 'basis_bindings': shim_bindings,
+                 'basis_byte_delta': len(b',"shim":' + json.dumps(shim_bindings, sort_keys=True, separators=(',', ':')).encode()),
+                 'build': {'argv': shim_argv, 'cwd': str(own), 'exit_code': shim_build.returncode,
+                           'retained_stdout': shim_stdout, 'retained_stderr': shim_stderr},
+                 'dependency_discovery': {'argv': shim_dependencies_argv, 'exit_code': 0,
+                                          'retained_stdout': shim_dependency_output}},
         'provisioning_source': {'domain': 'bboxy.dream.proof-tools/source/1\\0',
                                 'sha256': source_digest(source_wires), 'kind': 'exact_source_snapshot',
                                 'compiled_product_currentness_proven': False},
@@ -323,7 +363,7 @@ def main():
     validate_outputs(own)
     private_directory(target)
     print(json.dumps({'record': str(record), 'sha256': digest(wire), 'source_commit': frozen,
-                      'preparation_commit': head, 'probe_sha256': executable_identity['sha256'], 'runtime_approved': False}, sort_keys=True))
+                      'preparation_commit': head, 'probe_sha256': executable_identity['sha256'], 'shim_sha256': shim_executable['sha256'], 'runtime_approved': False}, sort_keys=True))
 
 
 if __name__ == '__main__':

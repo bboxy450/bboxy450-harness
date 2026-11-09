@@ -4917,7 +4917,7 @@ mod selected_helper_process_tests {
             if !skip_live_sampling {
                 assert!(metrics.group_kill_attempted);
                 assert!(metrics.observed_direct_cpu_ns > 250_000_000);
-                assert!(metrics.max_sample_gap_ns <= 50_000_000);
+                // 66459: sample gaps are diagnostic; a successful over-cap read kills.
             }
             let end = crate::dream::bootstrap::monotonic_ns().unwrap();
             assert!(

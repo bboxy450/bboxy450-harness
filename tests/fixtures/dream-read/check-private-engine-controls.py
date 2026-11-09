@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parents[3]
 SOURCE = Path('tests/fixtures/dream-read/proof-helper-probe.c')
 CONTROLS = SOURCE.with_name('private-engine-controls.c')
 DRIVER = SOURCE.with_name('check-private-engine-controls.py')
-FLAGS = ['-O2', '-std=c11', '-Wall', '-Wextra', '-Werror']
+FLAGS = ['-O2', '-std=c11', '-Wall', '-Wextra', '-Werror', '-I', str(ROOT / SOURCE.parent)]
 DISPATCH = b'return private_command_engine(context,result);'
 # Task66445 fixed production observation boundaries. A per-site control must
 # reach that boundary's forced raw receipt; no direct shared-helper success is

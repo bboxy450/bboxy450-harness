@@ -227,3 +227,7 @@ and the exact shared checker copies. These checks do not replace upstream terms.
   and live FD/child settlement controls are project-owned. Preserve this origin
   and policy with extracts:
   https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md.
+
+- Dream's in-process exec shim, exact command/environment receipts, SCM_RIGHTS
+  signature-inode custody and conditional supported-tool budget model are
+  project-owned. Retain the canonical origin and absolute policy URL with extracts.

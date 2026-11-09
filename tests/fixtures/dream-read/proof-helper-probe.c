@@ -27,6 +27,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/event.h>
+#include <sys/socket.h>
+#include "dream-exec-shim.h"
+#ifndef DREAM_EXEC_SHIM_SHA256
+#define DREAM_EXEC_SHIM_SHA256 "unprepared"
+#define DREAM_EXEC_SHIM_SOURCE_SHA256 "unprepared"
+#define DREAM_EXEC_SHIM_ALLOWLIST_SHA256 "unprepared"
+#endif
 #include <sys/proc_info.h>
 #include <sys/resource.h>
 #include <sys/stat.h>
@@ -1506,6 +1513,7 @@ struct private_build {
 struct private_basis {
     struct private_slice raw,build_raw,closure_raw,commands_raw,config_raw,fixture_raw;
     struct private_source_info source;struct private_build build;
+    char shim_allowlist[65],shim_compiler[65],shim_exe[65],shim_source[65];size_t shim_byte_delta;
     struct private_platform platform;struct private_fixture fixture;
     struct private_ref gpg_conf,common_conf;
     struct private_node nodes[64];struct private_link_map links[64];
@@ -1938,7 +1946,7 @@ static int private_closure_bind_prefix(struct private_basis *b,const char *prefi
     return 1;
 }
 static __attribute__((unused)) int private_basis_read(const unsigned char *bytes,size_t len,struct private_basis *b,const struct private_input *outer) {
-    if(!len||len>49152||!private_canonical(bytes,len))return 0;
+    if(!len||len>57344||!private_canonical(bytes,len))return 0;
     struct json_reader r={bytes,bytes+len,0,10};const unsigned char *start;
     b->raw=(struct private_slice){bytes,len};b->node_count=b->edge_count=0;
     if(!jobject(&r)||!jkey(&r,"build",1))return 0;
@@ -1947,8 +1955,18 @@ static __attribute__((unused)) int private_basis_read(const unsigned char *bytes
     if(!jkey(&r,"commands",0))return 0;start=r.p;if(!private_commands_read(&r))return 0;b->commands_raw=(struct private_slice){start,(size_t)(r.p-start)};
     if(!jkey(&r,"config",0))return 0;start=r.p;if(!private_config_read(&r,b))return 0;b->config_raw=(struct private_slice){start,(size_t)(r.p-start)};
     if(!jkey(&r,"fixture",0))return 0;start=r.p;if(!private_fixture_read(&r,b,outer))return 0;b->fixture_raw=(struct private_slice){start,(size_t)(r.p-start)};
-    return jkey(&r,"format",0)&&private_literal(&r,"bboxy.dream.private-pretest-basis/1")&&jkey(&r,"review",0)&&private_review_read(&r,b)
-        &&jclose(&r)&&r.p==r.end&&r.depth==0&&private_closure_bind_prefix(b,outer->prefix.path)&&private_inner_checkpoint();
+    if(!jkey(&r,"format",0)||!private_literal(&r,"bboxy.dream.private-pretest-basis/1")||!jkey(&r,"review",0)||!private_review_read(&r,b))return 0;
+    start=r.p;
+    if(!jkey(&r,"shim",0)||!jobject(&r)||!jkey(&r,"allowlist_sha256",1)||!jhex(&r,b->shim_allowlist)
+        ||!jkey(&r,"compiler_sha256",0)||!jhex(&r,b->shim_compiler)||!jkey(&r,"exe_sha256",0)||!jhex(&r,b->shim_exe)
+        ||!jkey(&r,"source_sha256",0)||!jhex(&r,b->shim_source)||!jclose(&r))return 0;
+    b->shim_byte_delta=(size_t)(r.p-start);
+    // Only the four shim hashes can spend the additional8KiB. All other
+    // existing projections remain within the original48KiB allocation.
+    if(len-b->shim_byte_delta>49152||strcmp(b->shim_allowlist,DREAM_EXEC_SHIM_ALLOWLIST_SHA256)
+        ||strcmp(b->shim_source,DREAM_EXEC_SHIM_SOURCE_SHA256)||strcmp(b->shim_exe,DREAM_EXEC_SHIM_SHA256)
+        ||strcmp(b->shim_compiler,b->build.compiler.ref.sha))return 0;
+    return jclose(&r)&&r.p==r.end&&r.depth==0&&private_closure_bind_prefix(b,outer->prefix.path)&&private_inner_checkpoint();
 }
 
 // Copyright 2026 Boxy (bboxy450) and contributors.
@@ -1974,7 +1992,7 @@ struct private_engine_result {
     struct private_engine_metric debt_charged_ns,debt_paid_ns;
     struct private_engine_metric helper_group_rss_peak_bytes,probe_rss_peak_bytes,metadata_bytes;
     uint16_t attempts,created,reaped;
-    uint8_t members_max;
+    uint8_t members_max;unsigned shim_enforced;
     unsigned group_gone,retired_coverage;
     unsigned engine_entered,semantic_forms,commands_completed,terminal_cpu_checked,terminal_cpu_passed;
     uint64_t helper_job_cpu_ns;
@@ -2654,6 +2672,7 @@ struct engine_prepared {
     unsigned argc,envc;char image[4097],descendant[4097],cwd[4097];
     int input[2],output[2],errors[2];posix_spawnattr_t attr;posix_spawn_file_actions_t actions;
     unsigned attr_live,actions_live;
+    int shim_config,shim_client;char shim[4097];struct dream_shim_config shim_binding;
 };
 struct engine_unit_observation {
     const char *site;unsigned line,ordinary;uint64_t open,end,supplied_actual,supplied_cost,inclusive,actual,cost,poll_before,poll_cpu;
@@ -2663,6 +2682,7 @@ struct engine_event_watch {
 };
 struct engine_owner {
     const struct private_engine_context *context;struct private_engine_result *result;
+    unsigned shim_active,shim_records,shim_gs1_records;int shim_log;uint64_t live_read_failures;
     struct engine_ticket ticket;struct engine_member members[2];
     struct engine_incarnation retired[8];unsigned retired_count,slots,verified_descendants;
     struct prepared_spawn_outcome native;
@@ -2732,6 +2752,7 @@ static int engine_write_record(struct engine_owner *,const char *,int);
 static int engine_pretest_current(const struct private_engine_context *);
 static int engine_kill_group(struct engine_owner *);
 static int engine_sample_gap(struct engine_owner *,uint64_t);
+static int engine_shim_receive(struct engine_owner *);
 static uint64_t engine_running_interval(const struct engine_owner *,unsigned,uint64_t,uint64_t);
 static int engine_ri_begin(struct engine_owner *,unsigned,uint64_t);
 static int engine_ri_end(struct engine_owner *,unsigned,uint64_t);
@@ -2868,6 +2889,7 @@ static int engine_child_unproven(struct engine_owner *o,const char *detail) {
 static int engine_final_kill_required(int original_terminal,int members_terminal) {return !(original_terminal&&members_terminal);}
 static int engine_token_cleanup_required(int current,int birth_matches,int outside_group) {return current&&birth_matches&&outside_group;}
 static int engine_child_cost_covered(const struct engine_owner *o) {return !o->child_cost_unproven&&(!o->child_created||o->child_rollup_known);}
+static int engine_command_cost_covered(const struct engine_owner *o) {return o->shim_active||engine_child_cost_covered(o);}
 static int engine_child_rollup_covers(unsigned mask,uint64_t user,uint64_t system,uint64_t child_user,uint64_t child_system) {
     return mask==31&&(user||system)&&user>=child_user&&system>=child_system;
 }
@@ -2982,6 +3004,7 @@ static int engine_event_note(struct engine_owner *o,const struct kevent *event,u
         if(event->fflags&NOTE_FORK) {
             if(o->leader_fork_events==UINT64_MAX)return engine_failure(o,"coverage_unknown","leader fork notification counter overflow");
             o->leader_fork_events++;o->fork_census_pending=1;
+            if(o->shim_active&&o->leader_fork_events>(o->command==12?1u:0u)){(void)engine_kill_group(o);return engine_failure(o,"coverage_unknown","observed unexpected helper fork notification; coalescing is not a fork count");}
         }
         if(event->fflags&NOTE_EXEC) {
             if(o->leader_exec_events==UINT64_MAX)return engine_failure(o,"coverage_unknown","leader exec notification counter overflow");
@@ -3476,7 +3499,40 @@ ENGINE_OBSERVATION_ROUTE(handoff_rusage, ENGINE_OBS_HANDOFF_RUSAGE)
 ENGINE_OBSERVATION_ROUTE(escaped_cleanup_bsd, ENGINE_OBS_ESCAPED_CLEANUP_BSD)
 ENGINE_OBSERVATION_ROUTE(escaped_cleanup_signal, ENGINE_OBS_ESCAPED_CLEANUP_SIGNAL)
 ENGINE_OBSERVATION_ROUTE(owned_terminal_waitid, ENGINE_OBS_OWNED_TERMINAL_WAITID)
+static int engine_shim_sample_member(struct engine_owner *o,unsigned i,pid_t pid) {
+    struct engine_member *m=&o->members[i];struct image before,after;
+    int pause=o->foreground||o->paused||o->pause_pending||o->pause_ack_mask;
+    if(!control_observe(pid,&before)) {
+        if(!pause)return 1;
+        return engine_observe_live_taskall_open(o,i,ENGINE_OBSERVATION_UNIX,errno)==ENGINE_OBSERVATION_TERMINAL;
+    }
+    if(before.status==SZOMB){m->phase=ENGINE_EXITED;return 1;}
+    if(before.pgid!=o->ticket.pgid||before.uid!=geteuid()||(m->state.birth&&before.birth!=m->state.birth))return engine_failure(o,"coverage_unknown","observed helper lineage or group differs");
+    audit_token_t token;int known=known_control_token(pid,before.birth,&token);
+    uint64_t begin=engine_now(o,CLOCK_MONOTONIC);struct rusage_info_v1 u;
+    struct engine_observation_failure fault;
+    int got=!engine_observation_fault(o,i,ENGINE_OBS_LIVE_RUSAGE,pid,&fault)
+        &&proc_pid_rusage(pid,RUSAGE_INFO_V1,(rusage_info_t *)&u)==0;
+    uint64_t end=engine_now(o,CLOCK_MONOTONIC);o->ri_begin_ns[i]=begin;o->ri_end_ns[i]=end;
+    if(got) {
+        m->user=u.ri_user_time;m->system=u.ri_system_time;m->child_user=u.ri_child_user_time;m->child_system=u.ri_child_system_time;
+        before.start_absolute=u.ri_proc_start_abstime;m->ri_started_ns=begin;
+    } else {o->live_read_failures++;before.start_absolute=m->state.start_absolute;}
+    if(!before.start_absolute)before.start_absolute=before.birth; // custody key only; never a synthesized RI sample.
+    m->state=before;m->phase=ENGINE_EXPECTED;
+    if(known){m->token=token;m->token_known=1;if(!engine_owned_token(o,pid,before.birth,before.start_absolute,&token))return 0;}
+    if(!i){o->ticket.birth=before.birth;o->ticket.start=before.start_absolute;}
+    if(pause) {
+        if(!got||!known||!control_observe(pid,&after))return engine_failure(o,"coverage_unknown","pause requires positive same-owner stopped observations");
+        if(after.birth!=before.birth||after.pgid!=before.pgid)return engine_failure(o,"coverage_unknown","pause original incarnation changed");
+        m->stopped_ri_ack_ns=before.status==SSTOP&&before.runnable==0&&after.status==SSTOP&&after.runnable==0?before.observed_at:0;
+        if(!engine_usage_policy(o,i))return 0;
+        if(m->stopped_ri_ack_ns&&(o->pause_ack_mask&(1u<<i)))o->pause_validated_ri_end_ns[i]=end;
+    }
+    return 1;
+}
 static int engine_sample_member(struct engine_owner *owner,unsigned i,pid_t pid) {
+    if(owner->shim_active)return engine_shim_sample_member(owner,i,pid);
     struct engine_member *m=&owner->members[i];struct image current;
     unsigned failed_before_precheck=owner->failed;
     if(m->token_known&&engine_member_terminal(owner,i))return 1;
@@ -3620,7 +3676,7 @@ static int engine_kill_group(struct engine_owner *owner) {
     // A terminal leader cannot hide a retained live child. Only a fresh known
     // original group proof can make the cleanup effect unnecessary.
     if(owner->obs_terminal_pending&&terminal&&engine_group_observed_terminal(owner,1)){owner->group_kill_not_attempted_terminal=1;return 1;}
-    if(owner->child_created&&!owner->child_rollup_known&&owner->members[1].phase!=ENGINE_EXITED)
+    if(!owner->shim_active&&owner->child_created&&!owner->child_rollup_known&&owner->members[1].phase!=ENGINE_EXITED)
         (void)engine_child_unproven(owner,"final kill touches a retained live child whose CPU is not proven in leader wait4");
     owner->pause_kill_ns=engine_now(owner,CLOCK_MONOTONIC);
     owner->group_kill_attempted=1;
@@ -3684,6 +3740,7 @@ static void engine_stopped_interval_record(struct engine_owner *o) {
     if(end>=o->pause_ack_ns&&end!=UINT64_MAX&&end-o->pause_ack_ns>o->stopped_interval_ns)o->stopped_interval_ns=end-o->pause_ack_ns;
 }
 static int engine_sample_gap(struct engine_owner *o,uint64_t now) {
+    if(o->shim_active)return 1; // 66459: diagnostic timing cannot refuse.
     if(now==UINT64_MAX){o->sample_gap_ns=o->max_sample_gap_ns=o->running_gap_ns=o->running_gap_max_ns=UINT64_MAX;return engine_failure(o,"clock_unknown","RI unit beginning clock unknown");}
     if(!o->activation_ns||o->direct_reaped)return 1;
     if(o->sample_gap_checks==UINT64_MAX)return engine_failure(o,"clock_unknown","RI sample-gap counter overflow");o->sample_gap_checks++;
@@ -3794,6 +3851,7 @@ static int engine_child_capture_same_unit(struct engine_owner *o,pid_t pid,int (
     return sample(o,1,pid);
 }
 static int engine_sample_child_same_wake(struct engine_owner *o,pid_t pid) {
+    if(o->shim_active)return engine_sample_member(o,1,pid);
     unsigned steps=0;
     engine_child_handoff_diag(o,1,steps,UINT64_MAX,1);
     int captured=engine_child_capture_same_unit(o,pid,engine_sample_member);
@@ -3833,11 +3891,27 @@ static int engine_sample_child_same_wake(struct engine_owner *o,pid_t pid) {
     return 1;
 }
 static int engine_child_pre_sample_cut(struct engine_owner *o) {
+    if(o->shim_active)return engine_checkpoint(o);
     // Already admitted observations retain their old paid boundary. Before
     // admission, no closed unit/debt is deferred: the original unit stays open.
     return engine_child_admission_open(o)?1:engine_unit_cut(o,ENGINE_QUEUE_CENSUS_MEMBER);
 }
 static int engine_census(struct engine_owner *owner,unsigned via,int observe) {
+    if(owner->shim_active) {
+        int ids[3]={0};errno=0;int error=0,n=native_child_count(owner->ticket.pid,ids,sizeof(ids),&error);
+        owner->child_list_count[0]=n;owner->child_list_errno[0]=error;
+        if(!native_pid_list_known(n,error))return 1; // best-effort live census; terminal group census remains mandatory.
+        if(n>1||(n==1&&owner->slots!=2)){(void)engine_kill_group(owner);return engine_failure(owner,"coverage_unknown","observed extra helper descendant");}
+        if(n==1) {
+            struct image state;if(control_observe(ids[0],&state)&&state.pgid!=owner->ticket.pgid) {
+                (void)engine_kill_group(owner);return engine_failure(owner,"coverage_unknown","observed escaped helper descendant");
+            }
+            if(owner->members[1].state.pid&&owner->members[1].state.pid!=ids[0])return engine_failure(owner,"coverage_unknown","observed replacement helper descendant");
+            owner->members[1].state.pid=ids[0];
+            if(observe)return engine_sample_member(owner,1,ids[0]);
+        }
+        return engine_shim_receive(owner);
+    }
     int ids[3]={0};int n=engine_list_children(owner,0,owner->ticket.pid,ids,sizeof(ids));
     if(!native_pid_list_known(n,owner->child_list_errno[0])&&owner->obs_terminal_pending)return 0;
     if(!native_pid_list_known(n,owner->child_list_errno[0])||n>1||((n||via==2)&&owner->slots!=2)) {owner->coverage_lost=1;return engine_child_unproven(owner,"unexpected or unknown child census or omitted helper member");}
@@ -3874,6 +3948,7 @@ static int engine_observing_census(struct engine_owner *o,int observe,int (*cens
     return census(o,2,observe);
 }
 static int engine_events_service(struct engine_owner *o,uint64_t wait_ns) {
+    if(o->shim_active)return engine_events_poll(o,wait_ns)&&engine_census(o,1,1)&&engine_shim_receive(o);
     if(o->obs_terminal_pending&&!o->retiring)return 0;
     if(!engine_events_poll(o,wait_ns))return 0;
     int done=0;
@@ -3896,6 +3971,10 @@ static int engine_events_service(struct engine_owner *o,uint64_t wait_ns) {
     return 1;
 }
 static int engine_sample(struct engine_owner *owner) {
+    if(owner->shim_active) {
+        if(!engine_events_poll(owner,0)||!engine_census(owner,1,1)||!engine_sample_member(owner,0,owner->ticket.pid))return 0;
+        return engine_shim_receive(owner)&&engine_live_budget(owner)&&engine_checkpoint(owner);
+    }
     if(owner->obs_terminal_pending&&!owner->retiring)return 0;
     if(!engine_events_poll(owner,0))return 0;
     unsigned via=owner->fork_census_pending?2:1;owner->fork_census_pending=0;
@@ -3915,7 +3994,7 @@ static int engine_sample(struct engine_owner *owner) {
 }
 static int engine_pipe_io(struct engine_owner *owner) {
     uint64_t at=engine_now(owner,CLOCK_THREAD_CPUTIME_ID);unsigned char bytes[4096];
-    if(!owner->direct_reaped&&(!(owner->qos_checked_mask&1)||(owner->child_created&&owner->members[1].phase!=ENGINE_EXITED&&!(owner->qos_checked_mask&2))||!owner->sample_known))return engine_failure(owner,"resource_limit","pipe service requires prior observed background priority");
+    if(!owner->shim_active&&!owner->direct_reaped&&(!(owner->qos_checked_mask&1)||(owner->child_created&&owner->members[1].phase!=ENGINE_EXITED&&!(owner->qos_checked_mask&2))||!owner->sample_known))return engine_failure(owner,"resource_limit","pipe service requires prior observed background priority");
     if(owner->input>=0) {
         if(owner->sent==owner->stdin_len){int fd=owner->input;owner->input=-1;if(close(fd)!=0)return engine_failure(owner,"source_changed","owned stdin close unresolved");}
         else {
@@ -4069,6 +4148,44 @@ static int engine_census_record(struct engine_owner *o) {
     char line[512];int n=snprintf(line,sizeof(line),"{\"kind\":\"native_census_boundary\",\"child_count\":[%d,%d],\"child_errno\":[%d,%d],\"child_known_mask\":%u,\"child_failed_mask\":%u,\"group_count\":%d,\"group_errno\":%d,\"group_known\":%u,\"group_failed\":%u,\"zero_requires_errno_zero\":true,\"runtime_approved\":false}\n",o->child_list_count[0],o->child_list_count[1],o->child_list_errno[0],o->child_list_errno[1],o->child_list_known_mask,o->child_list_failed_mask,o->group_list_count,o->group_list_errno,o->group_list_known,o->group_list_failed);
     return engine_write_record(o,line,n);
 }
+static int engine_shim_receive(struct engine_owner *o) {
+    if(!o->shim_active||o->shim_log<0)return 1;
+    for(unsigned step=0;step<3;step++) {
+        struct dream_shim_record r;struct iovec io={&r,sizeof(r)};
+        union {struct cmsghdr align;char bytes[CMSG_SPACE(sizeof(int)*2)];} control;
+        struct msghdr msg={0};msg.msg_iov=&io;msg.msg_iovlen=1;msg.msg_control=control.bytes;msg.msg_controllen=sizeof(control.bytes);
+        ssize_t n=recvmsg(o->shim_log,&msg,MSG_DONTWAIT);if(n<0&&(errno==EAGAIN||errno==EWOULDBLOCK||errno==ECONNRESET))return 1;
+        int fd=-1;unsigned fds=0;
+        if(n>=0)for(struct cmsghdr *c=CMSG_FIRSTHDR(&msg);c;c=CMSG_NXTHDR(&msg,c))if(c->cmsg_level==SOL_SOCKET&&c->cmsg_type==SCM_RIGHTS) {
+            unsigned count=(unsigned)((c->cmsg_len-CMSG_LEN(0))/sizeof(int));for(unsigned j=0;j<count;j++){int next;memcpy(&next,(char *)CMSG_DATA(c)+j*sizeof(int),sizeof(int));if(!fds++)fd=next;else close(next);}
+        }
+        int valid=n==(ssize_t)sizeof(r)&&!(msg.msg_flags&(MSG_TRUNC|MSG_CTRUNC))&&r.magic==DREAM_SHIM_MAGIC&&r.priority==4;
+        if(!valid){if(fd>=0)close(fd);return engine_failure(o,"coverage_unknown","malformed owned exec-shim receipt");}
+        if(r.form==15) {
+            struct private_git_sig_temp *v=o->git_signature;
+            if(o->command!=12||o->shim_gs1_records++||fds!=1||fd<0||!memchr(r.name,0,sizeof(r.name))||!memchr(r.sha,0,sizeof(r.sha))||strcmp(r.sha,v->sha256)) {
+                if(fd>=0)close(fd);return engine_failure(o,"signature_unexpected","duplicate or unexpected in-shim GS1 receipt");
+            }
+            // Git may already have unlinked V before this log is drained.
+            // The in-image GS1 receipt proves nlink1; SCM_RIGHTS preserves that
+            // exact inode for GS2. A later legitimate unlink is not a GS1 race.
+            struct stat held;if(fstat(fd,&held)||held.st_dev!=r.signature.st_dev||held.st_ino!=r.signature.st_ino
+                ||held.st_size!=r.signature.st_size||held.st_uid!=r.signature.st_uid||held.st_mode!=r.signature.st_mode
+                ||held.st_nlink>1){close(fd);return engine_failure(o,"signature_unexpected","transferred GS1 inode differs");}
+            v->signature_fd=fd;fcntl(fd,F_SETFD,FD_CLOEXEC);v->signature_stat=r.signature;strcpy(v->name,r.name);v->bound=1;v->pid=r.pid;
+            o->verified_descendants=1;o->child_image_admitted=1;
+            if(!o->child_created){o->child_created=1;o->result->created++;}
+            o->members[1].state.pid=r.pid;
+            if(!private_sig_record(v,"GS1",&r.signature,r.sha))return 0;
+        } else {
+            if(fd>=0)close(fd);
+            if(r.form!=o->command||r.pid!=o->ticket.pid||fds||o->shim_records++)return engine_failure(o,"coverage_unknown","unexpected helper shim exec form");
+        }
+        char line[384];int length=snprintf(line,sizeof(line),"{\"kind\":\"exec_shim\",\"form\":%u,\"pid\":%d,\"self_priority\":%d,\"in_process_checks\":true,\"live_read_failures\":%llu,\"fork_notes_are_diagnostic\":true,\"runtime_approved\":false}\n",r.form,r.pid,r.priority,(unsigned long long)o->live_read_failures);
+        if(!engine_write_record(o,line,length))return 0;
+    }
+    return engine_failure(o,"coverage_unknown","too many helper shim receipts");
+}
 static int engine_event_record(struct engine_owner *o) {
     const char *via=o->child_discovered_via==2?"fork_event":o->child_discovered_via==1?"poll":"none";
     char line[768];int n=snprintf(line,sizeof(line),"{\"kind\":\"verifier_event_discovery\",\"leader_fork_events\":%llu,\"leader_exec_events\":%llu,\"child_discovered_via\":\"%s\",\"fork_seen_child_missed\":%s,\"notification_counts_not_birth_counts\":true,\"registered_mask\":%u,\"registration_errno\":[%d,%d],\"wait_errno\":%d,\"queue_fd_held\":%u,\"close_attempted\":%u,\"close_errno\":%d,\"runtime_approved\":false}\n",
@@ -4110,6 +4227,7 @@ static int engine_pause(struct engine_owner *o) {
     struct engine_observed_signal stopped=engine_observe_group_signal(o,ENGINE_OBS_FOREGROUND_STOP_SIGNAL,SIGSTOP);
     int sent=stopped.result,error=stopped.error;
     o->pause_stop_result=sent;o->pause_stop_errno=error;
+    if(o->shim_active&&!sent&&!engine_census(o,1,1))return 0;
     if(sent){o->pause_pending=1;o->running=0;}
     uint64_t returned=stopped.returned_ns;
     if(engine_pause_stop_receipt(o,sent,error,call,returned)!=ENGINE_PAUSE_STOP_SENT) {
@@ -4181,6 +4299,10 @@ static int engine_put(struct engine_prepared *p,const char *text,char **out) {
     if(n>4096||n+1>sizeof(p->bytes)-p->used)return 0;
     *out=p->bytes+p->used;memcpy(*out,text,n+1);p->used+=n+1;return 1;
 }
+static int engine_shim_path(const struct private_engine_context *context,char out[4097]) {
+    int n=snprintf(out,4097,"%s/libexec/dream-exec-shim",context->outer->prefix.path);
+    return n>0&&n<4097&&private_path(out,1);
+}
 static int engine_expand(const struct private_engine_context *context,const char *text,const char *home,const char *scratch,char out[4097]) {
     // Both the B matcher and its retired fixture-path spelling are forbidden
     // inputs to every expander. Only the actual argv observed at GS1 binds V.
@@ -4214,14 +4336,19 @@ static int engine_expand(const struct private_engine_context *context,const char
 }
 static int engine_prepare_argv(const struct private_engine_context *context,unsigned form,const char *home,const char *scratch,struct engine_prepared *p) {
     memset(p,0,sizeof(*p));for(unsigned i=0;i<2;i++)p->input[i]=p->output[i]=p->errors[i]=-1;
+    p->shim_config=p->shim_client=-1;
     if(form>=16||form==15)return 0; // verify_child is the implicit child, never a third direct process.
     const struct private_command_form *command=&private_forms[form];unsigned tool=!strcmp(command->tool,"gpg");
     if(!private_token_text(context->basis->build.tools[tool].ref.path,p->image,sizeof(p->image)))return 0;
     if(!private_token_text(context->basis->build.tools[1].ref.path,p->descendant,sizeof(p->descendant)))return 0;
     if(strlen(context->outer->repo.path)>=sizeof(p->cwd))return 0;strcpy(p->cwd,context->outer->repo.path);
-    if(!engine_put(p,p->image,&p->argv[p->argc++]))return 0;
+    if(!engine_shim_path(context,p->shim)||!engine_put(p,p->shim,&p->argv[p->argc++]))return 0;
     const char *const *prefix=tool?private_gpg_prefix:private_git_prefix;unsigned count=tool?4:16;char expanded[4097];
-    for(unsigned i=0;i<count;i++)if(p->argc>=64||!engine_expand(context,prefix[i],home,scratch,expanded)||!engine_put(p,expanded,&p->argv[p->argc++]))return 0;
+    for(unsigned i=0;i<count;i++) {
+        if(p->argc>=64||!engine_expand(context,prefix[i],home,scratch,expanded))return 0;
+        if(!tool&&(i==13||i==15)){int n=snprintf(expanded,sizeof(expanded),"%s=%s",i==13?"gpg.program":"gpg.openpgp.program",p->shim);if(n<=0||(size_t)n>=sizeof(expanded))return 0;}
+        if(!engine_put(p,expanded,&p->argv[p->argc++]))return 0;
+    }
     for(unsigned i=0;i<command->argc;i++)if(p->argc>=64||!engine_expand(context,command->argv[i],home,scratch,expanded)||!engine_put(p,expanded,&p->argv[p->argc++]))return 0;
     p->argv[p->argc]=NULL;
     for(unsigned i=0;i<11;i++) {
@@ -4238,6 +4365,45 @@ static int engine_pipe_pair(int pair[2]) {
     return 1;
 }
 static int engine_prepare_effect(struct engine_owner *owner,struct engine_prepared *p,int input) {
+#ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
+    // Historical API fixtures supply their own image/argv and test the old
+    // observation APIs separately. Production always prepares the shim.
+    if(!p->shim[0])goto source_known_effect;
+#endif
+    struct dream_shim_config *c=&p->shim_binding;memset(c,0,sizeof(*c));c->magic=DREAM_SHIM_MAGIC;c->form=owner->command;
+    c->argc=p->argc;c->envc=p->envc;c->used=(uint32_t)p->used;memcpy(c->bytes,p->bytes,p->used);
+    for(unsigned i=0;i<p->argc;i++)c->argv[i]=(uint32_t)(p->argv[i]-p->bytes);
+    for(unsigned i=0;i<p->envc;i++)c->env[i]=(uint32_t)(p->env[i]-p->bytes);
+    if(!private_token_text(owner->context->basis->build.tools[0].ref.path,c->git,sizeof(c->git)))return 0;
+    strcpy(c->gpg,p->descendant);strcpy(c->shim,p->shim);
+    if(strncmp(p->env[8],"HOME=",5)||strncmp(p->env[10],"TMPDIR=",7))return 0;
+    strcpy(c->home,p->env[8]+5);strcpy(c->scratch,p->env[10]+7);
+    int shimfd=open(p->shim,O_RDONLY|O_NOFOLLOW|O_CLOEXEC);if(shimfd<0)return engine_failure(owner,"review_unbound","qualified prefix shim unavailable");
+    struct stat shimstat;char shimsha[65];int bound=fstat(shimfd,&shimstat)==0&&S_ISREG(shimstat.st_mode)&&shimstat.st_uid==geteuid()&&shimstat.st_nlink==1
+        &&(shimstat.st_mode&0022)==0&&shimstat.st_size>0;
+    if(bound)bound=private_hash_fd(shimfd,(uint64_t)shimstat.st_size,shimsha)&&!strcmp(shimsha,DREAM_EXEC_SHIM_SHA256);
+    close(shimfd);if(!bound)return engine_failure(owner,"review_unbound","qualified shim differs from hash compiled into controller");
+    struct private_ref shim_ref={.path={(const unsigned char *)"\"libexec/dream-exec-shim\"",sizeof("\"libexec/dream-exec-shim\"")-1},.len=(uint64_t)shimstat.st_size};
+    strcpy(shim_ref.sha,DREAM_EXEC_SHIM_SHA256);
+    if(!private_guard_ref(owner->context,&shim_ref,0))return engine_failure(owner,"source_changed","qualified shim retained currentness binding differs");
+    c->signature_len=owner->git_signature->len;strcpy(c->signature_sha,owner->git_signature->sha256);c->scratch_stat=owner->git_signature->scratch_stat;
+    char name[64];int named=snprintf(name,sizeof(name),"shim-%u.config",owner->result->attempts);
+    if(named<=0||(size_t)named>=sizeof(name))return 0;
+    int root=owner->context->outer->output.fd,fd=openat(root,name,O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC|O_WRONLY,0600);
+    if(fd<0)return engine_failure(owner,"source_changed","exclusive shim config unavailable");
+    int written=write(fd,c,sizeof(*c))==(ssize_t)sizeof(*c);int closed=close(fd)==0;
+    if(!written||!closed)return engine_failure(owner,"settlement_unknown","shim config write/close unresolved");
+    int readfd=openat(root,name,O_RDONLY|O_NOFOLLOW|O_CLOEXEC);if(readfd<0)return 0;
+    p->shim_config=fcntl(readfd,F_DUPFD_CLOEXEC,10);close(readfd);
+    if(unlinkat(root,name,0)||p->shim_config<0)return 0;
+    int pair[2];if(socketpair(AF_UNIX,SOCK_DGRAM,0,pair))return 0;
+    owner->shim_log=pair[0];p->shim_client=fcntl(pair[1],F_DUPFD_CLOEXEC,10);close(pair[1]);
+    if(p->shim_client<0||fcntl(owner->shim_log,F_SETFD,FD_CLOEXEC)||fcntl(owner->shim_log,F_SETFL,O_NONBLOCK))return 0;
+    owner->shim_active=1;owner->result->shim_enforced=1;
+#ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
+source_known_effect:
+#endif
+
     if(posix_spawnattr_init(&p->attr)!=0)return engine_failure(owner,"coverage_unknown","private spawn attributes unavailable");p->attr_live=1;
     if(posix_spawnattr_setflags(&p->attr,POSIX_SPAWN_START_SUSPENDED|POSIX_SPAWN_SETPGROUP|POSIX_SPAWN_CLOEXEC_DEFAULT)!=0
         ||posix_spawnattr_setpgroup(&p->attr,0)!=0
@@ -4247,11 +4413,15 @@ static int engine_prepare_effect(struct engine_owner *owner,struct engine_prepar
     if(posix_spawn_file_actions_addchdir(&p->actions,p->cwd)!=0
         ||posix_spawn_file_actions_adddup2(&p->actions,p->output[1],1)!=0||posix_spawn_file_actions_adddup2(&p->actions,p->errors[1],2)!=0)
         return engine_failure(owner,"coverage_unknown","private prepared cwd or output actions failed");
+    if(owner->shim_active&&(posix_spawn_file_actions_adddup2(&p->actions,p->shim_config,DREAM_SHIM_CONFIG_FD)
+        ||posix_spawn_file_actions_adddup2(&p->actions,p->shim_client,DREAM_SHIM_LOG_FD)))return 0;
     int code=input?posix_spawn_file_actions_adddup2(&p->actions,p->input[0],0):posix_spawn_file_actions_addopen(&p->actions,0,"/dev/null",O_RDONLY,0);
     return code==0?1:engine_failure(owner,"coverage_unknown","private prepared stdin action failed");
 }
 static void engine_dispose_prepared(struct engine_prepared *p) {
     uint64_t at=private_cost.open_cpu;unsigned work=0;
+    if(p->shim[0]&&p->shim_config>=0){close(p->shim_config);p->shim_config=-1;work++;}
+    if(p->shim[0]&&p->shim_client>=0){close(p->shim_client);p->shim_client=-1;work++;}
     if(p->actions_live){p->actions_live=0;work++;if(posix_spawn_file_actions_destroy(&p->actions)!=0)private_fail("settlement_unknown","prepared file-action disposal unresolved");}
     if(p->attr_live){p->attr_live=0;work++;if(posix_spawnattr_destroy(&p->attr)!=0)private_fail("settlement_unknown","prepared attributes disposal unresolved");}
     for(unsigned i=0;i<2;i++) {
@@ -4287,7 +4457,7 @@ static int engine_birth(struct engine_owner *o,struct engine_prepared *p) {
     uint64_t begin=private_cost.open_cpu;
     if(engine_cancel_signal||engine_now(o,CLOCK_MONOTONIC)>=o->context->outer->deadline)return engine_failure(o,"cancelled","creation not currently admitted");
     if(o->git_signature&&!private_git_sig_before_birth(o->context,o->git_signature))return engine_failure(o,private_error,private_detail);
-    struct prepared_spawn_outcome raw;prepared_spawn(p->image,p->argv,p->env,&p->actions,&p->attr,1,&raw);o->native=raw;
+    struct prepared_spawn_outcome raw;prepared_spawn(o->shim_active?p->shim:p->image,p->argv,p->env,&p->actions,&p->attr,1,&raw);o->native=raw;
     if(raw.pid>0) {o->ticket.pid=o->ticket.pgid=raw.pid;o->direct_custody=1;o->result->created++;o->result->group_gone=o->result->retired_coverage=0;}
     o->native_gate_wall_ns=raw.wall;
 #ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
@@ -4367,12 +4537,13 @@ static int engine_terminal_budget(struct engine_owner *o) {
     int pause_pass=engine_terminal_pause_user(o),rss_known=o->wait_rss!=UINT64_MAX;
     o->wait_rss_known=(unsigned)rss_known;
     if(!rss_known)(void)engine_failure(o,"coverage_unknown","terminal ownwait4 RSS unavailable; known CPU cost remains fully paid");
-    int child_pass=engine_child_cost_covered(o);
+    int child_pass=engine_command_cost_covered(o);
     if(!child_pass)(void)engine_child_unproven(o,"leader wait4 does not prove the retained child's total CPU");
     if(o->terminal_cpu_ns>ENGINE_COMMAND_CPU_NS||o->result->helper_job_cpu_ns>ENGINE_JOB_CPU_NS||(rss_known&&o->wait_rss>ENGINE_HELPER_RSS))return engine_failure(o,"resource_limit","terminal ownwait4 CPU job or known RSS cap exceeded");
     if(!paid||!pause_pass||!rss_known||!child_pass)return 0;o->terminal_budget_passed=1;o->result->terminal_cpu_passed++;return 1;
 }
 static int engine_observe_wait4(struct engine_owner *o) {
+    if(o->shim_active&&!engine_shim_receive(o))return 0;
     if(o->direct_reaped)return o->wait_observed;
     // Drain before the consuming wait: after it the numeric leader is no
     // longer our original pin and must never be queried as a census source.
@@ -4434,6 +4605,7 @@ static int engine_refresh_leader_rollup(struct engine_owner *o) {
     return engine_sample_member(o,0,o->ticket.pid);
 }
 static int engine_qualify_child_rollup(struct engine_owner *o,int terminal_known,int empty_child_edge,int leader_known) {
+    if(o->shim_active)return 1;
     if(!o->child_created)return 1;if(o->child_rollup_known)return !o->child_cost_unproven;
     struct engine_member *m=&o->members[1];unsigned mask=0,current=0;
     if(!engine_events_poll(o,0))return engine_child_unproven(o,"child terminal event drain unavailable before rollup");
@@ -4454,6 +4626,7 @@ static int engine_qualify_child_rollup(struct engine_owner *o,int terminal_known
     o->child_rollup_known=1;return 1;
 }
 static void engine_terminal_child_rollup(struct engine_owner *o) {
+    if(o->shim_active)return;
     if(!o->child_created||o->child_rollup_known||o->child_cost_unproven)return;
     if(!engine_events_poll(o,0)){(void)engine_child_unproven(o,"terminal child event drain unavailable");return;}
     int terminal=engine_member_terminal(o,1);int ids[3]={0};int count=engine_list_children(o,0,o->ticket.pid,ids,sizeof(ids));
@@ -4495,6 +4668,7 @@ static void engine_cleanup_escaped(struct engine_owner *o) {
     }
 }
 static int engine_original_group_gone(struct engine_owner *owner) {
+    if(owner->shim_active){int pids[3]={0};int n=engine_list_group(owner,pids,sizeof(pids));return owner->direct_reaped&&native_pid_list_empty(n,owner->group_list_errno);}
     if(owner->coverage_lost)return 0;
     // A discovered child lacking a retained identity never becomes absent
     // merely because a later group census is empty.
@@ -4515,9 +4689,9 @@ static int engine_settle_proven(struct engine_owner *o) {
     if(!o->direct_reaped||!engine_original_group_gone(o))return 0;
     o->result->group_gone=1;
     if(o->group_kill_pending) {o->group_kill_raced_exit=1;o->group_kill_pending=0;}
-    if(!engine_child_cost_covered(o))return 0;
+    if(!engine_command_cost_covered(o))return 0;
     if(o->child_created&&!o->child_settled) {
-        if(!o->members[1].token_known||!o->members[1].state.start_absolute)return 0;
+        if(!o->shim_active&&(!o->members[1].token_known||!o->members[1].state.start_absolute))return 0;
         o->members[1].phase=ENGINE_EXITED;o->child_settled=1;o->result->reaped++;
     }
     o->result->retired_coverage=!o->coverage_lost;return o->result->retired_coverage;
@@ -4548,7 +4722,7 @@ static int engine_retire(struct engine_owner *o,int *status) {
         if(done)(void)engine_child_unproven(o,"leader exited before every original member was terminal");
         if(!engine_kill_group(o))return engine_quarantine(o,"final kill raw error unresolved");
     } else if(!o->group_kill_attempted)o->group_kill_not_attempted_terminal=1;
-    engine_terminal_child_rollup(o);
+    if(!o->shim_active)engine_terminal_child_rollup(o);
     for(;;) {
         if(!engine_checkpoint(o))return engine_quarantine(o,"full settlement observation cost remains owned");
         if(engine_observe_wait4(o))break;
@@ -4567,6 +4741,8 @@ static int engine_retire(struct engine_owner *o,int *status) {
     }
     // Classify discovery only after the original queue was drained before
     // ownwait4, and before GS2 can report the separate missing-GS1 failure.
+    if(o->shim_active)(void)engine_shim_receive(o);
+    if(o->shim_active&&o->shim_records!=1)(void)engine_failure(o,"coverage_unknown","helper lacks its one in-process exec receipt");
     if(o->command==12&&o->verified_descendants!=1)
         (void)engine_failure(o,"coverage_unknown",o->child_created?"signature lacks exactly one retained verifier":engine_missing_verifier_detail(o));
     if(o->command==12&&o->git_signature) {
@@ -4626,12 +4802,13 @@ static void engine_close_transferred(struct engine_owner *owner) {
         int fd=*fds[i];*fds[i]=-1;work++;
         if(close(fd)!=0)engine_failure(owner,"settlement_unknown","retained pipe close unresolved");
     }
+    if(owner->shim_active&&owner->shim_log>=0&&!owner->settlement_quarantined){close(owner->shim_log);owner->shim_log=-1;work++;}
     if(owner->event_fd_live&&!owner->settlement_quarantined){work++;(void)engine_events_close(owner);}
     if(work)(void)private_end_unit(at);
 }
 
 static int engine_command(struct engine_owner *o,struct engine_prepared *p,unsigned form,const char *home,const char *scratch,const unsigned char *input,size_t len,int *status) {
-    memset(p,0,sizeof(*p));for(unsigned i=0;i<2;i++)p->input[i]=p->output[i]=p->errors[i]=-1;*status=-1;
+    memset(p,0,sizeof(*p));p->shim_config=p->shim_client=-1;for(unsigned i=0;i<2;i++)p->input[i]=p->output[i]=p->errors[i]=-1;*status=-1;
     if(engine_current||form>=15)return engine_failure(o,"coverage_unknown","prior physical effect or invalid fixed form");
     if(!o->git_signature||!o->git_signature->ready||o->git_signature->quarantined)return engine_failure(o,"review_unbound","original B custody unavailable before birth");
     o->command=form;o->slots=private_forms[form].members;o->input=o->output=o->errors=-1;o->stdin_bytes=input;o->stdin_len=len;
@@ -4951,7 +5128,7 @@ static void engine_final_conjunction_capture(const struct private_engine_context
     int corrupt=!strcmp(context->outer->case_name,"corrupt_proof");
     const unsigned char values[ENGINE_FINAL_TERMS]={
         !private_failed,!!result->engine_entered,result->semantic_forms==32767u,result->commands_completed==15,
-        result->attempts==16,result->created==16,result->reaped==16,result->members_max==2,
+        result->attempts==16,result->created==16,result->reaped==16,result->shim_enforced||result->members_max==2,
         !!result->group_gone,!!result->retired_coverage,engine_current==NULL,result->terminal_cpu_checked==15,result->terminal_cpu_passed==15,
         !strcmp(result->observed_proof,corrupt?"invalid":"valid"),
         engine_metric_bound(&result->ordinary_max_ns,1000000),engine_metric_bound(&result->controller_max_ns,1000000),engine_metric_bound(&result->cleanup_max_ns,1000000),
@@ -5105,7 +5282,7 @@ refused:
 // Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
 // One retained copy of each shared pretest document. No admission from syntax.
 struct private_prepared_inner {
-    unsigned char source_lock[32768],basis_bytes[49152];
+    unsigned char source_lock[32768],basis_bytes[57344];
     char pin_tokens[5][8195];
     char sdk_token[8195];
     struct private_ref pin_refs[5];struct private_basis basis;
@@ -5220,7 +5397,7 @@ static int private_pretest(struct private_input *v,const char *self) {
     if(v->build.root||strcmp(v->build.path,"provenance/pretest-basis.json")||v->source_lock.root)
         return private_fail("review_unbound","basis or source lock belongs to wrong exact candidate root");
     struct private_file *files[]={&v->source_lock,&v->build};
-    if(v->source_lock.len>32768||v->build.len>49152)return private_fail("resource_limit","source lock or basis size ceiling");
+    if(v->source_lock.len>32768||v->build.len>57344)return private_fail("resource_limit","source lock or basis size ceiling");
     uint64_t total=v->source_lock.len+v->build.len;
     // Shared Basis is counted once; the bounded actual result allowance is8KiB.
     // The later builder must charge its final qualification envelope as well.
