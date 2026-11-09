@@ -15,7 +15,7 @@
 struct dream_shim_config {
     uint64_t magic,signature_len;struct stat scratch_stat;
     uint32_t form,argc,envc,used;uint32_t argv[64],env[16];
-    char git[4097],gpg[4097],shim[4097],home[4097],scratch[4097],signature_sha[65];
+    char git[4097],gpg[4097],shim[4097],home[4097],scratch[4097],git_exec_path[4097],signature_sha[65];
     char bytes[DREAM_SHIM_BYTES];
 };
 struct dream_shim_record {

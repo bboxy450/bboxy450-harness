@@ -217,7 +217,7 @@ def source_digest(wires):
 
 def shim_allowlist_digest(wire):
     form = wire[wire.index(b'static int fixed_form('):wire.index(b'static int public_config(')]
-    env = wire[wire.index(b'const char *fixed[]='):wire.index(b'if(envc!=config.envc)return refuse();')]
+    env = wire[wire.index(b'const char *fixed[]='):wire.index(b'// END SHIM ENV ALLOWLIST')]
     return digest(b'bboxy.dream.exec-shim/allowlist/1\0' + form + b'\0' + env)
 
 

@@ -4386,6 +4386,8 @@ static int engine_prepare_effect(struct engine_owner *owner,struct engine_prepar
     struct private_ref shim_ref={.path={(const unsigned char *)"\"libexec/dream-exec-shim\"",sizeof("\"libexec/dream-exec-shim\"")-1},.len=(uint64_t)shimstat.st_size};
     strcpy(shim_ref.sha,DREAM_EXEC_SHIM_SHA256);
     if(!private_guard_ref(owner->context,&shim_ref,0))return engine_failure(owner,"source_changed","qualified shim retained currentness binding differs");
+    int exec_length=snprintf(c->git_exec_path,sizeof(c->git_exec_path),"%s/libexec/git-core",owner->context->outer->prefix.path);
+    if(exec_length<=0||(size_t)exec_length>=sizeof(c->git_exec_path))return 0;
     c->signature_len=owner->git_signature->len;strcpy(c->signature_sha,owner->git_signature->sha256);c->scratch_stat=owner->git_signature->scratch_stat;
     char name[64];int named=snprintf(name,sizeof(name),"shim-%u.config",owner->result->attempts);
     if(named<=0||(size_t)named>=sizeof(name))return 0;

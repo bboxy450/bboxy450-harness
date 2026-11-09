@@ -87,6 +87,31 @@ static int fixed_form(int argc,char **argv) {
     for(unsigned i=0;i<tailc[form];i++)if(tail[form][i]&&strcmp(argv[1+prefix+i],tail[form][i]))return 0;
     return 1;
 }
+// Git2.54.0 config.c/exec-cmd.c/setup.c export these exact derived
+// settings to its verifier. They are validated, then removed before GPG exec.
+static int append_text(char *out,size_t cap,size_t *used,const char *text) {
+    size_t n=strlen(text);if(n>=cap-*used)return 0;memcpy(out+*used,text,n);*used+=n;out[*used]=0;return 1;
+}
+static int quote_parameter(char *out,size_t cap,size_t *used,const char *text) {
+    if(!append_text(out,cap,used,"'"))return 0;
+    for(;*text;text++) {
+        char escaped[5]={0};
+        if(*text=='\''||*text=='!'){escaped[0]='\'';escaped[1]='\\';escaped[2]=*text;escaped[3]='\'';}
+        else escaped[0]=*text;
+        if(!append_text(out,cap,used,escaped))return 0;
+    }
+    return append_text(out,cap,used,"'");
+}
+static int git_parameters(char *out,size_t cap) {
+    const char *keys[]={"core.fsmonitor","core.hooksPath","credential.helper","protocol.allow","gpg.format","gpg.program","gpg.openpgp.program"};
+    const char *values[]={"false","/dev/null","","never","openpgp",config.shim,config.shim};
+    size_t used=0;out[0]=0;if(!append_text(out,cap,&used,"GIT_CONFIG_PARAMETERS="))return 0;
+    for(unsigned i=0;i<7;i++) {
+        if((i&&!append_text(out,cap,&used," "))||!quote_parameter(out,cap,&used,keys[i])
+            ||!append_text(out,cap,&used,"=")||!quote_parameter(out,cap,&used,values[i]))return 0;
+    }
+    return 1;
+}
 static int public_config(void) {
     char path[4097];int length=snprintf(path,sizeof(path),"%s/gpg.conf",config.home);if(length<=0||(size_t)length>=sizeof(path))return 0;
     const char expected[]="batch\nno-tty\nno-autostart\nno-auto-key-retrieve\nno-auto-key-import\nauto-key-locate clear\nno-auto-check-trustdb\n";
@@ -102,16 +127,30 @@ int main(int argc,char **argv) {
         ||pread(DREAM_SHIM_CONFIG_FD,&config,sizeof(config),0)!=(ssize_t)sizeof(config)||config.magic!=DREAM_SHIM_MAGIC
         ||config.form>=15||config.argc<2||config.argc>64||config.envc!=11||config.used>DREAM_SHIM_BYTES)return refuse();
     if(!terminated(config.git,sizeof(config.git))||!terminated(config.gpg,sizeof(config.gpg))||!terminated(config.shim,sizeof(config.shim))
-        ||!terminated(config.home,sizeof(config.home))||!terminated(config.scratch,sizeof(config.scratch))||!terminated(config.signature_sha,sizeof(config.signature_sha))
+        ||!terminated(config.home,sizeof(config.home))||!terminated(config.scratch,sizeof(config.scratch))||!terminated(config.git_exec_path,sizeof(config.git_exec_path))||!terminated(config.signature_sha,sizeof(config.signature_sha))
         ||config.git[0]!='/'||config.gpg[0]!='/'||config.shim[0]!='/')return refuse();
+    int verify=argc==6&&!strcmp(argv[1],"--keyid-format=long")&&!strcmp(argv[2],"--status-fd=1")&&!strcmp(argv[3],"--verify")&&!strcmp(argv[5],"-");
     const char *fixed[]={"GIT_CONFIG_NOSYSTEM=1","GIT_CONFIG_GLOBAL=/dev/null","GIT_TERMINAL_PROMPT=0","GIT_ASKPASS=/usr/bin/false","SSH_ASKPASS=/usr/bin/false","LANG=C","LC_ALL=C","PATH=/usr/bin:/bin"};
     for(unsigned i=0;i<8;i++){const char *e=entry(config.env[i]);if(!e||strcmp(e,fixed[i]))return refuse();}
     for(unsigned i=8;i<11;i++){char expected[4107];snprintf(expected,sizeof(expected),"%s=%s",i==8?"HOME":i==9?"GNUPGHOME":"TMPDIR",i==10?config.scratch:config.home);const char *e=entry(config.env[i]);if(!e||strcmp(e,expected))return refuse();}
-    size_t total=0;unsigned envc=0;
-    for(;environ[envc];envc++){if(envc>=config.envc)return refuse();size_t n=strlen(environ[envc])+1;if(n>4097||total>DREAM_SHIM_BYTES-n)return refuse();total+=n;
-        unsigned matches=0;for(unsigned j=0;j<config.envc;j++){const char *e=entry(config.env[j]);if(e&&!strcmp(e,environ[envc]))matches++;}if(matches!=1)return refuse();}
-    if(envc!=config.envc)return refuse();
-    int verify=argc==6&&!strcmp(argv[1],"--keyid-format=long")&&!strcmp(argv[2],"--status-fd=1")&&!strcmp(argv[3],"--verify")&&!strcmp(argv[5],"-");
+    char parameters[DREAM_SHIM_BYTES],exec_path[4120],path[4140];
+    if(verify&&(config.git_exec_path[0]!='/'||!git_parameters(parameters,sizeof(parameters))))return refuse();
+    snprintf(exec_path,sizeof(exec_path),"GIT_EXEC_PATH=%s",config.git_exec_path);
+    snprintf(path,sizeof(path),"PATH=%s:/usr/bin:/bin",config.git_exec_path);
+    const char *derived[]={parameters,exec_path,"GIT_OPTIONAL_LOCKS=0","GIT_PAGER=cat","GIT_PREFIX=",path};
+    size_t total=0;unsigned envc=0,seen=0;
+    for(;environ[envc];envc++) {
+        if(envc>=16)return refuse();size_t n=strlen(environ[envc])+1;
+        if(n>DREAM_SHIM_BYTES||total>DREAM_SHIM_BYTES-n)return refuse();total+=n;
+        unsigned matches=0,bit=0;
+        for(unsigned j=0;j<config.envc;j++) {
+            if(verify&&j==7)continue;const char *e=entry(config.env[j]);
+            if(e&&!strcmp(e,environ[envc])){matches++;bit=1u<<j;}
+        }
+        if(verify)for(unsigned j=0;j<6;j++)if(!strcmp(derived[j],environ[envc])){matches++;bit=1u<<(11+j);}
+        if(matches!=1||(seen&bit))return refuse();seen|=bit;
+    }
+    if(envc!=(verify?16u:config.envc))return refuse(); // END SHIM ENV ALLOWLIST
     if(verify){if(config.form!=12||!public_config())return refuse();}
     else {if(!fixed_form(argc,argv)||(unsigned)argc!=config.argc)return refuse();for(unsigned i=0;i<config.argc;i++){const char *e=entry(config.argv[i]);if(!e||strcmp(argv[i],e))return refuse();}}
     for(int i=0;i<argc;i++){size_t n=strlen(argv[i])+1;if(n>4097||total>DREAM_SHIM_BYTES-n)return refuse();total+=n;}
@@ -126,5 +165,6 @@ int main(int argc,char **argv) {
     for(int fd=keep+1;fd<getdtablesize();fd++)close(fd);
     struct rlimit core={0,0};if(setrlimit(RLIMIT_CORE,&core))return refuse();
     argv[0]=verify?config.gpg:(config.form>=13?config.gpg:config.git);
-    execve(argv[0],argv,environ);return refuse();
+    char *clean_env[12]={0};for(unsigned i=0;i<config.envc;i++)clean_env[i]=(char *)entry(config.env[i]);
+    execve(argv[0],argv,clean_env);return refuse();
 }

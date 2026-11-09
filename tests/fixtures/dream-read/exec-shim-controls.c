@@ -21,15 +21,28 @@ int main(int argc,char **argv) {
     unsigned form=(unsigned)strtoul(argv[10],NULL,10);require(form<15,"driver form");
     test_config.magic=DREAM_SHIM_MAGIC;test_config.form=form;test_config.signature_len=strtoull(argv[7],NULL,10);
     require(strlen(argv[6])==64,"driver signature digest");strcpy(test_config.signature_sha,argv[6]);
+    const char *exec_path=getenv("DREAM_SHIM_TEST_EXEC_PATH");
+    if(exec_path)strcpy(test_config.git_exec_path,exec_path);else {strcpy(test_config.git_exec_path,git);char *last=strrchr(test_config.git_exec_path,'/');require(last!=NULL,"driver git path");*last=0;last=strrchr(test_config.git_exec_path,'/');require(last!=NULL,"driver git prefix");strcpy(last,"/libexec/git-core");}
     strcpy(test_config.git,git);strcpy(test_config.gpg,gpg);strcpy(test_config.shim,shim);strcpy(test_config.home,home);strcpy(test_config.scratch,scratch);
     require(lstat(scratch,&test_config.scratch_stat)==0,"driver scratch identity");
-    char *args[65]={0},*env[12]={0};unsigned count=(unsigned)argc-10;require(count<=64,"driver argc");
+    char *args[65]={0},*env[18]={0};unsigned count=(unsigned)argc-10;require(count<=64,"driver argc");
     args[0]=(char *)shim;put(shim,&test_config.argv[0]);test_config.argc=count;
     for(unsigned i=1;i<count;i++){args[i]=argv[10+i];put(args[i],&test_config.argv[i]);}
     char dynamic[3][4107];snprintf(dynamic[0],sizeof(dynamic[0]),"HOME=%s",home);snprintf(dynamic[1],sizeof(dynamic[1]),"GNUPGHOME=%s",home);snprintf(dynamic[2],sizeof(dynamic[2]),"TMPDIR=%s",scratch);
     const char *values[]={"GIT_CONFIG_NOSYSTEM=1","GIT_CONFIG_GLOBAL=/dev/null","GIT_TERMINAL_PROMPT=0","GIT_ASKPASS=/usr/bin/false","SSH_ASKPASS=/usr/bin/false","LANG=C","LC_ALL=C","PATH=/usr/bin:/bin",dynamic[0],dynamic[1],dynamic[2]};
     for(unsigned i=0;i<11;i++){put(values[i],&test_config.env[i]);env[i]=(char *)values[i];}test_config.envc=11;
     if(getenv("DREAM_SHIM_TEST_BAD_ENV"))env[5]="LANG=fr";
+    char derived_parameters[32768],derived_exec[4120],derived_path[4140];
+    if(count==6&&!strcmp(args[1],"--keyid-format=long")) {
+        // Test paths contain no quote/exclamation. The shim itself also covers
+        // Git's quoting for those bytes; exact values are witnessed separately.
+        require(!strchr(shim,'\'')&&!strchr(shim,'!'),"driver simple quoted fixture path");
+        int n=snprintf(derived_parameters,sizeof(derived_parameters),"GIT_CONFIG_PARAMETERS='core.fsmonitor'='false' 'core.hooksPath'='/dev/null' 'credential.helper'='' 'protocol.allow'='never' 'gpg.format'='openpgp' 'gpg.program'='%s' 'gpg.openpgp.program'='%s'",shim,shim);require(n>0&&(size_t)n<sizeof(derived_parameters),"driver parameters");
+        snprintf(derived_exec,sizeof(derived_exec),"GIT_EXEC_PATH=%s",test_config.git_exec_path);
+        snprintf(derived_path,sizeof(derived_path),"PATH=%s:/usr/bin:/bin",test_config.git_exec_path);
+        env[7]=derived_path;env[11]=derived_parameters;env[12]=derived_exec;env[13]="GIT_OPTIONAL_LOCKS=0";env[14]="GIT_PAGER=cat";env[15]="GIT_PREFIX=";
+    }
+
     char config_name[4097];snprintf(config_name,sizeof(config_name),"%s/../config-XXXXXX",home);
     int writable=mkstemp(config_name);require(writable>=0&&fchmod(writable,0600)==0,"driver exclusive config");
     require(write(writable,&test_config,sizeof(test_config))==(ssize_t)sizeof(test_config)&&close(writable)==0,"driver config bytes");
