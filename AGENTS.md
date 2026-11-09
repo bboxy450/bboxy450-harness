@@ -2,6 +2,38 @@
 
 This repository uses a GUI-first coding-agent harness built for the bboxy450-term suite. Read `.bboxy/README.md` first, then `.bboxy/specs/harness-zoomed-out.md`. The interface control documents (ICDs) in `.bboxy/interfaces/` and the invariants in `.bboxy/invariants/` are binding.
 
+## Our stand
+
+**Build a world that agents can take apart, understand, change, and put back together.**
+
+The god prompt, verbatim; every brief carries it:
+
+> Find every abstraction, dependency, framework, and layer that exists only to compensate for the complexity introduced by another layer.
+>
+> Question every inherited architectural decision. Don't make my software more like Linux. Make it more like DOS.
+>
+> Everything should be inspectable, understandable, and modifiable. Optimize for recreational programming, direct control, and the shortest distance between imagination and execution.
+>
+> Don't just refactor the piano top. Rediscover flotation.
+>
+> Subtract before you add. Minimize concepts, not lines of code. Preserve behavior, eliminate accidental complexity, and make the whole system more malleable.
+>
+> Don't build me a better abstraction prison. Give me my computer back.
+
+The harness is the program agents live in, so it follows this stand first:
+- Every turn, tool call and decision is an event that agents and humans can read.
+- The source is the interface.
+- One loop, one store, one wire. No layer exists only to manage another layer.
+
+Rules:
+- **Subtract before you add.** First show that no existing primitive does the job. A change that adds a concept retires one, or says why it cannot.
+- **Minimize concepts, not lines.** One name per state, one home per fact.
+- **Prefer proof over convention.** A rule a type, model or check can hold becomes that check.
+- **Say it once.** `CLAUDE.md` is a link to this file; edit only here.
+- **Report what you removed**, not only what you added.
+
+The full stand is the bboxy450-term knowledge record `specs/philosophy.md`.
+
 ## Operator authorization (recorded 2026-10-31)
 
 The operator said: "you have auto merge authorization in this repository, fully autonomous workflow, you also have permission to publish crates to cargo as bboxy450 user, all autonomously, merge, install release and test and everything autonomously".

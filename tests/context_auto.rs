@@ -386,7 +386,7 @@ async fn context_crash_child() {
         .map(|d| d.wire.clone())
         .collect::<Vec<_>>();
     let (tail, mut prefix) = context::replay(&log, &blobs).await.unwrap();
-    let system = json!({"role":"system","content":format!("You are bboxy450-harness, a coding assistant. Use the provided tools. Working directory: {}",config.meta.cwd.display())});
+    let system = json!({"role":"system","content":format!("You are bboxy450-harness, a coding assistant. Use the provided tools. Working directory: {}\nBuild a world agents can take apart, understand, change and put back together. Subtract before you add; minimize concepts, not lines.",config.meta.cwd.display())});
     let mut messages = vec![system.clone()];
     messages.extend(tail);
     messages.push(json!({"role":"user","content":"after restart"}));
