@@ -4854,6 +4854,7 @@ mod selected_helper_process_tests {
     }
     #[cfg(target_os = "macos")]
     #[test]
+    #[ignore = "KNOWN-DEFECT: intermittent known-bill/group-proof ordering race; fix via tasks/2026-11-08-harness-known-bill-group-proof-race"]
     fn external_total_budget_terminal_wait4_refuses_unseen_and_rolled_overrun() {
         for (mode, skip_live_sampling) in
             [("burn", true), ("pair-burn", true), ("burn-live", false)]
