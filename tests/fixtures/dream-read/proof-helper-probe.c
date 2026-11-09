@@ -3605,6 +3605,14 @@ static int engine_pause_terminal_finish(struct engine_owner *o) {
     if(!engine_pause_terminal_ready(o))return engine_failure(o,"coverage_unknown","foreground STOP lacks original terminal settlement");
     o->pause_terminal_resolved=1;o->pause_pending=0;o->paused=o->running=0;return 1;
 }
+static int engine_pause_quarantine_classify(struct engine_owner *o) {
+    // A failed foreground STOP without original ownwait4 remains a coverage
+    // refusal even when settlement also fails. Preserve any earlier FIRST
+    // cause; private_fail retains this category independently in the ledger.
+    if(o->pause_pending&&!o->wait_observed)
+        return engine_failure(o,"coverage_unknown","foreground STOP lacks original ownwait4 terminal settlement");
+    return 1;
+}
 static const char *engine_pause_stop_order(const struct engine_owner *o) {
     if(!o->pause_terminal_observed_ns)return "terminal_not_observed";
     if(o->pause_terminal_observed_ns==UINT64_MAX||o->pause_stop_call_ns==UINT64_MAX||o->pause_stop_return_ns==UINT64_MAX)return "clock_unknown";
@@ -4066,6 +4074,7 @@ static int engine_settle_proven(struct engine_owner *o) {
 }
 static int engine_quarantine(struct engine_owner *o,const char *detail) {
     o->settlement_quarantined=o->retiring=1;private_cost.custody_hold=1;engine_current=o;dispose_private_engine=engine_emergency_dispose;
+    (void)engine_pause_quarantine_classify(o);
     (void)engine_failure(o,"settlement_unknown",detail);o->result->phase="quarantined";o->result->outcome="quarantined";
     if(!o->quarantine_recorded) {
         o->quarantine_recorded=1;

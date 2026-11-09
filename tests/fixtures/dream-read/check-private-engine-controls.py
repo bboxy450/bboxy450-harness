@@ -39,6 +39,7 @@ LEDGERS = ('final-conjunction-controls.ndjson', 'member-peak-census/total-6.ndjs
            *(f'pause-{i}-{phase}' for i in (9,10) for phase in ('start','done','release')),
            *('diagnostic-' + str(i) + '/' + name for i in range(4) for name in ('stderr', 'stdout', 'result.json')))
 ASSERTIONS = {
+ 'pause-stop-no-reap-category': b'pending STOP without ownwait4 records coverage_unknown and preserves the first independent error and custody',
  'pause-stop-exit-ignore-path': b'ESRCH terminal-before-stop API settles only after original ownwait4 groupgone and full known paid bill',
  'total-stopped-old-raw-gap': b'stable ACKed stop over50ms retains raw gap and admits both bounded running sides',
  'total-stopped-no-ACK': b'unACKed STOP earns no cadence exclusion even with supplied stable counters',
@@ -339,6 +340,8 @@ def variants(source):
     result = {}
     def add(name, anchor, replacement, args):
         result[name] = (changed(source, anchor, replacement), args)
+    add('pause-stop-no-reap-category', b'return engine_failure(o,"coverage_unknown","foreground STOP lacks original ownwait4 terminal settlement");',
+        b'return 1;', ['pause-stop-exit-api'])
     add('pause-stop-exit-ignore-path', b'static int engine_pause_stop_error_eligible(int error) {return error==ESRCH||error==EPERM;}',
         b'static int engine_pause_stop_error_eligible(int error) {(void)error;return 0;}', ['pause-stop-exit-api'])
     add('total-stopped-old-raw-gap', b'if(running_gap==UINT64_MAX||running_gap>ENGINE_SAMPLE_NS)',
@@ -771,7 +774,26 @@ def delayed_ack_observation_receipt(stdout, command):
             'actual':fields,'bill':bill,'stdout':command['stdout'],'fixture_capture':command['fixture_capture']}
 
 
+def pause_quarantine_category_receipt(stdout, mutant=False):
+    prefix=b'private_pause_quarantine_category_API_source_known '
+    rows=[dict(x.decode('ascii').split('=',1) for x in line[len(prefix):].split()) for line in stdout.splitlines() if line.startswith(prefix)]
+    if len(rows)!=(1 if mutant else 2):raise ValueError('central no-ownreap quarantine classifier API case count differs')
+    for i,row in enumerate(rows):
+        if row['case']!=str(i) or row['prior_settlement']!=str(i):raise ValueError('central classifier API case ordering differs')
+        if any(row[k]!='false' for k in ('actual_quarantine_body','native_process','actual_signal','actual_ownwait4','runtime_approved')) or row['values_supplied']!='true':
+            raise ValueError('central classifier API overclaims native quarantine or effects')
+        if row['original_custody_retained']!='1' or any(row[k]!='0' for k in ('supplied_ownwait4','ACK_mask','resume_attempted','helper_cost_retained','helper_cost_paid')):
+            raise ValueError('central classifier API lost held custody or invented reap/ACK/CPU payment')
+        if mutant:
+            if row['classifier_return']!='1' or row['coverage_count']!='0' or row['first_coverage']!='0' or row['first_settlement']!='1':
+                raise ValueError('missing central classification mutant did not isolate old settlement-only category')
+        elif row['classifier_return']!='0' or int(row['coverage_count'])<1 or int(row['settlement_count'])<1 or row['first_coverage']!=str(int(not i)) or row['first_settlement']!=str(i) or row['first_detail_preserved']!='1' or row['owner_first_preserved']!='1':
+            raise ValueError('central classifier omitted coverage_unknown or overwrote FIRST error')
+    return {'cases':len(rows),'rows':rows,'native_process':False,'actual_quarantine_body':False,'values_supplied':True,'scope':'production native-free central classifier plus existing later error-recording call, supplied pending original custody, no OS/quarantine loop'}
+
+
 def pause_stop_exit_api_receipt(stdout, mutant=False):
+    pause_quarantine_category_receipt(stdout)
     prefix=b'private_pause_stop_exit_API_source_known '
     rows=[dict(x.decode('ascii').split('=',1) for x in line[len(prefix):].split()) for line in stdout.splitlines() if line.startswith(prefix)]
     if not rows:raise ValueError('missing supplied STOP-error terminal protocol rows')
@@ -834,15 +856,19 @@ def verify_pause_stop_exit(directory, inputs, report):
     expect(code,0,'actual original exit before pause and original own-reap bill')
     report['pause_preobserved_exit_process']=pause_preobserved_process_receipt(stdout,report['commands'][-1])
     report['process_ledgers']+=report['commands'][-1]['fixture_capture']['files']
-    name='pause-stop-exit-ignore-path';changed_source,args=variants(source)[name];own=directory/name;own.mkdir(mode=0o700)
-    report['snapshots'].append(retain(own/SOURCE.name,changed_source));report['snapshots'].append(retain(own/CONTROLS.name,inputs[str(CONTROLS)]))
-    program=compile_source(own,CONTROLS.name,report)
-    code,stdout,stderr=run([str(program),*args],own,'controls',report,fixture=True)
-    expect(code,81,'causal missing terminal-before-stop path')
-    if ASSERTIONS[name] not in stderr:raise ValueError('terminal-before-stop mutant missed exact over-refusal assertion')
-    report['ignored_path_API']=pause_stop_exit_api_receipt(stdout,mutant=True)
-    report['source_mutants']=1;report['canonical_suite_receipt']=False
-    report['causal_mutants']=[{'name':name,'exit_code':code,'required_assertion':ASSERTIONS[name].decode(),'native_process':False,'syscall_result_supplied':True}]
+    report['causal_mutants']=[]
+    for name in ('pause-stop-exit-ignore-path','pause-stop-no-reap-category'):
+        changed_source,args=variants(source)[name];own=directory/name;own.mkdir(mode=0o700)
+        report['snapshots'].append(retain(own/SOURCE.name,changed_source));report['snapshots'].append(retain(own/CONTROLS.name,inputs[str(CONTROLS)]))
+        program=compile_source(own,CONTROLS.name,report)
+        code,stdout,stderr=run([str(program),*args],own,'controls',report,fixture=True)
+        expect(code,81,'causal missing terminal-before-stop path/category '+name)
+        if ASSERTIONS[name] not in stderr:raise ValueError('terminal-before-stop mutant missed exact assertion '+name)
+        if name=='pause-stop-exit-ignore-path':report['ignored_path_API']=pause_stop_exit_api_receipt(stdout,mutant=True)
+        else:report['no_reap_category_API_mutant']=pause_quarantine_category_receipt(stdout,mutant=True)
+        report['causal_mutants'].append({'name':name,'exit_code':code,'required_assertion':ASSERTIONS[name].decode(),'native_process':False,'values_supplied':True})
+    report['source_mutants']=2;report['canonical_suite_receipt']=False
+
 
 
 def verify(directory, inputs, report, total_only=False):
@@ -939,6 +965,7 @@ def verify(directory, inputs, report, total_only=False):
             if marker not in stdout:
                 raise ValueError('missing-admission-peak API mutant missed exact supplied current-member count/classifier cause')
         if name=='pause-stop-exit-ignore-path':report['ignored_path_API']=pause_stop_exit_api_receipt(stdout,mutant=True)
+        if name=='pause-stop-no-reap-category':report['no_reap_category_API_mutant']=pause_quarantine_category_receipt(stdout,mutant=True)
         if name=='custody-stop-ignore-current-RI':
             if b'private_custody_STOP_identity_API_source_known cases=7 accepted_mask=127 expected_mask=1' not in stdout:
                 raise ValueError('custody-STOP identity mutant missed its fresh-RI/failed-admission safety assertion')
@@ -974,6 +1001,7 @@ def verify(directory, inputs, report, total_only=False):
         if name=='member-peak-drop-admission':item.update(native_process=False,values_supplied=True,actual_GS1=False,actual_own_wait4=False,actual_helper_bill=False)
         if name=='same-wake-post-stop-nonblocking-only':item.update(native_process=False,values_supplied=True,actual_STOP=False,actual_native_wait=False,actual_own_wait4=False,OS_latency_claimed=False)
         if name=='pause-stop-exit-ignore-path':item.update(native_process=False,values_supplied=True,actual_signal=False,actual_ownwait4=False,scope='supplied failed STOP/own-reap protocol; native-free predicates, no physical ESRCH claim')
+        if name=='pause-stop-no-reap-category':item.update(native_process=False,values_supplied=True,actual_quarantine_body=False,scope='native-free central category; supplied pending custody, no native quarantine or ownreap')
         report.setdefault('causal_mutants',[]).append(item)
     if not total_only:
         production=directory/'production';production.mkdir(mode=0o700)

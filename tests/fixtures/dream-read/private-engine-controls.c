@@ -981,9 +981,41 @@ static void pause_preobserved_exit_control(const char *self,const char *root,int
     engine_close_transferred(&o);require(close(o.ledger)==0,"actual preobserved terminal ledger close");free(o.capture);
     require(private_end_unit(private_cost.open_cpu),"actual preobserved terminal owner disposal fully paid");controls++;
 }
+// Native-free central quarantine classification. Pending ownership/error
+// facts below are supplied; the actual quarantine body/OS is not invoked.
+static void pause_quarantine_category_api(void) {
+    for(unsigned prior=0;prior<2;prior++) {
+        reset();struct engine_owner o;struct private_engine_result r;memset(&o,0,sizeof(o));memset(&r,0,sizeof(r));o.context=&context;o.result=&r;
+        o.ticket.pid=o.ticket.pgid=100;o.ticket.birth=10;o.ticket.start=20;o.direct_custody=1;
+        o.pause_original_owned=o.pause_pending=o.pause_stop_attempted=1;o.pause_stop_errno=ESRCH;
+        const char *prior_detail="source-known earlier independent settlement failure";
+        if(prior)(void)engine_failure(&o,"settlement_unknown",prior_detail);
+        int classified=engine_pause_quarantine_classify(&o);
+        uint64_t coverage=private_errors[2].count;
+        // This is the existing central quarantine's subsequent error call;
+        // its native custody/checkpoint/recording body is deliberately absent.
+        (void)engine_failure(&o,"settlement_unknown","source-known later quarantine settlement failure");
+        int first_coverage=private_error&&!strcmp(private_error,"coverage_unknown");
+        int first_settlement=private_error&&!strcmp(private_error,"settlement_unknown");
+        const char *expected_detail=prior?prior_detail:"foreground STOP lacks original ownwait4 terminal settlement";
+        int first_preserved=private_detail&&!strcmp(private_detail,expected_detail);
+        int owner_preserved=r.error_code==private_error&&r.error_detail==private_detail;
+        int custody=o.direct_custody&&o.pause_pending&&o.ticket.pid==100&&!o.direct_reaped&&!o.wait_observed;
+        int no_ack=!o.pause_ack_mask,no_resume=!o.pause_resume_attempted&&!o.pause_resume_admitted;
+        require(private_end_unit(private_cost.open_cpu),"central quarantine category API scalar work fully paid");
+        printf("private_pause_quarantine_category_API_source_known case=%u prior_settlement=%u classifier_return=%d coverage_count=%llu settlement_count=%llu first_coverage=%u first_settlement=%u first_detail_preserved=%u owner_first_preserved=%u original_custody_retained=%u supplied_ownwait4=0 ACK_mask=%u resume_attempted=%u helper_cost_retained=%u helper_cost_paid=%u actual_quarantine_body=false native_process=false values_supplied=true actual_signal=false actual_ownwait4=false runtime_approved=false\n",
+            prior,prior,classified,(unsigned long long)coverage,(unsigned long long)private_errors[7].count,(unsigned)first_coverage,(unsigned)first_settlement,
+            (unsigned)first_preserved,(unsigned)owner_preserved,(unsigned)custody,o.pause_ack_mask,o.pause_resume_attempted,o.helper_cost_retained,o.helper_cost_paid);
+        require(fflush(stdout)==0&&private_end_unit(private_cost.open_cpu),"central quarantine category API raw evidence fully paid before verdict");
+        require(!classified&&coverage&&private_errors[7].count&&first_coverage==(int)!prior&&first_settlement==(int)prior
+            &&first_preserved&&owner_preserved&&custody&&no_ack&&no_resume&&!o.helper_cost_retained&&!o.helper_cost_paid,
+            "pending STOP without ownwait4 records coverage_unknown and preserves the first independent error and custody");
+    }
+}
 // Explicit supplied-result protocol projection. All original identity rows,
 // errno, terminal/wait4 times and rusage are inputs, never native observations.
 static void pause_stop_exit_api(void) {
+    pause_quarantine_category_api();
     static const char *const names[]={"esrch_settled","esrch_no_reap","esrch_no_group","einval_settled","eio_settled","eperm_zombie_settled","eperm_live_then_reaped","eperm_unknown_then_reaped","missing_STOP_clock","reversed_STOP_clock","missing_terminal_clock","reversed_terminal_clock","paid_receipt_missing","unknown_CPU","missing_wait4_clock","reversed_wait4_clock"};
     unsigned passed=0;
     for(unsigned which=0;which<16;which++) {
