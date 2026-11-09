@@ -1,0 +1,2 @@
+tests/fixtures/dream-proof-tools/corpus/valid.commit -whitespace
+tests/fixtures/dream-proof-tools/corpus/corrupt.commit -whitespace
