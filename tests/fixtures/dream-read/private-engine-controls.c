@@ -685,6 +685,41 @@ static void hold_fixture_failure_cleanup(void) {
     // A missing identity/status stays explicitly unknown. In particular do
     // not fall through to generic numeric cleanup after a reaped controller.
 }
+// Same retained ledger FD, complete snapshot coverage and cross-chunk or
+// cross-append marker retention. The fixture uses the existing2MiB capture
+// bound; positive reads advance>=1byte, so reads are bounded by that cap too.
+enum {HOLD_LEDGER_CAPTURE_MAX=2u*1024u*1024u,HOLD_LEDGER_READ_BYTES=4096,HOLD_LEDGER_NEEDLE_MAX=64};
+struct hold_ledger_scan {size_t offset,tail_n,steps;uint64_t marker_at;unsigned char tail[HOLD_LEDGER_NEEDLE_MAX];};
+static int hold_ledger_has(int fd,struct hold_ledger_scan *scan,const char *needle) {
+    size_t length=strlen(needle);struct stat st;
+    require(length&&length<=HOLD_LEDGER_NEEDLE_MAX&&scan->tail_n<length&&scan->tail_n<=scan->offset
+        &&scan->offset<=HOLD_LEDGER_CAPTURE_MAX&&scan->steps<=HOLD_LEDGER_CAPTURE_MAX,
+        "bounded held ledger marker scan state");
+    require(fstat(fd,&st)==0&&S_ISREG(st.st_mode)&&st.st_size>=0
+        &&(uint64_t)st.st_size<=HOLD_LEDGER_CAPTURE_MAX&&(uint64_t)st.st_size>=scan->offset,
+        "same held ledger snapshot stays within existing2MiB capture bound");
+    size_t end=(size_t)st.st_size;
+    if(scan->offset==end)require(private_end_unit(private_cost.open_cpu),"empty held ledger observation fully charged and paid");
+    while(scan->offset<end) {
+        require(scan->steps<HOLD_LEDGER_CAPTURE_MAX,"finite held ledger read-step bound");
+        unsigned char bytes[HOLD_LEDGER_READ_BYTES+HOLD_LEDGER_NEEDLE_MAX];
+        size_t take=end-scan->offset;if(take>HOLD_LEDGER_READ_BYTES)take=HOLD_LEDGER_READ_BYTES;
+        memcpy(bytes,scan->tail,scan->tail_n);
+        ssize_t n=pread(fd,bytes+scan->tail_n,take,(off_t)scan->offset);
+        require(n>0&&(size_t)n<=take,"complete held ledger snapshot read from original FD");
+        size_t total=scan->tail_n+(size_t)n;
+        for(size_t i=0;i+length<=total;i++)if(bytes[i]==(unsigned char)needle[0]&&!memcmp(bytes+i,needle,length)) {
+            if(scan->marker_at==UINT64_MAX)scan->marker_at=(uint64_t)(scan->offset-scan->tail_n+i);
+        }
+        size_t keep=total<length-1?total:length-1;
+        memcpy(scan->tail,bytes+total-keep,keep);scan->tail_n=keep;
+        scan->offset+=(size_t)n;scan->steps++;
+        // Each <=4KiB read+bounded search, including initial fstat, ends and
+        // pays its complete actual ordinary cost before another observation.
+        require(private_end_unit(private_cost.open_cpu),"held ledger chunk observation full cost and fresh9x paid");
+    }
+    return scan->marker_at!=UINT64_MAX;
+}
 static void quarantine_hold_process_control(const char *self,const char *root,int dir) {
     reset();
     require(!engine_current&&!dispose_private_engine,"fixture observer starts without another private owner");
@@ -792,9 +827,9 @@ static void quarantine_hold_process_control(const char *self,const char *root,in
         "independent kernel FD snapshot proves original descriptor retained after refusal");
     require(kill(controller,SIGHUP)==0,"actual source-known session-loss stimulus targets only owned controller");
     int ledger=openat(dir,"hold-ledger.ndjson",O_RDONLY|O_NOFOLLOW|O_CLOEXEC);require(ledger>=0,"read exact owned holder ledger");
-    char log[8193];int lost=0;
+    struct hold_ledger_scan loss_scan={.marker_at=UINT64_MAX};int lost=0;
     while(!lost&&clock_ns(CLOCK_MONOTONIC)<observer_deadline) {
-        ssize_t n=pread(ledger,log,sizeof(log)-1,0);require(n>=0,"held owner-loss ledger observation");log[n]=0;lost=strstr(log,"\"phase\":\"owner_lost\"")!=NULL;
+        lost=hold_ledger_has(ledger,&loss_scan,"\"phase\":\"owner_lost\"");
         hold_observer_checkpoint();
         if(!lost){hold_fixture_require_alive(&status,"owner_loss_pending");usleep(1000);}
     }
@@ -811,16 +846,18 @@ static void quarantine_hold_process_control(const char *self,const char *root,in
     while(!joined&&clock_ns(CLOCK_MONOTONIC)<observer_deadline){joined=hold_fixture_wait(&status);require(joined>=0,"owned holder join observation");hold_observer_checkpoint();if(!joined)usleep(1000);}
     require(joined==controller&&WIFEXITED(status)&&WEXITSTATUS(status)==81,"same controller exits only after its own settled refusal");retained_child=0;
     ssize_t n=read(wire[0],refusal,sizeof(refusal));require(n==0,"holder emits exactly one existing result, never a second success");
-    n=pread(ledger,log,sizeof(log)-1,0);require(n>=0,"settled refusal ledger read");log[n]=0;
-    require(strstr(log,"\"phase\":\"settled_refusal_owner_lost\"")!=NULL,"same controller records settled refusal without upgrading the result");
+    struct hold_ledger_scan settled_scan={.marker_at=UINT64_MAX};
+    require(hold_ledger_has(ledger,&settled_scan,"\"phase\":\"settled_refusal_owner_lost\""),"same controller records settled refusal without upgrading the result");
     int group[3],group_error=0;int group_count=native_group_count(info.helper,group,sizeof(group),&group_error);
     require(native_pid_list_empty(group_count,group_error),"independent actual helper group gone after own-controller reap");
     int marker=openat(dir,"hold-control-success",O_RDONLY|O_NOFOLLOW|O_CLOEXEC);char success=0;
     require(marker>=0&&read(marker,&success,1)==1&&success=='1'&&close(marker)==0,"same controller completed every custody and paid-observation assertion");
     dispose_private_engine=NULL;
-    require(close(ledger)==0&&close(wire[0])==0&&close(status_pipe[0])==0,"owned live-holder observer close");
-    printf("private_quarantine_hold_source_known controller=%d helper=%d original_deadline=%llu refusal_received=%llu prompt_before_release=true controller_alive_after_refusal=true original_fd_retained=true child_parent_pin_retained=true owner_lost_recorded=true released_then_controller_own_reap=true group_gone=true exit=81 result_count=1 runtime_approved=false\n",
-        controller,info.helper,(unsigned long long)info.deadline,(unsigned long long)received);controls++;
+    require(close(ledger)==0&&close(wire[0])==0&&close(status_pipe[0])==0&&private_end_unit(private_cost.open_cpu),"owned live-holder observer close");
+    printf("private_quarantine_hold_source_known controller=%d helper=%d original_deadline=%llu refusal_received=%llu prompt_before_release=true controller_alive_after_refusal=true original_fd_retained=true child_parent_pin_retained=true owner_lost_recorded=true released_then_controller_own_reap=true group_gone=true exit=81 result_count=1 ledger_capture_cap_bytes=2097152 ledger_read_chunk_bytes=4096 ledger_owner_loss_bytes=%llu ledger_owner_loss_read_steps=%llu ledger_settled_bytes=%llu ledger_settled_read_steps=%llu ledger_settled_marker_offset=%llu ledger_scan_FD_reopened=false ledger_scan_observations_paid=true runtime_approved=false\n",
+        controller,info.helper,(unsigned long long)info.deadline,(unsigned long long)received,
+        (unsigned long long)loss_scan.offset,(unsigned long long)loss_scan.steps,(unsigned long long)settled_scan.offset,(unsigned long long)settled_scan.steps,(unsigned long long)settled_scan.marker_at);
+    require(fflush(stdout)==0&&private_end_unit(private_cost.open_cpu),"held ledger complete-scan evidence fully paid after actual settlement");controls++;
 }
 
 static void charge_diagnostic_control(int dir) {
@@ -1731,6 +1768,9 @@ static unsigned char same_wake_signature_buffer[4096];
 static char same_wake_gpg_json[8194],same_wake_root[4097];
 static unsigned same_wake_exec_released,same_wake_unstopped_rest,same_wake_ack_seen,same_wake_exit_released;
 static uint64_t same_wake_ack_unit_cpu;
+static unsigned same_wake_delayed_ack,same_wake_delayed_called,same_wake_delayed_result;
+static int same_wake_ack_status,same_wake_ack_runnable;
+static uint64_t same_wake_delayed_requested,same_wake_delayed_calls,same_wake_delayed_wall,same_wake_delayed_end;
 struct same_wake_handoff_row {unsigned stage,steps,phase,pending,attachment_stop,registered,exec_released,result;uint64_t open_cpu,derived_cpu,used,wall_ns;};
 static struct {uint64_t rows,polls,max_used;struct same_wake_handoff_row first,last;} same_wake_handoff;
 static uint64_t same_wake_watch_release_ns;
@@ -1779,13 +1819,16 @@ static void same_wake_rest_observer(void) {
     struct image current;
     if(control_observe(o->members[1].state.pid,&current)&&current.birth==o->members[1].state.birth
         &&current.pgid==o->ticket.pgid&&current.status==SSTOP&&!current.runnable) {
-        same_wake_ack_seen=1;same_wake_ack_unit_cpu=private_cost.last_unit;return;
+        same_wake_ack_seen=1;same_wake_ack_unit_cpu=private_cost.last_unit;
+        same_wake_ack_status=current.status;same_wake_ack_runnable=current.runnable;return;
     }
     // The adversarial scripted verifier exits during an erroneously inserted
     // pre-ACK rest. The real STOP/ACK path leaves it retained across full9x.
     same_wake_unstopped_rest=1;same_wake_create_gate("exit");same_wake_exit_released=1;
 }
 static void same_wake_prepare(struct engine_owner *o,const char *root,int dir) {
+    same_wake_delayed_called=same_wake_delayed_result=0;same_wake_ack_status=same_wake_ack_runnable=0;
+    same_wake_delayed_requested=same_wake_delayed_calls=same_wake_delayed_wall=same_wake_delayed_end=0;
     strcpy(same_wake_root,root);same_wake_exec_released=same_wake_unstopped_rest=same_wake_ack_seen=same_wake_exit_released=0;same_wake_ack_unit_cpu=0;same_wake_watch_release_ns=0;memset(&same_wake_handoff,0,sizeof(same_wake_handoff));same_wake_write_result=-2;same_wake_write_errno=0;same_wake_write_begin_CPU=same_wake_write_end_CPU=0;
     strcpy(outer.output.path,root);outer.output.fd=dir;
     basis.fixture.valid_signature.path=(struct private_slice){(const unsigned char *)"\"valid-signature\"",17};
@@ -1840,6 +1883,21 @@ static void same_wake_copy(int from,const char *source,int to,const char *target
     }
     require(close(input)==0&&close(output)==0&&private_end_unit(private_cost.open_cpu),"same-wake fixture copy final cost and original descriptors paid");
 }
+// Deliberately defer the FIRST closing ACK observation, never a kernel
+// status. One real retained-knote wait uses the exact production wrapper.
+static void same_wake_delay_ack_observation(struct engine_owner *o,unsigned i,pid_t pid,unsigned site) {
+    if(!same_wake_delayed_ack||same_wake_delayed_called||i!=1||site!=2)return;
+    struct engine_member *m=&o->members[1];
+    if(!m->attachment_stop||m->attachment_stop_ack_ns)return;
+    require(pid==m->state.pid&&engine_sample_owned_member(o,1,pid)&&engine_child_watch_matches(o),"delayed ACK observation retains the exact original watched child");
+    same_wake_delayed_called=1;same_wake_delayed_requested=engine_child_handoff_event_wait(0,1);
+    uint64_t calls=m->attachment_wait_calls,wall=m->attachment_wait_wall_ns;
+    same_wake_delayed_result=(unsigned)engine_child_handoff_wait(o,same_wake_delayed_requested);
+    same_wake_delayed_calls=m->attachment_wait_calls>=calls?m->attachment_wait_calls-calls:UINT64_MAX;
+    same_wake_delayed_wall=m->attachment_wait_wall_ns>=wall?m->attachment_wait_wall_ns-wall:UINT64_MAX;
+    same_wake_delayed_end=m->attachment_wait_last_ns;
+    require(same_wake_delayed_result,"actual delayed ACK observation keeps production wait identity RI deadline and STOP bound");
+}
 static void same_wake_handoff_diagnostic(const char *first_code,const char *first_detail) {
     const struct same_wake_handoff_row *first=&same_wake_handoff.first,*last=&same_wake_handoff.last;
     printf("private_same_wake_handoff_diagnostic_source_known first_error=%s first_detail=\"%s\" rows=%llu poll_return_calls=%llu max_open_CPU_ns=%llu first_stage=%u first_phase=%u first_open_CPU_ns=%llu first_CPU_derived_ns=%llu first_wall_unknown_ns=%llu last_stage=%u last_guard_steps=%u last_phase=%u last_pending=%u last_STOP=%u registered_mask=%u exec_gate_released=%u watch_release_ns=%llu last_open_CPU_ns=%llu last_CPU_derived_ns=%llu last_used_CPU_ns=%llu last_wall_unknown_ns=%llu last_result=%u fixture_diagnostic=true callback_clock_queries=0 CPU_coordinate=checked_open_plus_supplied_used_not_fresh_return wall_timestamps_observed=false unknown_coordinate=18446744073709551615 poll_timeout_not_observed=true no_timing_cause_inferred=true runtime_approved=false\n",
@@ -1864,6 +1922,7 @@ static void same_wake_admission_control(const char *self,const char *root,int pa
         &&private_end_unit(private_cost.open_cpu),"prepared original execute FIFO retained and fully paid before helper birth");
     struct engine_owner o;struct private_engine_result r;int status=-1;require(total_spawn(&o,&r,self,dir,27,owned),"same-wake original prepared leader obeys unchanged native and QoS gates");
     source_known_child_watch_bound=same_wake_watch_ready;source_known_child_handoff=same_wake_handoff_retain;private_rest_control=same_wake_rest_observer;
+    if(same_wake_delayed_ack)source_known_before_live_read=same_wake_delay_ack_observation;
     const char *first_code="none",*first_detail="none";
     unsigned handoff_failed=0;
     for(;;) {
@@ -1876,6 +1935,7 @@ static void same_wake_admission_control(const char *self,const char *root,int pa
     }
     unsigned actual_peak_at_admission=r.members_max;
     source_known_child_watch_bound=NULL;source_known_child_handoff=NULL;private_rest_control=NULL;
+    if(same_wake_delayed_ack)source_known_before_live_read=NULL;
     // Ensure the adversarial gap ends with THIS helper parent consuming its
     // child. Failure assertion uses existing exact fixture cleanup, not a new
     // product quarantine-exit or any fabricated child own-wait4.
@@ -1926,6 +1986,20 @@ static void same_wake_admission_control(const char *self,const char *root,int pa
     private_guards.count=0;
     printf("private_same_wake_STOP_axis_source_known positive_ACK_before_first_rest=%u actual_full_unit_CPU_ns=%llu hard_unit_ns=1000000 nominal_target_ns=500000 no_OS_WCET_claim=true runtime_approved=false\n",same_wake_ack_seen,(unsigned long long)same_wake_ack_unit_cpu);
     require(fflush(stdout)==0&&close(dir)==0&&private_end_unit(private_cost.open_cpu),"same-wake exact original fixture disposal fully paid");
+    if(same_wake_delayed_ack) {
+        const struct engine_member *m=&o.members[1];
+        uint64_t begin=same_wake_delayed_wall!=UINT64_MAX&&same_wake_delayed_end>=same_wake_delayed_wall?same_wake_delayed_end-same_wake_delayed_wall:UINT64_MAX;
+        printf("private_delayed_ACK_observation_process_source_known original_pid=%d child_pid=%d fixture_delays_ACK_observation=true OS_slow_STOP_latency_claimed=false actual_native_wait_path=true supplied_request_cap_ns=%llu hook_calls=%u native_wait_calls=%llu measured_wait_begin_ns=%llu measured_wait_return_ns=%llu measured_wait_wall_ns=%llu begin_derived_from_measured_end_minus_delta_wall=true STOP_call_ns=%llu STOP_return_ns=%llu positive_ACK_ns=%llu STOP_to_ACK_ns=%llu first_paid_rest_status=%d first_paid_rest_runnable=%d actual_GS1_GS2=true actual_own_wait4_groupgone=true actual_full_bill_paid=true native_process=true installed_tool_qualification=false runtime_approved=false\n",
+            o.ticket.pid,m->state.pid,(unsigned long long)same_wake_delayed_requested,same_wake_delayed_called,(unsigned long long)same_wake_delayed_calls,
+            (unsigned long long)begin,(unsigned long long)same_wake_delayed_end,(unsigned long long)same_wake_delayed_wall,
+            (unsigned long long)m->attachment_stop_call_ns,(unsigned long long)m->attachment_stop_return_ns,(unsigned long long)m->attachment_stop_ack_ns,(unsigned long long)m->attachment_stop_elapsed_ns,same_wake_ack_status,same_wake_ack_runnable);
+        require(fflush(stdout)==0&&private_end_unit(private_cost.open_cpu),"actual delayed ACK observation evidence fully paid after physical settlement");
+        require(same_wake_delayed_called==1&&same_wake_delayed_result&&same_wake_delayed_requested==1000000&&same_wake_delayed_calls==1
+            &&same_wake_delayed_wall&&same_wake_delayed_wall!=UINT64_MAX&&begin>=m->attachment_stop_return_ns
+            &&m->attachment_stop_ack_ns>=same_wake_delayed_end&&m->attachment_stop_elapsed_ns<=25000000
+            &&same_wake_ack_seen&&same_wake_ack_status==SSTOP&&!same_wake_ack_runnable,
+            "actual retained child bounded wait precedes first genuine closing ACK and unchanged GS1 settlement");
+    }
     // This process witness ran ONE real leader+child. Only its captured live
     // peak is inserted into the full-case CLASSIFIER projection; the other
     // fifteen-command terms are explicitly supplied, never physical claims.
@@ -2001,8 +2075,42 @@ static void same_wake_event_wait_api(void) {
         admitted,(unsigned long long)supplied_CPU,(unsigned long long)supplied_wall,steps,mask,o.child_cost_unproven);
     require(fflush(stdout)==0&&private_end_unit(private_cost.open_cpu),"event-wait API supplied causal evidence fully paid before verdict");
     require(admitted&&engine_child_handoff_headroom(supplied_CPU)&&supplied_wall>=750000&&steps<=64&&mask==31&&!o.child_cost_unproven
-        &&engine_child_handoff_event_wait(1,0)==0&&engine_child_handoff_event_wait(0,1)==0&&engine_child_handoff_event_wait(0,0)<=1000000,
+        &&engine_child_handoff_event_wait(1,0)==0&&engine_child_handoff_event_wait(0,1)==1000000&&engine_child_handoff_event_wait(0,0)<=1000000,
         "bounded event wait admits slow-exec projection without exhausting the unchanged CPU guard");controls++;
+}
+static void same_wake_stop_ack_api(void) {
+    reset();struct engine_owner o;struct private_engine_result r;memset(&o,0,sizeof(o));memset(&r,0,sizeof(r));o.context=&context;o.result=&r;
+    struct engine_member *m=&o.members[1];m->attachment_stop=1;m->attachment_stop_call_ns=100000000;m->attachment_stop_return_ns=100000100;
+    uint64_t supplied_CPU=200000,elapsed=100;unsigned steps=0,admitted=0;
+    while(engine_child_handoff_headroom(supplied_CPU)&&steps<64) {
+        uint64_t request=engine_child_stop_wait_request(&o,m->attachment_stop_call_ns+elapsed,engine_child_handoff_event_wait(0,1));
+        if(request==UINT64_MAX)break;
+        supplied_CPU+=20000;elapsed+=request?1000000:10000;steps++;
+        if(!engine_child_stop_bound(&o,m->attachment_stop_call_ns+elapsed))break;
+        if(elapsed>=3000000){m->attachment_stop_ack_ns=m->attachment_stop_call_ns+elapsed;admitted=(unsigned)engine_child_stop_bound(&o,m->attachment_stop_ack_ns);break;}
+    }
+    if(!admitted)(void)engine_child_unproven(&o,"verifier image admission not retained in bounded same-wake unit");
+    require(private_end_unit(private_cost.open_cpu),"post-STOP delayed ACK API scalar work fully paid");
+    printf("private_stop_ACK_API_source_known case=delayed_ACK admitted=%u supplied_CPU_ns=%llu supplied_STOP_to_ACK_ns=%llu supplied_steps=%u sticky_child_cost_unproven=%u native_process=false values_supplied=true actual_STOP=false actual_native_wait=false actual_own_wait4=false OS_latency_claimed=false runtime_approved=false\n",admitted,(unsigned long long)supplied_CPU,(unsigned long long)elapsed,steps,o.child_cost_unproven);
+    require(fflush(stdout)==0&&private_end_unit(private_cost.open_cpu),"post-STOP supplied delayed ACK evidence fully paid");
+    require(admitted&&steps==3&&supplied_CPU==260000&&elapsed==3000100&&!o.child_cost_unproven,
+        "bounded post-STOP wait admits delayed ACK projection before the unchanged CPU guard");
+    reset();memset(&o,0,sizeof(o));memset(&r,0,sizeof(r));o.context=&context;o.result=&r;m=&o.members[1];
+    m->attachment_stop=1;m->attachment_stop_call_ns=100000000;m->attachment_stop_return_ns=100000100;
+    uint64_t remaining=engine_child_stop_wait_request(&o,124999500,1000000);
+    int at_bound=engine_child_stop_bound(&o,125000000),past_bound=engine_child_stop_bound(&o,125000001);
+    int never_refused=!past_bound&&!m->attachment_stop_ack_ns&&!strcmp(private_error,"coverage_unknown")&&!strcmp(private_detail,"stop ACK not observed within bound");
+    require(private_end_unit(private_cost.open_cpu),"never ACK API retains exact bound refusal and full actual controller cost");
+    printf("private_stop_ACK_API_source_known case=never_ACK at_bound=%u past_bound=%u supplied_STOP_elapsed_ns=%llu remaining_request_ns=%llu distinct_detail=\"%s\" native_process=false values_supplied=true actual_STOP=false actual_native_wait=false actual_own_wait4=false OS_latency_claimed=false runtime_approved=false\n",(unsigned)at_bound,(unsigned)past_bound,(unsigned long long)m->attachment_stop_elapsed_ns,(unsigned long long)remaining,private_detail);
+    require(fflush(stdout)==0&&private_end_unit(private_cost.open_cpu),"never ACK supplied refusal evidence fully paid");
+    require(at_bound&&!past_bound&&never_refused&&remaining==500&&m->attachment_stop_elapsed_ns==25000001,
+        "never ACK production bound refuses after exact25ms with distinct retained detail");
+    reset();memset(&o,0,sizeof(o));memset(&r,0,sizeof(r));o.context=&context;o.result=&r;m=&o.members[1];
+    m->attachment_stop=1;m->attachment_stop_call_ns=100000000;m->attachment_stop_return_ns=100000100;m->attachment_stop_ack_ns=125000000;
+    int exact_ack=engine_child_stop_bound(&o,200000000);m->attachment_stop_ack_ns=125000001;
+    int late_ack=engine_child_stop_bound(&o,200000000);
+    require(private_end_unit(private_cost.open_cpu),"supplied ACK endpoints remain independently bounded and paid");
+    require(exact_ack&&!late_ack&&!strcmp(private_detail,"stop ACK not observed within bound"),"first positive ACK fixes exact STOP interval and later clocks cannot extend or excuse it");controls++;
 }
 static int same_wake_exit_api(void) {
     reset();struct engine_owner o;struct private_engine_result r;memset(&o,0,sizeof(o));memset(&r,0,sizeof(r));o.context=&context;o.result=&r;
@@ -2413,12 +2521,14 @@ int main(int argc,char **argv) {
     unsigned batch=argc==2&&!strcmp(argv[1],"currentness-batch-control");
     unsigned nested_census=argc==2&&!strcmp(argv[1],"nested-census-delivery-control");
     unsigned same_wake=argc==2&&!strcmp(argv[1],"same-wake-admission-control");
+    unsigned delayed_ack=argc==2&&!strcmp(argv[1],"same-wake-delayed-ack-control");
+    unsigned stop_ack_api=argc==2&&!strcmp(argv[1],"same-wake-stop-ack-api");
     unsigned same_wake_api=argc==2&&!strcmp(argv[1],"same-wake-admission-api");
     unsigned event_wait_api=argc==2&&!strcmp(argv[1],"same-wake-event-wait-api");
     unsigned custody_identity=argc==2&&!strcmp(argv[1],"custody-stop-identity-api");
     unsigned exit_before_api=argc==2&&!strcmp(argv[1],"same-wake-exit-api");
     unsigned event_case=argc==3&&!strcmp(argv[1],"verifier-event-control")?(unsigned)strtoul(argv[2],NULL,10):3;
-    require(argc==1||selected<12||diagnostics||setup||deadline||cpu_debt||expand||native_api||native_case<3||race_case<7||event_api||event_case<3||child_exit_api<9||child_exit_process||leader_refresh_api<5||composition||batch||nested_census||same_wake||same_wake_api||event_wait_api||custody_identity||exit_before_api||hold||flow||result_only||final_terms||member_census||member_api||charge||boundary||stopped_api||stopped_process||pause_user_case<2||retained,"private source-known controls argc");
+    require(argc==1||selected<12||diagnostics||setup||deadline||cpu_debt||expand||native_api||native_case<3||race_case<7||event_api||event_case<3||child_exit_api<9||child_exit_process||leader_refresh_api<5||composition||batch||nested_census||same_wake||delayed_ack||stop_ack_api||same_wake_api||event_wait_api||custody_identity||exit_before_api||hold||flow||result_only||final_terms||member_census||member_api||charge||boundary||stopped_api||stopped_process||pause_user_case<2||retained,"private source-known controls argc");
     require(atexit(dispose_owned)==0,"owned cleanup registration");
     char root[]="/private/tmp/dream-private-engine-controls.XXXXXX";require(mkdtemp(root)!=NULL,"owned fixture directory");
     int dir=open(root,O_RDONLY|O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC);require(dir>=0,"owned fixture root");
@@ -2460,6 +2570,8 @@ int main(int argc,char **argv) {
     if(exit_before_api){int code=same_wake_exit_api();require(close(dir)==0,"owned pre-admission EXIT API root close");return code;}
     if(same_wake_api){same_wake_admission_api();require(close(dir)==0,"owned same-wake API root close");return 0;}
     if(same_wake){same_wake_admission_control(self,root,dir);require(close(dir)==0,"owned same-wake root close");return 0;}
+    if(delayed_ack){same_wake_delayed_ack=1;same_wake_admission_control(self,root,dir);require(close(dir)==0,"owned delayed ACK observation root close");return 0;}
+    if(stop_ack_api){same_wake_stop_ack_api();require(close(dir)==0,"owned STOP ACK API root close");return 0;}
     if(nested_census){nested_census_delivery_control();require(close(dir)==0,"owned nested census API root close");return 0;}
     if(composition){sample_unit_composition_control();require(close(dir)==0,"owned unit composition root close");return 0;}
     if(batch){currentness_batch_control(root,dir);require(close(dir)==0,"owned currentness batch root close");return 0;}
@@ -2482,7 +2594,7 @@ int main(int argc,char **argv) {
     for(unsigned mode=0;mode<3;mode++)(void)process_create_wall_control(self,root,dir,mode);
     for(unsigned mode=0;mode<7;mode++)(void)live_sample_race_control(self,root,dir,mode);
     custody_stop_identity_api();
-    same_wake_event_wait_api();(void)same_wake_exit_api();
+    same_wake_event_wait_api();same_wake_stop_ack_api();(void)same_wake_exit_api();
     same_wake_admission_api();
     same_wake_admission_control(self,root,dir);
     member_peak_admission_api();

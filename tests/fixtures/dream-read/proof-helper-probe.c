@@ -2409,6 +2409,7 @@ static __attribute__((unused)) int private_git_sig_release(struct private_git_si
 #define ENGINE_JOB_CPU_NS 3000000000ULL
 #define ENGINE_SAMPLE_NS 50000000ULL
 #define ENGINE_PAUSE_NS 100000000ULL
+#define ENGINE_CHILD_STOP_ACK_NS 25000000ULL
 #define ENGINE_HELPER_RSS (16u*1024u*1024u)
 #define ENGINE_BACKGROUND_PRIORITY 4
 struct engine_ticket {pid_t pid,pgid;uint64_t birth,start;uint16_t sequence;};
@@ -2418,6 +2419,10 @@ struct engine_member {
     struct image state;audit_token_t token;unsigned token_known,phase,live_admitted;
     uint64_t user,system,child_user,child_system,exit_abstime,ri_started_ns,terminal_observed_ns;
     uint32_t exit_status;unsigned exit_status_known,attachment_stop,attachment_ready;
+    int attachment_stop_errno;
+    uint64_t attachment_stop_call_ns,attachment_stop_return_ns,attachment_stop_ack_ns,attachment_stop_elapsed_ns;
+    uint64_t attachment_wait_first_ns,attachment_wait_last_ns,attachment_wait_wall_ns,attachment_wait_max_ns,attachment_wait_calls;
+    uint64_t attachment_wait_ri_begin_ns,attachment_wait_ri_return_ns;
     unsigned exit_note_received,exit_note_witness,terminal_ri_non_esrch;
     uint64_t stopped_ri_ack_ns; // Positive stopped observation BEFORE this sample's RI read.
 };
@@ -2704,9 +2709,31 @@ static int engine_events_poll(struct engine_owner *o,uint64_t wait_ns) {
             uint64_t left=age<ENGINE_SAMPLE_NS?ENGINE_SAMPLE_NS-age:0;if(wait_ns>left)wait_ns=left;
         }
     }
+    struct engine_member *child=&o->members[1];
+    int track_stop_wait=child->attachment_stop&&!child->attachment_stop_ack_ns&&!o->retiring;
+    uint64_t wait_begin=track_stop_wait?engine_now(o,CLOCK_MONOTONIC):0;
+    if(track_stop_wait&&wait_begin==UINT64_MAX)return 0;
     struct timespec timeout={0,(long)wait_ns};struct kevent events[4];errno=0;
     int n=kevent(o->event_fd,NULL,0,events,4,&timeout);int error=n<0?errno:0;
-    uint64_t receipt_ns=n>0?engine_now(o,CLOCK_MONOTONIC):0;o->event_wait_errno=error;
+    o->event_wait_errno=error;
+    uint64_t wait_end=track_stop_wait?engine_now(o,CLOCK_MONOTONIC):0;
+    uint64_t receipt_ns=n>0?(track_stop_wait?wait_end:engine_now(o,CLOCK_MONOTONIC)):0;
+    if(track_stop_wait) {
+        uint64_t elapsed=engine_interval(wait_begin,wait_end),total;
+        if(!child->attachment_wait_first_ns)child->attachment_wait_first_ns=wait_begin;
+        child->attachment_wait_last_ns=wait_end;
+        if(child->attachment_wait_calls==UINT64_MAX) {
+            child->attachment_wait_wall_ns=child->attachment_wait_max_ns=UINT64_MAX;
+            return engine_failure(o,"clock_unknown","post-STOP process-event wait counter overflow");
+        }
+        child->attachment_wait_calls++;
+        if(elapsed==UINT64_MAX||!engine_safe_sum(child->attachment_wait_wall_ns,elapsed,&total)) {
+            child->attachment_wait_wall_ns=child->attachment_wait_max_ns=UINT64_MAX;
+            return engine_failure(o,"clock_unknown","post-STOP process-event wait clocks or accounting unavailable");
+        }
+        child->attachment_wait_wall_ns=total;
+        if(elapsed>child->attachment_wait_max_ns)child->attachment_wait_max_ns=elapsed;
+    }
     if(n<0){if(error==EINTR)return 1;return engine_failure(o,"coverage_unknown","owned process event wait unavailable");}
     if(n>0&&receipt_ns==UINT64_MAX)return 0;
     for(int i=0;i<n;i++)if(!engine_event_note(o,&events[i],receipt_ns))return 0;
@@ -2959,6 +2986,50 @@ static int engine_custody_stop_identity(const struct engine_owner *o,const struc
         &&u->ri_proc_start_abstime==o->members[1].state.start_absolute
         &&u->ri_proc_start_abstime==o->event_watch[1].start&&engine_child_watch_matches(o);
 }
+static int engine_child_stop_bound(struct engine_owner *o,uint64_t now) {
+    struct engine_member *m=&o->members[1];if(!m->attachment_stop)return 1;
+    // Only the FIRST actual positive ACK ends this interval. Later GS1 and
+    // mandatory paid rest never extend a completed STOP-to-ACK measurement.
+    uint64_t end=m->attachment_stop_ack_ns?m->attachment_stop_ack_ns:now;
+    uint64_t elapsed=engine_interval(m->attachment_stop_call_ns,end);
+    if(!m->attachment_stop_call_ns||m->attachment_stop_call_ns==UINT64_MAX||!m->attachment_stop_return_ns
+        ||m->attachment_stop_return_ns==UINT64_MAX||m->attachment_stop_return_ns<m->attachment_stop_call_ns
+        ||elapsed==UINT64_MAX||end<m->attachment_stop_return_ns) {
+        m->attachment_stop_elapsed_ns=UINT64_MAX;
+        return engine_failure(o,"clock_unknown","verifier custody STOP-to-ACK clock unavailable");
+    }
+    if(elapsed>m->attachment_stop_elapsed_ns)m->attachment_stop_elapsed_ns=elapsed;
+    if(elapsed>ENGINE_CHILD_STOP_ACK_NS)return engine_failure(o,"coverage_unknown","stop ACK not observed within bound");
+    return 1;
+}
+static uint64_t engine_child_stop_wait_request(struct engine_owner *o,uint64_t now,uint64_t requested) {
+    if(requested>1000000)requested=1000000;
+    struct engine_member *m=&o->members[1];
+    if(!m->attachment_stop||m->attachment_stop_ack_ns)return requested;
+    if(!engine_child_stop_bound(o,now))return UINT64_MAX;
+    uint64_t remaining=ENGINE_CHILD_STOP_ACK_NS-(now-m->attachment_stop_call_ns);
+    return requested<remaining?requested:remaining;
+}
+static int engine_child_send_stop(struct engine_owner *o,const audit_token_t *token) {
+    struct engine_member *m=&o->members[1];
+    if(m->attachment_stop)return engine_failure(o,"coverage_unknown","verifier custody STOP already consumed");
+    uint64_t begin=engine_now(o,CLOCK_MONOTONIC);if(begin==UINT64_MAX)return 0;
+    m->attachment_stop=1;m->attachment_stop_call_ns=begin;
+    m->attachment_stop_errno=engine_token_signal(token,SIGSTOP);
+    m->attachment_stop_return_ns=engine_now(o,CLOCK_MONOTONIC);
+    if(m->attachment_stop_errno)return engine_failure(o,"coverage_unknown","verifier custody STOP unavailable");
+    return engine_child_stop_bound(o,m->attachment_stop_return_ns);
+}
+static int engine_child_observed_stop_ack(struct engine_owner *o,const struct image *closing) {
+    struct engine_member *m=&o->members[1];
+    if(!m->attachment_stop||m->attachment_stop_ack_ns)return 1;
+    if(!closing->observed_at||closing->observed_at==UINT64_MAX)return engine_failure(o,"clock_unknown","positive verifier custody ACK clock unavailable");
+    if(!engine_sample_gap(o,closing->observed_at))return 0;
+    if(closing->observed_at>=o->context->outer->deadline)return engine_failure(o,"deadline","original deadline expired during verifier custody ACK observation");
+    if(closing->status!=SSTOP||closing->runnable!=0)return engine_child_stop_bound(o,closing->observed_at);
+    m->attachment_stop_ack_ns=closing->observed_at;
+    return engine_child_stop_bound(o,closing->observed_at);
+}
 #ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
 static void (*source_known_before_live_read)(struct engine_owner *,unsigned,pid_t,unsigned);
 static unsigned source_known_live_rechecks;
@@ -3022,8 +3093,7 @@ static int engine_sample_member(struct engine_owner *owner,unsigned i,pid_t pid)
     // the existing one-shot custody STOP. Cached watch/start plus a fresh
     // audit token is not that observation. The closing read supplies ACK.
     if(i&&m->phase!=ENGINE_EXPECTED&&!m->attachment_stop&&!strcmp(path,owner->descendant)&&engine_custody_stop_identity(owner,&u)) {
-        m->attachment_stop=1;int error=engine_token_signal(&token,SIGSTOP);
-        if(error)return engine_failure(owner,"coverage_unknown","verifier custody STOP unavailable");
+        if(!engine_child_send_stop(owner,&token))return 0;
     }
     if(!i)owner->child_rollup_read_ns=owner->ri_end_ns[i];
     struct image closing;
@@ -3037,6 +3107,7 @@ static int engine_sample_member(struct engine_owner *owner,unsigned i,pid_t pid)
     }
     if(closing.birth!=current.birth||closing.ppid!=current.ppid||closing.pgid!=current.pgid||closing.uid!=current.uid||closing.threads!=1||closing.runnable>1)return engine_failure(owner,"coverage_unknown","post-RI member identity continuity unavailable");
     if(!engine_priority(owner,i,&closing))return 0;
+    if(i&&!engine_child_observed_stop_ack(owner,&closing))return 0;
     m->state.status=closing.status;m->state.runnable=closing.runnable;m->state.rss=closing.rss;
     // The opening positive ACK precedes RI; the closing read corroborates
     // that the SAME epoch stayed stopped. A closing-only STOP needs the next
@@ -3052,7 +3123,9 @@ static int engine_sample_member(struct engine_owner *owner,unsigned i,pid_t pid)
     }
     // Retain the prior actual begin through BOTH bounds. A40ms inter-start
     // interval plus20ms inside this query must not become two passing checks.
-    m->ri_started_ns=ri_started;
+    // A same-unit post-STOP event wait may have taken a newer genuine RI
+    // observation. Never replace that real cut with this older opening read.
+    if(m->ri_started_ns<ri_started)m->ri_started_ns=ri_started;
     if(i&&!engine_events_register(owner,i,pid))return 0;
 #ifdef DREAM_PRIVATE_SOURCE_KNOWN_CONTROLS
     if(i&&source_known_child_watch_bound)source_known_child_watch_bound(owner);
@@ -3069,7 +3142,7 @@ static int engine_sample_member(struct engine_owner *owner,unsigned i,pid_t pid)
             // it precedes the verifier's first admitted continuation.
             if(!m->attachment_stop) {
                 if(!engine_custody_stop_identity(owner,&u))return engine_failure(owner,"coverage_unknown","verifier custody STOP lacks fresh original live RI identity");
-                m->attachment_stop=1;int error=engine_token_signal(&token,SIGSTOP);if(error)return engine_failure(owner,"coverage_unknown","verifier custody STOP unavailable");return 1;
+                if(!engine_child_send_stop(owner,&token))return 0;return 1;
             }
             if(m->state.status!=SSTOP||m->state.runnable!=0)return 1;
             if(!engine_unit_cut(owner,ENGINE_MEMBER_GS1))return 0;
@@ -3240,11 +3313,48 @@ static int engine_live_budget(struct engine_owner *owner) {
 static int engine_child_admission_open(const struct engine_owner *o) {
     return o->child_created&&!o->child_image_admitted&&o->members[1].phase!=ENGINE_EXPECTED;
 }
-static uint64_t engine_child_handoff_event_wait(unsigned pending,unsigned stop_sent) {return pending||stop_sent?0:1000000;}
+static uint64_t engine_child_handoff_event_wait(unsigned pending,unsigned stop_sent) {(void)stop_sent;return pending?0:1000000;}
 static int engine_child_handoff_headroom(uint64_t used) {return used!=UINT64_MAX&&used<400000;}
 static int engine_child_admission_terminal_guard(struct engine_owner *o) {
     if(engine_child_admission_open(o)&&(o->members[1].exit_note_received||o->members[1].phase==ENGINE_EXITED))
         return engine_child_unproven(o,"verifier exited before admission");
+    return 1;
+}
+static int engine_child_handoff_wait(struct engine_owner *o,uint64_t requested) {
+    uint64_t used=engine_interval(private_cost.open_cpu,engine_now(o,CLOCK_THREAD_CPUTIME_ID));
+    if(!engine_child_handoff_headroom(used))return engine_failure(o,"coverage_unknown","verifier image admission not retained in bounded same-wake unit");
+    uint64_t now=engine_now(o,CLOCK_MONOTONIC);if(now==UINT64_MAX)return 0;
+    uint64_t wait=engine_child_stop_wait_request(o,now,requested);if(wait==UINT64_MAX)return 0;
+    int polled=engine_events_poll(o,wait);
+    uint64_t returned=engine_now(o,CLOCK_MONOTONIC);
+    if(!polled||returned==UINT64_MAX)return 0;
+    // Requested timeout is never evidence of elapsed time or timely return.
+    // Keep original RI starts and reject actual overshoot before dispatch.
+    if(!engine_sample_gap(o,returned))return 0;
+    if(returned>=o->context->outer->deadline)return engine_failure(o,"deadline","original deadline expired during verifier event wait");
+    if(o->retiring||o->group_kill_pending||o->pause_pending||engine_cancel_signal)return engine_failure(o,"cancelled","verifier same-wake image admission lost original authority");
+    if(!engine_child_admission_terminal_guard(o)||!engine_child_stop_bound(o,returned))return 0;
+    struct engine_member *m=&o->members[1];
+    if(m->attachment_stop&&!m->attachment_stop_ack_ns) {
+        if(!engine_sample_owned_member(o,1,m->state.pid)||!engine_child_watch_matches(o))return engine_failure(o,"coverage_unknown","post-STOP wait lost original verifier RI identity");
+        uint64_t begin=engine_now(o,CLOCK_MONOTONIC);if(!engine_ri_begin(o,1,begin))return 0;
+        m->attachment_wait_ri_begin_ns=begin;
+        struct rusage_info_v1 u;errno=0;
+        int result=proc_pid_rusage(m->state.pid,RUSAGE_INFO_V1,(rusage_info_t *)&u);int error=result?errno:0;
+        uint64_t end=engine_now(o,CLOCK_MONOTONIC);
+        m->attachment_wait_ri_return_ns=end;
+        if(!engine_ri_end(o,1,end))return 0;
+        if(result!=0) {
+            // Preserve EXIT-before-ACK classification if its retained knote
+            // arrived during the failed RI; no errno alone proves exit.
+            if(error==ESRCH&&(!engine_events_poll(o,0)||!engine_child_admission_terminal_guard(o)))return 0;
+            return engine_failure(o,"coverage_unknown","post-STOP wait verifier resource snapshot unavailable");
+        }
+        if(!engine_usage(o,1,&u)||!engine_sample_gap(o,end))return 0;
+        if(end>=o->context->outer->deadline)return engine_failure(o,"deadline","original deadline expired during post-STOP verifier RI");
+        if(!engine_child_stop_bound(o,end))return 0;
+        m->ri_started_ns=begin;
+    }
     return 1;
 }
 static int engine_child_capture_same_unit(struct engine_owner *o,pid_t pid,int (*sample)(struct engine_owner *,unsigned,pid_t)) {
@@ -3272,7 +3382,7 @@ static int engine_sample_child_same_wake(struct engine_owner *o,pid_t pid) {
         // This native wait observes the original retained child knote in
         // the SAME open CPU span. It is never paid rest or a blind sleep.
         // events_poll clamps each <=1ms request to original deadline/RI age.
-        int polled=engine_events_poll(o,engine_child_handoff_event_wait(o->child_event_pending,o->members[1].attachment_stop));
+        int polled=engine_child_handoff_wait(o,engine_child_handoff_event_wait(o->child_event_pending,o->members[1].attachment_stop));
         engine_child_handoff_diag(o,5,steps,used,polled);if(!polled)return 0;
         // A wait return does not prove timeliness or refresh an RI timestamp.
         // Returned notes are retained raw; no new image/STOP/ACK admission
@@ -3437,7 +3547,7 @@ static int engine_ri_record(struct engine_owner *o) {
     return engine_write_record(o,line,n);
 }
 static int engine_child_record(struct engine_owner *o) {
-    char line[1536];int n=snprintf(line,sizeof(line),"{\"kind\":\"retained_child_accounting\",\"child_created\":%u,\"child_pid\":%d,\"child_birth\":%llu,\"child_start\":%llu,\"child_token_version\":%u,\"child_image_admitted\":%u,\"terminal_observed_ns\":%llu,\"child_terminal_user_raw\":%llu,\"child_terminal_system_raw\":%llu,\"child_exit_abstime\":%llu,\"child_exit_witness\":\"%s\",\"leader_rollup_read_ns\":%llu,\"leader_rollup_user_raw\":%llu,\"leader_rollup_system_raw\":%llu,\"rollup_mask\":%u,\"rollup_proven\":%u,\"child_cost_unproven\":%u,\"escaped_cleanup_checks\":%u,\"escaped_kill_attempts\":%u,\"escaped_kill_failures\":%u,\"escaped_kill_errno\":%d,\"group_kill_not_attempted_terminal\":%u,\"unproven_child_billed_as_leader\":false,\"runtime_approved\":false}\n",o->child_created,o->members[1].state.pid,(unsigned long long)o->members[1].state.birth,(unsigned long long)o->members[1].state.start_absolute,o->members[1].token.val[7],o->child_image_admitted,(unsigned long long)o->members[1].terminal_observed_ns,(unsigned long long)o->members[1].user,(unsigned long long)o->members[1].system,(unsigned long long)o->members[1].exit_abstime,o->members[1].exit_abstime?"ri":o->members[1].exit_note_witness?"kqueue_note_exit":"none",(unsigned long long)o->child_rollup_read_ns,(unsigned long long)o->child_rollup_user,(unsigned long long)o->child_rollup_system,o->child_rollup_mask,o->child_rollup_known,o->child_cost_unproven,o->escaped_cleanup_checks,o->escaped_kill_attempts,o->escaped_kill_failures,o->escaped_kill_errno,o->group_kill_not_attempted_terminal);
+    char line[2304];int n=snprintf(line,sizeof(line),"{\"kind\":\"retained_child_accounting\",\"child_created\":%u,\"child_pid\":%d,\"child_birth\":%llu,\"child_start\":%llu,\"child_token_version\":%u,\"child_image_admitted\":%u,\"custody_stop_call_ns\":%llu,\"custody_stop_return_ns\":%llu,\"custody_stop_ack_ns\":%llu,\"custody_stop_to_ack_ns\":%llu,\"custody_stop_errno\":%d,\"post_stop_wait_first_ns\":%llu,\"post_stop_wait_last_ns\":%llu,\"post_stop_wait_wall_ns\":%llu,\"max_actual_wait_ns\":%llu,\"post_stop_wait_calls\":%llu,\"post_stop_wait_RI_begin_ns\":%llu,\"post_stop_wait_RI_return_ns\":%llu,\"stop_ack_bound_ns\":25000000,\"post_stop_wait_wall_is_actual\":true,\"terminal_observed_ns\":%llu,\"child_terminal_user_raw\":%llu,\"child_terminal_system_raw\":%llu,\"child_exit_abstime\":%llu,\"child_exit_witness\":\"%s\",\"leader_rollup_read_ns\":%llu,\"leader_rollup_user_raw\":%llu,\"leader_rollup_system_raw\":%llu,\"rollup_mask\":%u,\"rollup_proven\":%u,\"child_cost_unproven\":%u,\"escaped_cleanup_checks\":%u,\"escaped_kill_attempts\":%u,\"escaped_kill_failures\":%u,\"escaped_kill_errno\":%d,\"group_kill_not_attempted_terminal\":%u,\"unproven_child_billed_as_leader\":false,\"runtime_approved\":false}\n",o->child_created,o->members[1].state.pid,(unsigned long long)o->members[1].state.birth,(unsigned long long)o->members[1].state.start_absolute,o->members[1].token.val[7],o->child_image_admitted,(unsigned long long)o->members[1].attachment_stop_call_ns,(unsigned long long)o->members[1].attachment_stop_return_ns,(unsigned long long)o->members[1].attachment_stop_ack_ns,(unsigned long long)o->members[1].attachment_stop_elapsed_ns,o->members[1].attachment_stop_errno,(unsigned long long)o->members[1].attachment_wait_first_ns,(unsigned long long)o->members[1].attachment_wait_last_ns,(unsigned long long)o->members[1].attachment_wait_wall_ns,(unsigned long long)o->members[1].attachment_wait_max_ns,(unsigned long long)o->members[1].attachment_wait_calls,(unsigned long long)o->members[1].attachment_wait_ri_begin_ns,(unsigned long long)o->members[1].attachment_wait_ri_return_ns,(unsigned long long)o->members[1].terminal_observed_ns,(unsigned long long)o->members[1].user,(unsigned long long)o->members[1].system,(unsigned long long)o->members[1].exit_abstime,o->members[1].exit_abstime?"ri":o->members[1].exit_note_witness?"kqueue_note_exit":"none",(unsigned long long)o->child_rollup_read_ns,(unsigned long long)o->child_rollup_user,(unsigned long long)o->child_rollup_system,o->child_rollup_mask,o->child_rollup_known,o->child_cost_unproven,o->escaped_cleanup_checks,o->escaped_kill_attempts,o->escaped_kill_failures,o->escaped_kill_errno,o->group_kill_not_attempted_terminal);
     return engine_write_record(o,line,n);
 }
 static int engine_census_record(struct engine_owner *o) {

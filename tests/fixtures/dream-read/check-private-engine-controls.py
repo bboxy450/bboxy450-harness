@@ -49,6 +49,7 @@ ASSERTIONS = {
  'final-conjunction-drop-term': b'final conjunction ledger contains every boolean term and first failing name',
  'custody-stop-ignore-current-RI': b'fresh current RI and sticky admission state gate the one verifier custody STOP',
  'same-wake-nonblocking-only': b'bounded event wait admits slow-exec projection without exhausting the unchanged CPU guard',
+ 'same-wake-post-stop-nonblocking-only': b'bounded post-STOP wait admits delayed ACK projection before the unchanged CPU guard',
  'same-wake-insert-pre-stop-rest': b'same-wake admission API keeps pre-STOP window open until positive custody ACK',
  'census-clear-new-delivery': b'observing census consumes only old coalesced wake and preserves every nested new delivery',
  'sample-old-combined-unit': b'retained-child sample composition closes every full-cost phase before the one millisecond hard bound',
@@ -353,8 +354,10 @@ def variants(source):
         b'if(i==7)continue;n=snprintf(bytes+used,capacity-used,"\\\"%s\\\":%s,",engine_final_term_names[i],c->term[i]?"true":"false");', ['final-conjunction-controls'])
     add('custody-stop-ignore-current-RI', b'return !o->failed&&u&&u->ri_proc_start_abstime&&!u->ri_proc_exit_abstime\n        &&u->ri_proc_start_abstime==o->members[1].state.start_absolute\n        &&u->ri_proc_start_abstime==o->event_watch[1].start&&engine_child_watch_matches(o);',
         b'(void)o;(void)u;return 1;', ['custody-stop-identity-api'])
-    add('same-wake-nonblocking-only', b'static uint64_t engine_child_handoff_event_wait(unsigned pending,unsigned stop_sent) {return pending||stop_sent?0:1000000;}',
+    add('same-wake-nonblocking-only', b'static uint64_t engine_child_handoff_event_wait(unsigned pending,unsigned stop_sent) {(void)stop_sent;return pending?0:1000000;}',
         b'static uint64_t engine_child_handoff_event_wait(unsigned pending,unsigned stop_sent) {(void)pending;(void)stop_sent;return 0;}', ['same-wake-event-wait-api'])
+    add('same-wake-post-stop-nonblocking-only', b'static uint64_t engine_child_handoff_event_wait(unsigned pending,unsigned stop_sent) {(void)stop_sent;return pending?0:1000000;}',
+        b'static uint64_t engine_child_handoff_event_wait(unsigned pending,unsigned stop_sent) {return pending||stop_sent?0:1000000;}', ['same-wake-stop-ack-api'])
     add('same-wake-insert-pre-stop-rest', b'return sample(o,1,pid);',
         b'int observed=sample(o,1,pid);return observed&&engine_checkpoint(o);', ['same-wake-admission-api'])
     add('census-clear-new-delivery', b'if(observe)o->child_event_pending=0;\n    return census(o,2,observe);',
@@ -526,7 +529,7 @@ def stopped_cadence_receipt(stdout):
 
 
 def retain_current(stdout, report):
-    found=re.findall(rb'private_engine_controls=pass cases=112 total_budget_controls=8 synthetic_source_known=true real_candidate_created=0 runtime_approved=false retained=(/private/tmp/dream-private-engine-controls\.[A-Za-z0-9]+)\n',stdout)
+    found=re.findall(rb'private_engine_controls=pass cases=113 total_budget_controls=8 synthetic_source_known=true real_candidate_created=0 runtime_approved=false retained=(/private/tmp/dream-private-engine-controls\.[A-Za-z0-9]+)\n',stdout)
     if len(found)!=1:
         raise ValueError('current fixture lacks exact112 remaining controls and eight total-budget witnesses')
     if os.fsdecode(found[0]) != report['commands'][-1]['fixture_capture']['source_dir']:
@@ -679,7 +682,11 @@ def retain_current(stdout, report):
     member_api=b'private_members_peak_admission_API_source_known cases=1 retained_live_count=2 members_max=2 exact_current_rows_supplied=2 final_conjunction_passed=true first_failing_term="none" final_error_code=none other_final_terms_supplied=true helper_births=0 native_process=false values_supplied=true actual_GS1=false actual_GS2=false actual_own_wait4=false actual_group_gone=false actual_helper_bill=false OS_timing_claimed=false full15_physical_run_claimed=false runtime_approved=false\n'
     if stdout.count(member_api)!=1:raise ValueError('supplied production member admission/count/final-classifier API positive missing or duplicated')
     report['member_peak_admission_API']={'cases':1,'retained_live_count':2,'members_max':2,'native_process':False,'values_supplied':True,'actual_own_wait4':False,'other_final_terms':'supplied; no full15 physical claim'}
-    report['baseline_cases']=112
+    report['baseline_cases']=113
+    stop_ack=b'private_stop_ACK_API_source_known case=delayed_ACK admitted=1 supplied_CPU_ns=260000 supplied_STOP_to_ACK_ns=3000100 supplied_steps=3 sticky_child_cost_unproven=0 native_process=false values_supplied=true actual_STOP=false actual_native_wait=false actual_own_wait4=false OS_latency_claimed=false runtime_approved=false\n'
+    never_ack=b'private_stop_ACK_API_source_known case=never_ACK at_bound=1 past_bound=0 supplied_STOP_elapsed_ns=25000001 remaining_request_ns=500 distinct_detail="stop ACK not observed within bound" native_process=false values_supplied=true actual_STOP=false actual_native_wait=false actual_own_wait4=false OS_latency_claimed=false runtime_approved=false\n'
+    if stdout.count(stop_ack)!=1 or stdout.count(never_ack)!=1:raise ValueError('supplied post-STOP delayed/never ACK causal APIs missing or misclassified')
+    report['post_STOP_ACK_API']={'grouped_cases':3,'native_process':False,'values_supplied':True,'actual_STOP':False,'actual_native_wait':False,'OS_latency_claimed':False,'bound_ns':25000000,'exact_bound_positive':True,'past_bound_refusal_detail':'stop ACK not observed within bound'}
     report['stopped_cadence_actual_process']=stopped_cadence_receipt(stdout)
     USER_rows=re.findall(rb'private_pause_USER_only_API_source_known mode=([01]) observed_accepted=0 expected_refused=true SYSTEM_before_raw=200 SYSTEM_after_raw=200 SYSTEM_violation=0 USER_violation=1 full_known_cost_supplied_ns=10000000 helper_debt_delta_ns=90000000 helper_cost_retained=1 helper_cost_paid=1 helper_births=0 actual_own_wait4=false native_process=false values_supplied=true OS_CPU_claimed=false runtime_approved=false',stdout)
     if sorted(map(int,USER_rows))!=[0,1]:raise ValueError('USER-only production API live/terminal refusals lack isolated SYSTEM-stable supplied vectors')
@@ -732,6 +739,34 @@ def retain_current(stdout, report):
         raise ValueError('current same-controller prompt/refusal/FD/owner-loss witness missing')
 
 
+def delayed_ack_observation_receipt(stdout, command):
+    prefix=b'private_delayed_ACK_observation_process_source_known '
+    lines=[line[len(prefix):] for line in stdout.splitlines() if line.startswith(prefix)]
+    if len(lines)!=1:raise ValueError('one actual delayed-ACK-observation process witness required')
+    fields=dict(part.decode('ascii').split('=',1) for part in lines[0].split())
+    for key in ('fixture_delays_ACK_observation','actual_native_wait_path','begin_derived_from_measured_end_minus_delta_wall','actual_GS1_GS2','actual_own_wait4_groupgone','actual_full_bill_paid','native_process'):
+        if fields.get(key)!='true':raise ValueError('delayed ACK process lost required actual premise '+key)
+    for key in ('OS_slow_STOP_latency_claimed','installed_tool_qualification','runtime_approved'):
+        if fields.get(key)!='false':raise ValueError('delayed ACK process overclaims '+key)
+    def number(key):return int(fields[key])
+    begin,end,wall=(number(k) for k in ('measured_wait_begin_ns','measured_wait_return_ns','measured_wait_wall_ns'))
+    sent,returned,ack,elapsed=(number(k) for k in ('STOP_call_ns','STOP_return_ns','positive_ACK_ns','STOP_to_ACK_ns'))
+    if not (0<sent<=returned<=begin<end<=ack and end-begin==wall and ack-sent==elapsed<=25000000
+            and number('supplied_request_cap_ns')==1000000 and number('hook_calls')==number('native_wait_calls')==1
+            and number('first_paid_rest_status')==4 and number('first_paid_rest_runnable')==0):
+        raise ValueError('actual bounded wait/first real ACK endpoints or raw stopped status disagree')
+    completed=[line for line in stdout.splitlines() if line.startswith(b'private_same_wake_admission_completed_source_known ')]
+    if len(completed)!=1:raise ValueError('actual delayed ACK process lacks original GS1/GS2/reap/bill receipt')
+    bill=dict(part.decode('ascii').split('=',1) for part in completed[0].split()[1:])
+    if not (int(bill['original_pid'])==number('original_pid') and int(bill['child_pid'])==number('child_pid')
+            and all(bill[k]=='1' for k in ('child_image_admitted','GS1_bound','GS2_settled','actual_own_wait4','group_gone'))
+            and bill['rollup_mask']=='31' and int(bill['helper_debt_delta_ns'])==9*max(1000000,int(bill['helper_CPU_ns']))
+            and int(bill['debt_ns'])==int(bill['paid_ns'])):
+        raise ValueError('delayed ACK original helper cost/custody/rollup or full9x bill disagrees')
+    return {'scope':'fixture deliberately delays first closing ACK observation through one actual production bounded knote wait; no OS slow-stop latency claim',
+            'actual':fields,'bill':bill,'stdout':command['stdout'],'fixture_capture':command['fixture_capture']}
+
+
 def verify(directory, inputs, report, total_only=False):
     source=inputs[str(SOURCE)]
     current=directory/'current';current.mkdir(mode=0o700)
@@ -753,6 +788,10 @@ def verify(directory, inputs, report, total_only=False):
         code,stdout,stderr=run([str(program)],current,'controls',report,fixture=True)
         expect(code,0,'current remaining source-known controls')
         retain_current(stdout,report)
+        code,delayed_stdout,_=run([str(program),'same-wake-delayed-ack-control'],current,'delayed-ACK-observation-positive',report,fixture=True)
+        expect(code,0,'actual first-ACK-observation delay through production bounded retained-knote wait')
+        report['delayed_ACK_observation_process']=delayed_ack_observation_receipt(delayed_stdout,report['commands'][-1])
+        report['process_ledgers']+=report['commands'][-1]['fixture_capture']['files']
         code,_,_=run([str(program),'diagnostic-setup-budget-control'],current,'own-thread-negative',report,fixture=True)
         expect(code,0,'actual over-budget own-thread cost/debt negative')
         for mode in (1,2):
@@ -824,6 +863,9 @@ def verify(directory, inputs, report, total_only=False):
             marker=b'private_same_wake_event_wait_API_source_known admitted=0 supplied_CPU_ns=400000 supplied_elapsed_ns=100000 supplied_steps=10 supplied_rollup_mask=30 sticky_child_cost_unproven=1 native_process=false values_supplied=true OS_CPU_claimed=false runtime_approved=false\n'
             if marker not in stdout:
                 raise ValueError('nonblocking-only API mutant missed unchanged400us-headroom refusal cause')
+        if name=='same-wake-post-stop-nonblocking-only':
+            marker=b'private_stop_ACK_API_source_known case=delayed_ACK admitted=0 supplied_CPU_ns=400000 supplied_STOP_to_ACK_ns=100100 supplied_steps=10 sticky_child_cost_unproven=1 native_process=false values_supplied=true actual_STOP=false actual_native_wait=false actual_own_wait4=false OS_latency_claimed=false runtime_approved=false\n'
+            if marker not in stdout:raise ValueError('post-STOP zero-timeout API mutant missed unchanged400us refusal before suppliedACK')
         if name=='same-wake-insert-pre-stop-rest':
             marker=b'private_same_wake_admission_API_source_known captured=1 closed_paid_unit_before_ACK=1 supplied_stopped_ACK=0 supplied_GS1=0 supplied_rollup_mask=30 sticky_child_cost_unproven=1 native_process=false values_supplied=true actual_GS1=false actual_own_wait4=false runtime_approved=false\n'
             if marker not in stdout:
@@ -842,9 +884,12 @@ def verify(directory, inputs, report, total_only=False):
             scope='supplied USER-only production API; SYSTEM fixed; no native process/RI/ownwait4/OS CPU claim'
         if name=='member-peak-drop-admission':
             scope='supplied exact-current live member admission/count/final-classifier API; no native process, GS1, reap, OS timing or helper-bill claim'
+        if name=='same-wake-post-stop-nonblocking-only':
+            scope='supplied production post-STOP wait/bound API; no actual STOP/native wait/ownwait4/OS latency claim'
         item={'name':name,'exit_code':code,'required_assertion':ASSERTIONS[name].decode(),'scope':scope}
         if name in ('total-pause-live-user','total-pause-terminal-user'):item.update(native_process=False,values_supplied=True,actual_own_wait4=False)
         if name=='member-peak-drop-admission':item.update(native_process=False,values_supplied=True,actual_GS1=False,actual_own_wait4=False,actual_helper_bill=False)
+        if name=='same-wake-post-stop-nonblocking-only':item.update(native_process=False,values_supplied=True,actual_STOP=False,actual_native_wait=False,actual_own_wait4=False,OS_latency_claimed=False)
         report.setdefault('causal_mutants',[]).append(item)
     if not total_only:
         production=directory/'production';production.mkdir(mode=0o700)
