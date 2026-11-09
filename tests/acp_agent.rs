@@ -175,8 +175,13 @@ async fn steering_setup(scenario: &str) -> (Fake, Subscription) {
         .unwrap();
     loop {
         let event = next(&mut sub).await;
-        if matches!(&event.event, Event::ItemStarted { kind: ItemKind::AgentMessage, .. })
-        {
+        if matches!(
+            &event.event,
+            Event::ItemStarted {
+                kind: ItemKind::AgentMessage,
+                ..
+            }
+        ) {
             return (f, sub);
         }
     }
@@ -404,12 +409,21 @@ async fn a_text_turn_maps_thought_message_and_plan_and_ends_once() {
     assert!(items.iter().any(|(_, b)| matches!(b, Item::Plan { entries } if entries.len() == 1 && entries[0].text == "say hello")));
     // Metadata updates are kept by the agent, not shown as notices. The
     // built-in Python MCP service reports its own normal startup separately.
-    assert!(!items.iter().any(|(_, body)| match body {
-        Item::Notice { level: Level::Info, text }
-            if matches!(text.as_str(), "mcp bboxy_python: starting" | "mcp bboxy_python: ready") => false,
-        Item::Notice { .. } => true,
-        _ => false,
-    }), "unexpected notices: {items:?}");
+    assert!(
+        !items.iter().any(|(_, body)| match body {
+            Item::Notice {
+                level: Level::Info,
+                text,
+            } if matches!(
+                text.as_str(),
+                "mcp bboxy_python: starting" | "mcp bboxy_python: ready"
+            ) =>
+                false,
+            Item::Notice { .. } => true,
+            _ => false,
+        }),
+        "unexpected notices: {items:?}"
+    );
     assert_eq!(ended(&log), vec![StopReason::EndTurn]);
     assert!(log.iter().any(|e| matches!(&e.event, Event::ProfileChanged { model, .. } if model.starts_with("acp:python3"))));
 }
@@ -462,6 +476,81 @@ async fn a_face_approves_a_permission_and_unsupported_requests_get_32601() {
             ..
         }
     )));
+    assert_eq!(ended(&log), vec![StopReason::EndTurn]);
+}
+
+// An agent's question (ACP form elicitation, as AskUserQuestion bridges it) is a
+// Question item the session waits on like an approval; a face's answer reaches
+// the agent as the elicitation result (operator, 2026-11-09).
+#[tokio::test]
+async fn a_face_answers_an_agents_question_and_the_agent_receives_it() {
+    let f = fake("question", Unattended::Deny).await;
+    let mut sub = subscribe(&f.gateway, true);
+    f.gateway
+        .send(support::prompt(&f.gateway, "set up storage"))
+        .unwrap();
+    let mut asked = None;
+    loop {
+        let e = next(&mut sub).await;
+        match &e.event {
+            Event::ItemSnapshot {
+                item,
+                partial:
+                    Item::Question {
+                        message,
+                        schema,
+                        answer: None,
+                    },
+            } => {
+                assert_eq!(message, "Which database?");
+                assert_eq!(
+                    schema["properties"]["question_0"]["oneOf"][1]["const"],
+                    "SQLite"
+                );
+                asked = Some(*item);
+            }
+            Event::Status {
+                phase: Phase::Approval { item },
+            } if Some(*item) == asked => {
+                let unknown = f.gateway.send(support::op(
+                    &f.gateway,
+                    Op::AnswerQuestion {
+                        question: *item,
+                        answer: serde_json::json!({"action": "maybe"}),
+                    },
+                ));
+                assert!(unknown.is_ok());
+                f.gateway
+                    .send(support::op(
+                        &f.gateway,
+                        Op::AnswerQuestion {
+                            question: *item,
+                            answer: serde_json::json!({"action": "accept", "content": {"question_0": "SQLite"}}),
+                        },
+                    ))
+                    .unwrap();
+                break;
+            }
+            _ => {}
+        }
+    }
+    until_end(&mut sub).await;
+    let log = close(f).await;
+    let items = completed(&log);
+    assert!(
+        items
+            .iter()
+            .any(|(_, b)| matches!(b, Item::AgentMessage { markdown }
+        if markdown == r#"answer {"action": "accept", "content": {"question_0": "SQLite"}}"#)),
+        "{items:?}"
+    );
+    assert!(items.iter().any(|(s, b)| matches!(s, ItemStatus::Completed)
+        && matches!(b, Item::Question { answer: Some(a), .. } if a["content"]["question_0"] == "SQLite")));
+    assert!(
+        log.iter()
+            .any(|e| matches!(&e.event, Event::OpRejected { .. })),
+        "an unknown action is refused"
+    );
     assert_eq!(ended(&log), vec![StopReason::EndTurn]);
 }
 
@@ -1188,12 +1277,22 @@ async fn session_gauges_rearm_the_quiet_deadline_of_an_open_agent_turn() {
     );
     let last_gauge = events
         .iter()
-        .rfind(|e| matches!(e.event, Event::ItemCompleted { body: Item::Usage { .. }, .. }))
+        .rfind(|e| {
+            matches!(
+                e.event,
+                Event::ItemCompleted {
+                    body: Item::Usage { .. },
+                    ..
+                }
+            )
+        })
         .unwrap()
         .ts_ms;
     let end = events.last().unwrap();
-    assert!(end.ts_ms.saturating_sub(last_gauge) >= 200,
-        "quiet deadline was not rearmed by the final gauge");
+    assert!(
+        end.ts_ms.saturating_sub(last_gauge) >= 200,
+        "quiet deadline was not rearmed by the final gauge"
+    );
     assert!(
         matches!(end.event, Event::TurnEnded { reason: StopReason::Quiet { ms }, .. } if ms >= 200)
     );
@@ -1245,18 +1344,37 @@ async fn oversized_json_result_spills_before_publication_and_keeps_actor_alive()
     for prompt in ["first", "second"] {
         f.gateway.send(support::prompt(&f.gateway, prompt)).unwrap();
         let events = until_end(&mut sub).await;
-        assert!(events.iter().all(|e| serde_json::to_vec(e).unwrap().len() < MAX_ENVELOPE_BYTES));
-        let raw = events.iter().find_map(|e| match &e.event {
-            Event::ItemCompleted { body: Item::ToolCall { raw_output: Some(raw), spill: Some(_), .. }, .. } => Some(raw),
-            _ => None,
-        }).expect("large aggregate result must spill both representations");
+        assert!(
+            events
+                .iter()
+                .all(|e| serde_json::to_vec(e).unwrap().len() < MAX_ENVELOPE_BYTES)
+        );
+        let raw = events
+            .iter()
+            .find_map(|e| match &e.event {
+                Event::ItemCompleted {
+                    body:
+                        Item::ToolCall {
+                            raw_output: Some(raw),
+                            spill: Some(_),
+                            ..
+                        },
+                    ..
+                } => Some(raw),
+                _ => None,
+            })
+            .expect("large aggregate result must spill both representations");
         let blob: BlobRef = serde_json::from_value(raw["$blob"].clone()).unwrap();
         fn stored(dir: &std::path::Path, sha: &str) -> Option<Vec<u8>> {
             for entry in std::fs::read_dir(dir).ok()? {
                 let path = entry.ok()?.path();
                 if path.is_dir() {
-                    if let Some(bytes) = stored(&path, sha) { return Some(bytes); }
-                } else if path.file_name().unwrap() == sha { return std::fs::read(path).ok(); }
+                    if let Some(bytes) = stored(&path, sha) {
+                        return Some(bytes);
+                    }
+                } else if path.file_name().unwrap() == sha {
+                    return std::fs::read(path).ok();
+                }
             }
             None
         }
@@ -1265,25 +1383,40 @@ async fn oversized_json_result_spills_before_publication_and_keeps_actor_alive()
         let full: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(full["tail"], "kept");
         assert_eq!(full["parts"].as_array().unwrap().len(), 6);
-        assert!(full["parts"].as_array().unwrap().iter().all(|v| v.as_str().unwrap().len() == 24000));
+        assert!(
+            full["parts"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|v| v.as_str().unwrap().len() == 24000)
+        );
     }
     assert_eq!(ended(&close(f).await).len(), 2);
 }
 
 #[tokio::test]
 async fn unrestricted_acp_modes_are_confirmed_before_codex_and_claude_prompts() {
-    for scenario in ["unrestricted-codex", "unrestricted-claude", "unrestricted-config", "unrestricted-pi", "unrestricted-omp"] {
+    for scenario in [
+        "unrestricted-codex",
+        "unrestricted-claude",
+        "unrestricted-config",
+        "unrestricted-pi",
+        "unrestricted-omp",
+    ] {
         let f = fake(scenario, Unattended::Deny).await;
         let mut sub = subscribe(&f.gateway, false);
         f.gateway.send(support::prompt(&f.gateway, "run")).unwrap();
         until_end(&mut sub).await;
         let mode = std::fs::read_to_string(f.temp.path().join("selected-mode")).unwrap();
-        assert_eq!(mode, match scenario {
-            "unrestricted-codex" => "agent-full-access",
-            "unrestricted-pi" => "no native gate",
-            "unrestricted-omp" => "yolo",
-            _ => "bypassPermissions",
-        });
+        assert_eq!(
+            mode,
+            match scenario {
+                "unrestricted-codex" => "agent-full-access",
+                "unrestricted-pi" => "no native gate",
+                "unrestricted-omp" => "yolo",
+                _ => "bypassPermissions",
+            }
+        );
         close(f).await;
     }
 }
@@ -1293,10 +1426,16 @@ async fn unrestricted_legacy_profiles_auto_approve_without_a_face() {
     for scenario in ["unrestricted-tool", "unrestricted-tool-always"] {
         let f = fake(scenario, Unattended::Deny).await;
         let mut sub = subscribe(&f.gateway, false);
-        f.gateway.send(support::prompt(&f.gateway, "run ls")).unwrap();
+        f.gateway
+            .send(support::prompt(&f.gateway, "run ls"))
+            .unwrap();
         until_end(&mut sub).await;
         let log = close(f).await;
-        let wanted = if scenario.ends_with("always") { ApprovalDecision::AllowAlways } else { ApprovalDecision::Allow };
+        let wanted = if scenario.ends_with("always") {
+            ApprovalDecision::AllowAlways
+        } else {
+            ApprovalDecision::Allow
+        };
         assert!(completed(&log).iter().any(|(_, body)| matches!(body,
             Item::Approval { decision: Some(decision), by: Some(Resolver::Rule { id }), .. } if *decision == wanted && id == "profile-yolo")));
         assert!(completed(&log).iter().any(|(status, body)| matches!(status, ItemStatus::Completed) && matches!(body,

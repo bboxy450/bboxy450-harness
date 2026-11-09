@@ -1395,6 +1395,29 @@
           "type": "object"
         },
         {
+          "description": "The agent asks the human (ACP form elicitation). `schema` is the\nagent's requested JSON Schema, kept as sent; `answer` is the ACP reply\n(`{\"action\":\"accept\",\"content\":{..}}`, `decline` or `cancel`).",
+          "properties": {
+            "answer": {
+              "default": null
+            },
+            "kind": {
+              "const": "question",
+              "type": "string"
+            },
+            "message": {
+              "default": "",
+              "type": "string"
+            },
+            "schema": {
+              "default": null
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
           "properties": {
             "blob": {
               "$ref": "#/$defs/BlobRef"
@@ -1923,6 +1946,7 @@
             "terminal",
             "plan",
             "approval",
+            "question",
             "image",
             "compaction",
             "context_trim",
@@ -2216,6 +2240,26 @@
             "type",
             "approval",
             "decision"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The human's reply to a `Question` item, as an ACP elicitation response.",
+          "properties": {
+            "answer": {
+              "default": null
+            },
+            "question": {
+              "$ref": "#/$defs/ItemId",
+              "default": "01M71BH6D0YCK0R8TMZTS2HPRQ"
+            },
+            "type": {
+              "const": "answer_question",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
           ],
           "type": "object"
         },

@@ -158,6 +158,8 @@ pub enum Action {
     Stop,
     StopAt(Epoch),
     Approval(ItemId, ApprovalDecision),
+    /// A Question's option pill, Submit or Skip.
+    Question(ItemId, QuestionAct),
     Jump,
     Toggle(ItemId, super::rich::Toggle),
     /// An error receipt's Retry: the failed turn's own prompt, sent again.
@@ -180,6 +182,16 @@ pub enum Action {
     CancelInstall(crate::onboarding::Agent),
     /// An empty-session chip: 0 opens the "/" menu, 1 inserts `@`, 2 focuses the composer.
     Chip(u8),
+}
+#[derive(Debug, Clone, PartialEq)]
+pub enum QuestionAct {
+    Pick {
+        field: String,
+        value: String,
+        multi: bool,
+    },
+    Submit,
+    Skip,
 }
 /// Keys the open profile switcher takes before the composer.
 #[derive(Clone, Debug, PartialEq)]
@@ -473,7 +485,10 @@ impl HarnessView {
     }
     pub fn take_draft(&mut self) -> Draft {
         Draft {
-            composer: std::mem::replace(&mut self.composer, super::editor::Input::new(Default::default())),
+            composer: std::mem::replace(
+                &mut self.composer,
+                super::editor::Input::new(Default::default()),
+            ),
             inputs: std::mem::take(&mut self.inputs),
         }
     }
@@ -1437,7 +1452,8 @@ impl HarnessView {
         // One pass names every node; the per-item lookups below were each a
         // whole-tree walk, quadratic in the transcript length on every frame.
         let index = NameIndex::new(&layout);
-        let scroll_node = index.get("transcript")
+        let scroll_node = index
+            .get("transcript")
             .and_then(|n| n.children.first())
             .ok_or("transcript layout missing")?;
         if let c::LayoutKind::ScrollView { content, offset } = scroll_node.kind {
@@ -1516,6 +1532,36 @@ impl HarnessView {
                 }
             }
             let row = &model.items[id];
+            if let Item::Question {
+                schema,
+                answer: None,
+                ..
+            } = &row.body
+                && row.status.is_none()
+            {
+                let mut push = |key: String, act: QuestionAct| {
+                    if let Some(node) = index.get(&key) {
+                        let r = intersection(node.rect, scroll_node.rect);
+                        if r.w > 0. && r.h > 0. {
+                            frame.actions.push((r, Action::Question(*id, act)));
+                        }
+                    }
+                };
+                for field in face_rows::question_fields(schema) {
+                    for (i, (value, _)) in field.options.iter().enumerate() {
+                        push(
+                            format!("question/{id}/{}/{i}", field.key),
+                            QuestionAct::Pick {
+                                field: field.key.clone(),
+                                value: value.clone(),
+                                multi: field.multi,
+                            },
+                        );
+                    }
+                }
+                push(format!("question/{id}/submit"), QuestionAct::Submit);
+                push(format!("question/{id}/skip"), QuestionAct::Skip);
+            }
             if let Item::Approval {
                 options,
                 decision: None,
@@ -1616,8 +1662,11 @@ impl HarnessView {
         self.scroll.layout_solved();
         if !self.scroll.following()
             || (state.ready
-                && prepared.is_some_and(|p| p.source.cursor == model.cursor
-                    && p.width == width && p.zoom == self.zoom.percent()))
+                && prepared.is_some_and(|p| {
+                    p.source.cursor == model.cursor
+                        && p.width == width
+                        && p.zoom == self.zoom.percent()
+                }))
         {
             self.tail_pending = false;
         }
@@ -2384,6 +2433,49 @@ impl HarnessView {
                 self.setup_open = true;
             }
             Action::Toggle(item, toggle) => bridge.toggle(item, toggle),
+            Action::Question(question, act) => {
+                let Some(schema) = open_question(&bridge.state.transcript)
+                    .filter(|(id, _)| *id == question)
+                    .map(|(_, schema)| schema)
+                else {
+                    self.notice = Some("Question already answered".into());
+                    self.invalidate();
+                    return;
+                };
+                let fields = face_rows::question_fields(&schema);
+                let answer = match act {
+                    QuestionAct::Skip => serde_json::json!({"action": "decline"}),
+                    QuestionAct::Pick {
+                        field,
+                        value,
+                        multi,
+                    } => {
+                        let only = fields.iter().filter(|f| !f.options.is_empty()).count() == 1;
+                        if !(only && !multi) {
+                            bridge.toggle(
+                                question,
+                                super::rich::Toggle::Pick {
+                                    field,
+                                    value,
+                                    multi,
+                                },
+                            );
+                            self.invalidate();
+                            return;
+                        }
+                        // a lone single-choice question answers on the click
+                        serde_json::json!({"action": "accept", "content": {field: value}})
+                    }
+                    QuestionAct::Submit => serde_json::json!({
+                        "action": "accept",
+                        "content": question_content(&fields, &bridge.state.faces.get(&question).cloned().unwrap_or_default(), None),
+                    }),
+                };
+                self.notice = bridge
+                    .send(Op::AnswerQuestion { question, answer })
+                    .err()
+                    .map(|e| format!("Answer not admitted: {}", super::bridge::refusal_text(&e)));
+            }
             Action::Chip(which) => {
                 // the empty session's three ways in: "/" (opens the menu), "@", or focus
                 self.composer
@@ -2425,6 +2517,38 @@ impl HarnessView {
                     } else {
                         ""
                     };
+                    // While the agent asks, a typed reply answers it: the composer is the
+                    // question's free-text box.
+                    if !text.is_empty()
+                        && !text.starts_with('/')
+                        && let Some((question, schema)) = open_question(&bridge.state.transcript)
+                    {
+                        let fields = face_rows::question_fields(&schema);
+                        if fields.iter().any(|f| f.options.is_empty()) {
+                            let face = bridge
+                                .state
+                                .faces
+                                .get(&question)
+                                .cloned()
+                                .unwrap_or_default();
+                            let answer = serde_json::json!({
+                                "action": "accept",
+                                "content": question_content(&fields, &face, Some(text)),
+                            });
+                            self.composer.stored(&sent);
+                            self.notice = bridge
+                                .send(Op::AnswerQuestion { question, answer })
+                                .err()
+                                .map(|e| {
+                                    format!(
+                                        "Answer not admitted: {}",
+                                        super::bridge::refusal_text(&e)
+                                    )
+                                });
+                            self.invalidate();
+                            return;
+                        }
+                    }
                     // `/profiles` opens the switcher; `/profile NAME` continues this session on NAME
                     if text == "/profiles" || text == "/profile" {
                         self.composer.stored(&sent);
@@ -2866,6 +2990,48 @@ fn approval(kind: ApprovalDecisionKind) -> (&'static str, ApprovalDecision) {
         _ => ("Deny", ApprovalDecision::Deny { reason: None }),
     }
 }
+/// The newest Question still waiting for the human, with its form schema.
+fn open_question(model: &Transcript) -> Option<(ItemId, serde_json::Value)> {
+    model.order.iter().rev().find_map(|id| {
+        let row = model.items.get(id)?;
+        match &row.body {
+            Item::Question {
+                schema,
+                answer: None,
+                ..
+            } if row.status.is_none() => Some((*id, schema.clone())),
+            _ => None,
+        }
+    })
+}
+/// A Question's `content`: each select field's picks (a list when multi-select),
+/// and typed text in the first free-text field.
+fn question_content(
+    fields: &[face_rows::QuestionField],
+    face: &super::rich::Face,
+    typed: Option<&str>,
+) -> serde_json::Value {
+    let mut content = serde_json::Map::new();
+    for field in fields {
+        let picks: Vec<&String> = face
+            .picked
+            .iter()
+            .filter(|(f, _)| *f == field.key)
+            .map(|(_, v)| v)
+            .collect();
+        if field.multi {
+            content.insert(field.key.clone(), serde_json::json!(picks));
+        } else if let Some(pick) = picks.first() {
+            content.insert(field.key.clone(), serde_json::json!(pick));
+        }
+    }
+    if let Some(text) = typed
+        && let Some(field) = fields.iter().find(|f| f.options.is_empty())
+    {
+        content.insert(field.key.clone(), serde_json::json!(text));
+    }
+    serde_json::Value::Object(content)
+}
 pub fn kind_label(kind: ItemKind) -> &'static str {
     match kind {
         ItemKind::UserMessage => "You",
@@ -2877,6 +3043,7 @@ pub fn kind_label(kind: ItemKind) -> &'static str {
         ItemKind::Terminal => "Terminal",
         ItemKind::Plan => "Plan",
         ItemKind::Approval => "Approval",
+        ItemKind::Question => "Question",
         ItemKind::Image => "Image",
         ItemKind::Compaction => "Compaction",
         ItemKind::ContextTrim => "Context trim",
@@ -3730,24 +3897,105 @@ mod onboarding_markdown_tests {
     #[tokio::test]
     async fn transcript_fills_wide_and_three_column_panes() {
         crate::runtime::blocking(move || {
-        let ctx = ui::Context::new(Theme::Light, Density::Cozy);
-        let ink = super::super::face::ink(ctx);
-        let metrics = Metrics::default();
-        for width in [280., 440., 960., 1600.] {
-            let mut model = Transcript::default();
-            for line in include_str!("../../../tests/fixtures/protocol/all-items.jsonl").lines() {
-                model.apply(&serde_json::from_str::<Envelope>(line).unwrap());
+            let ctx = ui::Context::new(Theme::Light, Density::Cozy);
+            let ink = super::super::face::ink(ctx);
+            let metrics = Metrics::default();
+            for width in [280., 440., 960., 1600.] {
+                let mut model = Transcript::default();
+                for line in include_str!("../../../tests/fixtures/protocol/all-items.jsonl").lines()
+                {
+                    model.apply(&serde_json::from_str::<Envelope>(line).unwrap());
+                }
+                let prepared = Preparer::default().prepare(Arc::new(model), width).unwrap();
+                for row in prepared.rows.values() {
+                    assert!(
+                        row.layout.rect.x <= 14.,
+                        "centred row in {width}px pane: {:?}",
+                        row.layout.rect
+                    );
+                    assert!(row.layout.rect.right() >= width - 14.);
+                }
+                let bubble = super::super::face::prompt_bubble(
+                    named("copy", label("short")),
+                    "YOU",
+                    None,
+                    false,
+                    &ink,
+                )
+                .layout(Rect::new(0., 0., width - 28., 80.), ctx, &metrics)
+                .unwrap();
+                assert!((bubble.children[0].rect.w - (width - 28.)).abs() < 0.1);
             }
-            let prepared = Preparer::default().prepare(Arc::new(model), width).unwrap();
-            for row in prepared.rows.values() {
-                assert!(row.layout.rect.x <= 14., "centred row in {width}px pane: {:?}", row.layout.rect);
-                assert!(row.layout.rect.right() >= width - 14.);
-            }
-            let bubble = super::super::face::prompt_bubble(named("copy", label("short")), "YOU", None, false, &ink)
-                .layout(Rect::new(0., 0., width - 28., 80.), ctx, &metrics).unwrap();
-            assert!((bubble.children[0].rect.w - (width - 28.)).abs() < 0.1);
+        })
+        .await;
+    }
+    #[test]
+    fn an_open_question_renders_its_options_skip_and_free_text_hint() {
+        let mut model = Transcript::default();
+        let first = include_str!("../../../tests/fixtures/protocol/all-items.jsonl")
+            .lines()
+            .next()
+            .unwrap();
+        model.apply(&serde_json::from_str::<Envelope>(first).unwrap());
+        let item = format!("{:026}", 300);
+        let body = serde_json::json!({"kind":"question","message":"Which database?","answer":null,
+            "schema":{"type":"object","properties":{
+                "question_0":{"type":"string","oneOf":[{"const":"Postgres","title":"Postgres"},{"const":"SQLite","title":"SQLite"}]},
+                "question_0_custom":{"type":"string","title":"Other"}}}});
+        for (seq, event) in [
+            serde_json::json!({"type":"item_started","item":item,"kind":"question","parent":null,"turn":null,"head":null}),
+            serde_json::json!({"type":"item_snapshot","item":item,"partial":body}),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let seq = seq + 2;
+            let line = serde_json::json!({"at":seq,"cause":null,"epoch":1,"event":event,"seq":seq,"session":"00000000000000000000000001","ts_ms":seq,"v":{"major":1,"minor":0}});
+            model.apply(&serde_json::from_value::<Envelope>(line).unwrap());
         }
-        }).await;
+        let id = *model.order.last().unwrap();
+        let prepared =
+            std::thread::spawn(move || Preparer::default().prepare(Arc::new(model), 640.).unwrap())
+                .join()
+                .unwrap();
+        let mut runs = vec![];
+        fn texts(node: &c::Layout, out: &mut Vec<String>) {
+            if let c::LayoutKind::Text { runs, .. } = &node.kind {
+                out.extend(runs.iter().map(|r| r.text.clone()));
+            }
+            for child in &node.children {
+                texts(child, out);
+            }
+        }
+        texts(&prepared.rows[&id].layout, &mut runs);
+        let all = runs.join(" ");
+        for want in [
+            "Which",
+            "database?",
+            "Postgres",
+            "SQLite",
+            "Skip",
+            "type your answer below",
+        ] {
+            assert!(all.contains(want), "{want} missing from {all}");
+        }
+        assert!(
+            !all.contains("Submit"),
+            "a lone single choice answers on click: {all}"
+        );
+        let fields = face_rows::question_fields(&serde_json::json!({"properties":{
+            "question_0":{"type":"array","items":{"anyOf":[{"const":"a","title":"A"},{"const":"b","title":"B"}]}},
+            "note":{"type":"string"}}}));
+        let mut face = super::super::rich::Face::default();
+        face.apply(super::super::rich::Toggle::Pick {
+            field: "question_0".into(),
+            value: "b".into(),
+            multi: true,
+        });
+        assert_eq!(
+            super::question_content(&fields, &face, Some("why not")),
+            serde_json::json!({"question_0": ["b"], "note": "why not"})
+        );
     }
     #[test]
     fn mcp_startup_notices_fold_into_one_strip_row() {
@@ -3788,11 +4036,10 @@ mod onboarding_markdown_tests {
         assert_eq!(heads.len(), 2, "{heads:?}");
         assert_eq!(folds.parent.values().filter(|p| *p == heads[0]).count(), 5);
         let strip = *heads[0];
-        let prepared = std::thread::spawn(move || {
-            Preparer::default().prepare(Arc::new(model), 640.).unwrap()
-        })
-        .join()
-        .unwrap();
+        let prepared =
+            std::thread::spawn(move || Preparer::default().prepare(Arc::new(model), 640.).unwrap())
+                .join()
+                .unwrap();
         let mut runs = vec![];
         fn texts(node: &c::Layout, out: &mut Vec<String>) {
             if let c::LayoutKind::Text { runs, .. } = &node.kind {

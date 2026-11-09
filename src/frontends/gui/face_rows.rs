@@ -50,6 +50,91 @@ pub(super) fn drawn(model: &Transcript, id: &ItemId) -> bool {
             && (r.kind != ItemKind::UserMessage || r.completed.is_some())
     })
 }
+/// One field of a Question's form: a select (`oneOf`, `anyOf` or `enum`; an
+/// array type is multi-select) or, with no options, free text.
+pub(super) struct QuestionField {
+    pub key: String,
+    pub title: Option<String>,
+    pub description: Option<String>,
+    /// (value sent back, label shown)
+    pub options: Vec<(String, String)>,
+    pub multi: bool,
+}
+pub(super) fn question_fields(schema: &serde_json::Value) -> Vec<QuestionField> {
+    let Some(properties) = schema.get("properties").and_then(|p| p.as_object()) else {
+        return vec![];
+    };
+    properties
+        .iter()
+        .map(|(key, p)| {
+            let multi = p.get("type").and_then(|t| t.as_str()) == Some("array");
+            let source = if multi {
+                p.get("items").unwrap_or(p)
+            } else {
+                p
+            };
+            let options = ["oneOf", "anyOf", "enum"]
+                .iter()
+                .find_map(|k| source.get(*k).and_then(|v| v.as_array()))
+                .into_iter()
+                .flatten()
+                .filter_map(|o| match o {
+                    serde_json::Value::String(s) => Some((s.clone(), s.clone())),
+                    serde_json::Value::Object(_) => {
+                        let value = o.get("const")?.as_str()?.to_owned();
+                        let label = o
+                            .get("title")
+                            .and_then(|t| t.as_str())
+                            .unwrap_or(&value)
+                            .to_owned();
+                        Some((value, label))
+                    }
+                    _ => None,
+                })
+                .collect();
+            let text = |k: &str| p.get(k).and_then(|v| v.as_str()).map(str::to_owned);
+            QuestionField {
+                key: key.clone(),
+                title: text("title"),
+                description: text("description"),
+                options,
+                multi,
+            }
+        })
+        .collect()
+}
+/// A Question's answer in a few words, for its settled row.
+fn answer_summary(answer: &serde_json::Value) -> String {
+    match answer.get("action").and_then(|a| a.as_str()) {
+        Some("accept") => {
+            let values: Vec<String> = answer
+                .get("content")
+                .and_then(|c| c.as_object())
+                .into_iter()
+                .flatten()
+                .filter_map(|(_, v)| match v {
+                    serde_json::Value::String(s) if !s.trim().is_empty() => Some(s.clone()),
+                    serde_json::Value::Array(a) if !a.is_empty() => Some(
+                        a.iter()
+                            .filter_map(|x| x.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", "),
+                    ),
+                    serde_json::Value::Bool(b) => Some(b.to_string()),
+                    serde_json::Value::Number(n) => Some(n.to_string()),
+                    _ => None,
+                })
+                .collect();
+            if values.is_empty() {
+                "Answered".into()
+            } else {
+                values.join(" · ")
+            }
+        }
+        Some("decline") => "Skipped".into(),
+        _ => "Cancelled".into(),
+    }
+}
 /// An MCP server's lifecycle notice, `mcp <server>: starting|ready`. A run of
 /// them is startup chatter: it folds into one strip of server chips.
 pub(super) fn mcp_lifecycle(text: &str) -> Option<(&str, &str)> {
@@ -635,13 +720,138 @@ impl Preparer {
                     8.,
                 ),
             },
+            Item::Question {
+                message,
+                schema,
+                answer,
+            } => match answer {
+                None => {
+                    let fields = question_fields(schema);
+                    let selects: Vec<_> = fields.iter().filter(|f| !f.options.is_empty()).collect();
+                    let free = fields.iter().any(|f| f.options.is_empty());
+                    let mut kids: Vec<c::Item> = vec![
+                        f::frame(
+                            f::Frame {
+                                padding: [9., 12., 0., 12.],
+                                gap: 8.,
+                                row: true,
+                                ..Default::default()
+                            },
+                            vec![
+                                f::fixed(f::icon("shield", ink.ask, 15., 1.6)),
+                                f::fill(c::Element::Text(f::text(
+                                    message.as_str(),
+                                    13.,
+                                    600,
+                                    ink.fg,
+                                    false,
+                                ))),
+                            ],
+                        )
+                        .into(),
+                    ];
+                    let pill = |key: String, label: &str, on: bool| {
+                        let (fg, bg) = if on {
+                            (ink.bg, ink.ask)
+                        } else {
+                            (ink.fg, f::mix(ink.surface, ink.ask, 0.14))
+                        };
+                        c::Element::Named {
+                            name: key,
+                            content: Box::new(f::pill(label, fg, bg, 12.)),
+                        }
+                    };
+                    for field in &selects {
+                        let mut body = vec![];
+                        if let Some(caption) = field
+                            .description
+                            .as_ref()
+                            .or(field.title.as_ref())
+                            .filter(|_| selects.len() > 1)
+                        {
+                            body.push(f::fixed(f::line(caption.clone(), 12., 500, ink.dim, false)));
+                        }
+                        let pills = field
+                            .options
+                            .iter()
+                            .enumerate()
+                            .map(|(i, (value, label))| {
+                                let on = face.picked.contains(&(field.key.clone(), value.clone()));
+                                f::fixed(pill(
+                                    format!("question/{id}/{}/{i}", field.key),
+                                    label,
+                                    on,
+                                ))
+                            })
+                            .collect();
+                        let mut flow = c::Flow::new(pills);
+                        flow.row_gap = ui::Length::Px(6.);
+                        flow.column_gap = ui::Length::Px(6.);
+                        body.push(f::fixed(c::Element::Flow(flow)));
+                        kids.push(
+                            f::frame(
+                                f::Frame {
+                                    padding: [6., 12., 0., 35.],
+                                    gap: 4.,
+                                    ..Default::default()
+                                },
+                                body,
+                            )
+                            .into(),
+                        );
+                    }
+                    let mut actions = vec![];
+                    if selects.len() > 1 || selects.iter().any(|f| f.multi) {
+                        actions.push(f::fixed(pill(
+                            format!("question/{id}/submit"),
+                            "Submit",
+                            true,
+                        )));
+                    }
+                    actions.push(f::fixed(pill(format!("question/{id}/skip"), "Skip", false)));
+                    if free {
+                        actions.push(f::fill(f::line(
+                            "or type your answer below".to_owned(),
+                            12.,
+                            400,
+                            ink.dim,
+                            false,
+                        )));
+                    }
+                    kids.push(
+                        f::frame(
+                            f::Frame {
+                                padding: [8., 12., 10., 35.],
+                                gap: 8.,
+                                row: true,
+                                ..Default::default()
+                            },
+                            actions,
+                        )
+                        .into(),
+                    );
+                    f::card(&f::Status::Asking, kids, &ink)
+                }
+                Some(answer) => f::hstack(
+                    vec![
+                        f::fixed(f::icon("shield", ink.dim, 13., 1.4)),
+                        f::fixed(f::line(message.clone(), 12., 400, ink.dim, false)),
+                        f::fill(f::line(answer_summary(answer), 12., 600, ink.fg, false)),
+                    ],
+                    8.,
+                ),
+            },
             Item::Notice { text, .. } if mcp_lifecycle(text).is_some() => {
                 // one chip per server, its latest state; restarts counted
                 let mut servers: Vec<(String, String, usize)> = vec![];
                 let kids = folds.kids.get(&id).into_iter().flatten();
                 for r in std::iter::once(row).chain(kids.filter_map(|k| model.items.get(k))) {
-                    let Item::Notice { text, .. } = &r.body else { continue };
-                    let Some((server, state)) = mcp_lifecycle(text) else { continue };
+                    let Item::Notice { text, .. } = &r.body else {
+                        continue;
+                    };
+                    let Some((server, state)) = mcp_lifecycle(text) else {
+                        continue;
+                    };
                     let at = match servers.iter().position(|s| s.0 == server) {
                         Some(at) => at,
                         None => {

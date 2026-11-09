@@ -171,6 +171,17 @@ def prompt(rid, text):
                     "content": [{"type": "content", "content": {"type": "text", "text": "permission %s" % json.dumps(outcome)}}]})
             chunk("agent_message_chunk", "Not allowed.")
         return "end_turn"
+    if SCENARIO == "question":
+        # AskUserQuestion as claude-agent-acp bridges it: a form elicitation.
+        r = request("elicitation/create", {
+            "sessionId": SESSION, "mode": "form", "message": "Which database?",
+            "requestedSchema": {"type": "object", "properties": {
+                "question_0": {"type": "string", "title": "DB", "oneOf": [
+                    {"const": "Postgres", "title": "Postgres"}, {"const": "SQLite", "title": "SQLite"}]},
+                "question_0_custom": {"type": "string", "title": "Other"}}},
+        })
+        chunk("agent_message_chunk", "answer " + json.dumps(r["result"], sort_keys=True))
+        return "end_turn"
     if SCENARIO == "cancel":
         chunk("agent_message_chunk", "Working")
         while not CANCELLED:
@@ -222,6 +233,8 @@ while True:
     m = read()
     method, rid = m.get("method"), m.get("id")
     if method == "initialize":
+        if SCENARIO == "question":
+            assert m["params"]["clientCapabilities"]["elicitation"]["form"] == {}
         send({"jsonrpc": "2.0", "id": rid, "result": {"protocolVersion": 1, "agentCapabilities": {}, "authMethods": [],
               "agentInfo": {"name": "claude" if SCENARIO in ("steering-claude", "unrestricted-claude") else "codex" if SCENARIO.startswith("steering-") else "fixture-agent", "version": "1.2.3"},
               "_meta": {"steering": {"supported": SCENARIO.startswith("steering-")}}}})

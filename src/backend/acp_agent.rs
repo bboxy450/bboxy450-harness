@@ -19,6 +19,7 @@
 //! - one `TurnEnded` per prompt; no item stays open at a turn's end;
 //! - yolo prefers `allow_once`, falling back to `allow_always`; ask/unattended stay explicit;
 //! - the harness never offers, selects or triggers an agent's claude.ai login method.
+use super::acp_permissions;
 use crate::{
     engine::{Config, Internal, LaunchOptions, task_group::TaskGroup},
     gateway::{Admitted, Hub, InProc},
@@ -28,7 +29,6 @@ use crate::{
     store::Store,
 };
 use serde_json::{Value, json};
-use super::acp_permissions;
 use std::{
     collections::{BTreeMap, HashMap, HashSet, VecDeque},
     ffi::{OsStr, OsString},
@@ -141,7 +141,9 @@ enum Wire {
 enum Call {
     Initialize,
     NewSession,
-    SetPermissions { session_result: Value },
+    SetPermissions {
+        session_result: Value,
+    },
     SetModel {
         revision: u64,
     },
@@ -211,6 +213,8 @@ struct Running {
     tools: BTreeMap<String, Tool>,
     plan: Option<(ItemId, Vec<PlanEntry>)>,
     permissions: BTreeMap<ItemId, Permission>,
+    /// Open ACP form elicitations: the request id to answer and the item.
+    questions: BTreeMap<ItemId, (Value, Item)>,
 }
 
 pub struct AcpAgentActor {
@@ -655,6 +659,30 @@ impl AcpAgentActor {
                 let face = face.to_owned();
                 self.resolve_by_face(id, approval, decision, face).await?;
             }
+            Op::AnswerQuestion { question, answer } => {
+                let open = self
+                    .running
+                    .as_ref()
+                    .is_some_and(|r| r.questions.contains_key(&question));
+                if !matches!(
+                    answer.get("action").and_then(Value::as_str),
+                    Some("accept" | "decline" | "cancel")
+                ) {
+                    self.reject(
+                        id,
+                        Rejection::InvalidInput {
+                            detail: "an answer's action is accept, decline or cancel".into(),
+                        },
+                    )
+                    .await?;
+                } else if open {
+                    self.settle_question(question, answer, Some(id)).await?;
+                } else if self.resolved.contains(&question) {
+                    self.reject(id, Rejection::AlreadyResolved).await?;
+                } else {
+                    self.reject(id, Rejection::NoSuchApproval).await?;
+                }
+            }
             Op::SetProfile { .. } => {
                 self.reject(
                     id,
@@ -748,8 +776,7 @@ impl AcpAgentActor {
                     };
                     let revision = agent.controls.revision;
                     agent.controls.pending = Some(OpId::new());
-                    agent.controls.status =
-                        "Pending · applying profile model intent".into();
+                    agent.controls.status = "Pending · applying profile model intent".into();
                     let sent = call(
                         agent,
                         Call::SetModel { revision },
@@ -914,6 +941,7 @@ impl AcpAgentActor {
             tools: BTreeMap::new(),
             plan: None,
             permissions: BTreeMap::new(),
+            questions: BTreeMap::new(),
         });
         let non_text: Vec<Value> = blocks
             .iter()
@@ -997,6 +1025,7 @@ impl AcpAgentActor {
             tools: BTreeMap::new(),
             plan: None,
             permissions: BTreeMap::new(),
+            questions: BTreeMap::new(),
         });
         self.publish(
             Event::Status {
@@ -1012,6 +1041,7 @@ impl AcpAgentActor {
                 && r.cancel_at.is_none()
                 && r.tools.is_empty()
                 && r.permissions.is_empty()
+                && r.questions.is_empty()
         })
     }
     async fn end_agent_turn(&mut self) -> std::io::Result<()> {
@@ -1265,6 +1295,7 @@ impl AcpAgentActor {
         r.cancel_at = Some(Instant::now() + self.cancel_grace);
         let sent = r.prompt_sent;
         let pending: Vec<ItemId> = r.permissions.keys().copied().collect();
+        let asked: Vec<ItemId> = r.questions.keys().copied().collect();
         if !sent {
             // nothing reached the agent yet: the turn ends here
             return self
@@ -1275,6 +1306,10 @@ impl AcpAgentActor {
         // the protocol: every pending permission is answered `cancelled`
         for item in pending {
             self.settle_permission(item, None, Resolver::Cancelled, None)
+                .await?;
+        }
+        for item in asked {
+            self.settle_question(item, json!({"action": "cancel"}), None)
                 .await?;
         }
         Ok(())
@@ -1309,6 +1344,18 @@ impl AcpAgentActor {
             self.resolved.insert(item);
             let body = decided(p.body, None, Resolver::Cancelled);
             self.complete(item, ItemStatus::Cancelled, body).await?;
+        }
+        for (item, (rpc, body)) in std::mem::take(&mut r.questions) {
+            self.resolved.insert(item);
+            let cancel = json!({"action": "cancel"});
+            if let Some(agent) = self.agent.as_mut() {
+                let _ = reply(
+                    agent,
+                    json!({"jsonrpc": "2.0", "id": rpc, "result": cancel}),
+                );
+            }
+            self.complete(item, ItemStatus::Cancelled, answered(body, cancel))
+                .await?;
         }
         self.running = Some(r);
         self.flush_text().await?;
@@ -1472,7 +1519,7 @@ impl AcpAgentActor {
         let params = json!({
             "protocolVersion": 1,
             // phase 1 serves no files or terminals; the agent uses its own tools
-            "clientCapabilities": { "fs": { "readTextFile": false, "writeTextFile": false }, "terminal": false },
+            "clientCapabilities": { "fs": { "readTextFile": false, "writeTextFile": false }, "terminal": false, "elicitation": { "form": {} } },
             "clientInfo": { "name": "bboxy450-harness", "version": env!("CARGO_PKG_VERSION") }
         });
         call(&mut agent, Call::Initialize, "initialize", params)?;
@@ -1671,7 +1718,12 @@ impl AcpAgentActor {
                     self.notice(Level::Warn, message).await?;
                     self.send_prompt().await
                 }
-                Call::Prompt | Call::Initialize | Call::NewSession | Call::SetPermissions { .. } if self.running.is_some() => {
+                Call::Prompt
+                | Call::Initialize
+                | Call::NewSession
+                | Call::SetPermissions { .. }
+                    if self.running.is_some() =>
+                {
                     self.notice(Level::Error, message.clone()).await?;
                     if !matches!(call_kind, Call::Prompt) {
                         self.kill();
@@ -1747,17 +1799,30 @@ impl AcpAgentActor {
                 Ok(())
             }
             Call::NewSession => {
-                if self.yolo && let Some((config_id, mode)) = acp_permissions::selection(&result) {
-                    let Some(session) = result.get("sessionId").and_then(Value::as_str).map(str::to_owned) else {
-                        return self.agent_gone("ACP agent returned no sessionId".into()).await;
+                if self.yolo
+                    && let Some((config_id, mode)) = acp_permissions::selection(&result)
+                {
+                    let Some(session) = result
+                        .get("sessionId")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned)
+                    else {
+                        return self
+                            .agent_gone("ACP agent returned no sessionId".into())
+                            .await;
                     };
                     let mut result = result;
                     if let Some(modes) = result.get_mut("modes").and_then(Value::as_object_mut) {
                         modes.insert("currentModeId".into(), json!(mode));
                     }
-                    if let Some(options) = result.get_mut("configOptions").and_then(Value::as_array_mut) {
+                    if let Some(options) = result
+                        .get_mut("configOptions")
+                        .and_then(Value::as_array_mut)
+                    {
                         for option in options {
-                            if config_id.as_deref().is_some_and(|id| option.get("id").and_then(Value::as_str) == Some(id)) {
+                            if config_id.as_deref().is_some_and(|id| {
+                                option.get("id").and_then(Value::as_str) == Some(id)
+                            }) {
                                 option["currentValue"] = json!(mode);
                             }
                         }
@@ -1765,10 +1830,23 @@ impl AcpAgentActor {
                     let agent = self.agent.as_mut().expect("agent");
                     agent.session = Some(session.clone());
                     let (method, params) = match config_id {
-                        Some(id) => ("session/set_config_option", json!({"sessionId":session,"configId":id,"value":mode})),
-                        None => ("session/set_mode", json!({"sessionId":session,"modeId":mode})),
+                        Some(id) => (
+                            "session/set_config_option",
+                            json!({"sessionId":session,"configId":id,"value":mode}),
+                        ),
+                        None => (
+                            "session/set_mode",
+                            json!({"sessionId":session,"modeId":mode}),
+                        ),
                     };
-                    return call(agent, Call::SetPermissions { session_result: result }, method, params);
+                    return call(
+                        agent,
+                        Call::SetPermissions {
+                            session_result: result,
+                        },
+                        method,
+                        params,
+                    );
                 }
                 self.session_ready(result).await
             }
@@ -1856,6 +1934,12 @@ impl AcpAgentActor {
         }
     }
     async fn request(&mut self, method: &str, id: Value, params: Value) -> std::io::Result<()> {
+        // Only form elicitations are advertised; a URL one falls to "not supported".
+        if method == "elicitation/create"
+            && params.get("mode").and_then(Value::as_str).unwrap_or("form") == "form"
+        {
+            return self.question(id, params).await;
+        }
         if method != "session/request_permission" {
             // phase 1 advertises no fs, terminal or elicitation: answer, never wedge the turn
             if let Some(agent) = self.agent.as_mut() {
@@ -2009,6 +2093,89 @@ impl AcpAgentActor {
             self.reject(op, reason).await
         }
     }
+    /// An ACP form elicitation becomes a Question the human answers in a face. The
+    /// session waits on it like an approval (Phase::Approval); full access never
+    /// answers one, because only the human can.
+    async fn question(&mut self, id: Value, params: Value) -> std::io::Result<()> {
+        if self.running.is_none() && !self.hide_idle {
+            self.start_agent_turn().await?;
+        }
+        if self.running.as_ref().is_none_or(|r| r.cancel_at.is_some()) {
+            if let Some(agent) = self.agent.as_mut() {
+                let _ = reply(
+                    agent,
+                    json!({"jsonrpc": "2.0", "id": id, "result": {"action": "cancel"}}),
+                );
+            }
+            return Ok(());
+        }
+        let body = Item::Question {
+            message: params
+                .get("message")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned(),
+            schema: params
+                .get("requestedSchema")
+                .cloned()
+                .unwrap_or(Value::Null),
+            answer: None,
+        };
+        let item = ItemId::new();
+        let turn = self.running.as_ref().expect("running").turn;
+        self.start_item(Some(turn), item, &body, None).await?;
+        self.publish(
+            Event::ItemSnapshot {
+                item,
+                partial: body.clone(),
+            },
+            None,
+        )
+        .await?;
+        self.running
+            .as_mut()
+            .expect("running")
+            .questions
+            .insert(item, (id, body));
+        self.publish(
+            Event::Status {
+                phase: Phase::Approval { item },
+            },
+            None,
+        )
+        .await
+    }
+    /// Send the human's answer to the agent and complete the question.
+    async fn settle_question(
+        &mut self,
+        item: ItemId,
+        answer: Value,
+        cause: Option<OpId>,
+    ) -> std::io::Result<()> {
+        let Some((rpc, body)) = self
+            .running
+            .as_mut()
+            .and_then(|r| r.questions.remove(&item))
+        else {
+            return Ok(());
+        };
+        if let Some(agent) = self.agent.as_mut() {
+            let _ = reply(
+                agent,
+                json!({"jsonrpc": "2.0", "id": rpc, "result": answer}),
+            );
+        }
+        self.resolved.insert(item);
+        self.publish(
+            Event::ItemCompleted {
+                item,
+                status: ItemStatus::Completed,
+                body: answered(body, answer),
+            },
+            cause,
+        )
+        .await
+    }
     /// Answer one permission request: a decision picks the matching option; `None` is `cancelled`.
     async fn settle_permission(
         &mut self,
@@ -2031,16 +2198,19 @@ impl AcpAgentActor {
             Some(ApprovalDecision::Deny { .. }) => &["reject_once", "reject_always"],
             _ => &[],
         };
-        let option = wanted.iter().find_map(|k| {
-            p.options
-                .iter()
-                .find(|(kind, _)| kind == k)
-                .cloned()
-        });
+        let option = wanted
+            .iter()
+            .find_map(|k| p.options.iter().find(|(kind, _)| kind == k).cloned());
         if let Some(agent) = self.agent.as_mut() {
-            let _ = reply(agent, permission_reply(&p.rpc, option.as_ref().map(|(_, id)| id.as_str())));
+            let _ = reply(
+                agent,
+                permission_reply(&p.rpc, option.as_ref().map(|(_, id)| id.as_str())),
+            );
         }
-        let decision = if option.as_ref().is_some_and(|(kind, _)| kind == "allow_always") {
+        let decision = if option
+            .as_ref()
+            .is_some_and(|(kind, _)| kind == "allow_always")
+        {
             Some(ApprovalDecision::AllowAlways)
         } else if option.is_some() {
             decision
@@ -2898,6 +3068,18 @@ pub fn content_block(b: &InputBlock) -> Value {
         }
         InputBlock::Audio { .. } => json!({"type":"text","text":b.display_text()}),
         InputBlock::Unknown(_) => json!({ "type": "text", "text": "Unsupported input" }),
+    }
+}
+fn answered(body: Item, answer: Value) -> Item {
+    match body {
+        Item::Question {
+            message, schema, ..
+        } => Item::Question {
+            message,
+            schema,
+            answer: Some(answer),
+        },
+        other => other,
     }
 }
 fn permission_reply(id: &Value, option: Option<&str>) -> Value {

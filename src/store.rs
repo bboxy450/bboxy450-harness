@@ -504,11 +504,11 @@ impl Store {
             Event::TurnEnded { .. }
                 | Event::SessionClosed
                 | Event::ItemStarted {
-                    kind: ItemKind::Approval,
+                    kind: ItemKind::Approval | ItemKind::Question,
                     ..
                 }
                 | Event::ItemCompleted {
-                    body: Item::Approval { .. },
+                    body: Item::Approval { .. } | Item::Question { .. },
                     ..
                 }
         ) {

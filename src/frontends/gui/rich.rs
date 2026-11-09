@@ -50,7 +50,9 @@ fn cd_prefix(command: &str) -> Option<(&str, &str)> {
         return None;
     }
     let after = after.trim_start();
-    let after = after.strip_prefix("&&").or_else(|| after.strip_prefix(';'))?;
+    let after = after
+        .strip_prefix("&&")
+        .or_else(|| after.strip_prefix(';'))?;
     Some((dir, after.trim_start()))
 }
 pub fn python_snippet(command: &str) -> Option<PythonSnippet<'_>> {
@@ -285,6 +287,8 @@ pub struct Face {
     pub output_closed: bool,
     pub closed_hunks: std::collections::BTreeSet<usize>,
     pub approval_selected: usize,
+    /// A Question's picked options, as (field, value).
+    pub picked: std::collections::BTreeSet<(String, String)>,
 }
 pub type Faces = im::OrdMap<ItemId, Face>;
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -295,6 +299,12 @@ pub enum Toggle {
     Output,
     Hunk(usize),
     Approval(usize),
+    /// Pick a Question option; a single-select field keeps one value.
+    Pick {
+        field: String,
+        value: String,
+        multi: bool,
+    },
 }
 impl Face {
     pub fn apply(&mut self, toggle: Toggle) {
@@ -309,6 +319,20 @@ impl Face {
                 }
             }
             Toggle::Approval(i) => self.approval_selected = i,
+            Toggle::Pick {
+                field,
+                value,
+                multi,
+            } => {
+                let pick = (field, value);
+                if self.picked.remove(&pick) {
+                    return;
+                }
+                if !multi {
+                    self.picked.retain(|(f, _)| *f != pick.0);
+                }
+                self.picked.insert(pick);
+            }
         }
     }
 }

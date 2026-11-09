@@ -824,6 +824,20 @@
       "type": "[PlanEntry]"
      }
     },
+    "question": {
+     "answer": {
+      "required": false,
+      "type": "any"
+     },
+     "message": {
+      "required": false,
+      "type": "string"
+     },
+     "schema": {
+      "required": false,
+      "type": "any"
+     }
+    },
     "reasoning": {
      "provider_opaque": {
       "required": false,
@@ -1081,6 +1095,7 @@
     "native": {},
     "notice": {},
     "plan": {},
+    "question": {},
     "reasoning": {},
     "recall": {},
     "receipt": {},
@@ -1180,6 +1195,16 @@
    "shape": "union",
    "tag": "type",
    "variants": {
+    "answer_question": {
+     "answer": {
+      "required": false,
+      "type": "any"
+     },
+     "question": {
+      "required": false,
+      "type": "ItemId"
+     }
+    },
     "close": {},
     "compact": {},
     "interrupt": {

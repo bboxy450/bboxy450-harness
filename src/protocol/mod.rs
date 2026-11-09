@@ -312,6 +312,13 @@ pub enum Op {
         approval: ItemId,
         decision: ApprovalDecision,
     },
+    /// The human's reply to a `Question` item, as an ACP elicitation response.
+    AnswerQuestion {
+        #[serde(default)]
+        question: ItemId,
+        #[serde(default)]
+        answer: Value,
+    },
     SetProfile {
         profile: String,
     },
@@ -630,6 +637,17 @@ pub enum Item {
         decision: Option<ApprovalDecision>,
         by: Option<Resolver>,
     },
+    /// The agent asks the human (ACP form elicitation). `schema` is the
+    /// agent's requested JSON Schema, kept as sent; `answer` is the ACP reply
+    /// (`{"action":"accept","content":{..}}`, `decline` or `cancel`).
+    Question {
+        #[serde(default)]
+        message: String,
+        #[serde(default)]
+        schema: Value,
+        #[serde(default)]
+        answer: Option<Value>,
+    },
     Image {
         mime: String,
         blob: BlobRef,
@@ -842,6 +860,7 @@ pub enum ItemKind {
     Terminal,
     Plan,
     Approval,
+    Question,
     Image,
     Compaction,
     ContextTrim,
@@ -1180,6 +1199,7 @@ impl Item {
             Self::Terminal { .. } => ItemKind::Terminal,
             Self::Plan { .. } => ItemKind::Plan,
             Self::Approval { .. } => ItemKind::Approval,
+            Self::Question { .. } => ItemKind::Question,
             Self::Image { .. } => ItemKind::Image,
             Self::Compaction { .. } => ItemKind::Compaction,
             Self::ContextTrim { .. } => ItemKind::ContextTrim,
@@ -1345,6 +1365,11 @@ impl Item {
                     reason: Some("interrupted".into()),
                 }),
                 by: Some(Resolver::Cancelled),
+            },
+            ItemKind::Question => Self::Question {
+                message: String::new(),
+                schema: Value::Null,
+                answer: Some(serde_json::json!({"action": "cancel"})),
             },
             ItemKind::Image => Self::Image {
                 mime: "application/octet-stream".into(),

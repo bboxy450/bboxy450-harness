@@ -230,7 +230,7 @@ pub async fn run(replay: PathBuf, screenshot: PathBuf) -> Result<(), String> {
                 ItemKind::FileChange => "+ hello world", ItemKind::TurnDiff => "+++ b/hello.txt",
                 // the head names the command; the body is the output alone (the call's text)
                 ItemKind::Terminal => "hello", ItemKind::Plan => "In progress: Update greeting",
-                ItemKind::Approval => "Edit hello.txt", ItemKind::Image => "Image: image/png",
+                ItemKind::Approval => "Edit hello.txt", ItemKind::Question => "", ItemKind::Image => "Image: image/png",
                 ItemKind::ContextTrim => trim_expected.as_deref().expect("context trim fixture body"),
                 ItemKind::Usage | ItemKind::Native => {
                     // nothing in the feed: never "0 in · 0 out" (the operator's screenshot)
