@@ -3506,13 +3506,15 @@ static int engine_shim_sample_member(struct engine_owner *o,unsigned i,pid_t pid
         if(!pause)return 1;
         return engine_observe_live_taskall_open(o,i,ENGINE_OBSERVATION_UNIX,errno)==ENGINE_OBSERVATION_TERMINAL;
     }
-    if(before.status==SZOMB){m->phase=ENGINE_EXITED;return 1;}
     if(before.pgid!=o->ticket.pgid||before.uid!=geteuid()||(m->state.birth&&before.birth!=m->state.birth))return engine_failure(o,"coverage_unknown","observed helper lineage or group differs");
-    audit_token_t token;int known=known_control_token(pid,before.birth,&token);
+    if(before.status==SZOMB){m->phase=ENGINE_EXITED;return 1;}
+    audit_token_t token;int known=pause?engine_observe_token(o,i,pid,before.birth,&token):known_control_token(pid,before.birth,&token);
+    if(pause&&!known)return o->obs_terminal_pending&&m->phase==ENGINE_EXITED;
     uint64_t begin=engine_now(o,CLOCK_MONOTONIC);struct rusage_info_v1 u;
     struct engine_observation_failure fault;
-    int got=!engine_observation_fault(o,i,ENGINE_OBS_LIVE_RUSAGE,pid,&fault)
-        &&proc_pid_rusage(pid,RUSAGE_INFO_V1,(rusage_info_t *)&u)==0;
+    int forced=engine_observation_fault(o,i,ENGINE_OBS_LIVE_RUSAGE,pid,&fault);errno=0;
+    int got=!forced&&proc_pid_rusage(pid,RUSAGE_INFO_V1,(rusage_info_t *)&u)==0;
+    int usage_error=forced?fault.code:errno;
     uint64_t end=engine_now(o,CLOCK_MONOTONIC);o->ri_begin_ns[i]=begin;o->ri_end_ns[i]=end;
     if(got) {
         m->user=u.ri_user_time;m->system=u.ri_system_time;m->child_user=u.ri_child_user_time;m->child_system=u.ri_child_system_time;
@@ -3523,7 +3525,8 @@ static int engine_shim_sample_member(struct engine_owner *o,unsigned i,pid_t pid
     if(known){m->token=token;m->token_known=1;if(!engine_owned_token(o,pid,before.birth,before.start_absolute,&token))return 0;}
     if(!i){o->ticket.birth=before.birth;o->ticket.start=before.start_absolute;}
     if(pause) {
-        if(!got||!known||!control_observe(pid,&after))return engine_failure(o,"coverage_unknown","pause requires positive same-owner stopped observations");
+        if(!got)return engine_observe_live_rusage(o,i,forced?fault.domain:ENGINE_OBSERVATION_UNIX,usage_error)==ENGINE_OBSERVATION_TERMINAL;
+        if(!engine_observe_control(o,i,ENGINE_OBS_LIVE_TASKALL_CLOSE,pid,&after))return o->obs_terminal_pending&&m->phase==ENGINE_EXITED;
         if(after.birth!=before.birth||after.pgid!=before.pgid)return engine_failure(o,"coverage_unknown","pause original incarnation changed");
         m->stopped_ri_ack_ns=before.status==SSTOP&&before.runnable==0&&after.status==SSTOP&&after.runnable==0?before.observed_at:0;
         if(!engine_usage_policy(o,i))return 0;
