@@ -45,7 +45,7 @@ ASSERTIONS = {
  'total-stopped-per-member-only': b'aggregate SYSTEM30000 plus20001ns refuses despite each member below50us',
  'total-stopped-return-gap': b'post-resume RI query-return overshoot refuses and preserves every raw endpoint',
  'total-stopped-no-fresh-end': b'resume without a fresh stopped RI endpoint cannot supply stopped credit',
- 'member-peak-drop-admission': b'actual same-wake retained-live peak reaches final conjunction after full original settlement',
+ 'member-peak-drop-admission': b'supplied current member admissions reach exact live peak and final conjunction',
  'final-conjunction-drop-term': b'final conjunction ledger contains every boolean term and first failing name',
  'custody-stop-ignore-current-RI': b'fresh current RI and sticky admission state gate the one verifier custody STOP',
  'same-wake-nonblocking-only': b'bounded event wait admits slow-exec projection without exhausting the unchanged CPU guard',
@@ -348,7 +348,7 @@ def variants(source):
         b'int pass=1;if(!pass)o->ri_gap_failed_mask|=bit;return pass;', ['stopped-gap-api'])
     add('total-stopped-no-fresh-end', b'||resume_end<resume_begin', b'||0', ['stopped-gap-api'])
     add('member-peak-drop-admission', b'o->members[i].live_admitted=1;',
-        b'if(i)return;o->members[i].live_admitted=1;', ['same-wake-admission-control'])
+        b'if(i)return;o->members[i].live_admitted=1;', ['member-peak-admission-api'])
     add('final-conjunction-drop-term', b'n=snprintf(bytes+used,capacity-used,"\\\"%s\\\":%s,",engine_final_term_names[i],c->term[i]?"true":"false");',
         b'if(i==7)continue;n=snprintf(bytes+used,capacity-used,"\\\"%s\\\":%s,",engine_final_term_names[i],c->term[i]?"true":"false");', ['final-conjunction-controls'])
     add('custody-stop-ignore-current-RI', b'return !o->failed&&u&&u->ri_proc_start_abstime&&!u->ri_proc_exit_abstime\n        &&u->ri_proc_start_abstime==o->members[1].state.start_absolute\n        &&u->ri_proc_start_abstime==o->event_watch[1].start&&engine_child_watch_matches(o);',
@@ -526,9 +526,9 @@ def stopped_cadence_receipt(stdout):
 
 
 def retain_current(stdout, report):
-    found=re.findall(rb'private_engine_controls=pass cases=111 total_budget_controls=8 synthetic_source_known=true real_candidate_created=0 runtime_approved=false retained=(/private/tmp/dream-private-engine-controls\.[A-Za-z0-9]+)\n',stdout)
+    found=re.findall(rb'private_engine_controls=pass cases=112 total_budget_controls=8 synthetic_source_known=true real_candidate_created=0 runtime_approved=false retained=(/private/tmp/dream-private-engine-controls\.[A-Za-z0-9]+)\n',stdout)
     if len(found)!=1:
-        raise ValueError('current fixture lacks exact111 remaining controls and eight total-budget witnesses')
+        raise ValueError('current fixture lacks exact112 remaining controls and eight total-budget witnesses')
     if os.fsdecode(found[0]) != report['commands'][-1]['fixture_capture']['source_dir']:
         raise ValueError('completed fixture root differs from original command binding')
     modes=re.findall(rb'private_total_budget_control_source_known mode=([0-9]+) original_pid=([0-9]+) actual_own_wait4=1 group_gone=1 terminal_cpu_ns=([0-9]+)',stdout)
@@ -676,7 +676,10 @@ def retain_current(stdout, report):
         'ledger_bool_terms':list(FINAL_TERMS),'first_failure_field':'first_failing_term:string',
         'snapshot_cutoff':'before_this_diagnostic_format_write_fsync_close','writer_tail_all_costs_paid_before_completion':True,
         'API_rows':3,'source_known_full15_integration_variants':[0,3],'runtime_approved':False}
-    report['baseline_cases']=111
+    member_api=b'private_members_peak_admission_API_source_known cases=1 retained_live_count=2 members_max=2 exact_current_rows_supplied=2 final_conjunction_passed=true first_failing_term="none" final_error_code=none other_final_terms_supplied=true helper_births=0 native_process=false values_supplied=true actual_GS1=false actual_GS2=false actual_own_wait4=false actual_group_gone=false actual_helper_bill=false OS_timing_claimed=false full15_physical_run_claimed=false runtime_approved=false\n'
+    if stdout.count(member_api)!=1:raise ValueError('supplied production member admission/count/final-classifier API positive missing or duplicated')
+    report['member_peak_admission_API']={'cases':1,'retained_live_count':2,'members_max':2,'native_process':False,'values_supplied':True,'actual_own_wait4':False,'other_final_terms':'supplied; no full15 physical claim'}
+    report['baseline_cases']=112
     report['stopped_cadence_actual_process']=stopped_cadence_receipt(stdout)
     USER_rows=re.findall(rb'private_pause_USER_only_API_source_known mode=([01]) observed_accepted=0 expected_refused=true SYSTEM_before_raw=200 SYSTEM_after_raw=200 SYSTEM_violation=0 USER_violation=1 full_known_cost_supplied_ns=10000000 helper_debt_delta_ns=90000000 helper_cost_retained=1 helper_cost_paid=1 helper_births=0 actual_own_wait4=false native_process=false values_supplied=true OS_CPU_claimed=false runtime_approved=false',stdout)
     if sorted(map(int,USER_rows))!=[0,1]:raise ValueError('USER-only production API live/terminal refusals lack isolated SYSTEM-stable supplied vectors')
@@ -811,10 +814,9 @@ def verify(directory, inputs, report, total_only=False):
             marker=(f'private_pause_USER_only_API_source_known mode={mode} observed_accepted=1 expected_refused=true SYSTEM_before_raw=200 SYSTEM_after_raw=200 SYSTEM_violation=0 USER_violation=0 full_known_cost_supplied_ns=10000000 helper_debt_delta_ns=90000000 helper_cost_retained=1 helper_cost_paid=1 helper_births=0 actual_own_wait4=false native_process=false values_supplied=true OS_CPU_claimed=false runtime_approved=false').encode()
             if marker not in stdout:raise ValueError('USER mutant did not reach isolated wrong acceptance with unchanged SYSTEM')
         if name=='member-peak-drop-admission':
-            physical=b'private_same_wake_admission_completed_source_known '
-            projection=b'private_same_wake_members_conjunction_source_known actual_members_max=1 census_peak_path_bypassed=true actual_GS1_GS2_settled=true actual_own_wait4_groupgone=true actual_full_bill_paid=true final_conjunction_passed=false first_failing_term="members_max_complete" final_error_code=coverage_unknown other_final_terms_supplied=true full15_physical_run_claimed=false runtime_approved=false\n'
-            if physical not in stdout or projection not in stdout:
-                raise ValueError('missing-admission-peak mutant failed before real GS1/GS2 full settlement or for another conjunction term')
+            marker=b'private_members_peak_admission_API_source_known cases=1 retained_live_count=1 members_max=1 exact_current_rows_supplied=2 final_conjunction_passed=false first_failing_term="members_max_complete" final_error_code=coverage_unknown other_final_terms_supplied=true helper_births=0 native_process=false values_supplied=true actual_GS1=false actual_GS2=false actual_own_wait4=false actual_group_gone=false actual_helper_bill=false OS_timing_claimed=false full15_physical_run_claimed=false runtime_approved=false\n'
+            if marker not in stdout:
+                raise ValueError('missing-admission-peak API mutant missed exact supplied current-member count/classifier cause')
         if name=='custody-stop-ignore-current-RI':
             if b'private_custody_STOP_identity_API_source_known cases=7 accepted_mask=127 expected_mask=1' not in stdout:
                 raise ValueError('custody-STOP identity mutant missed its fresh-RI/failed-admission safety assertion')
@@ -838,8 +840,11 @@ def verify(directory, inputs, report, total_only=False):
         scope='source-known API/owned fixture, never installed Git/GPG qualification'
         if name in ('total-pause-live-user','total-pause-terminal-user'):
             scope='supplied USER-only production API; SYSTEM fixed; no native process/RI/ownwait4/OS CPU claim'
+        if name=='member-peak-drop-admission':
+            scope='supplied exact-current live member admission/count/final-classifier API; no native process, GS1, reap, OS timing or helper-bill claim'
         item={'name':name,'exit_code':code,'required_assertion':ASSERTIONS[name].decode(),'scope':scope}
         if name in ('total-pause-live-user','total-pause-terminal-user'):item.update(native_process=False,values_supplied=True,actual_own_wait4=False)
+        if name=='member-peak-drop-admission':item.update(native_process=False,values_supplied=True,actual_GS1=False,actual_own_wait4=False,actual_helper_bill=False)
         report.setdefault('causal_mutants',[]).append(item)
     if not total_only:
         production=directory/'production';production.mkdir(mode=0o700)

@@ -300,6 +300,31 @@ static void nominal_result(struct private_engine_result *r) {
         &r->debt_charged_ns,&r->debt_paid_ns,&r->helper_group_rss_peak_bytes,&r->probe_rss_peak_bytes,&r->metadata_bytes};
     for(unsigned i=0;i<sizeof(all)/sizeof(all[0]);i++)engine_max(all[i],1000+i);
 }
+// Supplied current-incarnation observations exercise only the production
+// admission/count/classifier APIs. No OS process, GS1, reap or helper bill.
+static void member_peak_admission_api(void) {
+    reset();struct engine_owner o;struct private_engine_result r;memset(&o,0,sizeof(o));nominal_result(&r);
+    o.context=&context;o.result=&r;o.slots=2;o.direct_custody=1;o.retired_count=2;r.members_max=0;
+    o.ticket.pid=100;o.ticket.pgid=100;o.ticket.birth=1000;o.ticket.start=10;
+    for(unsigned i=0;i<2;i++) {
+        struct engine_member *m=&o.members[i];m->state.pid=i?200:100;m->state.ppid=i?100:50;m->state.pgid=100;
+        m->state.birth=i?2000:1000;m->state.start_absolute=i?20:10;m->ri_started_ns=100+i;
+        m->token_known=1;m->phase=ENGINE_EXPECTED;m->token.val[5]=(unsigned)m->state.pid;m->token.val[7]=1;
+        o.retired[i]=(struct engine_incarnation){.pid=m->state.pid,.birth=m->state.birth,.start=m->state.start_absolute,.token=m->token,.current=1};
+    }
+    require(engine_event_current_member(&o,0)&&engine_event_current_member(&o,1)
+        &&private_end_unit(private_cost.open_cpu),"supplied admission API retains two exact-current member rows with paid controller setup");
+    engine_member_live_admission(&o,0);
+    require(engine_retained_live_members(&o)==1&&r.members_max==1,"production admission API counts only the supplied admitted leader before child admission");
+    engine_member_live_admission(&o,1);unsigned live=engine_retained_live_members(&o);
+    struct engine_final_conjunction final;engine_final_conjunction_capture(&context,&r,&final);
+    int accepted=engine_complete_result(&context,&r);
+    printf("private_members_peak_admission_API_source_known cases=1 retained_live_count=%u members_max=%u exact_current_rows_supplied=2 final_conjunction_passed=%s first_failing_term=\"%s\" final_error_code=%s other_final_terms_supplied=true helper_births=0 native_process=false values_supplied=true actual_GS1=false actual_GS2=false actual_own_wait4=false actual_group_gone=false actual_helper_bill=false OS_timing_claimed=false full15_physical_run_claimed=false runtime_approved=false\n",
+        live,(unsigned)r.members_max,accepted?"true":"false",final.first_failing_term,accepted?"none":private_error);
+    require(fflush(stdout)==0&&private_end_unit(private_cost.open_cpu),"supplied member peak API classifier evidence fully paid");
+    require(live==2&&r.members_max==2&&accepted&&final.term[7]&&final.coverage_passed&&final.resources_passed
+        &&!strcmp(final.first_failing_term,"none"),"supplied current member admissions reach exact live peak and final conjunction");controls++;
+}
 static void result_controls(void) {
     struct private_engine_result r;
     reset();memset(&r,0,sizeof(r));
@@ -1706,7 +1731,7 @@ static unsigned char same_wake_signature_buffer[4096];
 static char same_wake_gpg_json[8194],same_wake_root[4097];
 static unsigned same_wake_exec_released,same_wake_unstopped_rest,same_wake_ack_seen,same_wake_exit_released;
 static uint64_t same_wake_ack_unit_cpu;
-struct same_wake_handoff_row {unsigned stage,steps,phase,pending,attachment_stop,registered,exec_released,result;uint64_t open_cpu,cpu_now,used,wall_ns;};
+struct same_wake_handoff_row {unsigned stage,steps,phase,pending,attachment_stop,registered,exec_released,result;uint64_t open_cpu,derived_cpu,used,wall_ns;};
 static struct {uint64_t rows,polls,max_used;struct same_wake_handoff_row first,last;} same_wake_handoff;
 static uint64_t same_wake_watch_release_ns;
 static int same_wake_execute_fd=-1,same_wake_write_result=-2,same_wake_write_errno;
@@ -1721,9 +1746,14 @@ static void same_wake_release_execute(void) {
 }
 
 static void same_wake_handoff_retain(struct engine_owner *o,unsigned stage,unsigned steps,uint64_t used,int result) {
+    // Supplied used belongs to the production guard's earlier cutoff. Retain
+    // it exactly; this arithmetic coordinate is NOT a fresh callback/return
+    // observation. The fixture adds no CPU or wall clock queries per callback.
+    uint64_t open=private_cost.open_cpu,derived=UINT64_MAX;
+    if(open!=UINT64_MAX&&used!=UINT64_MAX&&used<=UINT64_MAX-open)derived=open+used;
     struct same_wake_handoff_row row={.stage=stage,.steps=steps,.phase=o->members[1].phase,.pending=o->child_event_pending,
         .attachment_stop=o->members[1].attachment_stop,.registered=o->event_registered_mask,.exec_released=same_wake_exec_released,
-        .result=(unsigned)result,.open_cpu=private_cost.open_cpu,.cpu_now=clock_ns(CLOCK_THREAD_CPUTIME_ID),.used=used,.wall_ns=clock_ns(CLOCK_MONOTONIC)};
+        .result=(unsigned)result,.open_cpu=open,.derived_cpu=derived,.used=used,.wall_ns=UINT64_MAX};
     if(!same_wake_handoff.rows)same_wake_handoff.first=row;
     same_wake_handoff.last=row;same_wake_handoff.rows++;if(stage==5)same_wake_handoff.polls++;
     if(used!=UINT64_MAX&&used>same_wake_handoff.max_used)same_wake_handoff.max_used=used;
@@ -1812,11 +1842,11 @@ static void same_wake_copy(int from,const char *source,int to,const char *target
 }
 static void same_wake_handoff_diagnostic(const char *first_code,const char *first_detail) {
     const struct same_wake_handoff_row *first=&same_wake_handoff.first,*last=&same_wake_handoff.last;
-    printf("private_same_wake_handoff_diagnostic_source_known first_error=%s first_detail=\"%s\" rows=%llu zero_timeout_poll_calls=%llu max_open_CPU_ns=%llu first_stage=%u first_phase=%u first_open_CPU_ns=%llu first_CPU_ns=%llu first_wall_ns=%llu last_stage=%u last_guard_steps=%u last_phase=%u last_pending=%u last_STOP=%u registered_mask=%u exec_gate_released=%u watch_release_ns=%llu last_open_CPU_ns=%llu last_CPU_ns=%llu last_used_CPU_ns=%llu last_wall_ns=%llu last_result=%u no_timing_cause_inferred=true runtime_approved=false\n",
+    printf("private_same_wake_handoff_diagnostic_source_known first_error=%s first_detail=\"%s\" rows=%llu poll_return_calls=%llu max_open_CPU_ns=%llu first_stage=%u first_phase=%u first_open_CPU_ns=%llu first_CPU_derived_ns=%llu first_wall_unknown_ns=%llu last_stage=%u last_guard_steps=%u last_phase=%u last_pending=%u last_STOP=%u registered_mask=%u exec_gate_released=%u watch_release_ns=%llu last_open_CPU_ns=%llu last_CPU_derived_ns=%llu last_used_CPU_ns=%llu last_wall_unknown_ns=%llu last_result=%u fixture_diagnostic=true callback_clock_queries=0 CPU_coordinate=checked_open_plus_supplied_used_not_fresh_return wall_timestamps_observed=false unknown_coordinate=18446744073709551615 poll_timeout_not_observed=true no_timing_cause_inferred=true runtime_approved=false\n",
         first_code,first_detail,(unsigned long long)same_wake_handoff.rows,(unsigned long long)same_wake_handoff.polls,(unsigned long long)same_wake_handoff.max_used,
-        first->stage,first->phase,(unsigned long long)first->open_cpu,(unsigned long long)first->cpu_now,(unsigned long long)first->wall_ns,
+        first->stage,first->phase,(unsigned long long)first->open_cpu,(unsigned long long)first->derived_cpu,(unsigned long long)first->wall_ns,
         last->stage,last->steps,last->phase,last->pending,last->attachment_stop,last->registered,last->exec_released,(unsigned long long)same_wake_watch_release_ns,
-        (unsigned long long)last->open_cpu,(unsigned long long)last->cpu_now,(unsigned long long)last->used,(unsigned long long)last->wall_ns,last->result);
+        (unsigned long long)last->open_cpu,(unsigned long long)last->derived_cpu,(unsigned long long)last->used,(unsigned long long)last->wall_ns,last->result);
 }
 static void same_wake_admission_control(const char *self,const char *root,int parent) {
     reset();require(mkdirat(parent,"same-wake",0700)==0,"fresh same-wake fixture directory");
@@ -1855,6 +1885,10 @@ static void same_wake_admission_control(const char *self,const char *root,int pa
     if(handoff_failed) {
         same_wake_handoff_diagnostic(first_code,first_detail);
         require(fflush(stdout)==0&&private_end_unit(private_cost.open_cpu),"same-wake first failed handoff diagnostic fully paid before original await");
+        // An already-refused admission uses the existing exact cleanup now;
+        // it cannot claim product settlement by waiting out the fixture.
+        require(o.child_image_admitted&&same_wake_sig.bound&&o.verified_descendants==1&&!same_wake_unstopped_rest&&same_wake_ack_seen&&same_wake_ack_unit_cpu<=1000000,
+            "actual fast verifier keeps same-wake image admission and GS1 before any unstopped rest");
     }
     await_original(&o);
     if(!handoff_failed)same_wake_handoff_diagnostic(first_code,first_detail);
@@ -2362,6 +2396,7 @@ int main(int argc,char **argv) {
     unsigned result_only=argc==2&&!strcmp(argv[1],"result-controls");
     unsigned final_terms=argc==2&&!strcmp(argv[1],"final-conjunction-controls");
     unsigned member_census=argc==2&&!strcmp(argv[1],"member-peak-census-control");
+    unsigned member_api=argc==2&&!strcmp(argv[1],"member-peak-admission-api");
     unsigned diagnostics=argc==2&&!strcmp(argv[1],"terminal-diagnostic-controls");
     unsigned setup=argc==2&&!strcmp(argv[1],"diagnostic-setup-budget-control");
     unsigned deadline=argc==2&&!strcmp(argv[1],"terminal-deadline-controls");
@@ -2383,7 +2418,7 @@ int main(int argc,char **argv) {
     unsigned custody_identity=argc==2&&!strcmp(argv[1],"custody-stop-identity-api");
     unsigned exit_before_api=argc==2&&!strcmp(argv[1],"same-wake-exit-api");
     unsigned event_case=argc==3&&!strcmp(argv[1],"verifier-event-control")?(unsigned)strtoul(argv[2],NULL,10):3;
-    require(argc==1||selected<12||diagnostics||setup||deadline||cpu_debt||expand||native_api||native_case<3||race_case<7||event_api||event_case<3||child_exit_api<9||child_exit_process||leader_refresh_api<5||composition||batch||nested_census||same_wake||same_wake_api||event_wait_api||custody_identity||exit_before_api||hold||flow||result_only||final_terms||member_census||charge||boundary||stopped_api||stopped_process||pause_user_case<2||retained,"private source-known controls argc");
+    require(argc==1||selected<12||diagnostics||setup||deadline||cpu_debt||expand||native_api||native_case<3||race_case<7||event_api||event_case<3||child_exit_api<9||child_exit_process||leader_refresh_api<5||composition||batch||nested_census||same_wake||same_wake_api||event_wait_api||custody_identity||exit_before_api||hold||flow||result_only||final_terms||member_census||member_api||charge||boundary||stopped_api||stopped_process||pause_user_case<2||retained,"private source-known controls argc");
     require(atexit(dispose_owned)==0,"owned cleanup registration");
     char root[]="/private/tmp/dream-private-engine-controls.XXXXXX";require(mkdtemp(root)!=NULL,"owned fixture directory");
     int dir=open(root,O_RDONLY|O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC);require(dir>=0,"owned fixture root");
@@ -2411,6 +2446,7 @@ int main(int argc,char **argv) {
     if(flow){flow_controls(root,dir);require(close(dir)==0,"owned flow root close");return 0;}
     if(final_terms){final_conjunction_controls(dir);require(close(dir)==0,"owned final conjunction root close");return 0;}
     if(member_census){member_peak_census_control(self,root,dir);require(close(dir)==0,"owned member census root close");return 0;}
+    if(member_api){member_peak_admission_api();require(close(dir)==0,"owned member admission API root close");return 0;}
     if(result_only){result_controls();require(close(dir)==0,"owned result root close");return 0;}
     if(boundary){total_boundary_api();require(close(dir)==0,"owned boundary API root close");return 0;}
     if(pause_user_case<2){pause_user_only_api(pause_user_case);require(close(dir)==0,"owned USER-only API root close");return 0;}
@@ -2449,6 +2485,7 @@ int main(int argc,char **argv) {
     same_wake_event_wait_api();(void)same_wake_exit_api();
     same_wake_admission_api();
     same_wake_admission_control(self,root,dir);
+    member_peak_admission_api();
     member_peak_census_control(self,root,dir);
     nested_census_delivery_control();
     sample_unit_composition_control();currentness_batch_control(root,dir);
