@@ -3537,6 +3537,10 @@ fn signature_boundary_controls_refuse_before_helper_birth() {
     }
     assert_ne!(changed, original);
     private_file(&mutant.join("proof-helper-probe.c"), changed.as_bytes());
+    private_file(
+        &mutant.join("dream-exec-shim.h"),
+        &std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/dream-read/dream-exec-shim.h")).unwrap(),
+    );
     let mutant_source = mutant.join("signature-boundary-controls.c");
     private_file(&mutant_source, &std::fs::read(source).unwrap());
     let mutant_probe = mutant.join("controls");

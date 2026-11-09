@@ -291,7 +291,8 @@ def gate(base):
             env["BBOXY_TOOLKIT_ROOT"] = str(enclosing)
         # Do not depend on unlanded app/workspace changes, or overwrite their
         # aggregate evidence. Cargo uses the selected private target for formal artifacts.
-        formal_target=TARGET/"harness-landing"
+        # Formal and runtime gates share the explicitly configured build tree.
+        formal_target=TARGET
         if run(["make", "check-formal-evidence", f"TARGET_DIR={formal_target}"], env=env, required=False):
             run(["make", "test-formal-parity", "FORMAL_REUSE=1", f"TARGET_DIR={formal_target}"], env=env)
         run(["make", "check-formal-evidence", f"TARGET_DIR={formal_target}"], env=env)

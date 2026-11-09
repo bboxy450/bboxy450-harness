@@ -2918,7 +2918,7 @@ static unsigned source_known_event_registration_failure;
 #endif
 static int engine_event_current_member(const struct engine_owner *o,unsigned i) {
     const struct engine_member *m=&o->members[i];unsigned current=0;
-    if(!m->token_known||!m->state.pid||!m->state.birth||!m->state.start_absolute)return 0;
+    if(!m->token_known||!m->state.pid||!m->state.birth||(!o->shim_active&&!m->state.start_absolute))return 0;
     for(unsigned j=0;j<o->retired_count;j++) {
         const struct engine_incarnation *r=&o->retired[j];
         if(r->current&&r->pid==m->state.pid&&r->birth==m->state.birth&&r->start==m->state.start_absolute
@@ -3092,7 +3092,9 @@ static int engine_events_close(struct engine_owner *o) {
     return result==0?1:engine_failure(o,"settlement_unknown","owned process event queue close unresolved");
 }
 static int engine_owned_token(struct engine_owner *owner,pid_t pid,uint64_t birth,uint64_t start,const audit_token_t *token) {
-    for(unsigned i=0;i<owner->retired_count;i++)if(owner->retired[i].pid==pid&&!memcmp(&owner->retired[i].token,token,sizeof(*token)))return 1;
+    for(unsigned i=0;i<owner->retired_count;i++)if(owner->retired[i].pid==pid&&!memcmp(&owner->retired[i].token,token,sizeof(*token))) {
+        if(owner->shim_active&&start)owner->retired[i].start=start;return 1;
+    }
     if(owner->retired_count>=8)return engine_failure(owner,"coverage_unknown","retained incarnation capacity exceeded");
     for(unsigned i=0;i<owner->retired_count;i++)if(owner->retired[i].pid==pid)owner->retired[i].current=0;
     struct engine_incarnation *m=&owner->retired[owner->retired_count++];m->pid=pid;m->birth=birth;m->start=start;m->token=*token;m->current=1;return 1;
@@ -3518,9 +3520,8 @@ static int engine_shim_sample_member(struct engine_owner *o,unsigned i,pid_t pid
     uint64_t end=engine_now(o,CLOCK_MONOTONIC);o->ri_begin_ns[i]=begin;o->ri_end_ns[i]=end;
     if(got) {
         m->user=u.ri_user_time;m->system=u.ri_system_time;m->child_user=u.ri_child_user_time;m->child_system=u.ri_child_system_time;
-        before.start_absolute=u.ri_proc_start_abstime;m->ri_started_ns=begin;
+        before.start_absolute=u.ri_proc_start_abstime;m->ri_started_ns=begin;o->sample_known=1;
     } else {o->live_read_failures++;before.start_absolute=m->state.start_absolute;}
-    if(!before.start_absolute)before.start_absolute=before.birth; // custody key only; never a synthesized RI sample.
     m->state=before;m->phase=ENGINE_EXPECTED;
     if(known){m->token=token;m->token_known=1;if(!engine_owned_token(o,pid,before.birth,before.start_absolute,&token))return 0;}
     if(!i){o->ticket.birth=before.birth;o->ticket.start=before.start_absolute;}
@@ -3781,6 +3782,7 @@ static int engine_ri_end(struct engine_owner *o,unsigned i,uint64_t ended) {
     int pass=engine_sample_gap(o,ended);if(!pass)o->ri_gap_failed_mask|=bit;return pass;
 }
 static int engine_live_budget(struct engine_owner *owner) {
+    if(owner->shim_active&&!owner->sample_known)return 1; // no invented zero sample after a failed RI read.
     uint64_t total=0,leader=0,rollup=0;struct engine_member *a=&owner->members[0];
     if(!engine_safe_sum(a->user,a->system,&leader)||!engine_safe_sum(a->child_user,a->child_system,&rollup)
         ||!engine_cpu_ticks(leader,&leader)||!engine_cpu_ticks(rollup,&rollup))
@@ -4191,9 +4193,9 @@ static int engine_shim_receive(struct engine_owner *o) {
 }
 static int engine_event_record(struct engine_owner *o) {
     const char *via=o->child_discovered_via==2?"fork_event":o->child_discovered_via==1?"poll":"none";
-    char line[768];int n=snprintf(line,sizeof(line),"{\"kind\":\"verifier_event_discovery\",\"leader_fork_events\":%llu,\"leader_exec_events\":%llu,\"child_discovered_via\":\"%s\",\"fork_seen_child_missed\":%s,\"notification_counts_not_birth_counts\":true,\"registered_mask\":%u,\"registration_errno\":[%d,%d],\"wait_errno\":%d,\"queue_fd_held\":%u,\"close_attempted\":%u,\"close_errno\":%d,\"runtime_approved\":false}\n",
+    char line[1024];int n=snprintf(line,sizeof(line),"{\"kind\":\"verifier_event_discovery\",\"leader_fork_events\":%llu,\"leader_exec_events\":%llu,\"child_discovered_via\":\"%s\",\"fork_seen_child_missed\":%s,\"notification_counts_not_birth_counts\":true,\"registered_mask\":%u,\"registration_errno\":[%d,%d],\"wait_errno\":%d,\"queue_fd_held\":%u,\"close_attempted\":%u,\"close_errno\":%d,\"exec_shim_enforced\":%s,\"live_cpu_sample_known\":%s,\"live_read_failures\":%llu,\"runtime_approved\":false}\n",
         (unsigned long long)o->leader_fork_events,(unsigned long long)o->leader_exec_events,via,o->fork_seen_child_missed?"true":"false",
-        o->event_registered_mask,o->event_register_errno[0],o->event_register_errno[1],o->event_wait_errno,o->event_fd_live,o->event_close_attempted,o->event_close_errno);
+        o->event_registered_mask,o->event_register_errno[0],o->event_register_errno[1],o->event_wait_errno,o->event_fd_live,o->event_close_attempted,o->event_close_errno,o->shim_active?"true":"false",o->sample_known?"true":"false",(unsigned long long)o->live_read_failures);
     return engine_write_record(o,line,n);
 }
 static int engine_record(struct engine_owner *o,const char *phase) {

@@ -66,7 +66,7 @@ int main(int argc,char **argv) {
         source_known_observation_selected=ENGINE_OBS_LIVE_RUSAGE;
         source_known_observation_forced_domain=ENGINE_OBSERVATION_UNIX;source_known_observation_forced_code=EIO;
         require(engine_shim_sample_member(&observer,0,pid)&&observer.live_read_failures==1
-            &&source_known_observation_hits==1&&!observer.failed&&!private_failed,"supplied failed RI read is ignored on original live process");
+            &&source_known_observation_hits==1&&!observer.sample_known&&!observer.members[0].state.start_absolute&&!observer.failed&&!private_failed,"supplied failed RI read is ignored on original live process");
         require(engine_sample_gap(&observer,UINT64_MAX)&&!observer.failed,"sample gap is not a gate");
     }
     int events=-1;if(getenv("DREAM_SHIM_TEST_FORK_BACKSTOP")) {
@@ -88,7 +88,7 @@ int main(int argc,char **argv) {
         int done=0;require(known_exited(pid,&done),"driver terminal observation");if(done)break;
         struct rusage_info_v1 raw;if(proc_pid_rusage(pid,RUSAGE_INFO_V1,(rusage_info_t *)&raw)==0) {
             uint64_t sum=raw.ri_user_time+raw.ri_system_time;require(known_absolute_ns(sum,&live_cpu),"driver live CPU conversion");
-            observer.members[0].user=raw.ri_user_time;observer.members[0].system=raw.ri_system_time;
+            observer.members[0].user=raw.ri_user_time;observer.members[0].system=raw.ri_system_time;observer.sample_known=1;
             if(!engine_live_budget(&observer)){require(observer.live_over_cap&&observer.group_kill_attempted,"production successful over-cap read kills group");live_kill=1;break;}
         }
         usleep(1000);

@@ -3852,7 +3852,7 @@ pub fn total_budget(control: u8) -> Model {
         "HelperShimBudget",
         control != 0,
         &[
-            ("phaseAbsentPreparedExecObservedReapedSettled", 5, 0),
+            ("phaseAbsentPreparedExecObservedReapedDisposition", 5, 0),
             ("scenario", 19, 0),
             ("executed", 1, 0),
             ("killed", 1, 0),
@@ -3922,7 +3922,7 @@ pub fn total_budget(control: u8) -> Model {
         &mut m,
         "ShimMismatchExits81BeforeExec",
         eq(P, 1).and(pre.negate()),
-        &[(P, Int(5)), (REFUSE, Int(1))],
+        &[(P, Int(3)), (REFUSE, Int(1))],
     );
     let fork_or_live = eq(C, 5)
         .and(Bool(control != 5))
@@ -3942,18 +3942,23 @@ pub fn total_budget(control: u8) -> Model {
             (REFUSE, if control == 18 { Var(FAILED) } else { Int(0) }),
         ],
     );
+    act(&mut m, "ReapRefusedShimAndRetainItsFull9xBill",
+        all([eq(P, 3), eq(EXEC, 0)]),
+        &[(P, Int(4)), (REAP, Int(1)), (DUE, Int(9)), (PAID, Int(9))]);
     for case in 0..=19 {
         let raw = if case == 7 { 3 } else { 1 };
         let due = 9 * raw;
+        let killed = (case == 5 && control != 5) || (case == 17 && control != 17);
         act(
             &mut m,
-            &format!("SameOwnerPauseReapAndFullRawBill{case}"),
-            all([eq(P, 3), eq(C, case)]),
+            &format!("SameOwnerConditionalPauseReapAndFullRawBill{case}"),
+            all([eq(P, 3), eq(C, case), eq(EXEC, 1)]),
             &[
                 (P, Int(4)),
-                (STOP, Int(1)),
-                (ACK, Int(1)),
-                (CONT, Int(if case == 16 && control == 16 { 2 } else { 1 })),
+                (STOP, Int(i64::from(!killed))),
+                (ACK, Int(i64::from(!killed))),
+                (CONT, Int(if case == 16 && control == 16 { 2 }
+                    else if killed { i64::from(control == 16) } else { 1 })),
                 (REAP, Int(i64::from(case != 11))),
                 (DUE, Int(due)),
                 (PAID, Int(if case == 10 && control == 10 { 0 } else { due })),
@@ -4034,19 +4039,19 @@ pub fn total_budget(control: u8) -> Model {
     }
     safe(&mut m, "DebtBeforeNext", eq(NEXT, 0).or(bill));
     safe(&mut m, "OneStopAckAndOneContinue", Var(CONT).lt(Int(2)));
+    safe(&mut m, "NoContinueAfterKill", eq(KILL, 0).or(eq(CONT, 0)));
     safe(
         &mut m,
         "Full9xRawTerminalBill",
         eq(P, 4)
             .or(eq(P, 5))
             .negate()
-            .or(eq(EXEC, 0))
             .or(eq(CPU, 3).and(eq(DUE, 27)).or(eq(CPU, 1).and(eq(DUE, 9)))),
     );
     let fairness = (0..m.actions.len()).collect();
     progress(
         &mut m,
-        "EventuallySettledWithControlAndSettlementFair",
+        "EventuallyDisposedOrOwnedWithControlAndSettlementFair",
         eq(P, 1),
         eq(P, 5),
         fairness,
