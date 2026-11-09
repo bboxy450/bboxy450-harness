@@ -17,7 +17,8 @@ license-file = "LICENSE"
 exclude = [".bboxy/**", "target/**"]
 
 [features]
-default = ["acp-agent"]
+# Every build serves ACP (`bboxy450-harness acp`): remote supervisors require it.
+default = ["acp-agent", "acp"]
 standalone = ["embedded", "dep:winit", "dep:wgpu", "dep:bbt_desktop"]
 embedded = ["dep:bbt_doc", "dep:bbt_ui", "dep:bbt_ui_model", "dep:bbt_render", "dep:png", "dep:bbt_desktop_core"]
 acp = ["dep:agent-client-protocol"]
