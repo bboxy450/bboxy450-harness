@@ -46,66 +46,66 @@ VERIFIER_SHA = "21cb9adcad96b7be404014ff6e9fb837160a2135455c217dec9efe196cf0661a
 # Only an explicit live Root amendment can select a FUNCTIONAL immutable input.
 # The old5493 and a386 preflight checkpoints remain historical, not fallbacks.
 # This is an offline ingestion premise, never a runtime approval flag or API.
-# Selected by the task ORACLE FREEZE INPUT66 amendment, decisions66280/66331.
+# Selected by the task ORACLE FREEZE INPUT67 amendment, decisions66280/66331.
 # External helpers use background QoS and total budgets; our own units retain
 # the 1ms law. Custody and preparation cross-bindings precede every launch.
-ROOT_Q2_INPUT = {'root': {'path': '/Users/feral/mydev/bboxy450-harness-dream-read-q2/target/dream-q2-unit-split-margin-01M6RZZXSHZT3KHBK1QC7K3XB3/prepared-input66/dream-read-c-preparation/compile-ifwmr6v1',
+ROOT_Q2_INPUT = {'root': {'path': '/Users/feral/mydev/bboxy450-harness-dream-read-q2/target/dream-q2-unit-split-margin-01M6RZZXSHZT3KHBK1QC7K3XB3/prepared-input67/dream-read-c-preparation/compile-lrlj5_sr',
           'dev': 16777234,
-          'ino': 187286350,
+          'ino': 188521562,
           'uid': 501},
- 'source': {'path': '/Users/feral/mydev/bboxy450-harness-dream-read-q2/target/dream-q2-unit-split-margin-01M6RZZXSHZT3KHBK1QC7K3XB3/prepared-input66/dream-read-c-preparation/compile-ifwmr6v1/proof-helper-probe.c',
-            'sha256': 'fb34071ec30549c49423c35ab3f1e1068d49f5015ae593fe7215a09245af97e6',
-            'ctime_ns': 1794164268177664583,
+ 'source': {'path': '/Users/feral/mydev/bboxy450-harness-dream-read-q2/target/dream-q2-unit-split-margin-01M6RZZXSHZT3KHBK1QC7K3XB3/prepared-input67/dream-read-c-preparation/compile-lrlj5_sr/proof-helper-probe.c',
+            'sha256': '98a0ff5f850e38112a614a52152523e4dc842523c7aba67a7fadd8683ae1d07d',
+            'ctime_ns': 1794190618761328459,
             'dev': 16777234,
-            'ino': 187286351,
-            'len': 366855,
+            'ino': 188521563,
+            'len': 387443,
             'mode': 33024,
-            'mtime_ns': 1794164268177522166,
+            'mtime_ns': 1794190618761130834,
             'nlink': 1,
-            'size': 366855,
+            'size': 387443,
             'uid': 501},
- 'executable': {'path': '/Users/feral/mydev/bboxy450-harness-dream-read-q2/target/dream-q2-unit-split-margin-01M6RZZXSHZT3KHBK1QC7K3XB3/prepared-input66/dream-read-c-preparation/compile-ifwmr6v1/probe',
-                'sha256': '4ba0533e6806678fcf12529192ef0f06a2381d9b2d74e4a1d0a0e78ab2d060b9',
-                'ctime_ns': 1794164269324351215,
+ 'executable': {'path': '/Users/feral/mydev/bboxy450-harness-dream-read-q2/target/dream-q2-unit-split-margin-01M6RZZXSHZT3KHBK1QC7K3XB3/prepared-input67/dream-read-c-preparation/compile-lrlj5_sr/probe',
+                'sha256': '65da9c9e97a130ddf7962e3df03d41f58c226a48458066610e793b159c65195d',
+                'ctime_ns': 1794190620027405254,
                 'dev': 16777234,
-                'ino': 187286358,
-                'len': 268616,
+                'ino': 188521568,
+                'len': 285448,
                 'mode': 33088,
-                'mtime_ns': 1794164269292180822,
+                'mtime_ns': 1794190619996676128,
                 'nlink': 1,
-                'size': 268616,
+                'size': 285448,
                 'uid': 501},
- 'preparation': {'path': '/Users/feral/mydev/bboxy450-harness-dream-read-q2/target/dream-q2-unit-split-margin-01M6RZZXSHZT3KHBK1QC7K3XB3/prepared-input66/dream-read-c-preparation/compile-ifwmr6v1/preparation-7c9fa3868bebdb25b55b6e59c65ea7d5327ee6e0577bc4258c41f83eda0e2b5a.json',
-                 'sha256': '7c9fa3868bebdb25b55b6e59c65ea7d5327ee6e0577bc4258c41f83eda0e2b5a',
-                 'ctime_ns': 1794164269537133172,
+ 'preparation': {'path': '/Users/feral/mydev/bboxy450-harness-dream-read-q2/target/dream-q2-unit-split-margin-01M6RZZXSHZT3KHBK1QC7K3XB3/prepared-input67/dream-read-c-preparation/compile-lrlj5_sr/preparation-d6a854c8fd0e4f1784ddd56d72da9bf4f645bce126b66e417aa1ede920efac14.json',
+                 'sha256': 'd6a854c8fd0e4f1784ddd56d72da9bf4f645bce126b66e417aa1ede920efac14',
+                 'ctime_ns': 1794190620227267096,
                  'dev': 16777234,
-                 'ino': 187286709,
+                 'ino': 188521918,
                  'len': 530062,
                  'mode': 33024,
-                 'mtime_ns': 1794164269536943672,
+                 'mtime_ns': 1794190620227074596,
                  'nlink': 1,
                  'size': 530062,
                  'uid': 501},
- 'source_commit': '7449a048ad08e62e491be971e65c53695e3be940',
+ 'source_commit': '1f1b30ddec05e5d8e092d91b92c161bd94d1cc38',
  'signer_fingerprint': '9B07E849480C68328CA20684844ECC0587DE7AB0',
- 'preparation_commit': '7449a048ad08e62e491be971e65c53695e3be940',
+ 'preparation_commit': '1f1b30ddec05e5d8e092d91b92c161bd94d1cc38',
  'preparation_signer_fingerprint': '9B07E849480C68328CA20684844ECC0587DE7AB0',
- 'bindings': {'build': '9e6fb31b383708906e05b16a5f83636ea6c7fbfeddad2407ac1b532a1a4b4bb2',
+ 'bindings': {'build': '18e778dc5237a5332a7190d98c17c1c8874657de9ebb169d41c4b3f535d9b806',
               'compiler': 'a3d577375b2a73419600eee3110f6bb210bbec0c10d5abd48022c9809ff23838',
-              'dependency_discovery': 'a6712203ec12d48ef9f5da1cefd2dd12cd05bbe3a75ecc496d8664e924725e40',
-              'executable': '01a3d0627f1b703fcd50969dd2823d64496322108a01dccce6766a2a61e2ee47',
-              'header_inputs': '869b6f1965172a600054c7c717816389484bc546227ae63da18ec1dcabd0ad2e',
-              'inputs': '3dbe97d500a35ae77275db586f8bbe50ca027bc0bb9f7234d85654328df77924',
+              'dependency_discovery': '4288ca802f3cbb93faf78c2c48f78d2726e351b52bdfee3f2d3fa80ffee711f2',
+              'executable': '33d9880992085ac085002041423718ecc05c20371f815f63a4b748d11e54b229',
+              'header_inputs': 'f8a5938f32d74ea0d152624f5b63fddbe26fd48e955bdbe968fe59da63dcb058',
+              'inputs': 'd4077e09851faf1362018d226b1ed2bfc093e84c39d5881ef79f6430bf11ac95',
               'linker': '7cea27482a67bfa92b546ec35ad5ba71bcedd3910bd3b12df9e618fbcfbdf01c',
               'platform': '994c24fbd511ae90c273cfcd5c5f3e78b99b70a35692800dcb48d289bdaab6e3',
-              'provisioning_source': 'fcfbc9f9f9c7fa382636d71b9578b809e4cb23d29221c97e03cd6ecdf1b11755',
+              'provisioning_source': 'cb278fb03275602d36cee937b5c0570e087d7f84930679ab613ce6d6f2a3c5ed',
               'sdk': '18544f8f94b14d8ac2da05b462679964250d8885f603422c994201d5e4e483ff',
-              'input_commits': '7688bd86535a03b668e54f935b90ddd5051a7687ef3df8825a3d2756aa786ec2',
-              'preparation_commit': 'c202574233c02427526e31c0da4796c224fbd70eeaf99d2ed9696c88f0a88dd2',
+              'input_commits': '2b4a388a1c19f6b677adb47c67671a75f72677998f41cdf14e27945b8a25fc4b',
+              'preparation_commit': 'f26fae58d33fd6914cfdcd124b6db7cab0edcfbba6946e8c1e21a30250fb0edc',
               'preparation_signer_fingerprint': '4e588b4e7396747b3b7b317d37a22c5981401da546e6eadebc4008472c4367e9',
-              'preparation_snapshot': '7a93f1a0737afbd723852fca38372973191d72651224189a9e9c5d3952c9bce8',
-              'retained_outputs': '51dd9043dca7d04b64d848ed09bba779c9e93061404d215dfad2ffef019dcb00',
-              'retained_root': '8eefba41d6ed1798ef644aa4114bec057c704dd1411e9d7c2e3f59d57b1b692d',
+              'preparation_snapshot': '1d38e5c8b317ecfbed72d2373c99176533a8317497fd4ebdb9ab3e49bf416484',
+              'retained_outputs': '1094d0b5868706ad8d9f87d527ca12a2801331a4931839efd71a57059d88ee3b',
+              'retained_root': 'b1b913ae5126f5c12f4dd6fcc964250a58ff36fc437cf4e52ac5c6f14de54bb4',
               'retained_directory_mode': '4962ec3a0b2818a90f5ef116da5f517a840b1071e51fba8ee2bef6af2f531067'},
  'build_closure': [{'path': '/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/lib/darwin/libclang_rt.osx.a',
                     'sha256': '5f20304aa257ed57bcba9f64287497d0be09b8cc7a5a91479b6a274294a22dfe',
@@ -131,7 +131,7 @@ ROOT_Q2_INPUT = {'root': {'path': '/Users/feral/mydev/bboxy450-harness-dream-rea
                     'uid': 0}],
  'macho': {'cpu_type': 16777228,
            'cpu_subtype': 0,
-           'uuid': 'a8d106d670f535d28232dd0122ab214a',
+           'uuid': '114e0b9bf6da3fc2853493d2409e4766',
            'fat': False,
            'rpaths': [],
            'loads': [{'mode': 'load', 'name': '/usr/lib/libSystem.B.dylib'}]}}
@@ -3116,8 +3116,10 @@ def component_terminal(stderr, case, result=None, actual_exit=None):
         if case == "clock_failure":
             allowed.add("resource_limit")
             if "resource_limit" in errors:
+                # Decision66331 changed this process-create wall gate to250ms.
+                # Keep the current frozen producer's exact auxiliary detail.
                 require(errors["resource_limit"]["first_detail"] == errors["resource_limit"]["last_detail"]
-                        == "unchanged native2ms wall25ms application1ms inclusive3ms gate", "additional resource failure in clock control")
+                        == "process creation native2ms wall250ms application1ms inclusive3ms gate", "additional resource failure in clock control")
         if case == "reap_delay":
             allowed.add("clock_unknown")
             if "clock_unknown" in errors:
@@ -3129,7 +3131,16 @@ def component_terminal(stderr, case, result=None, actual_exit=None):
         # independent terminal-cost verdict above must still pass.
         number(row["ordinary_max_ns"]); number(end["ordinary_max_ns"])
     if result is not None:
-        require(row["stage"] == result["phase"] and created == result["settlement"]["created"]
+        # Decision66074 retains the same original handle after raw refusal.
+        # The injected first-helper reap delay emits quarantine before hold
+        # settlement; its later terminal may record settled1/1 after wait4.
+        late_reap = (case == "reap_delay" and actual_exit == 81 and row["stage"] == "settled"
+                     and created == reaped == 1 and result["phase"] == result["outcome"] == "quarantined"
+                     and result["observed_proof"] == "not_reached"
+                     and type(result["metrics"]["attempts"]) is int and result["metrics"]["attempts"] == 1
+                     and canonical(result["settlement"]) == canonical(
+                         {"created": 1, "reaped": 0, "group_gone": False, "retired_coverage": False}))
+        require((row["stage"] == result["phase"] or late_reap) and created == result["settlement"]["created"]
                 and reaped >= result["settlement"]["reaped"], "canonical final settlement/result binding")
         require((result["error"] is None) == success_case, "canonical final control/result error binding")
         if not success_case: require(result["error"]["code"] == expected[case], "canonical first control error differs")
@@ -4605,7 +4616,7 @@ class ComponentHandoffTests(unittest.TestCase):
         with self.assertRaisesRegex(Refused, "settlement/result binding"): component_terminal(raw(), "positive", checked, 0)
 
     def test_component_source_known_auxiliary_errors_do_not_waive_terminal_gates(self):
-        detail = "unchanged native2ms wall25ms application1ms inclusive3ms gate"
+        detail = "process creation native2ms wall250ms application1ms inclusive3ms gate"
         extra = {"resource_limit": {"code": "resource_limit", "count": 1, "details_truncated": False,
                                    "first_detail": detail, "last_detail": detail, "kind": "private_candidate_error"}}
         row, _, errors, raw = self.terminal_fixture("clock_failure", extra)
@@ -4614,6 +4625,50 @@ class ComponentHandoffTests(unittest.TestCase):
         with self.assertRaisesRegex(Refused, "additional resource failure"): component_terminal(raw(), "clock_failure", actual_exit=81)
         errors["resource_limit"]["last_detail"] = detail; row["terminal_cost_verdict"] = "unknown"
         with self.assertRaises(Refused): component_terminal(raw(), "clock_failure", actual_exit=81)
+
+    def test_clock_control_refuses_retired_or_changed_native_limit_details(self):
+        for detail in (
+            "unchanged native2ms wall25ms application1ms inclusive3ms gate",
+            "process creation native2ms wall25ms application1ms inclusive3ms gate",
+            "process creation native3ms wall250ms application1ms inclusive3ms gate",
+            "process creation native2ms wall250ms application1ms inclusive4ms gate",
+        ):
+            with self.subTest(detail=detail):
+                extra = {"resource_limit": {"code": "resource_limit", "count": 1, "details_truncated": False,
+                                           "first_detail": detail, "last_detail": detail, "kind": "private_candidate_error"}}
+                _, _, _, raw = self.terminal_fixture("clock_failure", extra)
+                with self.assertRaisesRegex(Refused, "additional resource failure"):
+                    component_terminal(raw(), "clock_failure", actual_exit=81)
+
+    def test_reap_delay_accepts_only_original_partial_snapshot_and_actual_later_settlement(self):
+        row, _, _, raw = self.terminal_fixture("reap_delay")
+        row["stage"] = "settled"
+        result = {"phase": "quarantined", "outcome": "quarantined", "observed_proof": "not_reached",
+                  "metrics": {"attempts": 1}, "error": {"code": "settlement_unknown"},
+                  "settlement": {"created": 1, "reaped": 0, "group_gone": False, "retired_coverage": False}}
+        before = canonical(result)
+        component_terminal(raw(), "reap_delay", result, 81)
+        self.assertEqual(canonical(result), before)
+        for actual_exit in (None, 0):
+            with self.subTest(actual_exit=actual_exit), self.assertRaises(Refused):
+                component_terminal(raw(), "reap_delay", result, actual_exit)
+        for path, value in (("phase", "refused"), ("outcome", "failed"), ("observed_proof", "valid"),
+                            ("metrics.attempts", 2), ("metrics.attempts", True),
+                            ("settlement.reaped", 1), ("settlement.group_gone", True),
+                            ("settlement.retired_coverage", True), ("settlement.group_gone", 0),
+                            ("error.code", "clock_unknown")):
+            changed = copy.deepcopy(result); parent = changed; keys = path.split(".")
+            for key in keys[:-1]: parent = parent[key]
+            parent[keys[-1]] = value
+            with self.subTest(path=path, value=value), self.assertRaises(Refused):
+                component_terminal(raw(), "reap_delay", changed, 81)
+        row["helper_reaped"] = "0"
+        with self.assertRaises(Refused): component_terminal(raw(), "reap_delay", result, 81)
+        row["helper_reaped"] = "1"; row["terminal_cost_verdict"] = "unknown"
+        with self.assertRaises(Refused): component_terminal(raw(), "reap_delay", result, 81)
+        row, _, _, raw = self.terminal_fixture("cancel"); row["stage"] = "settled"
+        changed = copy.deepcopy(result); changed["error"]["code"] = "cancelled"
+        with self.assertRaises(Refused): component_terminal(raw(), "cancel", changed, 81)
 
 
 def unit(d, signature_only=False):
