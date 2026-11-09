@@ -328,13 +328,20 @@ six-source baseline, authenticates the new source and preserves the mandatory
 library check. It substitutes no Homebrew binary libraries. Joined qualification
 still requires Root's frozen canonical private-candidate probe; normal Git mode
 remains `verification_unproven`.
-The verifier consumes the task's frozen 35d3e602 source, supplied 86c5c9b5
-executable and final d66feb40 preparation receipt. The offline adapter checks
+The verifier consumes INPUT70's signed `76045587` source, supplied `aa6e1b28`
+probe and `c24749c7` preparation receipt. The offline adapter checks
 compiler, SDK, lexical header aliases, retained outputs and build closure. It never
 recompiles a probe or discovers a replacement. Historical probe results and the
 signed C preflight remain separate evidence. Large preparation/header receipts
 stay offline; missing selection or incomplete bindings refuse before a new build
 or component launch. Ingestion success grants no execution or runtime authority.
+The frozen exec shim (`4e95b2a8`) is installed privately at
+`libexec/dream-exec-shim`, mode 0500. Git's permitted-child define points there;
+the shim validates argv, environment, QoS and signature-file custody in-process
+before executing GPG. Four Basis hashes bind its source, executable, allowlist
+and compiler. Leader `wait4` supplies the CPU verdict. Coalesced fork events
+cannot prove exact fork counts, and a `setsid` orphan can evade later censuses;
+the supported-tool source review carries those explicit assumptions.
 The typed `provenance/pretest-basis.json` binds compiler, generated configuration,
 candidate Mach-O images, ordered static selections, the fixed command profile,
 public-only presigned fixture and conditional source review. Six descriptor

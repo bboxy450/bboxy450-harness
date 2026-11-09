@@ -46,67 +46,68 @@ VERIFIER_SHA = "21cb9adcad96b7be404014ff6e9fb837160a2135455c217dec9efe196cf0661a
 # Only an explicit live Root amendment can select a FUNCTIONAL immutable input.
 # The old5493 and a386 preflight checkpoints remain historical, not fallbacks.
 # This is an offline ingestion premise, never a runtime approval flag or API.
-# Selected by the task ORACLE FREEZE INPUT69 amendment, decisions66280/66331.
+# Selected by ORACLE FREEZE INPUT70, decisions66280/66331/66459 (corrected).
 # External helpers use background QoS and total budgets; our own units retain
 # the 1ms law. Custody and preparation cross-bindings precede every launch.
-ROOT_Q2_INPUT = {'root': {'path': '/Users/feral/mydev/bboxy450-harness-dream-read-q2/target/dream-q2-systematic-exit-race-01M6RZZXSHZT3KHBK1QC7K3XB3/prepared-input69/dream-read-c-preparation/compile-ewu_xvzb',
+ROOT_Q2_INPUT = {'root': {'path': '/Users/feral/mydev/bboxy450-harness-dream-read-q2/target/dream-exec-shim-decision-witness/prepared-input70/dream-read-c-preparation/compile-u3u9hnyr',
           'dev': 16777234,
-          'ino': 189316131,
+          'ino': 189752162,
           'uid': 501},
- 'source': {'path': '/Users/feral/mydev/bboxy450-harness-dream-read-q2/target/dream-q2-systematic-exit-race-01M6RZZXSHZT3KHBK1QC7K3XB3/prepared-input69/dream-read-c-preparation/compile-ewu_xvzb/proof-helper-probe.c',
-            'sha256': 'd1ec07415d4b8dcf953941f8d7f222677baf9a0d766c9fe33fb50869ea30f151',
-            'ctime_ns': 1794225423978422083,
+ 'source': {'ctime_ns': 1794247077321997973,
             'dev': 16777234,
-            'ino': 189316132,
-            'len': 432619,
+            'ino': 189752163,
+            'len': 447584,
             'mode': 33024,
-            'mtime_ns': 1794225423978251082,
+            'mtime_ns': 1794247077321519721,
             'nlink': 1,
-            'size': 432619,
+            'path': '/Users/feral/mydev/bboxy450-harness-dream-read-q2/target/dream-exec-shim-decision-witness/prepared-input70/dream-read-c-preparation/compile-u3u9hnyr/proof-helper-probe.c',
+            'sha256': '71f124533cd2158719cbcd7369f64c87c3677996cb1179c7d17ee7c984ec9575',
+            'size': 447584,
             'uid': 501},
- 'executable': {'path': '/Users/feral/mydev/bboxy450-harness-dream-read-q2/target/dream-q2-systematic-exit-race-01M6RZZXSHZT3KHBK1QC7K3XB3/prepared-input69/dream-read-c-preparation/compile-ewu_xvzb/probe',
-                'sha256': '6c63469ff20f4a433c2fafb3a4aed7c91e037e46862da937fc316c9c140b07ba',
-                'ctime_ns': 1794225425123879904,
+ 'executable': {'ctime_ns': 1794247078653244468,
                 'dev': 16777234,
-                'ino': 189316137,
-                'len': 286472,
+                'ino': 189752175,
+                'len': 303256,
                 'mode': 33088,
-                'mtime_ns': 1794225425097860523,
+                'mtime_ns': 1794247078622999007,
                 'nlink': 1,
-                'size': 286472,
+                'path': '/Users/feral/mydev/bboxy450-harness-dream-read-q2/target/dream-exec-shim-decision-witness/prepared-input70/dream-read-c-preparation/compile-u3u9hnyr/probe',
+                'sha256': 'aa6e1b28bdc60cf2b4154df616768dfaad743fb51c3028e74a6067a94c8db00b',
+                'size': 303256,
                 'uid': 501},
- 'preparation': {'path': '/Users/feral/mydev/bboxy450-harness-dream-read-q2/target/dream-q2-systematic-exit-race-01M6RZZXSHZT3KHBK1QC7K3XB3/prepared-input69/dream-read-c-preparation/compile-ewu_xvzb/preparation-987b8b56107a59230c0e353a7defbe1fef2ff50f7f3903a4c72a9fc290851a3a.json',
-                 'sha256': '987b8b56107a59230c0e353a7defbe1fef2ff50f7f3903a4c72a9fc290851a3a',
-                 'ctime_ns': 1794225425302681300,
+ 'preparation': {'path': '/Users/feral/mydev/bboxy450-harness-dream-read-q2/target/dream-exec-shim-decision-witness/prepared-input70/dream-read-c-preparation/compile-u3u9hnyr/preparation-c24749c7481562f853f776dc0004d8197bd25efc3b6508890dfdcf94f228a56b.json',
+                 'sha256': 'c24749c7481562f853f776dc0004d8197bd25efc3b6508890dfdcf94f228a56b',
+                 'ctime_ns': 1794247078848893024,
                  'dev': 16777234,
-                 'ino': 189316487,
-                 'len': 532156,
+                 'ino': 189752530,
+                 'len': 526183,
                  'mode': 33024,
-                 'mtime_ns': 1794225425302520424,
+                 'mtime_ns': 1794247078848462982,
                  'nlink': 1,
-                 'size': 532156,
+                 'size': 526183,
                  'uid': 501},
- 'source_commit': '637cb234d93d08d0c8fcfb820b7e48f9538bc0e1',
- 'preparation_commit': '637cb234d93d08d0c8fcfb820b7e48f9538bc0e1',
+ 'source_commit': '76045587db4a96612e2406b9bb08d4191c626253',
+ 'preparation_commit': '76045587db4a96612e2406b9bb08d4191c626253',
  'signer_fingerprint': '9B07E849480C68328CA20684844ECC0587DE7AB0',
  'preparation_signer_fingerprint': '9B07E849480C68328CA20684844ECC0587DE7AB0',
- 'bindings': {'build': '330fa601749351fd20b46f9cab1795f83b8aa6b1f874a888847db072acc582b2',
-              'compiler': 'a3d577375b2a73419600eee3110f6bb210bbec0c10d5abd48022c9809ff23838',
-              'dependency_discovery': 'be75696431139f398eee927cbe71f34db0827f5f4b36e719eaf9429962aa78e9',
-              'executable': '321140749a48dcd4b30022d1f70111e1f277637e831e9f7301e83165a5e94d70',
-              'header_inputs': '813697e08943a90363648618c6487406658d79713ae228dab7a6124fc740bc3d',
-              'inputs': '7dfba21c503b33412eb012e0481606f69b397c595b0ff3361eb62f059c98818c',
+ 'bindings': {'build': '3735b15d4c54658a184b0038317076764c86c60220db4486d7ad0ce0ddaaaa23',
+              'compiler': '5eb5ebea2fdde6f44507dfb2dcc2f2800e017cc68e4781773128b5139f7a60e0',
+              'dependency_discovery': '78e90cd858908df2e90ea6c6df6ef4e8f6a34639bdba3fec614c8134057e1fb7',
+              'executable': 'e8271643fac6cdc106045e57729e3001d9fb32effdd2e1091371a8149de23f8a',
+              'header_inputs': '95e403917fa809bf9efa3e3eb3de9caada508c0448274a3bdd298d863e2129ee',
+              'inputs': 'd339aca61e53d461137cf084146810ff8ade5389db67fdb3a50d220694cb2390',
               'linker': '7cea27482a67bfa92b546ec35ad5ba71bcedd3910bd3b12df9e618fbcfbdf01c',
               'platform': '994c24fbd511ae90c273cfcd5c5f3e78b99b70a35692800dcb48d289bdaab6e3',
-              'provisioning_source': 'ba20d136e58a79da5dd4a16b2a2d923c0fe689a5390bd521407d8593f223c5dc',
+              'provisioning_source': 'c97a90cdde92ea7c9efc20cbef356b1e17a1c217709207b85c5ba810c48fcf90',
               'sdk': '18544f8f94b14d8ac2da05b462679964250d8885f603422c994201d5e4e483ff',
-              'input_commits': 'b2891f4bacd3884fe8647b4860185063689f5c0e856c6e884a560af8e0de9500',
-              'preparation_commit': 'c3b0731a7f39586208d14f5de65780b7f2bae4823ca7fe4473d118518c17520c',
+              'input_commits': '1381b97d587966d2fa95f27c5238d40588f462d3e3dc15ce096b0c730bd949bf',
+              'preparation_commit': '72a0f9638470affeb9b5df0f60ec2cd8a0d684a8e2ee6eb151da54f9a61f26bc',
               'preparation_signer_fingerprint': '4e588b4e7396747b3b7b317d37a22c5981401da546e6eadebc4008472c4367e9',
-              'preparation_snapshot': '8eefaea409f2431449344509a33b5cc1033544e7d5c9d98d0c4256cad6f7d6da',
-              'retained_outputs': '734eda0fe23fd5c448e78acc8c89e55063a012b4e7276ced889212ad2b57da98',
-              'retained_root': 'bd238f76e2fb713190c6c78b4778dbe2c8ab50cc408093da53f2d6cb61fe25e7',
-              'retained_directory_mode': '4962ec3a0b2818a90f5ef116da5f517a840b1071e51fba8ee2bef6af2f531067'},
+              'preparation_snapshot': 'eb08ae6e6837251f6a96c9782aa82621bf91d1d533fa7fb51ab56f7e6873ebcb',
+              'retained_outputs': 'cecd616167c794b36a1792d132c6bb24ccf10e910ae96a21759beac834c318cd',
+              'retained_root': '0b1f216355170f471a858f2e1ddbf0a56a2c7a1b574806f6497f0b179327a49c',
+              'retained_directory_mode': '4962ec3a0b2818a90f5ef116da5f517a840b1071e51fba8ee2bef6af2f531067',
+              'shim': '1fefc2e705077709c9f214a198e1d15a6eb980ee92ebf1ea50ad19f856ebda99'},
  'build_closure': [{'path': '/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/lib/darwin/libclang_rt.osx.a',
                     'sha256': '5f20304aa257ed57bcba9f64287497d0be09b8cc7a5a91479b6a274294a22dfe',
                     'ctime_ns': 1790269621807429915,
@@ -131,7 +132,7 @@ ROOT_Q2_INPUT = {'root': {'path': '/Users/feral/mydev/bboxy450-harness-dream-rea
                     'uid': 0}],
  'macho': {'cpu_type': 16777228,
            'cpu_subtype': 0,
-           'uuid': 'e77923dd4c043a2ead94409bfef07dc6',
+           'uuid': '6cb016663af33a398882ad450c704941',
            'fat': False,
            'rpaths': [],
            'loads': [{'mode': 'load', 'name': '/usr/lib/libSystem.B.dylib'}]}}
@@ -810,7 +811,13 @@ def compile_sources(run, candidate):
         command(run, ["/usr/bin/make", "-j2"], cwd=work, extra_env=buildenv)
         command(run, ["/usr/bin/make", "-j2", "install"], cwd=work, extra_env=buildenv)
         harden_owned_tree(deps)
-    build_git(run, candidate, compiler, sdk, buildenv)
+    shim = selected_q2_input()["shim"]
+    shim_dir = private_dir(candidate / "libexec")
+    exclusive(shim_dir / "dream-exec-shim", shim["exe_bytes"])
+    os.chmod(shim_dir / "dream-exec-shim", 0o500)
+    candidate_shim(candidate, shim["basis_bindings"])
+    build_git(run, candidate, compiler, sdk, buildenv,
+              DREAM_PROOF_GPG_TARGET=str(shim_dir / "dream-exec-shim"))
     source = run / "src/gnupg-2.5.24"
     work = private_dir(run / "build/gnupg")
     _, helpout, _ = command(run, [str(source / "configure"), "--help"], cwd=work, extra_env=buildenv)
@@ -867,6 +874,10 @@ def build_git(run, candidate, compiler, sdk, buildenv, *, DREAM_PROOF_GPG_TARGET
     for filename in ("GIT-CFLAGS", "GIT-LDFLAGS"):
         observed = read_regular(work / filename, MAX_ARCHIVE, True)
         require(b"/opt/homebrew" not in observed and b"/usr/local" not in observed and b"CoreServices" not in observed, "ambient Homebrew/framework discovery in actual Git flags")
+        if filename == "GIT-CFLAGS":
+            require(cflags.encode() in observed, "actual Git CFLAGS lost the exact permitted-child define")
+    target = str(candidate / "bin/gpg") if DREAM_PROOF_GPG_TARGET is None else DREAM_PROOF_GPG_TARGET
+    require(target.encode() + b"\0" in read_regular(work / "git"), "linked Git lost its exact permitted-child path")
     bindir = private_dir(candidate / "bin")
     exclusive(bindir / "git", read_regular(work / "git"), executable=True)
     command(run, ["/usr/bin/otool", "-L", str(bindir / "git")])
@@ -2083,6 +2094,43 @@ def check_signature_corpus(d):
     print(f"B source/corpus byte equivalence retained at {run}; commands={record['commands_sha256']}; real verifier witness remains unproven", flush=True)
 
 
+SHIM_FIELDS = "allowlist_sha256 compiler_sha256 exe_sha256 source_sha256"
+SHIM_PATH = "libexec/dream-exec-shim"
+SHIM_ASSUMPTIONS = {
+    "decision": 66459,
+    "coalesced_fork": "NOTE_FORK events may coalesce; observed events do not prove exact fork counts.",
+    "setsid_orphan": "An orphan using setsid may evade child/group censuses after leader wait4.",
+    "supported_tool_source": "Bound Git/GPG source review constrains fork/escape shape; census silence is not proof.",
+    "cpu_verdict": "Leader own wait4 is the CPU verdict; failed live reads are diagnostic only.",
+    "whole_command_lifetime_proof": False,
+    "runtime_approved": False,
+}
+
+
+def shim_bindings(value):
+    fields(value, SHIM_FIELDS)
+    for digest in value.values(): hex_string(digest)
+    return value
+
+
+def candidate_shim(prefix, bindings):
+    # The one fixed exec shim has immutable0500 custody. No other candidate
+    # leaf gains a mode exception, third closure root, or runtime authority.
+    shim_bindings(bindings)
+    path = Path(prefix) / SHIM_PATH
+    info = path.lstat()
+    require(stat.S_IMODE(info.st_mode) == 0o500, "candidate exec shim mode must be0500")
+    ref = {"path": SHIM_PATH, "len": info.st_size, "sha256": bindings["exe_sha256"]}
+    return ref_bytes(prefix, ref)
+
+
+def basis_shim_current(basis, prefix, selected):
+    bindings = shim_bindings(basis["shim"])
+    require(bindings == selected["shim"]["basis_bindings"], "exec shim selected preparation/basis binding")
+    require(bindings["compiler_sha256"] == basis["build"]["compiler"]["image"]["sha256"], "exec shim compiler binding")
+    candidate_shim(prefix, bindings)
+
+
 def prepare_basis(run, prefix, closure):
     q2_input = selected_q2_input()
     intent = strict_json(read_regular(run / "intent.json", 32768, True), 32768)
@@ -2127,6 +2175,14 @@ def prepare_basis(run, prefix, closure):
     for patch in patches:
         retain_blob(prefix, read_regular(FIX / patch["patch"], 32768))
     retain_blob(prefix, q2_input["source_bytes"])
+    for key in ("source_bytes", "header_bytes"):
+        retain_blob(prefix, q2_input["shim"][key])
+    # Retain the selected preparation assertion, bound through the closed C
+    # source lock and independently frozen executable/receipt selection.
+    _, preparation_bytes = q2_private_file(ROOT_Q2_INPUT["root"], q2_input["preparation"]["path"],
+                                          expected=q2_input["preparation"], limit=Q2_PREPARATION_LIMIT, collect=True)
+    retain_blob(prefix, preparation_bytes)
+    retain_blob(prefix, canonical(SHIM_ASSUMPTIONS))
     build = {"build_id": run.name, "incarnation": intent["incarnation"], "builder": {"commit": inputs["commit"], "source_sha256": inputs["source_sha256"]},
              "source_lock": lock, "auth": auth, "patch_lock": retain_blob(prefix, patch_data), "patches": patches,
              "recipe": {"file": retained_file(prefix, run / "recipe.py"), "commands": recipe_commands, "env": recipe_env},
@@ -2135,7 +2191,9 @@ def prepare_basis(run, prefix, closure):
              "sdk": {"path": inputs["sdk"], "canonical_name": "macosx" + inputs["sdk_version"], "version": inputs["sdk_version"], "settings": retain_blob(prefix, read_regular(Path(inputs["sdk"]) / "SDKSettings.json"))},
              "platform": closure["platform"], "generated": generated, "tools": {name: absolute_identity(prefix / "bin" / name) for name in ("git", "gpg")}}
     projections = {"build": build, "closure": closure, "config": private_config(run, prefix), "commands": command_profile(), "fixture": prepare_fixture(run)}
-    basis = {"format": "bboxy.dream.private-pretest-basis/1", **projections, "review": capture_review(run, projections)}
+    basis = {"format": "bboxy.dream.private-pretest-basis/1", **projections, "review": capture_review(run, projections),
+             "shim": dict(q2_input["shim"]["basis_bindings"])}
+    basis_shim_current(basis, prefix, q2_input)
     raw = canonical(basis)
     # The descriptor does not exist yet. Charge the materialized Basis/lock
     # plus the bounded future result; private_descriptor charges its ACTUAL
@@ -2160,6 +2218,10 @@ Q2_SOURCE_NAMES = ("src/dream/c1.rs", "src/dream/read.rs", "src/dream/resolve.rs
                   "tests/fixtures/dream-read/proof-helper-probe.c")
 Q2_INPUT_NAMES = (*Q2_PREPARATION_NAMES, *Q2_SOURCE_NAMES)
 Q2_C_SOURCE = "tests/fixtures/dream-read/proof-helper-probe.c"
+Q2_SHIM_SOURCE = "tests/fixtures/dream-read/dream-exec-shim.c"
+Q2_SHIM_HEADER = "tests/fixtures/dream-read/dream-exec-shim.h"
+Q2_SHIM_NAMES = (Q2_SHIM_SOURCE, Q2_SHIM_HEADER)
+Q2_SHIM_HASH_FIELDS = "allowlist_sha256 compiler_sha256 exe_sha256 source_sha256"
 
 
 def q2_identity_shape(pin):
@@ -2273,13 +2335,19 @@ def q2_private_directory(root, expected):
     finally: os.close(fd)
 
 
-def q2_header_file(root, pin, roots):
+def q2_header_file(root, pin, roots, *, local_header=None):
     # The compiler's lexical include name, every symlink identity/target byte,
     # and the final regular header are separate bound inputs. No alias collapse.
     fields(pin, Q2_ID_FIELDS + " resolved_path snapshot symlinks")
     identity = {key: pin[key] for key in Q2_ID_FIELDS.split()}
     q2_identity_shape(identity)
     lexical = Path(pin["path"])
+    if local_header is not None and str(lexical) == local_header:
+        require(pin["resolved_path"] == local_header and pin["symlinks"] == [], "Q2 local shim header alias")
+        actual, _ = q2_private_file(root, lexical, expected=identity)
+        copied, _ = q2_private_file(root, pin["snapshot"])
+        require((copied["len"], copied["sha256"]) == (actual["len"], actual["sha256"]), "Q2 retained local shim header bytes")
+        return [actual, copied]
     require(lexical.is_absolute() and str(lexical) == posixpath.normpath(str(lexical))
             and any(lexical.is_relative_to(base) for base in roots), "Q2 foreign lexical header")
     links = pin["symlinks"]
@@ -2352,6 +2420,75 @@ def q2_current_platform():
     return {"machine": platform.machine(), "release": platform.release(), "os_build": plistlib.loads(raw)["ProductBuildVersion"]}
 
 
+def q2_dependency_paths(text, target):
+    text = text.replace("\\\n", " ")
+    require(text.startswith(target + ":") and "\\" not in text
+            and all(c not in text for c in ("\r", "\x00")), "Q2 unsupported dependency path syntax")
+    paths = text[len(target) + 1:].split()
+    require(len(paths) == len(set(paths)) and len(paths) <= 4096, "Q2 dependency closure bound/duplicates")
+    return set(paths)
+
+
+def q2_shim_allowlist(source):
+    # Exact source spans used by the signed preparation recipe. These hashes
+    # bind its fixed forms/environment; they do not prove compiler fidelity.
+    markers = (b"static int fixed_form(", b"static int public_config(",
+               b"const char *fixed[]=", b"// END SHIM ENV ALLOWLIST")
+    require(all(source.count(marker) == 1 for marker in markers), "Q2 shim allowlist span ambiguity")
+    start, end, env_start, env_end = (source.index(marker) for marker in markers)
+    require(start < end and env_start < env_end, "Q2 shim allowlist span order")
+    return sha(b"bboxy.dream.exec-shim/allowlist/1\0" + source[start:end] + b"\0" + source[env_start:env_end])
+
+
+def q2_ingest_shim(root, receipt, snapshot_data, compiler, flags):
+    shim = receipt["shim"]
+    fields(shim, "basis_bindings basis_byte_delta build controller_embedded_sha256 dependency_discovery executable source")
+    bindings = shim["basis_bindings"]
+    fields(bindings, Q2_SHIM_HASH_FIELDS)
+    for digest in bindings.values(): hex_string(digest)
+    require(type(shim["basis_byte_delta"]) is int and shim["basis_byte_delta"] == 343, "Q2 shim Basis byte delta")
+    require(bindings["compiler_sha256"] == compiler["sha256"], "Q2 shim compiler image binding")
+    require(shim["controller_embedded_sha256"] == bindings["exe_sha256"], "Q2 controller embedded shim binding")
+    base = Path(root["path"])
+    require(shim["source"]["path"] == str(base / "dream-exec-shim.c")
+            and shim["executable"]["path"] == str(base / "dream-exec-shim"), "Q2 shim compiler input/output path")
+    source, source_bytes = q2_private_file(root, shim["source"]["path"], expected=shim["source"], collect=True)
+    executable, exe_bytes = q2_private_file(root, shim["executable"]["path"], expected=shim["executable"], executable=True, collect=True)
+    require(stat.S_IMODE(source["mode"]) == 0o400 and stat.S_IMODE(executable["mode"]) == 0o500, "Q2 immutable shim source/executable modes")
+    require(source_bytes == snapshot_data[Q2_SHIM_SOURCE]
+            and source["sha256"] == bindings["source_sha256"]
+            and executable["sha256"] == bindings["exe_sha256"]
+            and q2_shim_allowlist(source_bytes) == bindings["allowlist_sha256"], "Q2 shim signed source/executable/allowlist binding")
+    header_path = str(base / "dream-exec-shim.h")
+    header, header_bytes = q2_private_file(root, header_path, collect=True)
+    require(stat.S_IMODE(header["mode"]) == 0o400 and header_bytes == snapshot_data[Q2_SHIM_HEADER], "Q2 shim signed local header binding")
+    define_values = {"SHA256": bindings["exe_sha256"], "SOURCE_SHA256": bindings["source_sha256"],
+                     "ALLOWLIST_SHA256": bindings["allowlist_sha256"]}
+    defines = ['-DDREAM_EXEC_SHIM_' + name + '=\"' + digest + '\"' for name, digest in define_values.items()]
+    require([flag for flag in flags if flag.startswith("-DDREAM_EXEC_SHIM_")] == defines, "Q2 exact controller shim compiler defines")
+    base_flags = [flag for flag in flags if flag not in defines]
+    build, deps = shim["build"], shim["dependency_discovery"]
+    fields(build, "argv cwd exit_code retained_stderr retained_stdout")
+    fields(deps, "argv exit_code retained_stdout")
+    require(build["cwd"] == root["path"] and build["argv"] == [compiler["path"], *base_flags, source["path"], "-o", executable["path"]], "Q2 exact shim compiler argv/cwd")
+    require(deps["argv"] == [compiler["path"], *(flag for flag in base_flags if flag != "-v"), "-M", "-MT", "dream-exec-shim", source["path"]], "Q2 exact shim header-discovery argv")
+    observed = [source, header]; logs = {}
+    for command_name, command in (("build", build), ("dependency", deps)):
+        require(type(command["exit_code"]) is int and command["exit_code"] == 0, "Q2 shim preparation command failed")
+        for stream in (("stdout", "stderr") if command_name == "build" else ("stdout",)):
+            pin = command["retained_" + stream]
+            actual, wire = q2_private_file(root, pin["path"], expected=pin, collect=True)
+            require(stat.S_IMODE(actual["mode"]) == 0o400, "Q2 immutable shim compiler log")
+            observed.append(actual); logs[command_name + "_" + stream] = wire.decode("utf-8")
+    dependencies = q2_dependency_paths(logs["dependency_stdout"], "dream-exec-shim")
+    require(source["path"] in dependencies and header_path in dependencies, "Q2 shim source/header dependency coverage")
+    actual_macho, install, _ = parse_macho(exe_bytes, binary=True)
+    require(install is None and actual_macho["cpu_type"] == 16777228, "Q2 shim executable architecture")
+    return ({"basis_bindings": dict(bindings), "source": source, "executable": executable, "header": header,
+             "source_bytes": source_bytes, "exe_bytes": exe_bytes, "header_bytes": header_bytes},
+            observed, dependencies, logs["build_stderr"])
+
+
 def ingest_q2_input(selection, *, current_platform=None):
     """Read and validate a Root-selected immutable input WITHOUT executing it.
 
@@ -2374,7 +2511,8 @@ def _ingest_q2_input(selection, *, current_platform=None):
     for name in ("signer_fingerprint", "preparation_signer_fingerprint"):
         hex_string(selection[name], 40, True)
         require(selection[name] == "9B07E849480C68328CA20684844ECC0587DE7AB0", "Q2 selected signer is not the approved Boxy identity")
-    fields(selection["bindings"], Q2_BINDINGS)
+    has_shim = type(selection["bindings"]) is dict and "shim" in selection["bindings"]
+    fields(selection["bindings"], Q2_BINDINGS + (" shim" if has_shim else ""))
     for digest in selection["bindings"].values(): hex_string(digest)
     source, source_bytes = q2_private_file(root, selection["source"]["path"], expected=selection["source"], collect=True)
     exe, exe_bytes = q2_private_file(root, selection["executable"]["path"], expected=selection["executable"], executable=True, collect=True)
@@ -2385,7 +2523,7 @@ def _ingest_q2_input(selection, *, current_platform=None):
     closure_walk_json(receipt, maximum=32)
     encoded = json.dumps(receipt, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode() + b"\n"
     require(encoded == raw, "Q2 offline preparation encoding")
-    fields(receipt, Q2_RECEIPT_FIELDS)
+    fields(receipt, Q2_RECEIPT_FIELDS + (" shim" if has_shim else ""))
     private_observed = []
     platform_observed = []
     require(receipt["format"] == "bboxy.dream.c-preparation/1" and receipt["basis"] == "conditional_source_review"
@@ -2415,8 +2553,9 @@ def _ingest_q2_input(selection, *, current_platform=None):
                 and source == receipt["build"]["input"]), "Q2 source snapshot/compiler input binding")
     require(preparation_snapshot.is_relative_to(Path(root["path"])) and preparation_snapshot != snapshot,
             "Q2 distinct preparation snapshot path binding")
-    fields(receipt["inputs"], " ".join(Q2_INPUT_NAMES))
-    fields(receipt["input_commits"], " ".join(Q2_INPUT_NAMES))
+    input_names = (*Q2_INPUT_NAMES, *(Q2_SHIM_NAMES if has_shim else ()))
+    fields(receipt["inputs"], " ".join(input_names))
+    fields(receipt["input_commits"], " ".join(input_names))
     snapshot_data = {}
     for name, ref in receipt["inputs"].items():
         fields(ref, "len sha256"); checked_int(ref["len"], 0, MAX_ARCHIVE); hex_string(ref["sha256"])
@@ -2481,6 +2620,10 @@ def _ingest_q2_input(selection, *, current_platform=None):
     require(flags.count("-target") == flags.count("-isysroot") == 1
             and flags[flags.index("-target") + 1:flags.index("-target") + 2] == ["arm64-apple-darwin"]
             and flags[flags.index("-isysroot") + 1:flags.index("-isysroot") + 2] == [sdk["path"]], "Q2 selected compiler profile/SDK")
+    shim, shim_dependencies, shim_stderr = None, set(), None
+    if has_shim:
+        shim, observed, shim_dependencies, shim_stderr = q2_ingest_shim(root, receipt, snapshot_data, compiler, flags)
+        private_observed.extend(observed)
     argv = build["argv"]
     require(type(argv) is list and len(argv) == len(flags) + 4 and argv[:len(flags) + 1] == [compiler["path"], *flags] and argv[-2] == "-o", "Q2 exact recorded compile argv")
     compiled_source = Path(argv[len(flags) + 1])
@@ -2498,18 +2641,18 @@ def _ingest_q2_input(selection, *, current_platform=None):
     require(type(dep_argv) is list and 0 < len(dep_argv) <= 64 and dep_argv[0] == compiler["path"]
             and dep_argv.count(str(compiled_source)) == 1 and dep_argv.count("-M") == 1
             and dep_argv.count("-MT") == 1 and dep_argv[dep_argv.index("-MT") + 1:dep_argv.index("-MT") + 2] == ["probe"], "Q2 exact selected header-discovery argv")
-    text = deps["stdout"].replace("\\\n", " ")
-    require(text.startswith("probe:") and "\\" not in text and all(c not in text for c in ("\r", "\x00")), "Q2 unsupported dependency path syntax")
-    dependency_paths = text[len("probe:"):].split()
-    require(len(dependency_paths) == len(set(dependency_paths)) and len(dependency_paths) <= 4096, "Q2 dependency closure bound/duplicates")
+    dependency_paths = q2_dependency_paths(deps["stdout"], "probe")
     headers = receipt["header_inputs"]
     require(type(headers) is dict and 0 < len(headers) <= 4096, "Q2 header closure bound")
-    expected_dependencies = set(headers) | {str(compiled_source)}
-    require(set(dependency_paths) == expected_dependencies, "Q2 incomplete dependency/header closure or unbound alias")
+    expected_dependencies = set(headers) | {str(compiled_source)} | ({shim["source"]["path"]} if has_shim else set())
+    require(str(compiled_source) in dependency_paths and dependency_paths | shim_dependencies == expected_dependencies,
+            "Q2 incomplete dependency/header closure or unbound alias")
     require(sdk["settings"]["path"] in headers, "Q2 SDK settings absent from lexical dependency closure")
     for name, pin in headers.items():
         require(name == pin["path"], "Q2 header path binding")
-        private_observed.extend(q2_header_file(root, pin, roots))
+        private_observed.extend(q2_header_file(root, pin, roots, local_header=shim["header"]["path"] if has_shim else None))
+    if has_shim:
+        require(shim["header"]["path"] in headers and sdk["settings"]["path"] in shim_dependencies, "Q2 shim exact local/SDK header coverage")
     closure = selection["build_closure"]
     require(type(closure) is list and 0 < len(closure) <= 64, "Q2 selected build closure missing")
     for pin in closure: q2_identity_shape(pin)
@@ -2531,6 +2674,16 @@ def _ingest_q2_input(selection, *, current_platform=None):
     for pin in closure:
         q2_platform_file(pin, roots)
         platform_observed.append(pin)
+    if has_shim:
+        shim_linker_commands = []
+        for line in shim_stderr.splitlines():
+            if line.lstrip().startswith('"' + linker["path"] + '" '):
+                try: shim_linker_commands.append(shlex.split(line, posix=True))
+                except ValueError as error: raise Refused("Q2 malformed shim linker invocation") from error
+        require(len(shim_linker_commands) == 1 and len(shim_linker_commands[0]) <= 4096, "Q2 missing/ambiguous shim linker invocation")
+        shim_link_files = {token for token in shim_linker_commands[0] if token.startswith("/") and token.endswith((".a", ".dylib"))
+                           and not token.startswith(("/usr/lib/", "/System/Library/"))}
+        require(shim_link_files <= {pin["path"] for pin in closure}, "Q2 unbound shim archive/LTO build closure")
     declared = compiler["declared_dylibs"].splitlines()
     require(declared and declared[0] == compiler["path"] + ":", "Q2 compiler declared loads identity")
     for line in declared[1:]:
@@ -2539,6 +2692,7 @@ def _ingest_q2_input(selection, *, current_platform=None):
     actual_macho, install, _ = parse_macho(exe_bytes, binary=True)
     require(install is None and canonical(actual_macho) == canonical(selection["macho"]), "Q2 exact supplied executable Mach-O facts mismatch")
     retained_required = {pin["path"] for pin in private_observed} | {source["path"], exe["path"], compiled_output["path"]}
+    if has_shim: retained_required.add(shim["executable"]["path"])
     q2_retained_outputs(root, receipt["retained_outputs"], retained_required)
     # Raw load facts and enumerated stable linker inputs do not prove resolved
     # transitive native closure, cache membership or compiler fidelity. Those
@@ -2550,12 +2704,15 @@ def _ingest_q2_input(selection, *, current_platform=None):
                         limit=Q2_PREPARATION_LIMIT if name == "preparation" else MAX_ARCHIVE)
     for pin in private_observed: q2_private_file(root, pin["path"], expected=pin)
     q2_private_file(root, compiled_output["path"], expected=compiled_output, executable=True)
+    if has_shim: q2_private_file(root, shim["executable"]["path"], expected=shim["executable"], executable=True)
     for pin in platform_observed: q2_platform_file(pin, roots)
-    for pin in headers.values(): q2_header_file(root, pin, roots)
+    for pin in headers.values(): q2_header_file(root, pin, roots, local_header=shim["header"]["path"] if has_shim else None)
     q2_retained_outputs(root, receipt["retained_outputs"], retained_required)
     require(receipt["platform"] == (q2_current_platform() if current_platform is None else current_platform), "Q2 observed platform change during ingestion")
-    return {"source": source, "source_bytes": source_bytes, "executable": exe, "preparation": receipt_pin,
-            "proposal_source_sha256": digest.hexdigest(), "scope": "offline input ingestion only; no launch or runtime grant"}
+    result = {"source": source, "source_bytes": source_bytes, "executable": exe, "preparation": receipt_pin,
+              "proposal_source_sha256": digest.hexdigest(), "scope": "offline input ingestion only; no launch or runtime grant"}
+    if has_shim: result["shim"] = shim
+    return result
 
 
 def selected_q2_input():
@@ -2648,7 +2805,8 @@ def ref_bytes(prefix, ref, limit=MAX_TAR):
         leaf = os.open(ref["path"].split("/")[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=fd)
         try:
             s = os.fstat(leaf)
-            require(stat.S_ISREG(s.st_mode) and s.st_nlink == 1 and s.st_uid == os.getuid() and stat.S_IMODE(s.st_mode) in (0o600, 0o700) and s.st_size == ref["len"] <= limit, "reference file custody/length")
+            modes = (0o500,) if ref["path"] == SHIM_PATH else (0o600, 0o700)
+            require(stat.S_ISREG(s.st_mode) and s.st_nlink == 1 and s.st_uid == os.getuid() and stat.S_IMODE(s.st_mode) in modes and s.st_size == ref["len"] <= limit, "reference file custody/length")
             out = bytearray()
             while len(out) <= limit:
                 chunk = os.read(leaf, min(65536, limit + 1 - len(out)))
@@ -2709,10 +2867,11 @@ def validate_qualification(data, prefix):
     refs += list(q["component"].values())
     report = ref_bytes(prefix, q["component"]["report"], 131072)
     require(type(q["logs"]) is list and len(q["logs"]) >= 3 and q["logs"][0]["path"] == "provenance/pretest-basis.json", "qualification must retain actual Basis/descriptor/inventory")
-    basis_data = ref_bytes(prefix, q["logs"][0], 49152)
+    basis_data = ref_bytes(prefix, q["logs"][0], 57344)
     descriptor_data = ref_bytes(prefix, q["logs"][1], 16384)
     prepared_budget(data, lock_data, report, basis_data, descriptor_data)
-    basis = strict_json(basis_data, 49152)
+    basis = strict_json(basis_data, 57344)
+    basis_shim_current(basis, prefix, selected_q2_input())
     basis_platform_current(basis)
     fields(q["tools"], "git gpg"); refs += list(q["tools"].values())
     checked_array(q["sources"]); require(len(q["sources"]) == len(PINS), "exact source authentication count required")
@@ -2754,8 +2913,17 @@ def validate_qualification(data, prefix):
 
 
 def prepared_budget(qualification, source_lock_bytes, component_report, basis=b"", descriptor=b""):
+    require(len(basis) <= 57344, f"Basis exceeds56KiB: {len(basis)} bytes")
+    if len(basis) > 49152:
+        parsed = strict_json(basis, 57344)
+        if "shim" in parsed:
+            shim_bindings(parsed["shim"])
+            non_shim = {key: value for key, value in parsed.items() if key != "shim"}
+            require(len(canonical(non_shim)) <= 49152, "non-shim Basis exceeds48KiB")
+        else:
+            require(len(basis) <= 49152, "non-shim Basis exceeds48KiB")
     require(len(qualification) <= 131072 and len(source_lock_bytes) <= 32768 and len(component_report) <= 65536
-            and len(basis) <= 49152 and len(descriptor) <= 16384
+            and len(descriptor) <= 16384
             and sum(map(len, (qualification, source_lock_bytes, component_report, basis, descriptor))) <= 131072,
             "TOTAL prepared evidence exceeds 128KiB")
 
@@ -2779,7 +2947,8 @@ def bind_current_candidate(q, receipt, inputs, prefix, intent):
     require(q["builder"]["source_sha256"] == inputs["source_sha256"], "builder source/recipe currentness mismatch")
     require(q["builder"]["commit"] == inputs["commit"], "builder source commit changed")
     require(q["platform"]["os_build"] == inputs["os_build"] and q["platform"]["release"] == inputs["release"] and q["platform"]["arch"] == inputs["arch"], "OS/platform currentness mismatch")
-    basis = strict_json(ref_bytes(prefix, q["logs"][0], 49152), 49152)
+    basis = strict_json(ref_bytes(prefix, q["logs"][0], 57344), 57344)
+    basis_shim_current(basis, prefix, selected)
     basis_platform_current(basis, inputs["shared_cache_uuid"])
     require(receipt["os"] == {"release": inputs["release"], "arch": inputs["arch"]}, "proposal OS binding mismatch")
     require(q["compiler"]["path"] == inputs["compiler"] and q["compiler"]["sha256"] == inputs["compiler_sha256"], "compiler currentness mismatch")
@@ -2820,7 +2989,7 @@ def check_inventory(prefix, q):
             relative = str(path.relative_to(prefix))
             require(relative in allowed, f"unmanifested candidate file: {relative}")
             info = path.lstat()
-            mode = 0o700 if relative in ("bin/git", "bin/gpg") else 0o600
+            mode = 0o500 if relative == SHIM_PATH else (0o700 if relative in ("bin/git", "bin/gpg") else 0o600)
             require(stat.S_ISREG(info.st_mode) and info.st_nlink == 1 and info.st_uid == os.getuid() and stat.S_IMODE(info.st_mode) == mode, f"candidate file custody/mode: {relative}")
 
 
@@ -2900,6 +3069,7 @@ def component(d):
 
 def private_descriptor(run, prefix, basis, case, output, selection):
     """Produce the existing ICD input; only Q2 decodes/runs its commands."""
+    basis_shim_current(basis, prefix, selection)
     require(case in ("positive", "corrupt_proof", "pause_resume", "cancel", "stale_incarnation",
                      "clock_failure", "debt_overlap", "reap_delay"), "unknown canonical component case")
     shared = file_pin(prefix, "provenance/pretest-basis.json")
@@ -2919,7 +3089,7 @@ def private_descriptor(run, prefix, basis, case, output, selection):
     # Reserve the raw result before launch. The final envelope is checked
     # against the SAME aggregate again before any publication.
     prepared_budget(b"", ref_bytes(prefix, basis["build"]["source_lock"]), b"\0" * 65536,
-                    read_regular(prefix / shared["path"], 49152, True), raw)
+                    read_regular(prefix / shared["path"], 57344, True), raw)
     return value, raw
 
 
@@ -2997,12 +3167,14 @@ def component_result(raw, descriptor, actual_exit):
             checked_int(metrics[key], 0, bound)
         # Decision66331: this producer's native_wall_max_ns is populated only
         # by engine_birth/prepared_spawn (process_create), not other classes.
-        # Decision66280: A is authoritative rounded leader-wait4 CPU including
-        # qualified child roll-up. The exact bound producer checks each command
-        # <=250ms, job <=3s, live QoS/CPU/RSS and post-reap helper debt. Retired
+        # Decisions66280/66459: A is authoritative rounded leader-own-wait4 CPU.
+        # The bound producer checks each command <=250ms, job <=3s, in-process
+        # shim admission and post-reap helper debt. Failed live reads and sampled
+        # per-member rollup are not gates. Retired
         # per-grant Q/W fields can be null and provide no qualification evidence.
         checked_int(metrics["C_ns"], 0, 2**64 - 2)
-        require(metrics["attempts"] == 16 and metrics["members_max"] == 2
+        checked_int(metrics["members_max"], 0, 255)  # INPUT70: diagnostic, never a custody gate.
+        require(metrics["attempts"] == 16
                 and type(metrics["debt_charged_ns"]) is int and metrics["debt_charged_ns"] == metrics["debt_paid_ns"], "component debt/attempt/member conjunction")
     else:
         expected = {"cancel": "cancelled", "stale_incarnation": "coverage_unknown", "clock_failure": "clock_unknown",
@@ -3013,7 +3185,65 @@ def component_result(raw, descriptor, actual_exit):
     return result
 
 
-def component_terminal(stderr, case, result=None, actual_exit=None):
+def clock_failure_pre_cont_ledger(raw, result, actual_exit):
+    """Prove the one INPUT70 pre-CONT clock injection from its bound ledger.
+
+    Frozen C:4506 assigns activation before initial CONT; C:4297 does the
+    same before foreground CONT. A zero activation, no child and no resume
+    therefore supplies positive source-ordered evidence, beyond an absent row.
+    C:5063 binds the ledger header to the original descriptor hash.
+    """
+    require(type(result) is dict and type(actual_exit) is int and actual_exit == 81,
+            "clock auxiliary requires original result and actual exit81")
+    require(result.get("phase") == "settled" and result.get("outcome") == "failed"
+            and result.get("observed_proof") == "not_reached"
+            and result.get("error") == {"code": "clock_unknown", "detail": "fixture unknown creation ending clock retains actual effect"}
+            and type(result.get("metrics")) is dict and type(result["metrics"].get("attempts")) is int
+            and result["metrics"]["attempts"] == 1
+            and canonical(result.get("settlement")) == canonical(
+                {"created": 1, "reaped": 1, "group_gone": True, "retired_coverage": True}),
+            "clock auxiliary is not the settled first-helper injection")
+    input_hash = result.get("input_sha256")
+    require(type(input_hash) is str and re.fullmatch(r"[0-9a-f]{64}", input_hash) is not None,
+            "clock auxiliary lacks original descriptor hash")
+    require(type(raw) is bytes and 0 < len(raw) <= 2 * 1024 * 1024
+            and raw.endswith(b"\n") and b"\r" not in raw, "clock auxiliary ledger byte/LF bound")
+    lines = raw.splitlines()
+    require(len(lines) <= 4096 and all(0 < len(line) + 1 < 4096 for line in lines),
+            "clock auxiliary ledger record bound")
+    rows = [closure_json_decode(line) for line in lines]
+    for entry in rows:
+        require(type(entry) is dict, "clock auxiliary ledger object")
+        closure_walk_json(entry)
+    prepare = [entry for entry in rows if entry.get("phase") == "git_sig_prepare"]
+    require(len(prepare) == 1 and rows[0] is prepare[0]
+            and prepare[0].get("input_sha256") == input_hash and prepare[0].get("selected_case") == "valid",
+            "clock auxiliary ledger belongs to another descriptor")
+    require(not any(entry.get("kind") == "exec_shim" for entry in rows), "clock auxiliary has an exec receipt")
+    def one(kind):
+        found = [entry for entry in rows if entry.get("kind") == kind]
+        require(len(found) == 1, "clock auxiliary requires one " + kind)
+        return found[0]
+    owner = one("helper_total_budget")
+    checked_int(owner.get("pid"), 1, 2**31 - 1)
+    require(owner.get("phase") == "reaped" and owner.get("runtime_approved") is False,
+            "clock auxiliary lacks original reaped shim owner")
+    for key, expected in (("decision", 66280), ("sequence", 1), ("birth", 0), ("start", 0),
+                          ("activation_ns", 0), ("actual_own_wait4", 1), ("group_gone", 1),
+                          ("helper_cost_retained", 1), ("helper_cost_paid", 1), ("quarantined", 0)):
+        require(type(owner.get(key)) is int and owner[key] == expected, "clock auxiliary owner predicate: " + key)
+    pause = one("pause_user_and_terminal_rss")
+    for key in ("pause_stop_attempted", "ack_mask", "resume_admitted", "resume_signal_ns"):
+        require(type(pause.get(key)) is int and pause[key] == 0, "clock auxiliary has STOP/CONT history: " + key)
+    child = one("retained_child_accounting")
+    for key in ("child_created", "child_pid"):
+        require(type(child.get(key)) is int and child[key] == 0, "clock auxiliary has another helper member")
+    events = one("verifier_event_discovery")
+    require(events.get("exec_shim_enforced") is True and events.get("runtime_approved") is False,
+            "clock auxiliary lacks enforced shim custody")
+
+
+def component_terminal(stderr, case, result=None, actual_exit=None, *, ledger=None):
     # Consume private_finish_diagnostics from the exact selected producer. Its
     # final receipt follows the paid tail and complete error-code diagnostics;
     # its own write remains the explicit cutoff, corroborated by parent wait4.
@@ -3133,6 +3363,17 @@ def component_terminal(stderr, case, result=None, actual_exit=None):
                 # Keep the current frozen producer's exact auxiliary detail.
                 require(errors["resource_limit"]["first_detail"] == errors["resource_limit"]["last_detail"]
                         == "process creation native2ms wall250ms application1ms inclusive3ms gate", "additional resource failure in clock control")
+            if "coverage_unknown" in errors:
+                coverage = errors["coverage_unknown"]
+                require(coverage["count"] == 1 and coverage["first_detail"] == coverage["last_detail"]
+                        == "helper lacks its one in-process exec receipt" and row["stage"] == "settled"
+                        and created == reaped == 1, "additional coverage failure in clock control")
+                clock = errors["clock_unknown"]
+                require(clock["count"] == 1 and clock["first_detail"] == clock["last_detail"]
+                        == "fixture unknown creation ending clock retains actual effect",
+                        "clock auxiliary lacks its one injected clock error")
+                clock_failure_pre_cont_ledger(ledger, result, actual_exit)
+                allowed.add("coverage_unknown")
         if case == "reap_delay":
             allowed.add("clock_unknown")
             if "clock_unknown" in errors:
@@ -3198,7 +3439,9 @@ def run_private_components(run, prefix, basis):
         if ledger.exists(): record["ledger"] = retained_file(prefix, ledger)
         exclusive(case / "retained.json", canonical(record))
         result = component_result(report, descriptor, waited["exit_code"])
-        component_terminal(read_regular(case / "stderr", MAX_TAR, True), name, result, waited["exit_code"])
+        component_terminal(read_regular(case / "stderr", MAX_TAR, True), name, result, waited["exit_code"],
+                           ledger=read_regular(ledger, 2 * 1024 * 1024, True)
+                           if name == "clock_failure" and ledger.exists() else None)
         require(read_regular(output / "result.json", 65536, True) == report, "persisted Q2 result differs from unaltered stdout")
         records.append(record)
         exclusive(case / "checked.json", canonical({"check_exit": 0, "actual_exit": waited["exit_code"], "outcome": result["outcome"], "runtime_approved": False}))
@@ -3245,12 +3488,16 @@ def qualify_candidate(run, prefix, basis):
                      "exit_code": 0, "source_sha256": sha(SCRIPT_BYTES), "log": row["report"]} for row in records],
          "logs": logs, "candidate_status": "review_ready"}
     q["platform"]["assumptions"] = [{"id": "conditional_source_compiler_platform", "evidence": retain_blob(prefix, canonical(basis["closure"]["platform"]))}]
+    q["platform"]["assumptions"].append({"id": "decision66459_exec_shim_limits", "evidence": retain_blob(prefix, canonical(SHIM_ASSUMPTIONS))})
     # Offline inventory log binds all retained provenance (including transitive
     # Basis/source-lock Refs). It is not another runtime authority/catalogue.
     inventory = []
     for path in sorted(prefix.rglob("*")):
         if not path.is_dir():
-            data = read_regular(path, MAX_TAR, True)
+            if path.relative_to(prefix).as_posix() == SHIM_PATH:
+                data = candidate_shim(prefix, basis["shim"])
+            else:
+                data = read_regular(path, MAX_TAR, True)
             inventory.append({"path": path.relative_to(prefix).as_posix(), "len": len(data), "sha256": sha(data)})
     q["logs"].append(retain_blob(prefix, canonical(inventory)))
     qbytes = canonical(q)
@@ -3536,6 +3783,75 @@ def synthetic_q2_input(root):
         "bindings": {name: q2_metadata_hash(receipt[name]) for name in Q2_BINDINGS.split()},
         "build_closure": [runtime], "macho": macho,
     }
+
+
+def _synthetic_q2_shim_receipt(selection, receipt):
+    # The parent helper intentionally retains its historical no-shim grammar.
+    _synthetic_q2_reseal_receipt(selection, receipt)
+    selection["bindings"]["shim"] = q2_metadata_hash(receipt["shim"])
+    return selection
+
+
+def synthetic_q2_shim_input(selection):
+    """Add inert shim bindings to an inert selection; never compile/execute."""
+    receipt = _synthetic_q2_receipt(selection)
+    root_pin = selection["root"]; root = Path(root_pin["path"])
+    snapshot = Path(receipt["source_snapshot"])
+    source_bytes = (b"/* INERT shim ingestion fixture, never compiled. */\n"
+                    b"static int fixed_form(void) {return 0;}\nstatic int public_config(void) {return 0;}\n"
+                    b"const char *fixed[]={\"INERT\"};\n// END SHIM ENV ALLOWLIST\n")
+    header_bytes = b"/* INERT local shim header, never compiled. */\n"
+    for name, wire in ((Q2_SHIM_SOURCE, source_bytes), (Q2_SHIM_HEADER, header_bytes)):
+        _synthetic_q2_write(root, snapshot / name, wire, 0o400)
+        pin = _synthetic_q2_pin(root_pin, snapshot / name)
+        receipt["inputs"][name] = {"len": pin["len"], "sha256": pin["sha256"]}
+        receipt["input_commits"][name] = selection["source_commit"]
+    source_path = root / "dream-exec-shim.c"; header_path = root / "dream-exec-shim.h"
+    executable_path = root / "dream-exec-shim"; header_snapshot = root / "header-snapshots" / "local-shim.h"
+    for path, wire, mode in ((source_path, source_bytes, 0o400), (header_path, header_bytes, 0o400),
+                             (header_snapshot, header_bytes, 0o400),
+                             (executable_path, Path(selection["executable"]["path"]).read_bytes(), 0o500)):
+        _synthetic_q2_write(root, path, wire, mode)
+    source = _synthetic_q2_pin(root_pin, source_path)
+    executable = _synthetic_q2_pin(root_pin, executable_path, executable=True)
+    header = _synthetic_q2_pin(root_pin, header_path)
+    receipt["header_inputs"][str(header_path)] = {**header, "resolved_path": str(header_path),
+                                                "snapshot": str(header_snapshot), "symlinks": []}
+    compiler = receipt["compiler"]; base_flags = list(compiler["flags"])
+    bindings = {"allowlist_sha256": q2_shim_allowlist(source_bytes), "compiler_sha256": compiler["sha256"],
+                "exe_sha256": executable["sha256"], "source_sha256": source["sha256"]}
+    defines = ['-DDREAM_EXEC_SHIM_' + name + '=\"' + bindings[key] + '\"' for name, key in
+               (("SHA256", "exe_sha256"), ("SOURCE_SHA256", "source_sha256"), ("ALLOWLIST_SHA256", "allowlist_sha256"))]
+    compiler["flags"] = [*base_flags, *defines]
+    receipt["build"]["argv"] = [compiler["path"], *compiler["flags"], receipt["build"]["input"]["path"], "-o", receipt["build"]["output"]["path"]]
+    receipt["dependency_discovery"]["argv"] = [compiler["path"], *(flag for flag in compiler["flags"] if flag != "-v"),
+                                               "-M", "-MT", "probe", receipt["build"]["input"]["path"]]
+    build = {"argv": [compiler["path"], *base_flags, str(source_path), "-o", str(executable_path)],
+             "cwd": str(root), "exit_code": 0}
+    deps = {"argv": [compiler["path"], *(flag for flag in base_flags if flag != "-v"), "-M", "-MT", "dream-exec-shim", str(source_path)],
+            "exit_code": 0}
+    dependency_wire = ("dream-exec-shim: " + " ".join([str(source_path), *receipt["header_inputs"]]) + "\n").encode()
+    stderr_wire = ('"' + receipt["linker"]["path"] + '" -o ' + str(executable_path) + " " + selection["build_closure"][0]["path"] + "\n").encode()
+    logs = []
+    for result, stream, name, wire in ((build, "stdout", "shim-build.stdout.log", b""),
+                                        (build, "stderr", "shim-build.stderr.log", stderr_wire),
+                                        (deps, "stdout", "shim-dependencies.log", dependency_wire)):
+        path = root / name; _synthetic_q2_write(root, path, wire, 0o400)
+        result["retained_" + stream] = _synthetic_q2_pin(root_pin, path); logs.append(path)
+    receipt["shim"] = {"basis_bindings": bindings, "basis_byte_delta": 343, "build": build,
+                       "controller_embedded_sha256": executable["sha256"], "dependency_discovery": deps,
+                       "executable": executable, "source": source}
+    outputs = {row["path"]: row for row in receipt["retained_outputs"]}
+    for path in (snapshot / Q2_SHIM_SOURCE, snapshot / Q2_SHIM_HEADER, source_path, executable_path,
+                 header_path, header_snapshot, *logs):
+        outputs[str(path)] = {"kind": "file", **_synthetic_q2_pin(root_pin, path, executable=path == executable_path)}
+        for parent in path.parents:
+            if not parent.is_relative_to(root): break
+            info = parent.stat()
+            outputs[str(parent)] = {"kind": "directory", "path": str(parent), "dev": info.st_dev,
+                                    "ino": info.st_ino, "uid": info.st_uid, "mode": info.st_mode}
+    receipt["retained_outputs"] = [outputs[name] for name in sorted(outputs)]
+    return _synthetic_q2_shim_receipt(selection, receipt)
 
 
 class Q2InputAdapterIngestionTests(unittest.TestCase):
@@ -3881,6 +4197,102 @@ class Q2InputAdapterIngestionTests(unittest.TestCase):
         self.assertEqual(result["scope"], "offline input ingestion only; no launch or runtime grant")
         self.assertEqual(set(result), {"source", "source_bytes", "executable", "preparation", "proposal_source_sha256", "scope"})
 
+    def test_q2_shim_inert_selection_binds_source_headers_compiler_and_outputs(self):
+        selection = synthetic_q2_shim_input(self.fixture("shim-positive"))
+        root = Path(selection["root"]["path"])
+        before = {str(path.relative_to(root)) for path in root.rglob("*")}
+        with self.offline_only(): result = self.ingest(selection)
+        shim = result["shim"]; receipt = _synthetic_q2_receipt(selection)
+        self.assertEqual(shim["basis_bindings"], receipt["shim"]["basis_bindings"])
+        for name, key in (("source", "source_bytes"), ("executable", "exe_bytes"), ("header", "header_bytes")):
+            self.assertEqual(shim[key], Path(shim[name]["path"]).read_bytes())
+        self.assertEqual(stat.S_IMODE(shim["executable"]["mode"]), 0o500)
+        self.assertEqual(before, {str(path.relative_to(root)) for path in root.rglob("*")})
+
+    def test_q2_shim_closed_selection_receipt_and_input_grammars(self):
+        for change in ("unselected", "missing_shim", "unknown_shim", "missing_hash", "unknown_hash", "wrong_hash_type",
+                       "missing_source", "unknown_input", "missing_commit", "wrong_commit", "duplicate_json"):
+            with self.subTest(change=change):
+                selection = synthetic_q2_shim_input(self.fixture("shim-grammar-" + change))
+                receipt = _synthetic_q2_receipt(selection)
+                if change == "unselected":
+                    del selection["bindings"]["shim"]
+                elif change == "missing_shim":
+                    del receipt["shim"]
+                    _synthetic_q2_reseal_receipt(selection, receipt)
+                    selection["bindings"]["shim"] = "0" * 64
+                elif change == "unknown_shim": receipt["shim"]["unknown"] = False
+                elif change == "missing_hash": del receipt["shim"]["basis_bindings"]["source_sha256"]
+                elif change == "unknown_hash": receipt["shim"]["basis_bindings"]["unknown"] = "0" * 64
+                elif change == "wrong_hash_type": receipt["shim"]["basis_bindings"]["exe_sha256"] = True
+                elif change == "missing_source": del receipt["inputs"][Q2_SHIM_SOURCE]
+                elif change == "unknown_input": receipt["inputs"][Q2_SHIM_SOURCE + ".extra"] = receipt["inputs"][Q2_SHIM_SOURCE]
+                elif change == "missing_commit": del receipt["input_commits"][Q2_SHIM_HEADER]
+                elif change == "wrong_commit": receipt["input_commits"][Q2_SHIM_SOURCE] = receipt["preparation_commit"]
+                else:
+                    path = Path(selection["preparation"]["path"])
+                    raw = path.read_bytes().replace(b'"basis_byte_delta":343', b'"basis_byte_delta":343,"basis_byte_delta":343')
+                    _synthetic_q2_overwrite(path, raw)
+                    selection["preparation"] = _synthetic_q2_pin(selection["root"], path)
+                if change not in ("unselected", "missing_shim", "duplicate_json"):
+                    _synthetic_q2_shim_receipt(selection, receipt)
+                with self.offline_only(), self.assertRaises(Refused): self.ingest(selection)
+
+    def test_q2_shim_resealed_inner_cross_bindings_still_refuse(self):
+        for change in ("compiler", "embedded", "allowlist", "source_hash", "exe_hash", "delta", "bool_delta", "define",
+                       "extra_define", "build_argv", "build_cwd", "build_exit", "dependency_argv", "dependency_exit",
+                       "log_alias", "missing_output", "header_alias", "foreign_header", "unbound_linker"):
+            with self.subTest(change=change):
+                selection = synthetic_q2_shim_input(self.fixture("shim-binding-" + change))
+                receipt = _synthetic_q2_receipt(selection); shim = receipt["shim"]
+                if change in ("compiler", "allowlist", "source_hash", "exe_hash"):
+                    key = {"compiler": "compiler_sha256", "allowlist": "allowlist_sha256", "source_hash": "source_sha256", "exe_hash": "exe_sha256"}[change]
+                    shim["basis_bindings"][key] = "0" * 64
+                elif change == "embedded": shim["controller_embedded_sha256"] = "0" * 64
+                elif change == "delta": shim["basis_byte_delta"] += 1
+                elif change == "bool_delta": shim["basis_byte_delta"] = True
+                elif change == "define": receipt["compiler"]["flags"][-1] = '-DDREAM_EXEC_SHIM_ALLOWLIST_SHA256="' + "0" * 64 + '"'
+                elif change == "extra_define": receipt["compiler"]["flags"].append("-DDREAM_EXEC_SHIM_UNKNOWN=1")
+                elif change == "build_argv": shim["build"]["argv"].insert(1, "-DUNBOUND=1")
+                elif change == "build_cwd": shim["build"]["cwd"] += "/foreign"
+                elif change == "build_exit": shim["build"]["exit_code"] = 1
+                elif change == "dependency_argv": shim["dependency_discovery"]["argv"][-2] = "probe"
+                elif change == "dependency_exit": shim["dependency_discovery"]["exit_code"] = True
+                elif change == "log_alias": shim["build"]["retained_stderr"] = shim["build"]["retained_stdout"]
+                elif change == "missing_output": receipt["retained_outputs"] = [row for row in receipt["retained_outputs"] if row["path"] != shim["executable"]["path"]]
+                elif change == "header_alias": receipt["header_inputs"][str(Path(selection["root"]["path"]) / "dream-exec-shim.h")]["resolved_path"] += ".alias"
+                elif change == "foreign_header":
+                    pin = dict(next(iter(receipt["header_inputs"].values())))
+                    pin["path"] = str(Path(selection["root"]["path"]) / "foreign-local.h")
+                    receipt["header_inputs"][pin["path"]] = pin
+                else:
+                    path = shim["build"]["retained_stderr"]["path"]
+                    wire = ('"' + receipt["linker"]["path"] + '" /private/unbound.a\n').encode()
+                    _synthetic_q2_overwrite(path, wire)
+                    pin = _synthetic_q2_pin(selection["root"], path)
+                    shim["build"]["retained_stderr"] = pin
+                    receipt["retained_outputs"] = [{"kind": "file", **pin} if row["path"] == path else row for row in receipt["retained_outputs"]]
+                _synthetic_q2_shim_receipt(selection, receipt)
+                with self.offline_only(), self.assertRaises(Refused): self.ingest(selection)
+
+    def test_q2_shim_changed_private_files_and_dependency_coverage_refuse(self):
+        for change in ("source", "executable", "header", "build_stdout", "build_stderr", "dependencies", "source_mode", "exe_mode", "source_hardlink", "exe_symlink"):
+            with self.subTest(change=change):
+                selection = synthetic_q2_shim_input(self.fixture("shim-custody-" + change))
+                receipt = _synthetic_q2_receipt(selection); shim = receipt["shim"]
+                path = Path(shim[change]["path"]) if change in ("source", "executable") else Path(selection["root"]["path"]) / "dream-exec-shim.h"
+                if change.startswith("build_"): path = Path(shim["build"]["retained_" + change[6:]]["path"])
+                elif change == "dependencies": path = Path(shim["dependency_discovery"]["retained_stdout"]["path"])
+                elif change == "source_mode": path = Path(shim["source"]["path"]); path.chmod(0o600)
+                elif change == "exe_mode": path = Path(shim["executable"]["path"]); path.chmod(0o700)
+                elif change == "source_hardlink": path = Path(shim["source"]["path"]); os.link(path, path.with_name("extra-link"))
+                elif change == "exe_symlink":
+                    path = Path(shim["executable"]["path"]); original = path.with_name("retained-original-shim")
+                    path.rename(original); path.symlink_to(original)
+                if change in ("source", "executable", "header", "build_stdout", "build_stderr", "dependencies"):
+                    _synthetic_q2_overwrite(path, b"INERT changed private input\n")
+                with self.offline_only(), self.assertRaises((Refused, OSError)): self.ingest(selection)
+
 
 class ProvisioningTests(unittest.TestCase):
     def test_git_verifier_target_preserves_default_and_requires_explicit_safe_override(self):
@@ -4206,6 +4618,48 @@ class ProvisioningTests(unittest.TestCase):
         with self.assertRaises(Refused): prepared_budget(b"", lock, result, basis, b"d" * 16384)
         with self.assertRaises(Refused): prepared_budget(b"q" * 7153, lock, result, basis, b"d" * 4096)
 
+    def test_exec_shim_budget_headroom_is_only_its_four_bindings(self):
+        bindings = {key: "a" * 64 for key in SHIM_FIELDS.split()}
+        original = {"padding": "x" * (49152 - len(canonical({"padding": ""})))}
+        raw = canonical({**original, "shim": bindings})
+        self.assertEqual(len(raw) - len(canonical(original)), 343)
+        prepared_budget(b"", b"", b"", raw)
+        with self.assertRaisesRegex(Refused, "non-shim Basis"):
+            prepared_budget(b"", b"", b"", canonical({"padding": original["padding"] + "x", "shim": bindings}))
+        for changed in ({**bindings, "unknown": "a" * 64}, {key: value for key, value in bindings.items() if key != "exe_sha256"},
+                        {**bindings, "exe_sha256": True}, {**bindings, "source_sha256": "A" * 64}):
+            with self.subTest(bindings=changed), self.assertRaises(Refused):
+                prepared_budget(b"", b"", b"", canonical({**original, "shim": changed}))
+        with self.assertRaisesRegex(Refused, "57345 bytes"):
+            prepared_budget(b"", b"", b"", b"x" * 57345)
+        with self.assertRaises(Refused):
+            strict_json(raw[:-1] + b',"shim":' + canonical(bindings) + b'}', 57344)
+
+    def test_exec_shim_fixed_path_custody_and_currentness(self):
+        bindings = {key: "a" * 64 for key in SHIM_FIELDS.split()}
+        with tempfile.TemporaryDirectory(dir=TEST_TARGET) as tmp:
+            prefix = Path(tmp); private_dir(prefix / "libexec")
+            leaf = prefix / SHIM_PATH; exclusive(leaf, b"inert shim")
+            os.chmod(leaf, 0o500); bindings["exe_sha256"] = sha(b"inert shim")
+            basis = {"shim": bindings, "build": {"compiler": {"image": {"sha256": bindings["compiler_sha256"]}}}}
+            selected = {"shim": {"basis_bindings": bindings}}
+            basis_shim_current(basis, prefix, selected)
+            for mode in (0o400, 0o600, 0o700):
+                os.chmod(leaf, mode)
+                with self.subTest(mode=mode), self.assertRaises(Refused): candidate_shim(prefix, bindings)
+            os.chmod(leaf, 0o500)
+            other = prefix / "another-executable"; exclusive(other, b"inert shim"); os.chmod(other, 0o500)
+            with self.assertRaises(Refused): ref_bytes(prefix, {"path": other.name, "len": 10, "sha256": sha(b"inert shim")})
+            for key in SHIM_FIELDS.split():
+                changed = copy.deepcopy(basis); changed["shim"][key] = "b" * 64
+                with self.subTest(key=key), self.assertRaises(Refused): basis_shim_current(changed, prefix, selected)
+            changed = copy.deepcopy(basis); changed["build"]["compiler"]["image"]["sha256"] = "b" * 64
+            with self.assertRaises(Refused): basis_shim_current(changed, prefix, selected)
+            os.link(leaf, prefix / "shim-alias")
+            with self.assertRaises(Refused): candidate_shim(prefix, bindings)
+            (prefix / "shim-alias").unlink(); leaf.unlink(); leaf.symlink_to(other)
+            with self.assertRaises((Refused, OSError)): candidate_shim(prefix, bindings)
+
     def test_zero_context_patches_match_every_exact_postimage(self):
         # Upstream C includes form-feed separators. Diff line numbers must count
         # LF, not Python's wider Unicode splitlines boundaries. Verify the real
@@ -4325,6 +4779,16 @@ class ComponentHandoffTests(unittest.TestCase):
                 result["metrics"]["A_ns"] = value
                 component_result(canonical(result) + b"\n", descriptor, 0)
 
+    def test_exec_shim_member_count_is_only_a_bounded_diagnostic(self):
+        descriptor, result = self.fixture()
+        for value in (0, 1, 2, 255):
+            result["metrics"]["members_max"] = value
+            component_result(canonical(result) + b"\n", descriptor, 0)
+        for value in (None, True, -1, 256):
+            result["metrics"]["members_max"] = value
+            with self.subTest(value=value), self.assertRaises(Refused):
+                component_result(canonical(result) + b"\n", descriptor, 0)
+
     def test_component_process_create_wall_66331_limit_preserves_cpu_and_inclusive(self):
         descriptor, result = self.fixture()
         for wall in (34000000, 250000000):
@@ -4406,6 +4870,13 @@ class ComponentHandoffTests(unittest.TestCase):
                                "source_lock": {"path": "provenance/lock", "len": len(lock_bytes), "sha256": sha(lock_bytes)}},
                      "fixture": {"repo": dir_pin(repo), "valid_commit": "1" * 40, "corrupt_commit": "2" * 40, "public_keys": {"path": "public.asc"}}}
             selection = {"source": {"sha256": "3" * 64}, "executable": {"sha256": "4" * 64}}
+            private_dir(prefix / "libexec")
+            exclusive(prefix / SHIM_PATH, b"inert shim")
+            os.chmod(prefix / SHIM_PATH, 0o500)
+            basis["shim"] = {key: "a" * 64 for key in SHIM_FIELDS.split()}
+            basis["shim"]["exe_sha256"] = sha(b"inert shim")
+            basis["build"]["compiler"] = {"image": {"sha256": "a" * 64}}
+            selection["shim"] = {"basis_bindings": dict(basis["shim"])}
             with mock.patch.object(time, "clock_gettime_ns", return_value=100) as c_clock, mock.patch.object(time, "monotonic_ns", return_value=10**18):
                 descriptor, _ = private_descriptor(root, prefix, basis, "positive", output, selection)
             self.assertEqual(descriptor["deadline_ns"], 30_000_000_100)
@@ -4667,6 +5138,100 @@ class ComponentHandoffTests(unittest.TestCase):
                 _, _, _, raw = self.terminal_fixture("clock_failure", extra)
                 with self.assertRaisesRegex(Refused, "additional resource failure"):
                     component_terminal(raw(), "clock_failure", actual_exit=81)
+
+    def clock_pre_cont_fixture(self):
+        # Inert source-shaped records; no shim/controller is executed.
+        result = {"phase": "settled", "outcome": "failed", "observed_proof": "not_reached",
+                  "input_sha256": "1" * 64, "metrics": {"attempts": 1},
+                  "error": {"code": "clock_unknown", "detail": "fixture unknown creation ending clock retains actual effect"},
+                  "settlement": {"created": 1, "reaped": 1, "group_gone": True, "retired_coverage": True}}
+        rows = [{"phase": "git_sig_prepare", "input_sha256": result["input_sha256"], "selected_case": "valid"},
+                {"kind": "helper_total_budget", "decision": 66280, "phase": "reaped", "sequence": 1, "pid": 123,
+                 "birth": 0, "start": 0, "activation_ns": 0, "actual_own_wait4": 1, "group_gone": 1,
+                 "helper_cost_retained": 1, "helper_cost_paid": 1, "quarantined": 0, "runtime_approved": False},
+                {"kind": "pause_user_and_terminal_rss", "pause_stop_attempted": 0, "ack_mask": 0,
+                 "resume_admitted": 0, "resume_signal_ns": 0},
+                {"kind": "retained_child_accounting", "child_created": 0, "child_pid": 0},
+                {"kind": "verifier_event_discovery", "exec_shim_enforced": True, "runtime_approved": False}]
+        return result, rows
+
+    def test_clock_auxiliary_requires_bound_pre_cont_settlement_and_no_exec_receipt(self):
+        result, rows = self.clock_pre_cont_fixture()
+        wire = lambda values: b"".join(canonical(entry) + b"\n" for entry in values)
+        clock_failure_pre_cont_ledger(wire(rows), result, 81)
+        for index, key, value in ((0, "input_sha256", "2" * 64), (0, "selected_case", "corrupt"),
+                                  (1, "activation_ns", 1), (1, "activation_ns", False), (1, "pid", 0),
+                                  (1, "pid", True), (1, "sequence", 2), (1, "birth", 1),
+                                  (1, "actual_own_wait4", 0), (1, "helper_cost_paid", 0), (1, "quarantined", 1),
+                                  (2, "resume_signal_ns", 1), (2, "resume_admitted", 1), (2, "ack_mask", 1),
+                                  (3, "child_created", 1), (3, "child_pid", 456),
+                                  (4, "exec_shim_enforced", False), (4, "exec_shim_enforced", 1)):
+            changed = copy.deepcopy(rows); changed[index][key] = value
+            with self.subTest(key=key, value=value), self.assertRaises(Refused):
+                clock_failure_pre_cont_ledger(wire(changed), result, 81)
+        for index, row in enumerate(rows):
+            for key in row:
+                changed = copy.deepcopy(rows); del changed[index][key]
+                with self.subTest(missing=key), self.assertRaises(Refused):
+                    clock_failure_pre_cont_ledger(wire(changed), result, 81)
+        for changed in (rows[1:], [*rows, rows[1]], [*rows, {"kind": "exec_shim", "pid": 123}],
+                        [*rows, {"kind": "exec_shim", "pid": 456}], [rows[1], rows[0], *rows[2:]]):
+            with self.subTest(rows=changed), self.assertRaises(Refused):
+                clock_failure_pre_cont_ledger(wire(changed), result, 81)
+        for raw in (None, b"", wire(rows)[:-1], wire(rows) + b"{\"kind\":\"exec_shim\",\"kind\":\"other\"}\n"):
+            with self.subTest(raw=raw), self.assertRaises(Refused):
+                clock_failure_pre_cont_ledger(raw, result, 81)
+        for path, value in (("phase", "quarantined"), ("outcome", "refused"), ("observed_proof", "valid"),
+                            ("metrics.attempts", True), ("metrics.attempts", 2), ("settlement.reaped", 0),
+                            ("settlement.group_gone", 1), ("error.detail", "another unknown clock")):
+            changed = copy.deepcopy(result); parent = changed; keys = path.split(".")
+            for key in keys[:-1]: parent = parent[key]
+            parent[keys[-1]] = value
+            with self.subTest(path=path), self.assertRaises(Refused):
+                clock_failure_pre_cont_ledger(wire(rows), changed, 81)
+        for status in (None, 0, -9):
+            with self.subTest(status=status), self.assertRaises(Refused):
+                clock_failure_pre_cont_ledger(wire(rows), result, status)
+
+    def test_clock_terminal_auxiliary_is_one_exact_ledger_proven_detail_only(self):
+        result, rows = self.clock_pre_cont_fixture()
+        detail = "helper lacks its one in-process exec receipt"
+        extra = {"coverage_unknown": {"code": "coverage_unknown", "count": 1, "details_truncated": False,
+                                     "first_detail": detail, "last_detail": detail, "kind": "private_candidate_error"}}
+        clock_detail = "fixture unknown creation ending clock retains actual effect"
+        extra["clock_unknown"] = {"code": "clock_unknown", "count": 1, "details_truncated": False,
+                                  "first_detail": clock_detail, "last_detail": clock_detail, "kind": "private_candidate_error"}
+        row, _, errors, raw = self.terminal_fixture("clock_failure", extra); row["stage"] = "settled"
+        ledger = b"".join(canonical(entry) + b"\n" for entry in rows)
+        component_terminal(raw(), "clock_failure", result, 81, ledger=ledger)
+        resource_detail = "process creation native2ms wall250ms application1ms inclusive3ms gate"
+        with_resource = {**extra, "resource_limit": {"code": "resource_limit", "count": 1, "details_truncated": False,
+                         "first_detail": resource_detail, "last_detail": resource_detail, "kind": "private_candidate_error"}}
+        resource_row, _, _, resource_raw = self.terminal_fixture("clock_failure", with_resource)
+        resource_row["stage"] = "settled"
+        component_terminal(resource_raw(), "clock_failure", result, 81, ledger=ledger)
+        for key, value in (("count", 2), ("first_detail", "unrelated clock error"), ("last_detail", "later clock error")):
+            altered = copy.deepcopy(extra); altered["clock_unknown"][key] = value
+            altered_row, _, _, altered_raw = self.terminal_fixture("clock_failure", altered); altered_row["stage"] = "settled"
+            with self.subTest(clock=key), self.assertRaisesRegex(Refused, "one injected clock"):
+                component_terminal(altered_raw(), "clock_failure", result, 81, ledger=ledger)
+        with self.assertRaises(Refused): component_terminal(raw(), "clock_failure", result, 81)
+        for key, value in (("first_detail", "another coverage refusal"), ("last_detail", "altered receipt detail")):
+            previous = errors["coverage_unknown"][key]; errors["coverage_unknown"][key] = value
+            with self.subTest(key=key), self.assertRaises(Refused):
+                component_terminal(raw(), "clock_failure", result, 81, ledger=ledger)
+            errors["coverage_unknown"][key] = previous
+        doubled = copy.deepcopy(extra); doubled["coverage_unknown"]["count"] = 2
+        doubled_row, _, _, doubled_raw = self.terminal_fixture("clock_failure", doubled)
+        doubled_row["stage"] = "settled"
+        with self.assertRaisesRegex(Refused, "additional coverage failure"):
+            component_terminal(doubled_raw(), "clock_failure", result, 81, ledger=ledger)
+        row["stage"] = "quarantined"
+        with self.assertRaises(Refused): component_terminal(raw(), "clock_failure", result, 81, ledger=ledger)
+        for case in ("cancel", "stale_incarnation", "debt_overlap", "reap_delay"):
+            _, _, _, other = self.terminal_fixture(case, extra)
+            with self.subTest(case=case), self.assertRaises(Refused):
+                component_terminal(other(), case, result, 81, ledger=ledger)
 
     def test_reap_delay_accepts_only_original_partial_snapshot_and_actual_later_settlement(self):
         row, _, _, raw = self.terminal_fixture("reap_delay")

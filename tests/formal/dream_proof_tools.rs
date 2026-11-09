@@ -6,8 +6,9 @@
 // Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
 //! Bounded builder/publication and external admission contracts, not native-code proofs.
 //! Source authentication, byte custody, actual fsync/link, and canonical component
-//! measurements remain independent process witnesses. In particular the frozen Q2
-//! probe's Git mode currently returns 81 (unproven); these models certify no tool.
+//! measurements remain independent process witnesses. INPUT70 binds an in-process
+//! exec shim; coalesced forks and setsid orphans remain source assumptions.
+//! These models certify neither native lifetime coverage nor a tool's approval.
 //! Recipe mapping: build/previous_build retain original intent and inode on
 //! failure/restart; refuse_unknown_build_effects fences unresolved commands;
 //! publish_candidate seals qualification before the no-replace receipt;
