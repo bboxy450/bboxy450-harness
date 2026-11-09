@@ -15,7 +15,45 @@ static void put(const char *s,uint32_t *offset) {
     size_t n=strlen(s)+1;require(n<=4097&&test_config.used+n<=sizeof(test_config.bytes),"test config bound");
     *offset=test_config.used;memcpy(test_config.bytes+test_config.used,s,n);test_config.used+=(uint32_t)n;
 }
+static int escape_control(const char *mode,const char *ledger) {
+    int ready[2],release[2];require(!pipe(ready)&&!pipe(release),"escape control pipes");
+    pid_t child=fork();require(child>=0,"escape control owned child");
+    if(!child){close(ready[0]);close(release[1]);if(setsid()<0)_exit(82);char byte='r';if(write(ready[1],&byte,1)!=1)_exit(83);if(read(release[0],&byte,1)!=1)_exit(84);_exit(0);}
+    close(ready[1]);close(release[0]);char byte;require(read(ready[0],&byte,1)==1,"escape control ready");close(ready[0]);
+    struct proc_bsdinfo b;require(proc_pidinfo(child,PROC_PIDTBSDINFO,0,&b,sizeof(b))==(int)sizeof(b),"escape control real birth");
+    uint64_t birth=(uint64_t)b.pbi_start_tvsec*1000000+b.pbi_start_tvusec;
+    struct private_engine_result result={0};struct engine_owner owner={.shim_active=1,.direct_custody=1,.ticket={.pid=child,.pgid=getpgrp()},.result=&result};
+    owner.ledger=open(ledger,O_RDWR|O_CREAT|O_EXCL|O_CLOEXEC,0600);require(owner.ledger>=0,"escape control ledger");
+    owner.retired_count=1;owner.retired[0]=(struct engine_incarnation){.pid=child,.birth=birth,.current=1};
+    require(known_control_token(child,birth,&owner.retired[0].token),"escape control original token");
+    int positive=!strcmp(mode,"escaped-live")||!strcmp(mode,"alive-after-reap");
+    if(!positive){require(write(release[1],"x",1)==1,"escape control exit release");int status;require(waitpid(child,&status,0)==child&&WIFEXITED(status)&&WEXITSTATUS(status)==0,"escape control actual child reap");}
+    if(!strcmp(mode,"cleanup-eio")||!strcmp(mode,"cleanup-esrch")) {
+        source_known_observation_selected=ENGINE_OBS_ESCAPED_CLEANUP_BSD;
+        source_known_observation_forced_domain=ENGINE_OBSERVATION_UNIX;
+        source_known_observation_forced_code=!strcmp(mode,"cleanup-eio")?EIO:ESRCH;
+    }
+    if(strcmp(mode,"alive-after-reap"))engine_cleanup_escaped(&owner);
+    int cleanup_failed=owner.failed;
+    if(positive){
+        if(!strcmp(mode,"alive-after-reap")){owner.direct_reaped=owner.wait_observed=1;owner.direct_custody=0;require(!engine_settle_proven(&owner)&&!owner.escaped_kill_attempts,"positive postreap hit refuses without signal");}
+        require(kill(child,SIGKILL)==0||errno==ESRCH,"escape control exact owned cleanup");int status;require(waitpid(child,&status,0)==child,"escape control positive child reap");
+        require(owner.failed&&!strcmp(result.error_code,"coverage_unknown"),"positive same-birth escaped live process refuses");
+    }else{
+        require(!cleanup_failed&&!owner.obs_terminal_takeovers&&!owner.escaped_kill_attempts&&!private_failed,"postreap escape read settles without terminal-proof route");
+        owner.direct_reaped=owner.wait_observed=1;owner.direct_custody=0;
+        if(!strcmp(mode,"census-eio")||!strcmp(mode,"census-esrch")) {
+            source_known_observation_selected=ENGINE_OBS_GROUP_CENSUS;source_known_observation_forced_domain=ENGINE_OBSERVATION_UNIX;
+            source_known_observation_forced_code=!strcmp(mode,"census-eio")?EIO:ESRCH;
+        }
+        require(engine_settle_proven(&owner)&&result.group_gone&&!owner.failed&&!private_failed,"best-effort postreap census settles without refusal");
+    }
+    close(release[1]);require(close(owner.ledger)==0,"escape control ledger close");
+    printf("{\"escape_control\":\"%s\",\"refused\":%s,\"settled\":%s,\"terminal_takeovers\":%llu,\"kill_attempts\":%u,\"runtime_approved\":false}\n",mode,owner.failed?"true":"false",result.group_gone?"true":"false",(unsigned long long)owner.obs_terminal_takeovers,owner.escaped_kill_attempts);
+    return 0;
+}
 int main(int argc,char **argv) {
+    if(argc==4&&!strcmp(argv[1],"escape-control"))return escape_control(argv[2],argv[3]);
     require(argc>=12,"driver shim git gpg home scratch sha len cwd stdout form args...");
     const char *shim=argv[1],*git=argv[2],*gpg=argv[3],*home=argv[4],*scratch=argv[5];
     unsigned form=(unsigned)strtoul(argv[10],NULL,10);require(form<15,"driver form");

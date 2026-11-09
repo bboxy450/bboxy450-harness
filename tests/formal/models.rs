@@ -7064,6 +7064,7 @@ pub fn corpus() -> Vec<(Model, &'static str)> {
         (dream_read::total_budget(17), "safety"),
         (dream_read::total_budget(18), "safety"),
         (dream_read::total_budget(19), "safety"),
+        (dream_read::total_budget(20), "safety"),
         (dream_read::foreground_stop_terminal(0), "pass"),
         (dream_read::foreground_stop_terminal(1), "safety"),
         (dream_read::systematic_observe_terminal(0), "pass"),

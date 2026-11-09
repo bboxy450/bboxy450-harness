@@ -6,6 +6,7 @@
 # Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
 """Unattended source-known shim process controls; no builder/qualification run."""
 import argparse
+import errno
 import hashlib
 import json
 import os
@@ -44,6 +45,33 @@ def main():
         for name in ['burn-tool', 'fork-tool', 'noop-tool']:
             shutil.copyfile(run / 'tool', run / name)
             (run / name).chmod(0o500)
+        escape_modes = ['cleanup-esrch', 'cleanup-eio', 'census-esrch', 'census-eio', 'escaped-live', 'alive-after-reap']
+        for mode in escape_modes:
+            ledger = run / (mode + '.ndjson')
+            result = json.loads(command([run / 'controls', 'escape-control', mode, ledger]))
+            positive = mode in ['escaped-live', 'alive-after-reap']
+            assert result['refused'] is positive and result['settled'] is not positive, result
+            records = [json.loads(line) for line in ledger.read_text().splitlines()]
+            diagnostics = [r for r in records if r.get('kind') == 'escape_check_unavailable']
+            if mode.endswith('eio'):
+                site = 'escaped_cleanup_bsd' if mode.startswith('cleanup') else 'group_census'
+                assert any(r['site'] == site and r['errno'] == errno.EIO for r in diagnostics), records
+            else:
+                assert not diagnostics, records
+        # Reproduce INPUT70's failure through the real production wrapper.
+        source = (FIX / 'proof-helper-probe.c').read_bytes()
+        anchor = b'if(f->site==ENGINE_OBS_ESCAPED_CLEANUP_BSD&&(o->shim_active||o->direct_reaped))'
+        assert source.count(anchor) == 1
+        mutant = run / 'mutant'
+        mutant.mkdir(mode=0o700)
+        (mutant / 'proof-helper-probe.c').write_bytes(source.replace(anchor, anchor.replace(b'if(', b'if(0&&', 1)))
+        shutil.copyfile(FIX / 'exec-shim-controls.c', mutant / 'exec-shim-controls.c')
+        shutil.copyfile(FIX / 'dream-exec-shim.h', mutant / 'dream-exec-shim.h')
+        command(['/usr/bin/clang', *FLAGS, mutant / 'exec-shim-controls.c', '-o', mutant / 'controls'])
+        broken = subprocess.run([str(mutant / 'controls'), 'escape-control', 'cleanup-esrch', str(run / 'mutant.ndjson')], capture_output=True, timeout=20)
+        commands.append(dict(argv=[str(mutant / 'controls'), 'escape-control', 'cleanup-esrch'], exit_code=broken.returncode,
+                             stdout=broken.stdout.decode(errors='replace'), stderr=broken.stderr.decode(errors='replace'), expected_exit_code=81))
+        assert broken.returncode == 81 and b'postreap escape read settles without terminal-proof route' in broken.stderr, commands[-1]
         home, scratch = run / 'home', run / 'scratch'
         home.mkdir(mode=0o700)
         scratch.mkdir(mode=0o700)
@@ -92,7 +120,7 @@ def main():
                         [*prefix, 'log', '-1', '--format=%G?%x00%GF%x00%GP', 'a' * 40], git='fork-tool',
                         environment={'DREAM_SHIM_TEST_FORK_BACKSTOP': '1'})
         assert result['status'] == -1 and result['observed_fork_notes'] == 2, result
-        print(json.dumps(dict(result='pass', controls=10, native_process=True, source_known_tools=True,
+        print(json.dumps(dict(result='pass', controls=17, escape_controls=6, escape_mutants=1, native_process=True, source_known_tools=True,
                               cryptographic_proof=False, runtime_approved=False, record=str(run / 'result.json'))))
     finally:
         (run / 'result.json').write_text(json.dumps(dict(commands=commands, runtime_approved=False,

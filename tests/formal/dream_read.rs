@@ -3823,7 +3823,10 @@ pub fn helper_exec(control: u8) -> Model {
 /// supply the fork/exec shape premise; notifications/censuses cannot prove it.
 /// CPU units abstract <=250ms/over, <=3s job/over; debt is exact 9x in these
 /// representatives. Pause owns one STOP, same-owner positive ACK and one CONT;
-/// raw USER=0 and SYSTEM<=50us are separate gates. No OS-success fairness.
+/// raw USER=0 and SYSTEM<=50us are separate gates. Post-reap escape/census
+/// ESRCH means no detection; other failed reads record only a diagnostic. Only
+/// a positive same-birth/start live escaped incarnation refuses. Legacy live
+/// observe_or_terminal remains separately modelled. No OS-success fairness.
 pub fn total_budget(control: u8) -> Model {
     let names = [
         "",
@@ -3846,6 +3849,7 @@ pub fn total_budget(control: u8) -> Model {
         "LiveOverCap",
         "FailedLiveReadRefuses",
         "Deadline",
+        "PostReapEscapeReadRefuses",
     ];
     assert!(control < names.len() as u8);
     let mut m = base(
@@ -3853,7 +3857,7 @@ pub fn total_budget(control: u8) -> Model {
         control != 0,
         &[
             ("phaseAbsentPreparedExecObservedReapedDisposition", 5, 0),
-            ("scenario", 19, 0),
+            ("scenario", 22, 0),
             ("executed", 1, 0),
             ("killed", 1, 0),
             ("refused", 1, 0),
@@ -3870,6 +3874,8 @@ pub fn total_budget(control: u8) -> Model {
             ("pauseUserGrew", 1, 0),
             ("pauseSystemOver50us", 1, 0),
             ("nextExpensive", 1, 0),
+            ("postReapEscapeReadNoneEsrchOtherLiveExact", 3, 0),
+            ("escapeCheckUnavailableDiagnostic", 1, 0),
         ],
     );
     m.name = format!(
@@ -3895,7 +3901,9 @@ pub fn total_budget(control: u8) -> Model {
     const USER: usize = 15;
     const SYSTEM: usize = 16;
     const NEXT: usize = 17;
-    for case in 0..=19 {
+    const ESCAPE_READ: usize = 18;
+    const ESCAPE_DIAGNOSTIC: usize = 19;
+    for case in 0..=22 {
         act(
             &mut m,
             &format!("PrepareBoundFormScenario{case}"),
@@ -3945,7 +3953,11 @@ pub fn total_budget(control: u8) -> Model {
     act(&mut m, "ReapRefusedShimAndRetainItsFull9xBill",
         all([eq(P, 3), eq(EXEC, 0)]),
         &[(P, Int(4)), (REAP, Int(1)), (DUE, Int(9)), (PAID, Int(9))]);
-    for case in 0..=19 {
+    // Scenarios20/21 are post-reap ESRCH/other-error observations; scenario22
+    // positively observes the same birth/start alive outside the original group.
+    // Scenario12 is a positive live same-incarnation final census hit, not an
+    // unavailable read. Unknown detector reads do not erase actual ownwait4.
+    for case in 0..=22 {
         let raw = if case == 7 { 3 } else { 1 };
         let due = 9 * raw;
         let killed = (case == 5 && control != 5) || (case == 17 && control != 17);
@@ -3962,6 +3974,24 @@ pub fn total_budget(control: u8) -> Model {
                 (REAP, Int(i64::from(case != 11))),
                 (DUE, Int(due)),
                 (PAID, Int(if case == 10 && control == 10 { 0 } else { due })),
+                (
+                    ESCAPE_READ,
+                    Int(match case {
+                        20 => 1,
+                        21 => 2,
+                        22 => 3,
+                        _ => 0,
+                    }),
+                ),
+                (ESCAPE_DIAGNOSTIC, Int(i64::from(case == 21))),
+                (
+                    REFUSE,
+                    if case == 22 || (matches!(case, 20 | 21) && control == 20) {
+                        Int(1)
+                    } else {
+                        Var(REFUSE)
+                    },
+                ),
             ],
         );
     }
@@ -4029,7 +4059,7 @@ pub fn total_budget(control: u8) -> Model {
         (8, "Job3s"),
         (9, "TerminalRss16MiB"),
         (11, "ActualReap"),
-        (12, "FinalKnownCensus"),
+        (12, "PositiveSameIncarnationFinalCensusRefuses"),
         (13, "Gs2AfterReap"),
         (14, "PauseUserZero"),
         (15, "PauseSystem50us"),
@@ -4037,6 +4067,29 @@ pub fn total_budget(control: u8) -> Model {
     ] {
         safe(&mut m, name, eq(TRUST, 0).or(eq(C, case).negate()));
     }
+    safe(
+        &mut m,
+        "PostReapFailedEscapeReadDoesNotRefuse",
+        Var(P).lt(Int(4))
+            .or(eq(ESCAPE_READ, 1).or(eq(ESCAPE_READ, 2)).negate())
+            .or(eq(REFUSE, 0)),
+    );
+    safe(
+        &mut m,
+        "PostReapOtherEscapeReadFailureRecordsDiagnostic",
+        Var(P)
+            .lt(Int(4))
+            .or(eq(ESCAPE_READ, 2).negate())
+            .or(eq(ESCAPE_DIAGNOSTIC, 1)),
+    );
+    safe(
+        &mut m,
+        "PositiveSameIncarnationEscapedLiveProcessRefuses",
+        Var(P)
+            .lt(Int(4))
+            .or(eq(ESCAPE_READ, 3).negate())
+            .or(all([eq(REAP, 1), eq(REFUSE, 1), eq(TRUST, 0)])),
+    );
     safe(&mut m, "DebtBeforeNext", eq(NEXT, 0).or(bill));
     safe(&mut m, "OneStopAckAndOneContinue", Var(CONT).lt(Int(2)));
     safe(&mut m, "NoContinueAfterKill", eq(KILL, 0).or(eq(CONT, 0)));
@@ -4062,12 +4115,40 @@ pub fn total_budget(control: u8) -> Model {
 mod total_budget_tests {
     use super::*;
     #[test]
-    fn helper_shim_budget_and_nineteen_gate_controls() {
+    fn helper_shim_budget_and_twenty_gate_controls() {
         let good = total_budget(0).check(10000).unwrap();
         assert!(good.violations.is_empty(), "{:?}", good.violations);
-        for control in 1..=19 {
+        for case in 20..=22 {
+            let terminal = good
+                .states
+                .iter()
+                .find(|s| s[0] == 5 && s[1] == case)
+                .unwrap();
+            assert_eq!(terminal[5], 1, "escape detector keeps actual ownwait4");
+            assert_eq!(
+                terminal[6],
+                i64::from(case != 22),
+                "only positive detection refuses"
+            );
+            assert_eq!(
+                terminal[19],
+                i64::from(case == 21),
+                "only other errno records unavailable diagnostic"
+            );
+            assert_eq!(
+                terminal[8], terminal[9],
+                "all detector outcomes keep full paid debt"
+            );
+        }
+        for control in 1..=20 {
             let result = total_budget(control).check(10000).unwrap();
             assert!(!result.violations.is_empty(), "control {control} escaped");
+            if control == 20 {
+                assert!(result.violations.iter().any(|v| {
+                    v.property == "PostReapFailedEscapeReadDoesNotRefuse"
+                }));
+                assert!(!result.violations.iter().any(|v| v.property == "TypeOK"));
+            }
         }
     }
 }
@@ -7698,7 +7779,9 @@ mod foreground_stop_terminal_tests {
 // Unix ESRCH is not a Mach-site error. ZOMBIE_ROW/raw0 is a distinct candidate
 // only at live TASKALL opening/closing or prekill BSD after validated lineage.
 // Numeric equality across domains supplies no proof. This model observes
-// failed live-observation predicates only; it never
+// failed PRE-REAP live-observation predicates only, including the legacy
+// non-shim escaped_cleanup_bsd route. Shim/POST-REAP best-effort escape checks
+// are modelled separately by HelperShimBudget, not this terminal-proof path. It never
 // manufactures a successful syscall, census, registered watch, GS1 or ACK.
 pub const DREAM_READ_OBSERVATION_SITES: [&str; 27] = [
     "live_taskall_open",

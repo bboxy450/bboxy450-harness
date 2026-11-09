@@ -2843,13 +2843,25 @@ static int engine_observe_rusage(struct engine_owner *o,unsigned i,enum engine_o
     engine_observation_failure_set(&f,site,error?ENGINE_OBSERVATION_UNIX:ENGINE_OBSERVATION_SEMANTIC,error);
     (void)engine_observation_route(o,i,&f);return 0;
 }
+// Decision66459 A2: escape detection is best effort. This receipt describes
+// an unavailable detector, never a terminal/CPU proof or a fabricated syscall.
+static void engine_escape_check_unavailable(struct engine_owner *o,enum engine_observation_site site,enum engine_observation_domain domain,int error) {
+    if(domain==ENGINE_OBSERVATION_UNIX&&error==ESRCH)return;
+    char line[256];int n=snprintf(line,sizeof(line),"{\"kind\":\"escape_check_unavailable\",\"site\":\"%s\",\"errno\":%d,\"domain\":%u}\n",engine_observation_site_name(site),error,(unsigned)domain);
+    (void)engine_write_record(o,line,n);
+}
+static void engine_bsd_failure(struct engine_owner *o,unsigned i,const struct engine_observation_failure *f) {
+    if(f->site==ENGINE_OBS_ESCAPED_CLEANUP_BSD&&(o->shim_active||o->direct_reaped))
+        engine_escape_check_unavailable(o,f->site,f->domain,f->code);
+    else (void)engine_observation_route(o,i,f);
+}
 static int engine_observe_bsd(struct engine_owner *o,unsigned i,enum engine_observation_site site,pid_t pid,struct proc_bsdinfo *b) {
     struct engine_observation_failure f;int result;
-    if(engine_observation_fault(o,i,site,pid,&f)){(void)engine_observation_route(o,i,&f);return 0;}
+    if(engine_observation_fault(o,i,site,pid,&f)){engine_bsd_failure(o,i,&f);return 0;}
     errno=0;result=proc_pidinfo(pid,PROC_PIDTBSDINFO,0,b,sizeof(*b));int error=result!=(int)sizeof(*b)?errno:0;
     if(result==(int)sizeof(*b))return 1;
     engine_observation_failure_set(&f,site,error?ENGINE_OBSERVATION_UNIX:ENGINE_OBSERVATION_SEMANTIC,error);
-    (void)engine_observation_route(o,i,&f);return 0;
+    engine_bsd_failure(o,i,&f);return 0;
 }
 struct engine_observed_signal {int result,error;uint64_t returned_ns;enum engine_observe_outcome outcome;};
 static struct engine_observed_signal engine_observe_token_signal(struct engine_owner *o,unsigned i,enum engine_observation_site site,const audit_token_t *token,int signal) {
@@ -2909,7 +2921,10 @@ static int engine_list_group(struct engine_owner *o,void *buffer,int size) {
     if(engine_observation_fault(o,0,ENGINE_OBS_GROUP_CENSUS,o->ticket.pid,&f)){count=0;error=f.code;}
     else {count=native_group_count(o->ticket.pgid,buffer,size,&error);engine_observation_failure_set(&f,ENGINE_OBS_GROUP_CENSUS,error?ENGINE_OBSERVATION_UNIX:ENGINE_OBSERVATION_SEMANTIC,error);}
     o->group_list_count=count;o->group_list_errno=error;o->group_list_known=native_pid_list_known(count,error);
-    if(!o->group_list_known){o->group_list_failed=1;(void)engine_observation_route(o,0,&f);}return count;
+    if(!o->group_list_known){o->group_list_failed=1;
+        if(o->direct_reaped&&o->shim_active)engine_escape_check_unavailable(o,f.site,f.domain,f.code);
+        else (void)engine_observation_route(o,0,&f);
+    }return count;
 }
 // EVFILT_PROC never supplies a child PID (Darwin sys/event.h NOTE_FORK).
 // Only the existing native census admits a member; NOTE_TRACK is unsupported.
@@ -4667,6 +4682,7 @@ static void engine_cleanup_escaped(struct engine_owner *o) {
         unsigned member=m->pid==o->ticket.pid?0:1;
         struct proc_bsdinfo b;int n=engine_observe_bsd(o,member,ENGINE_OBS_ESCAPED_CLEANUP_BSD,m->pid,&b)?(int)sizeof(b):0;
         uint64_t birth=n==(int)sizeof(b)?(uint64_t)b.pbi_start_tvsec*1000000+b.pbi_start_tvusec:0;
+        if(o->shim_active&&n==(int)sizeof(b)&&b.pbi_status==SZOMB)continue;
         if(!engine_token_cleanup_required(m->current,n==(int)sizeof(b)&&birth==m->birth,n==(int)sizeof(b)&&b.pbi_pgid!=(uint32_t)o->ticket.pgid))continue;
         (void)engine_child_unproven(o,"escaped retained member CPU is not included in leader wait4");m->cleanup_checked=1;o->escaped_cleanup_checks++;
         audit_token_t current;int exact=engine_observe_token(o,member,m->pid,m->birth,&current)&&!memcmp(&current,&m->token,sizeof(current));
@@ -4674,8 +4690,29 @@ static void engine_cleanup_escaped(struct engine_owner *o) {
         if(m->cleanup_errno){o->escaped_kill_failures++;o->escaped_kill_errno=m->cleanup_errno;}
     }
 }
+static int engine_postreap_escape_check(struct engine_owner *o,pid_t pid,uint64_t birth) {
+    if(!pid||!birth)return 1; // No numeric-PID inference about an unknown incarnation.
+    struct proc_bsdinfo b;
+    if(!engine_observe_bsd(o,pid==o->ticket.pid?0:1,ENGINE_OBS_ESCAPED_CLEANUP_BSD,pid,&b))return 1;
+    uint64_t observed=(uint64_t)b.pbi_start_tvsec*1000000+b.pbi_start_tvusec;
+    if(observed!=birth||b.pbi_status==SZOMB)return 1;
+    // After ownwait4 no signal is permitted. Retain a positive live hit as a
+    // refusal, independently of its current group; silence proves no theorem.
+    return engine_failure(o,"coverage_unknown","observed same-incarnation helper alive after reap");
+}
 static int engine_original_group_gone(struct engine_owner *owner) {
-    if(owner->shim_active){int pids[3]={0};int n=engine_list_group(owner,pids,sizeof(pids));return owner->direct_reaped&&native_pid_list_empty(n,owner->group_list_errno);}
+    if(owner->shim_active){
+        if(!owner->direct_reaped)return 0;
+        int pids[3]={0};int n=engine_list_group(owner,pids,sizeof(pids));
+        // Inventory: the final group census and retained-incarnation BSD reads
+        // are the post-ownwait4 detectors. Missing reads are diagnostics only.
+        for(unsigned i=0;i<owner->retired_count;i++)if(owner->retired[i].current
+            &&!engine_postreap_escape_check(owner,owner->retired[i].pid,owner->retired[i].birth))return 0;
+        if(owner->group_list_known)for(int i=0;i<n&&i<3;i++)for(unsigned j=0;j<2;j++)
+            if(pids[i]==owner->members[j].state.pid
+                &&!engine_postreap_escape_check(owner,pids[i],owner->members[j].state.birth))return 0;
+        return 1;
+    }
     if(owner->coverage_lost)return 0;
     // A discovered child lacking a retained identity never becomes absent
     // merely because a later group census is empty.
