@@ -109,6 +109,11 @@ impl Profile {
         let mut p: Self = serde_yaml::from_str(yaml)
             .map_err(|_| ProviderError::new(ErrorClass::Config, "invalid profile frontmatter"))?;
         if p.is_acp_agent() {
+            // Existing discovery profiles predate the explicit yolo field. ACP
+            // seats use full access by default, including those saved profiles.
+            if p.policy.is_none() {
+                p.policy = Some("yolo".into());
+            }
             // the agent brings its own model and transport; it needs a command instead
             if p.agent.as_ref().is_none_or(|a| a.command.is_empty()) {
                 return Err(ProviderError::new(

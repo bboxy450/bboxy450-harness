@@ -12,7 +12,7 @@ links:
   - { to: "[[acp-protocol-and-adapters]]", rel: builds-on }
   - { to: "[[d5972-our-log-format-is-the-center]]", rel: constrained-by }
 created: 2026-11-02T22:00:00Z
-updated: 2026-11-03T14:00:00Z
+updated: "2026-11-09T20:50:08.108435+00:00"
 ---
 # ICD: ACP agent backend
 
@@ -35,6 +35,19 @@ updated: 2026-11-03T14:00:00Z
 - **Auth.** The harness never calls `authenticate` and advertises no `auth.terminal`. An error with code `-32000` or text containing "auth" ends the turn `Error{class: Auth}` with the hint "authenticate the agent in a terminal (API key, console login, Bedrock or Vertex)". **Never** offered, selected or triggered: `claude-ai-login` (Anthropic terms, research correction 10). Claude agents run on `ANTHROPIC_API_KEY`, console login, Bedrock or Vertex only.
 - **Model.** The profile `model:` is matched against the `session/new` result's config option with `category == "model"` (or `id == "model"`): exact value, else a value ending `/<model>`, else an offered alias equal to a whole `-`, `/` or `.` separated token of the requested model (`claude-haiku-5-5` matches `haiku`; `pick_model`). Match ≠ current → `session/set_config_option {configId: "model"}` before the first prompt; refused → Warn notice, the turn runs on the agent's model. Not offered → Warn notice naming the agent's current model. There is no `session/set_model` (stable has none).
 - **Lazy start.** The agent is spawned by the first `UserTurn`, not by `StartSession`. Spawn failure ends that turn `Error{class: Config}`; the next turn tries again.
+
+- **Full-access default (operator, 2026-11-09).** All ACP profiles, including
+  previously saved profiles without a policy field, default to `policy: yolo`.
+  Explicit `policy: ask` remains an opt-in; launch `--yolo` overrides it.
+  Codex ACP starts with `INITIAL_AGENT_MODE=agent-full-access`; Claude receives
+  `allowDangerouslySkipPermissions: true` in its session options and confirms
+  `bypassPermissions` before prompting. Gemini and OMP receive `--yolo`; OMP uses
+  its native `omp --mode acp` server, while Pi keeps `pi-acp` and its unrestricted
+  RPC tools. Grok uses `--always-approve` with `GROK_SANDBOX=off`, OpenCode uses
+  `OPENCODE_PERMISSION={"*":"allow"}`, and Goose uses `GOOSE_MODE=auto`.
+  Only an actually advertised full-access permission mode/config option is
+  selected, with its acknowledgement preceding the prompt. Pi thinking modes
+  and model identifiers are not permission modes. Refusal ends the turn visibly.
 
 ## 2. Op → wire
 
@@ -61,7 +74,11 @@ The harness sends no `session/load` or `session/resume`: a reopened or forked se
 | `session/request_permission` after cancel | `{"outcome":"cancelled"}` at once |
 | anything else (`fs/*`, `terminal/*`, `elicitation/*`, unknown) | JSON-RPC error `-32601` "… is not supported by this client" |
 
-Option choice: Allow → `allow_once`; AllowAlways → `allow_always` (only from a face, never automatically); Deny → `reject_once`, else `reject_always`. No matching option → `cancelled`, recorded as Deny "cancelled". `*_always` is never picked by a rule or by unattended policy.
+Option choice: Allow → `allow_once`; under yolo only, fall back to `allow_always`
+when no `allow_once` is offered. AllowAlways → `allow_always`; Deny →
+`reject_once`, else `reject_always`. No matching option → `cancelled`, recorded
+as Deny "cancelled". Explicit ask/unattended behavior is unchanged. Cancellation
+always answers `cancelled`, even under yolo.
 
 Client capabilities sent: `fs.readTextFile = fs.writeTextFile = false`, `terminal = false`; `clientInfo {name: "bboxy450-harness", version}`. The agent uses its own tools.
 

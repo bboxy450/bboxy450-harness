@@ -17,7 +17,7 @@
 //! - after `session/cancel`, every pending permission is answered `cancelled` and updates
 //!   are still accepted until the prompt returns (`stopReason: cancelled`);
 //! - one `TurnEnded` per prompt; no item stays open at a turn's end;
-//! - `*_always` options are never chosen automatically; unattended deny is `reject_once`;
+//! - yolo prefers `allow_once`, falling back to `allow_always`; ask/unattended stay explicit;
 //! - the harness never offers, selects or triggers an agent's claude.ai login method.
 use crate::{
     engine::{Config, Internal, LaunchOptions, task_group::TaskGroup},
@@ -28,6 +28,7 @@ use crate::{
     store::Store,
 };
 use serde_json::{Value, json};
+use super::acp_permissions;
 use std::{
     collections::{BTreeMap, HashMap, HashSet, VecDeque},
     ffi::{OsStr, OsString},
@@ -286,7 +287,7 @@ impl AcpAgentActor {
     ) -> std::io::Result<(InProc, tokio::task::JoinHandle<std::io::Result<()>>)> {
         let spec = profile.agent.clone().unwrap_or_default();
         let yolo = launch.yolo || profile.policy.as_deref() == Some("yolo");
-        if launch.yolo {
+        if yolo {
             config.policy = crate::policy::Policy::allow_all(profile.on_unattended);
         }
         let model = Some(profile.model.clone()).filter(|m| !m.is_empty());
@@ -1387,7 +1388,16 @@ impl AcpAgentActor {
             self.config.redactor.register(&value);
             env.push((name.clone(), value));
         }
-        let mut argv = self.spec.command.iter();
+        // Launch controls are public configuration, not secret profile env.
+        // Apply them after resolving/redacting the caller's actual env values.
+        let mut spec = AgentSpec {
+            command: self.spec.command.clone(),
+            env: BTreeMap::new(),
+        };
+        if self.yolo {
+            acp_permissions::prepare(&mut spec);
+        }
+        let mut argv = spec.command.iter();
         let program = argv
             .next()
             .ok_or_else(|| std::io::Error::other("agent.command is empty"))?;
@@ -1404,6 +1414,7 @@ impl AcpAgentActor {
         command
             .args(argv)
             .envs(env)
+            .envs(spec.env)
             .current_dir(&self.config.meta.cwd)
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
@@ -1720,6 +1731,9 @@ impl AcpAgentActor {
                     .pointer("/agentCapabilities/sessionCapabilities/systemPrompt")
                     .is_some_and(Value::is_object);
                 let mut params = json!({ "cwd": cwd, "mcpServers": self.mcp_servers });
+                if self.yolo {
+                    acp_permissions::session_options(&mut params, &agent.backend.name);
+                }
                 let fallback = !self.launch_context.is_empty() && !agent.system_prompt;
                 if agent.system_prompt && !self.launch_context.is_empty() {
                     params["systemPrompt"] = json!({"mode": "append", "content": [
@@ -1733,7 +1747,7 @@ impl AcpAgentActor {
                 Ok(())
             }
             Call::NewSession => {
-                if self.yolo && let Some(mode) = unrestricted_mode(&result) {
+                if self.yolo && let Some((config_id, mode)) = acp_permissions::selection(&result) {
                     let Some(session) = result.get("sessionId").and_then(Value::as_str).map(str::to_owned) else {
                         return self.agent_gone("ACP agent returned no sessionId".into()).await;
                     };
@@ -1743,15 +1757,18 @@ impl AcpAgentActor {
                     }
                     if let Some(options) = result.get_mut("configOptions").and_then(Value::as_array_mut) {
                         for option in options {
-                            if option.get("options").and_then(Value::as_array).is_some_and(|values| values.iter().any(|v| v.get("value").and_then(Value::as_str) == Some(&mode))) {
+                            if config_id.as_deref().is_some_and(|id| option.get("id").and_then(Value::as_str) == Some(id)) {
                                 option["currentValue"] = json!(mode);
                             }
                         }
                     }
                     let agent = self.agent.as_mut().expect("agent");
                     agent.session = Some(session.clone());
-                    return call(agent, Call::SetPermissions { session_result: result },
-                        "session/set_mode", json!({"sessionId":session,"modeId":mode}));
+                    let (method, params) = match config_id {
+                        Some(id) => ("session/set_config_option", json!({"sessionId":session,"configId":id,"value":mode})),
+                        None => ("session/set_mode", json!({"sessionId":session,"modeId":mode})),
+                    };
+                    return call(agent, Call::SetPermissions { session_result: result }, method, params);
                 }
                 self.session_ready(result).await
             }
@@ -1938,7 +1955,7 @@ impl AcpAgentActor {
             None,
         )
         .await?;
-        // no face can answer: decide by the profile, never with an *_always option
+        // Full-access profiles do not wait for a face to approve a tool.
         if self.yolo {
             return self
                 .settle_permission(
@@ -2008,6 +2025,7 @@ impl AcpAgentActor {
             return Ok(());
         };
         let wanted: &[&str] = match &decision {
+            Some(ApprovalDecision::Allow) if self.yolo => &["allow_once", "allow_always"],
             Some(ApprovalDecision::Allow) => &["allow_once"],
             Some(ApprovalDecision::AllowAlways) => &["allow_always"],
             Some(ApprovalDecision::Deny { .. }) => &["reject_once", "reject_always"],
@@ -2017,12 +2035,14 @@ impl AcpAgentActor {
             p.options
                 .iter()
                 .find(|(kind, _)| kind == k)
-                .map(|(_, id)| id.clone())
+                .cloned()
         });
         if let Some(agent) = self.agent.as_mut() {
-            let _ = reply(agent, permission_reply(&p.rpc, option.as_deref()));
+            let _ = reply(agent, permission_reply(&p.rpc, option.as_ref().map(|(_, id)| id.as_str())));
         }
-        let decision = if option.is_some() {
+        let decision = if option.as_ref().is_some_and(|(kind, _)| kind == "allow_always") {
+            Some(ApprovalDecision::AllowAlways)
+        } else if option.is_some() {
             decision
         } else {
             Some(ApprovalDecision::Deny {
@@ -2745,12 +2765,6 @@ fn call_name(c: &Call) -> &'static str {
         Call::Steer { .. } => "steering",
         Call::Configure { .. } => "session configuration",
     }
-}
-/// Standard ACP mode negotiation, using only identifiers actually advertised by the agent.
-fn unrestricted_mode(result: &Value) -> Option<String> {
-    let modes = result.pointer("/modes/availableModes")?.as_array()?;
-    ["agent-full-access", "bypassPermissions", "yolo", "full-access", "fullAccess", "danger-full-access", "auto-approve"]
-        .iter().find_map(|wanted| modes.iter().any(|mode| mode.get("id").and_then(Value::as_str) == Some(*wanted)).then(|| (*wanted).to_owned()))
 }
 pub fn tool_kind(k: &str) -> ToolKind {
     match k {

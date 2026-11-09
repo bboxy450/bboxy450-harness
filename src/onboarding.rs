@@ -76,7 +76,9 @@ impl Agent {
             // Official ACP registry: https://github.com/agentclientprotocol/registry/blob/main/goose/agent.json
             // Command documented at https://block.github.io/goose/docs/gdk/acp/
             Self::Goose => ("goose", &["acp"]),
-            Self::Omp => return None,
+            // OMP ships its own ACP server; pi-acp's --no-themes RPC argv is
+            // specific to Pi and is not accepted by OMP.
+            Self::Omp => ("omp", &["--mode", "acp"]),
         })
     }
     pub fn instructions(self) -> &'static str {

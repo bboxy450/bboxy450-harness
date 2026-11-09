@@ -43,6 +43,11 @@ Native text-entry dispatch witnesses and their broken controls follow this polic
 
 ## Lineage and credits
 
+- ACP full-access defaults, per-adapter launch settings and confirmation before
+  prompting in `src/backend/acp_permissions.rs` and their private process
+  witnesses are project-owned under the policy above. Adapter command/API facts
+  follow each provider's published interface; no provider implementation is copied.
+
 - Centered setup, loader/welcome routing, independent view scrolls and Goose ACP
   discovery are project-owned contributions; existing toolkit and portrait assets
   retain their origin. Goose command facts come from the official ACP registry

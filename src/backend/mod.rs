@@ -9,3 +9,5 @@
 //! same Gateway, so every face renders it unchanged.
 #[cfg(feature = "acp-agent")]
 pub mod acp_agent;
+#[cfg(feature = "acp-agent")]
+mod acp_permissions;

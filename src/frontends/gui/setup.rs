@@ -229,7 +229,7 @@ pub fn element(
             );
             let detail = match entry.agent {
                 Agent::Omp => {
-                    "OMP requires ACP client filesystem and terminal tools unavailable here. Configure a compatible custom profile with the official instructions."
+                    "Native OMP ACP support. Authentication and model selection stay with OMP."
                 }
                 Agent::Pi => {
                     "Community pi-acp bridge; requires Pi CLI. MCP servers are not forwarded; configure Pi separately."

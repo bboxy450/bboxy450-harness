@@ -77,12 +77,14 @@ def wake():
         chunk("agent_message_chunk", "woke again")
     if SCENARIO == "wake-rearm":
         for used in [10, 20, 30]:
-            time.sleep(0.15)
+            # Leave scheduler headroom below the private 200 ms quiet timer.
+            # The witness checks the deadline relative to the final gauge.
+            time.sleep(0.01)
             update({"sessionUpdate": "usage_update", "used": used, "size": 200000})
 
 
 def prompt(rid, text):
-    if SCENARIO.startswith("unrestricted-"):
+    if SCENARIO.startswith("unrestricted-") and not SCENARIO.startswith("unrestricted-tool"):
         assert Path("selected-mode").exists(), "prompt arrived before unrestricted mode was confirmed"
         chunk("agent_message_chunk", "unrestricted prompt received")
         return "end_turn"
@@ -139,24 +141,28 @@ def prompt(rid, text):
         update({"sessionUpdate": "plan", "entries": [{"content": "say hello", "priority": "high", "status": "completed"}]})
         update({"sessionUpdate": "available_commands_update", "availableCommands": []})
         return "end_turn"
-    if SCENARIO == "tool":
+    if SCENARIO in ("tool", "unrestricted-tool", "unrestricted-tool-always"):
         # an unsupported client method must be answered with -32601, never left hanging
         r = request("fs/read_text_file", {"sessionId": SESSION, "path": "/etc/hosts"})
         code = (r.get("error") or {}).get("code")
         chunk("agent_message_chunk", "fs answered %s. " % code)
         update({"sessionUpdate": "tool_call", "toolCallId": "call-1", "title": "Run ls", "kind": "execute",
                 "status": "pending", "rawInput": {"command": "ls"}})
+        options = [
+            {"optionId": "yes", "name": "Allow", "kind": "allow_once"},
+            {"optionId": "always", "name": "Always", "kind": "allow_always"},
+            {"optionId": "no", "name": "Reject", "kind": "reject_once"},
+        ]
+        if SCENARIO == "unrestricted-tool-always":
+            options = options[1:]
         r = request("session/request_permission", {
             "sessionId": SESSION,
             "toolCall": {"toolCallId": "call-1", "title": "Run ls", "kind": "execute", "rawInput": {"command": "ls"}},
-            "options": [
-                {"optionId": "yes", "name": "Allow", "kind": "allow_once"},
-                {"optionId": "always", "name": "Always", "kind": "allow_always"},
-                {"optionId": "no", "name": "Reject", "kind": "reject_once"},
-            ],
+            "options": options,
         })
         outcome = r["result"]["outcome"]
-        if outcome.get("outcome") == "selected" and outcome.get("optionId") == "yes":
+        wanted = "always" if SCENARIO == "unrestricted-tool-always" else "yes"
+        if outcome.get("outcome") == "selected" and outcome.get("optionId") == wanted:
             update({"sessionUpdate": "tool_call_update", "toolCallId": "call-1", "status": "completed",
                     "content": [{"type": "content", "content": {"type": "text", "text": "note.txt"}}]})
             chunk("agent_message_chunk", "Ran it.")
@@ -217,21 +223,33 @@ while True:
     method, rid = m.get("method"), m.get("id")
     if method == "initialize":
         send({"jsonrpc": "2.0", "id": rid, "result": {"protocolVersion": 1, "agentCapabilities": {}, "authMethods": [],
-              "agentInfo": {"name": "claude" if SCENARIO == "steering-claude" else "codex" if SCENARIO.startswith("steering-") else "fixture-agent", "version": "1.2.3"},
+              "agentInfo": {"name": "claude" if SCENARIO in ("steering-claude", "unrestricted-claude") else "codex" if SCENARIO.startswith("steering-") else "fixture-agent", "version": "1.2.3"},
               "_meta": {"steering": {"supported": SCENARIO.startswith("steering-")}}}})
     elif method == "session/new":
         result = {"sessionId": SESSION}
-        if SCENARIO.startswith("unrestricted-"):
-            mode = "agent-full-access" if SCENARIO.endswith("codex") else "bypassPermissions"
+        if SCENARIO == "unrestricted-claude":
+            assert m["params"]["_meta"]["claudeCode"]["options"]["allowDangerouslySkipPermissions"] is True
+        if SCENARIO == "unrestricted-pi":
+            Path("selected-mode").write_text("no native gate")
+            result["modes"] = {"currentModeId":"high", "availableModes":[{"id":"high", "name":"Thinking: high"}]}
+        elif SCENARIO == "unrestricted-config":
+            result["configOptions"] = [{"id":"permissions", "category":"mode", "type":"select", "currentValue":"default", "options":[{"name":"Modes", "options":[{"value":"bypassPermissions", "name":"Full access"}]}]}]
+        elif SCENARIO.startswith("unrestricted-") and not SCENARIO.startswith("unrestricted-tool"):
+            mode = "agent-full-access" if SCENARIO.endswith("codex") else "yolo" if SCENARIO.endswith("omp") else "bypassPermissions"
             result["modes"] = {"currentModeId":"default", "availableModes":[{"id":"default", "name":"Default"}, {"id":mode, "name":"Full access"}]}
         if SCENARIO == "usage":
             result["configOptions"] = [{"id": "model", "category": "model", "currentValue": "reported-model", "options": []}]
         send({"jsonrpc": "2.0", "id": rid, "result": result})
     elif method == "session/set_mode":
         assert SCENARIO.startswith("unrestricted-")
-        wanted = "agent-full-access" if SCENARIO.endswith("codex") else "bypassPermissions"
+        wanted = "agent-full-access" if SCENARIO.endswith("codex") else "yolo" if SCENARIO.endswith("omp") else "bypassPermissions"
         assert m["params"]["modeId"] == wanted
         Path("selected-mode").write_text(wanted)
+        send({"jsonrpc":"2.0", "id":rid, "result":{}})
+    elif method == "session/set_config_option" and SCENARIO == "unrestricted-config":
+        assert m["params"]["configId"] == "permissions"
+        assert m["params"]["value"] == "bypassPermissions"
+        Path("selected-mode").write_text("bypassPermissions")
         send({"jsonrpc":"2.0", "id":rid, "result":{}})
     elif method == "session/prompt":
         text = " ".join(b.get("text", "") for b in m["params"]["prompt"])

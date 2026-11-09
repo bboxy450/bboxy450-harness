@@ -49,7 +49,8 @@ async fn fake_command(
     std::fs::write(
         profiles.join("fake.md"),
         format!(
-            "---\nname: fake\nprovider: acp-agent\nagent:\n  command: {command}\non_unattended: {}\n---\n",
+            "---\nname: fake\nprovider: acp-agent\n{}agent:\n  command: {command}\non_unattended: {}\n---\n",
+            if scenario.starts_with("unrestricted-") { "" } else { "policy: ask\n" },
             if matches!(unattended, Unattended::Allow) { "allow" } else { "deny" }
         ),
     )
@@ -60,11 +61,11 @@ async fn fake_command(
     )
     .unwrap();
     // The wake witnesses exercise profile yolo independently of unattended deny.
-    if matches!(scenario, "wake" | "wake-twice" | "unrestricted-codex" | "unrestricted-claude") {
+    if matches!(scenario, "wake" | "wake-twice") {
         let path = profiles.join("fake.md");
         let profile = std::fs::read_to_string(&path)
             .unwrap()
-            .replace("provider: acp-agent", "provider: acp-agent\npolicy: yolo");
+            .replace("policy: ask", "policy: yolo");
         std::fs::write(path, profile).unwrap();
     }
     let session = SessionId::new();
@@ -401,8 +402,14 @@ async fn a_text_turn_maps_thought_message_and_plan_and_ends_once() {
     ));
     assert!(items.iter().any(|(_, b)| matches!(b, Item::AgentMessage { markdown } if markdown == "Hello from the fake agent.")));
     assert!(items.iter().any(|(_, b)| matches!(b, Item::Plan { entries } if entries.len() == 1 && entries[0].text == "say hello")));
-    // metadata updates are kept by the agent, not shown as notices
-    assert!(!items.iter().any(|(_, b)| matches!(b, Item::Notice { .. })));
+    // Metadata updates are kept by the agent, not shown as notices. The
+    // built-in Python MCP service reports its own normal startup separately.
+    assert!(!items.iter().any(|(_, body)| match body {
+        Item::Notice { level: Level::Info, text }
+            if matches!(text.as_str(), "mcp bboxy_python: starting" | "mcp bboxy_python: ready") => false,
+        Item::Notice { .. } => true,
+        _ => false,
+    }), "unexpected notices: {items:?}");
     assert_eq!(ended(&log), vec![StopReason::EndTurn]);
     assert!(log.iter().any(|e| matches!(&e.event, Event::ProfileChanged { model, .. } if model.starts_with("acp:python3"))));
 }
@@ -1179,13 +1186,15 @@ async fn session_gauges_rearm_the_quiet_deadline_of_an_open_agent_turn() {
             .count(),
         3
     );
-    let first = events
+    let last_gauge = events
         .iter()
-        .find(|e| matches!(e.event, Event::TurnStarted { .. }))
+        .filter(|e| matches!(e.event, Event::ItemCompleted { body: Item::Usage { .. }, .. }))
+        .last()
         .unwrap()
         .ts_ms;
     let end = events.last().unwrap();
-    assert!(end.ts_ms.saturating_sub(first) >= 650);
+    assert!(end.ts_ms.saturating_sub(last_gauge) >= 200,
+        "quiet deadline was not rearmed by the final gauge");
     assert!(
         matches!(end.event, Event::TurnEnded { reason: StopReason::Quiet { ms }, .. } if ms >= 200)
     );
@@ -1264,13 +1273,34 @@ async fn oversized_json_result_spills_before_publication_and_keeps_actor_alive()
 
 #[tokio::test]
 async fn unrestricted_acp_modes_are_confirmed_before_codex_and_claude_prompts() {
-    for scenario in ["unrestricted-codex", "unrestricted-claude"] {
+    for scenario in ["unrestricted-codex", "unrestricted-claude", "unrestricted-config", "unrestricted-pi", "unrestricted-omp"] {
         let f = fake(scenario, Unattended::Deny).await;
         let mut sub = subscribe(&f.gateway, false);
         f.gateway.send(support::prompt(&f.gateway, "run")).unwrap();
         until_end(&mut sub).await;
         let mode = std::fs::read_to_string(f.temp.path().join("selected-mode")).unwrap();
-        assert_eq!(mode, if scenario.ends_with("codex") {"agent-full-access"} else {"bypassPermissions"});
+        assert_eq!(mode, match scenario {
+            "unrestricted-codex" => "agent-full-access",
+            "unrestricted-pi" => "no native gate",
+            "unrestricted-omp" => "yolo",
+            _ => "bypassPermissions",
+        });
         close(f).await;
+    }
+}
+
+#[tokio::test]
+async fn unrestricted_legacy_profiles_auto_approve_without_a_face() {
+    for scenario in ["unrestricted-tool", "unrestricted-tool-always"] {
+        let f = fake(scenario, Unattended::Deny).await;
+        let mut sub = subscribe(&f.gateway, false);
+        f.gateway.send(support::prompt(&f.gateway, "run ls")).unwrap();
+        until_end(&mut sub).await;
+        let log = close(f).await;
+        let wanted = if scenario.ends_with("always") { ApprovalDecision::AllowAlways } else { ApprovalDecision::Allow };
+        assert!(completed(&log).iter().any(|(_, body)| matches!(body,
+            Item::Approval { decision: Some(decision), by: Some(Resolver::Rule { id }), .. } if *decision == wanted && id == "profile-yolo")));
+        assert!(completed(&log).iter().any(|(status, body)| matches!(status, ItemStatus::Completed) && matches!(body,
+            Item::ToolCall { output, .. } if matches!(&output[..], [OutputBlock::Text { text }] if text == "note.txt"))));
     }
 }

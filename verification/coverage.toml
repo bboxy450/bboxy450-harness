@@ -86,6 +86,7 @@ sources = [
     "src/frontends/gui/zoom.rs",
     "src/backend/mod.rs",
     "src/backend/acp_agent.rs",
+    "src/backend/acp_permissions.rs",
     "src/import/mod.rs",
     "src/import/spill.rs",
     "src/import/edge.rs",
