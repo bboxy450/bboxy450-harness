@@ -2084,7 +2084,9 @@ pub fn notice(text_value: &str, level: &Level, ink: &Ink) -> c::Element {
 /// MCP startup as one quiet row: `mcp  ● bboxy  ● bboxy_python ↻2`. A green
 /// dot is ready, a dim one still starting; a restart count shows past one start.
 pub fn mcp_strip(servers: &[(String, String, usize)], ink: &Ink) -> c::Element {
-    let mut items = vec![fixed(c::Element::Text(text("mcp", 11., 500, ink.dim, true)))];
+    let mut items = vec![fixed(c::Element::Text(text(
+        "mcp", 11., 500, ink.dim, true,
+    )))];
     for (server, state, starts) in servers {
         let color = if state == "ready" { ink.ok } else { ink.dim };
         let mut chip = vec![
@@ -2095,7 +2097,13 @@ pub fn mcp_strip(servers: &[(String, String, usize)], ink: &Ink) -> c::Element {
                 },
                 vec![hstack(vec![fixed(dot(6., color))], 0.).into()],
             )),
-            fixed(c::Element::Text(text(server.as_str(), 11.5, 400, ink.dim, false))),
+            fixed(c::Element::Text(text(
+                server.as_str(),
+                11.5,
+                400,
+                ink.dim,
+                false,
+            ))),
         ];
         if *starts > 1 {
             chip.push(fixed(c::Element::Text(text(
@@ -2845,18 +2853,67 @@ fn breathing_halo(anim: &mut Clock) -> (f32, f32) {
         (0.5, 1.)
     }
 }
-/// The welcome portrait and one status label, with no welcome actions or copy.
-pub fn loading_session(_preparing: bool, ink: &Ink, anim: &mut Clock) -> c::Element {
+/// One line of the session loader: what it is, a short detail and how far along.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Step {
+    Done,
+    Active,
+    Waiting,
+    Failed,
+}
+/// The welcome portrait over what loading is doing: one row per step, done in
+/// green, the step it waits on breathing, the rest dim; a failure in red.
+pub fn loading_session(steps: &[(&str, String, Step)], ink: &Ink, anim: &mut Clock) -> c::Element {
     let (halo_a, halo_s) = breathing_halo(anim);
+    let mut rows = vec![];
+    for (i, (label, detail, step)) in steps.iter().enumerate() {
+        let (mark, label_color) = match step {
+            Step::Done => (dot(6., ink.ok), ink.fg),
+            Step::Active => (dot(6., alpha(ink.seat, 0.35 + 0.65 * halo_a)), ink.fg),
+            Step::Waiting => (dot(6., alpha(ink.dim, 0.35)), ink.dim),
+            Step::Failed => (dot(6., ink.bad), ink.bad),
+        };
+        let detail_color = if *step == Step::Failed {
+            ink.bad
+        } else {
+            ink.dim
+        };
+        rows.push(fixed(named(
+            format!("session-loader/step/{i}"),
+            frame(
+                Frame {
+                    gap: 8.,
+                    row: true,
+                    ..Default::default()
+                },
+                vec![
+                    fixed(frame(
+                        Frame {
+                            padding: [2.5, 0., 0., 0.],
+                            ..Default::default()
+                        },
+                        vec![fixed(mark)],
+                    )),
+                    // a fixed label column lines the details up
+                    c::Item {
+                        element: line(*label, 12.5, 600, label_color, false),
+                        extent: c::Extent::Fixed(62.),
+                    },
+                    fixed(line(detail.clone(), 12., 400, detail_color, false)),
+                ],
+            ),
+        )));
+    }
+    let mut list = vstack(rows, 6.);
+    if let c::Element::Box(b) = &mut list {
+        b.align = c::Alignment::Start;
+    }
     let mut group = vstack(
         vec![
             fixed(identity_mark(ink, halo_a, halo_s, "session-loader")),
-            fixed(named(
-                "session-loader/label",
-                line("Loading…", 13.5, 400, ink.dim, false),
-            )),
+            fixed(named("session-loader/steps", list)),
         ],
-        14.,
+        18.,
     );
     if let c::Element::Box(b) = &mut group {
         b.align = c::Alignment::Center;

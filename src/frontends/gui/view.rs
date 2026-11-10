@@ -835,7 +835,12 @@ impl HarnessView {
                 super::face::zoom_text(&mut empty, self.zoom.scale());
                 children.push(empty.into());
             } else {
-                let mut message = super::face::loading_session(state.ready, ink, &mut self.anim);
+                let steps = loading_steps(state, has_rows);
+                let steps: Vec<_> = steps
+                    .iter()
+                    .map(|(l, d, s)| (*l, d.clone(), s.clone()))
+                    .collect();
+                let mut message = super::face::loading_session(&steps, ink, &mut self.anim);
                 super::face::zoom_text(&mut message, self.zoom.scale());
                 let centered = super::face::frame(
                     super::face::Frame {
@@ -2989,6 +2994,118 @@ fn approval(kind: ApprovalDecisionKind) -> (&'static str, ApprovalDecision) {
         ApprovalDecisionKind::AllowAlways => ("Always", ApprovalDecision::AllowAlways),
         _ => ("Deny", ApprovalDecision::Deny { reason: None }),
     }
+}
+/// What the session loader shows: connection, session, history, agent, MCP
+/// servers and layout, each done, under way or still to come. The first step not
+/// done is the one being waited on.
+fn loading_steps(
+    state: &FrameState,
+    has_rows: bool,
+) -> Vec<(&'static str, String, super::face::Step)> {
+    use super::face::Step;
+    let model = &state.transcript;
+    let mut done = vec![
+        (
+            "Connect",
+            state.gateway.is_some() || model.meta.is_some(),
+            if state.gateway.is_some() || model.meta.is_some() {
+                "connected".into()
+            } else {
+                "reaching the harness".into()
+            },
+        ),
+        (
+            "Session",
+            model.meta.is_some(),
+            model
+                .meta
+                .as_ref()
+                .and_then(|m| m.cwd.file_name())
+                .map(|n| format!("~/{}", n.to_string_lossy()))
+                .unwrap_or_else(|| "opening".into()),
+        ),
+        (
+            "History",
+            state.ready,
+            match (state.ready, model.cursor.0) {
+                (true, 0) => "new session".into(),
+                (true, 1) => "1 event".into(),
+                (true, n) => format!("{n} events"),
+                (false, 0) => "waiting for the log".into(),
+                (false, n) => format!("replaying · {n} events"),
+            },
+        ),
+        (
+            "Agent",
+            model.profile.is_some(),
+            match &model.profile {
+                Some((profile, model_name)) if !model_name.is_empty() => {
+                    format!("{profile} · {model_name}")
+                }
+                Some((profile, _)) => profile.clone(),
+                None => "starting".into(),
+            },
+        ),
+    ];
+    // MCP servers announce starting/ready as notices; the latest state wins.
+    let mut servers: Vec<(String, String)> = vec![];
+    for id in &model.order {
+        if let Some(Item::Notice { text, .. }) = model.items.get(id).map(|r| &r.body)
+            && let Some((server, st)) = face_rows::mcp_lifecycle(text)
+        {
+            match servers.iter_mut().find(|(s, _)| s == server) {
+                Some(entry) => entry.1 = st.into(),
+                None => servers.push((server.into(), st.into())),
+            }
+        }
+    }
+    if !servers.is_empty() {
+        let ready = servers.iter().filter(|(_, st)| st == "ready").count();
+        let waiting: Vec<_> = servers
+            .iter()
+            .filter(|(_, st)| st != "ready")
+            .map(|(s, _)| s.as_str())
+            .collect();
+        done.push((
+            "MCP",
+            waiting.is_empty(),
+            if waiting.is_empty() {
+                format!("{ready} ready")
+            } else {
+                format!("{ready}/{} ready · {}", servers.len(), waiting.join(", "))
+            },
+        ));
+    }
+    if has_rows {
+        done.push(("Layout", false, format!("{} items", model.order.len())));
+    }
+    let mut out = vec![];
+    let mut waiting = false;
+    for (label, ok, detail) in done {
+        let step = if ok {
+            Step::Done
+        } else if waiting {
+            Step::Waiting
+        } else {
+            waiting = true;
+            Step::Active
+        };
+        out.push((label, detail, step));
+    }
+    if let Some(error) = state.error.as_ref().or(state.profile_error.as_ref()) {
+        out.push((
+            "Error",
+            error
+                .lines()
+                .next()
+                .unwrap_or_default()
+                .chars()
+                .take(80)
+                .collect(),
+            Step::Failed,
+        ));
+    }
+    out
 }
 /// The newest Question still waiting for the human, with its form schema.
 fn open_question(model: &Transcript) -> Option<(ItemId, serde_json::Value)> {
