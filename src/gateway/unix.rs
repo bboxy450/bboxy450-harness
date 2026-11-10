@@ -412,22 +412,28 @@ impl UnixClient {
         if let Some(session) = session {
             sub["session"] = serde_json::to_value(session).unwrap();
         }
-        let socket = UnixStream::connect(path)
+        // Bound the whole passive handshake, not only the final Hello read.
+        // Cancellation drops both halves before an IO owner or any op exists.
+        let (mut reader, writer, hello) = tokio::time::timeout(Duration::from_secs(5), async {
+            let socket = UnixStream::connect(path)
+                .await
+                .map_err(|_| ClientError::Disconnected)?;
+            let (read, mut writer) = socket.into_split();
+            write(
+                &mut writer,
+                &serde_json::json!({"subscribe":sub,"v":PROTOCOL,"approver":approver}),
+            )
             .await
             .map_err(|_| ClientError::Disconnected)?;
-        let (read, mut writer) = socket.into_split();
-        write(
-            &mut writer,
-            &serde_json::json!({"subscribe":sub,"v":PROTOCOL,"approver":approver}),
-        )
+            let mut reader = BufReader::new(read);
+            let hello = frame(&mut reader)
+                .await
+                .map_err(|error| ClientError::Protocol(format!("could not read hello: {error}")))?
+                .ok_or(ClientError::Disconnected)?;
+            Ok::<_, ClientError>((reader, writer, hello))
+        })
         .await
-        .map_err(|_| ClientError::Disconnected)?;
-        let mut reader = BufReader::new(read);
-        let hello = tokio::time::timeout(Duration::from_secs(5), frame(&mut reader))
-            .await
-            .map_err(|_| ClientError::Protocol("hello timeout".into()))?
-            .map_err(|_| ClientError::Disconnected)?
-            .ok_or(ClientError::Disconnected)?;
+        .map_err(|_| ClientError::Protocol("subscription handshake timed out".into()))??;
         let value: serde_json::Value = serde_json::from_slice(&hello)
             .map_err(|_| ClientError::Protocol("invalid hello".into()))?;
         if let Some(r) = value.get("refused") {

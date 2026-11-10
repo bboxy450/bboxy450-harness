@@ -303,6 +303,10 @@ async fn unix_bridge_unavailable_connect_is_cancelled_without_ui_io() {
     let mut bridge = Bridge::new(Arc::new(Wake::default()));
     bridge.connect(own.path().join(format!("{}.sock", SessionId::new())), None);
     wait(&mut bridge, |b| b.state.error.is_some()).await;
+    assert_eq!(
+        bridge.state.error.as_deref(),
+        Some("Subscription unavailable: connection unavailable; reconnecting")
+    );
     assert!(!bridge.state.ready);
     assert!(matches!(
         bridge.send(Op::Interrupt { turn: None }),
@@ -312,6 +316,51 @@ async fn unix_bridge_unavailable_connect_is_cancelled_without_ui_io() {
         .await
         .unwrap()
         .unwrap();
+}
+
+#[tokio::test]
+async fn unix_bridge_recovers_after_stalled_hello_without_sending_work() {
+    use bboxy450_harness::gateway::unix::UnixServer;
+    use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
+    let own = tempfile::tempdir_in("/tmp").unwrap();
+    let socket = own.path().join("stalled.sock");
+    let listener = tokio::net::UnixListener::bind(&socket).unwrap();
+    let stalled = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let mut reader = BufReader::new(stream);
+        let mut line = String::new();
+        reader.read_line(&mut line).await.unwrap();
+        let request: serde_json::Value = serde_json::from_str(&line).unwrap();
+        assert!(request.get("subscribe").is_some());
+        assert!(request.get("op").is_none());
+        // Never send Hello. The client must close this attempt at its deadline,
+        // without transmitting a user operation or retaining a stalled IO owner.
+        let mut rest = Vec::new();
+        tokio::time::timeout(Duration::from_secs(7), reader.read_to_end(&mut rest))
+            .await
+            .expect("stalled subscription was not cancelled")
+            .unwrap();
+        assert!(rest.is_empty(), "subscription retry sent work before Hello");
+    });
+    let mut bridge = Bridge::new(Arc::new(Wake::default()));
+    bridge.connect(socket.clone(), None);
+    wait(&mut bridge, |b| b.state.error.is_some()).await;
+    assert_eq!(
+        bridge.state.error.as_deref(),
+        Some("Subscription unavailable: subscription handshake timed out; reconnecting")
+    );
+    assert!(!bridge.state.ready);
+    stalled.await.unwrap();
+    std::fs::remove_file(&socket).unwrap();
+    let s = support::session(vec![], true).await;
+    let server = UnixServer::bind(socket, s.gateway.clone()).await.unwrap();
+    wait(&mut bridge, |b| b.state.ready).await;
+    assert!(bridge.state.error.is_none());
+    assert_eq!(bridge.state.transcript.session, Some(s.gateway.session()));
+    assert!(bridge.state.transcript.turns.is_empty());
+    bridge.detach().unwrap().await.unwrap();
+    support::close(s).await;
+    server.close().await.unwrap();
 }
 #[cfg(feature = "embedded")]
 #[tokio::test]

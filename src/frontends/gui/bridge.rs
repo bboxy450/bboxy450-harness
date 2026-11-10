@@ -267,7 +267,11 @@ impl Source {
             Self::Unix { socket, .. } => {
                 let (client, sub) = UnixClient::discover(socket, after, true, approver)
                     .await
-                    .map_err(|e| client_error_text(&e))?;
+                    .map_err(|e| match e {
+                        ClientError::Disconnected => "connection unavailable; reconnecting".into(),
+                        ClientError::Protocol(reason) => format!("{reason}; reconnecting"),
+                        other => client_error_text(&other),
+                    })?;
                 let session = sub.hello().meta.session;
                 Ok((
                     ViewGateway::Unix(RemoteGateway {

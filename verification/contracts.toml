@@ -45,7 +45,7 @@ controls = [{name="BrokenHarnessSocketDeliveryFreshId", expected="safety"}, {nam
 sources = ["src/frontends/seat.rs", "src/frontends/headless.rs", "src/frontends/gui/bridge.rs", "src/gateway/unix.rs", "tests/formal/models.rs"]
 implementation_tests = ["tests/seat_process.rs", "tests/support/seat_socket.rs", "tests/gateway_unix.rs", "tests/gui_bridge.rs", "tests/formal_nonvacuity.rs"]
 assumptions = "One message, one resend, two op keys and three distinct session births A/B/A; counters 0..2 per birth. Announce binds first intent only after the current session is known. Switching closes old admission; transport failure/delayed replies are arbitrary delays before Ack or refusal. Weak fairness of the enabled Ack/refusal group discharges sent leads-to acked or refused. Controls change only the resend key or destination. Actual term delivery/op_id derivation is a Side A process witness still outstanding; PTY/NDJSON bytes, uid checks, wall-clock limits and OS cleanup remain implementation-only. No arbitrary Rust refinement claim."
-property = "OneTurnPerMessage; NoTurnOnUnannouncedSession; SentEventuallyAckedOrRefused under WF{Ack}."
+property = "OneTurnPerMessage; NoTurnOnUnannouncedSession; SentEventuallyAckedOrRefused under WF{Ack}. Passive Unix handshake attempts share a five-second connect/write/Hello deadline; tests/gui_bridge.rs::unix_bridge_recovers_after_stalled_hello_without_sending_work checks cancellation, no pre-Hello work, automatic reconnect and error clearing. That wall-clock bound is implementation-only; no change to the finite turn-delivery model or operation resend rules."
 checks = ["make test-formal", "make test"]
 
 [[contract]]
