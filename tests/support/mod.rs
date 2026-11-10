@@ -63,11 +63,33 @@ pub async fn with_policy(provider: Arc<dyn Provider>, policy: Policy) -> Session
         max_rounds: 50,
     };
     let (gateway, task) = SessionActor::open(config, OpId::new()).await.unwrap();
+    runtime_ready(&gateway).await;
     Session {
         temp,
         gateway,
         task,
     }
+}
+/// Every non-trial session starts its own Python MCP server, whose readiness
+/// notice lands at a timing-dependent sequence. Tests start after it.
+pub async fn runtime_ready(g: &InProc) {
+    let mut sub = subscribe(g, false);
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let event = sub.recv().await.expect("session stream");
+            if let Event::ItemCompleted {
+                body: Item::Notice { text, .. },
+                ..
+            } = &event.event
+                && text.starts_with("mcp bboxy_python")
+                && text.ends_with(": ready")
+            {
+                return;
+            }
+        }
+    })
+    .await
+    .expect("session-private Python MCP settles within its 10 s handshake");
 }
 pub fn subscribe(g: &InProc, ephemeral: bool) -> Subscription {
     g.subscribe(Subscribe {

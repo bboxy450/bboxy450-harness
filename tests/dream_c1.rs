@@ -2334,6 +2334,7 @@ fn complete_worker(job: &Job, worker: &mut Worker) -> (w::ResultDescriptor, Vec<
     (result, rows, metrics)
 }
 #[test]
+#[ignore = "real-runner test: runs only via make test-dream-c1 (needs the approved DREAM_C1_RUNNER)"]
 fn hello_precedes_all_source_access_and_private_bootstrap() {
     let root = tempfile::Builder::new().tempdir_in("/private/tmp").unwrap();
     let path = root.path().join(ulid::Ulid::new().to_string());
@@ -2354,6 +2355,7 @@ fn hello_precedes_all_source_access_and_private_bootstrap() {
     eprintln!("cleared-environment Hello-before-source EOF actual_parked_owner_joined {metrics}");
 }
 #[test]
+#[ignore = "real-runner test: runs only via make test-dream-c1 (needs the approved DREAM_C1_RUNNER)"]
 fn empty_closed_and_raw_crlf_origins_are_exact() {
     let empty = Job::new(0, 0, false, false);
     let (r, rows, _) = complete(&empty);
@@ -2476,6 +2478,7 @@ fn source_blob_sequence_version_and_custody_controls() {
     }
 }
 #[test]
+#[ignore = "real-runner test: runs only via make test-dream-c1 (needs the approved DREAM_C1_RUNNER)"]
 fn foreground_pause_stale_activity_cancel_eof_and_deadline_settle() {
     for mode in 0..4 {
         let mut job = Job::new(1, 0, false, false);
@@ -2542,6 +2545,7 @@ fn foreground_pause_stale_activity_cancel_eof_and_deadline_settle() {
     }
 }
 #[test]
+#[ignore = "real-runner test: runs only via make test-dream-c1 (needs the approved DREAM_C1_RUNNER)"]
 fn immutable_results_are_never_clobbered() {
     let job = Job::new(1, 0, false, false);
     complete(&job);
@@ -2557,6 +2561,7 @@ fn immutable_results_are_never_clobbered() {
     );
 }
 #[test]
+#[ignore = "real-runner test: runs only via make test-dream-c1 (needs the approved DREAM_C1_RUNNER)"]
 fn large_input_records_heap_rss_and_resource_rejection() {
     let job = Job::new(40, 60 * 1024, false, false);
     assert!(job.bytes.len() > 2 * 1024 * 1024);
@@ -2625,6 +2630,7 @@ fn all_dtos_reject_unknown_duplicate_and_required_missing_fields() {
     assert!(w::decode::<w::Manifest>(&w::canonical(&manifest).unwrap()).is_err());
 }
 #[test]
+#[ignore = "real-runner test: runs only via make test-dream-c1 (needs the approved DREAM_C1_RUNNER)"]
 fn multiple_pages_preserve_exact_counts_and_order() {
     let job = Job::new(80, 0, false, false);
     let (result, rows, _) = complete(&job);
@@ -2644,6 +2650,7 @@ fn multiple_pages_preserve_exact_counts_and_order() {
     }
 }
 #[test]
+#[ignore = "real-runner test: runs only via make test-dream-c1 (needs the approved DREAM_C1_RUNNER)"]
 fn partial_frame_eof_wrong_nonce_and_oversize_settle_as_protocol_failure() {
     for mode in 0..3 {
         let mut job = Job::new(1, 0, false, false);
@@ -2686,6 +2693,7 @@ fn partial_frame_eof_wrong_nonce_and_oversize_settle_as_protocol_failure() {
     }
 }
 #[test]
+#[ignore = "real-runner test: runs only via make test-dream-c1 (needs the approved DREAM_C1_RUNNER)"]
 fn source_growth_is_source_changed() {
     let job = Job::new(1, 0, false, false);
     let mut grown = job.bytes.clone();
@@ -3374,6 +3382,7 @@ fn assert_memory_gate(metrics: &str) {
     assert_native_gate(metrics);
 }
 #[test]
+#[ignore = "real-runner test: runs only via make test-dream-c1 (needs the approved DREAM_C1_RUNNER)"]
 fn child_declared_storage_overflow_precedes_serde_and_controls_still_settle() {
     let mut job = Job::new(1, 0, false, false);
     let mut lines = job
@@ -3587,6 +3596,7 @@ fn near_limit_rejected_envelope_drains_before_process_done_and_join() {
 }
 
 #[test]
+#[ignore = "real-runner test: runs only via make test-dream-c1 (needs the approved DREAM_C1_RUNNER)"]
 fn cancel_after_retained_state_growth_reaps_with_paced_teardown() {
     let job = Job::new(80, 16 * 1024, false, false);
     let mut worker = job.launch();
@@ -3616,6 +3626,7 @@ fn cancel_after_retained_state_growth_reaps_with_paced_teardown() {
 }
 
 #[tokio::test]
+#[ignore = "real-runner test: runs only via make test-dream-c1 (needs the approved DREAM_C1_RUNNER)"]
 async fn real_store_multi_mib_ir_and_typed_blob_bundle() {
     use bboxy450_harness::store::{Store, log_path};
     let mut job = Job::new(0, 0, false, false);
@@ -3802,6 +3813,7 @@ async fn real_store_multi_mib_ir_and_typed_blob_bundle() {
 }
 
 #[test]
+#[ignore = "real-runner test: runs only via make test-dream-c1 (needs the approved DREAM_C1_RUNNER)"]
 fn four_ordinary_release_workers_complete_multi_mib_with_independent_control_and_reap() {
     let jobs: Vec<_> = (0..4)
         .map(|i| {

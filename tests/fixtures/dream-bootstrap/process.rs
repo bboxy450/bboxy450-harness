@@ -262,6 +262,7 @@ fn bootstrap_held_birth_has_zero_admission_and_independent_probe_then_real_compl
 }
 
 #[test]
+#[ignore = "real-runner test: runs only via make test-dream-c1 (needs the approved DREAM_C1_RUNNER)"]
 fn bootstrap_missing_environment_refuses_approved_ordinary_worker_before_source_or_owner() {
     let job = Job::new(0, 0, false, false);
     let absent = missing_path(&job);
@@ -319,6 +320,7 @@ fn bootstrap_missing_environment_refuses_approved_ordinary_worker_before_source_
 }
 
 #[test]
+#[ignore = "real-runner test: runs only via make test-dream-c1 (needs the approved DREAM_C1_RUNNER)"]
 fn bootstrap_malformed_partial_extra_duplicate_and_revoked_permits_refuse_actual_processes() {
     let job = Job::new(0, 0, false, false);
     for case in [
@@ -396,6 +398,7 @@ fn bootstrap_malformed_partial_extra_duplicate_and_revoked_permits_refuse_actual
 }
 
 #[test]
+#[ignore = "real-runner test: runs only via make test-dream-c1 (needs the approved DREAM_C1_RUNNER)"]
 fn bootstrap_probe_and_original_nonce_fences_refuse_hostile_start_before_source() {
     let job = Job::new(1, 0, false, false);
     let absent = missing_path(&job);
@@ -419,6 +422,7 @@ fn bootstrap_probe_and_original_nonce_fences_refuse_hostile_start_before_source(
 }
 
 #[test]
+#[ignore = "real-runner test: runs only via make test-dream-c1 (needs the approved DREAM_C1_RUNNER)"]
 fn bootstrap_parent_unknown_clock_or_stale_binding_closes_actual_birth_without_grant_or_retry() {
     let job = Job::new(0, 0, false, false);
     for cause in ["unknown-native-clock", "stale-aba-binding"] {
@@ -464,6 +468,7 @@ fn bootstrap_parent_unknown_clock_or_stale_binding_closes_actual_birth_without_g
 }
 
 #[test]
+#[ignore = "real-runner test: runs only via make test-dream-c1 (needs the approved DREAM_C1_RUNNER)"]
 fn bootstrap_lease_eof_after_qualifying_hello_does_not_revoke_matching_start() {
     let job = Job::new(1, 0, false, false);
     // release intentionally closes the one-shot lease only AFTER verified Hello.
@@ -477,6 +482,7 @@ fn bootstrap_lease_eof_after_qualifying_hello_does_not_revoke_matching_start() {
 }
 
 #[test]
+#[ignore = "real-runner test: runs only via make test-dream-c1 (needs the approved DREAM_C1_RUNNER)"]
 fn bootstrap_foreign_closed_writable_and_bad_environment_descriptors_refuse() {
     use std::os::unix::process::CommandExt;
     let job = Job::new(0, 0, false, false);

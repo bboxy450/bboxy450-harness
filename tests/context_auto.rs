@@ -158,8 +158,10 @@ async fn thirty_turns_trim_then_summarize_and_share_the_stable_prefix() {
     let requests = requests.lock().unwrap();
     assert_eq!(requests.len(), 60);
     for request in requests.iter() {
-        let estimate = auto::estimate(&[], &request.messages, &request.tools);
-        assert!(estimate <= 3200, "request estimate {estimate}");
+        // Compaction bounds the conversation; tool definitions are a fixed cost
+        // that grows when the session's own Python MCP becomes ready.
+        let estimate = auto::estimate(&[], &request.messages, &[]);
+        assert!(estimate <= 3200, "conversation estimate {estimate}");
         bboxy450_harness::engine::history::check_wire(&request.messages).unwrap();
     }
     // Each request in this provider starts one Reasoning or AgentMessage item.

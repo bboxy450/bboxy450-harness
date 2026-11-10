@@ -314,7 +314,8 @@ pub enum Op {
     },
     /// The human's reply to a `Question` item, as an ACP elicitation response.
     AnswerQuestion {
-        #[serde(default)]
+        // A missing id names no question (nil), so the schema stays stable.
+        #[serde(default = "missing_question")]
         question: ItemId,
         #[serde(default)]
         answer: Value,
@@ -344,6 +345,9 @@ pub enum Op {
     Unknown(Value),
 }
 // Missing identity is a stable invalid sentinel, never a fresh child identity.
+fn missing_question() -> ItemId {
+    ItemId(Ulid::nil())
+}
 fn missing_identity() -> OpId {
     OpId(Ulid::nil())
 }

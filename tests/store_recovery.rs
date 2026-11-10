@@ -119,6 +119,7 @@ async fn trusted_head_cursors_survive_reassigned_sequences() {
     let (gateway, task) = SessionActor::open(cfg.clone(), OpId::new()).await.unwrap();
     assert_eq!(gateway.hello().epoch, Epoch(2));
     assert_eq!(gateway.hello().head, Seq(9));
+    support::runtime_ready(&gateway).await;
     let mut sub = support::subscribe(&gateway, false);
     for _ in 0..2 {
         gateway
@@ -131,7 +132,13 @@ async fn trusted_head_cursors_survive_reassigned_sequences() {
             ))
             .unwrap();
     }
-    while sub.recv().await.unwrap().seq != Some(Seq(11)) {}
+    // Both empty turns are refused; the head after them is the replay target.
+    let (mut rejected, mut head) = (0, 0);
+    while rejected < 2 {
+        let event = sub.recv().await.unwrap();
+        head = event.seq.map_or(head, |s| s.0);
+        rejected += usize::from(matches!(event.event, Event::OpRejected { .. }));
+    }
     let request = |epoch, seq| Subscribe {
         session: id,
         after: Some((Epoch(epoch), Seq(seq))),
@@ -147,11 +154,11 @@ async fn trusted_head_cursors_survive_reassigned_sequences() {
     ));
     assert!(stale.recv().await.is_none());
     let mut safe = gateway.subscribe(request(1, 8)).unwrap();
-    for seq in 9..=11 {
+    for seq in 9..=head {
         assert_eq!(safe.recv().await.unwrap().seq, Some(Seq(seq)));
     }
     assert!(matches!(safe.try_recv(), TryRecv::Empty));
-    let mut current = gateway.subscribe(request(2, 11)).unwrap();
+    let mut current = gateway.subscribe(request(2, head)).unwrap();
     assert!(matches!(current.try_recv(), TryRecv::Empty));
     let mut future = gateway.subscribe(request(4, 1)).unwrap();
     assert!(matches!(

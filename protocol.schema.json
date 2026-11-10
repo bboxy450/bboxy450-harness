@@ -2251,7 +2251,7 @@
             },
             "question": {
               "$ref": "#/$defs/ItemId",
-              "default": "01M71BH6D0YCK0R8TMZTS2HPRQ"
+              "default": "00000000000000000000000000"
             },
             "type": {
               "const": "answer_question",
