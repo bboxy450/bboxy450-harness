@@ -1,9 +1,0 @@
-    Blocking waiting for file lock on package cache
-   Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-core)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.90s
-     Running tests/policy_gate.rs (target/debug/deps/policy_gate-330ab91307119dca)
-
-running 1 test
-test deny_star_never_executes_the_counting_tool ... ok
-
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.12s

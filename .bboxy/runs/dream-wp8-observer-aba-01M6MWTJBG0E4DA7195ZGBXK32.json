@@ -1,8 +1,0 @@
-{
-  "fault": "aba",
-  "accepted_by_independent_observer": false,
-  "producer_declared_outcome": "published",
-  "raw_call_count": 36,
-  "raw_trace_sha256": "cd6201b584a04ffcf469ab584b7c145c0a8a0bc366c87b4890ff62b3cd62a533",
-  "raw_trace_retention": "private temporary directory; bytes and secret/transcript content never recorded"
-}

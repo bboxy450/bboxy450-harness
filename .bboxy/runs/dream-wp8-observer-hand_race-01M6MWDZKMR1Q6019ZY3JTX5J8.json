@@ -1,8 +1,0 @@
-{
-  "fault": "hand_race",
-  "accepted_by_independent_observer": true,
-  "producer_declared_outcome": "skipped",
-  "raw_call_count": 30,
-  "raw_trace_sha256": "5544c81760fabc1080ecc20f065a3620bbe818e82bf569e5ee1c14b76e8ffebf",
-  "raw_trace_retention": "private temporary directory; bytes and secret/transcript content never recorded"
-}

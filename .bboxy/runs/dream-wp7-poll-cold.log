@@ -1,3 +1,0 @@
-command: target/dream-wp7-poll-bootstrap-probe cold
-source: fe1c4e89491d83a7b5c144fc994e0e1fcdefafb8
-{"mode":"cold","bootstrap_cpu_ns":null,"first_poll_cpu_ns":270166,"owned_child_reaped":true,"within_unchanged_1ms":true}

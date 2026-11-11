@@ -1,8 +1,0 @@
-   Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-core)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 13.02s
-     Running unittests src/lib.rs (target/debug/deps/bboxy450_harness-16fbc5e647fd2f23)
-
-running 1 test
-test engine::hardening_tests::a_b_a_is_fenced_by_birth_not_identity ... ok
-
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 1.80s

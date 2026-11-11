@@ -1,9 +1,0 @@
-   Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-dream-wp6)
-    Finished `test` profile [unoptimized] target(s) in 11.39s
-     Running unittests src/lib.rs (target/debug/deps/bboxy450_harness-2dfa2a57c99f8619)
-
-running 1 test
-test frontends::gui::view::onboarding_markdown_tests::header_dropdowns_fit_narrow_panes_and_keep_revision_fences ... ok
-
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 58 filtered out; finished in 0.03s
-

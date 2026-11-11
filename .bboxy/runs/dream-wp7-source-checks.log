@@ -1,4 +1,0 @@
-command: cargo fmt --check && python3 -I scripts/checks.py headers && python3 -I scripts/checks.py secrets
-source: 1f2b6c7de0a5f8709816a69b98920f550f783907
-headers: PASS
-secret scan: PASS

@@ -1,2 +1,0 @@
-python3 -I scripts/formal.py --target '/Users/feral/mydev/bboxy450-harness-gui/target/formal' --verify-evidence
-formal: receipt {"checkout": "/Users/feral/mydev/bboxy450-harness-gui", "contracts": 21, "crates": 1, "dirty": false, "evidence": "/Users/feral/mydev/bboxy450-harness-gui/target/formal/evidence.json", "evidence_sha256": "7720b9496d237f7f0849ba442f643ded6ca4d9ba203bcf23c5f4ef88f903f5fe", "models": 49, "source": "fa7a4cfcec03a5a843ef00dcbdc9a86c041fe4d4"}

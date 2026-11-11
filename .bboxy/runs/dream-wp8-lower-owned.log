@@ -1,4 +1,0 @@
-command: cargo check --lib
-source: 0978382e0efd5fe161dd320bc656f78472a9a9c9
-    Checking bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-dream-wp4)
-    Finished `dev` profile [unoptimized] target(s) in 4.61s

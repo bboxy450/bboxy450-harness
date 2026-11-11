@@ -1,2 +1,0 @@
-python3 -I scripts/smoke-live.py
-smoke-live: PASS; headless: PASS (read and edit completed; transcript laws held); acp: PASS (read and edit completed; transcript laws held)

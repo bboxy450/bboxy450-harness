@@ -1,8 +1,0 @@
-{
-  "fault": "omit_dir_sync",
-  "accepted_by_independent_observer": false,
-  "producer_declared_outcome": "published",
-  "raw_call_count": 30,
-  "raw_trace_sha256": "31f22ea41aacdf0a33c9e73583683e17060cbacb010bbee83ed3d6770b3d3345",
-  "raw_trace_retention": "private temporary directory; bytes and secret/transcript content never recorded"
-}

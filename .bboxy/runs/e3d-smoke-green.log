@@ -1,6 +1,0 @@
-cargo run --offline --locked --features standalone -- gui --replay tests/fixtures/gui/rich-all-items.jsonl --headless --screenshot .bboxy/runs/gui-smoke.png
-   Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-gui)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 6.73s
-     Running `target/debug/bboxy450-harness gui --replay tests/fixtures/gui/rich-all-items.jsonl --headless --screenshot .bboxy/runs/gui-smoke.png`
-gui-smoke structural: Checked { markdown_blocks: 6, accordion_headers: 8, inline_rows: 5, painted_boxes: 60, cards: 22, disclosures: 8 }
-gui-smoke: PASS · 22 visible items, 15 kinds, readable payloads, 3 approval buttons, scrolled viewport, Metal 1120×7000 · .bboxy/runs/gui-smoke.png

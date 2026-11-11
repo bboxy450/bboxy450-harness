@@ -1,4 +1,0 @@
-command: cargo fmt --check && cargo clippy --offline --locked --all-targets --all-features -- -D warnings
-source: 24525ba6c586d811a97540278223e967ce3f5ed8
-    Checking bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-dream-wp4)
-    Finished `dev` profile [unoptimized] target(s) in 11.18s

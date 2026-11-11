@@ -32,7 +32,7 @@ within ±24 px. A large gap between it and the raw score means one offset, not m
 import glob, hashlib, json, os, subprocess, sys
 from PIL import Image
 
-BASELINE = '.bboxy/runs/parity-baseline-3d76710.json'
+BASELINE = 'tests/fixtures/parity-baseline-3d76710.json'
 TOLERANCE = {'mean_abs_diff': 0.003, 'row_structure_mismatch': 0.02}
 CHAT = {'mean_abs_diff': 0.012, 'row_structure_mismatch': 0.08}
 RICH = {'mean_abs_diff': 0.030, 'row_structure_mismatch': 0.25}

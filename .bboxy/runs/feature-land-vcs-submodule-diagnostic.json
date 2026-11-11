@@ -1,7 +1,0 @@
-{
-  "command": "cargo test --features acp --test dream_vcs changed_submodule_worktree_and_gitlink_are_dirty_in_actual_headers -- --exact --nocapture",
-  "exit_code": 101,
-  "log": ".bboxy/runs/feature-land-vcs-submodule-diagnostic.log",
-  "sha256": "cfd8ed43b6b2bc68c3b81b37addb872a30836104eca2407c62c3f0da11665161",
-  "seconds": 3.3207662105560303
-}

@@ -1,8 +1,0 @@
-cargo run --offline --locked --features standalone -- gui --replay tests/fixtures/gui/rich-all-items.jsonl --headless --screenshot .bboxy/runs/gui-smoke.png
-   Compiling uuid v1.29.0
-   Compiling bboxy450-yarn v0.1.1
-   Compiling rmcp v3.5.1
-   Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-gui)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 14.17s
-     Running `target/debug/bboxy450-harness gui --replay tests/fixtures/gui/rich-all-items.jsonl --headless --screenshot .bboxy/runs/gui-smoke.png`
-gui-smoke: PASS · 22 visible items, 15 kinds, readable payloads, 3 approval buttons, scrolled viewport, Metal 1120×7000 · .bboxy/runs/gui-smoke.png

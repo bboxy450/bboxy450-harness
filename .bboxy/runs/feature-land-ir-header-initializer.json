@@ -1,6 +1,0 @@
-{
-  "command": "cargo test --all-features --lib header_dropdowns_fit_narrow_panes_and_keep_revision_fences",
-  "exit_code": 0,
-  "log": "target/feature-land-ir/header-initializer.log",
-  "sha256": "2401bae11a1f7b58a47f4b3786c31d48b49b208d5a8809c80b5dd88ea8d200a2"
-}

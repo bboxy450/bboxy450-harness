@@ -1,7 +1,0 @@
-{
-  "command": "cargo test --test formal_models conditional_lowering_preserves_full_finite_successors_and_fairness -- --exact --nocapture",
-  "exit_code": 0,
-  "log": "target/feature-land-ir/lowering-fixed.log",
-  "sha256": "736aeb39a03b1589d4c6c0314a00a1ee838e20a805e25f925283d93c64bb2543",
-  "seconds": 1.2739222049713135
-}

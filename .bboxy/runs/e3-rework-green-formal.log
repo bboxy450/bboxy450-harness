@@ -1,9 +1,0 @@
-   Compiling bboxy450-harness v0.1.0 (/Users/feral/mydev/bboxy450-harness-gui)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.00s
-     Running tests/formal_models.rs (target/debug/deps/formal_models-d55003898c94690a)
-
-running 1 test
-test models::embed_stop_control_reaches_a_stale_a_to_b_to_a_delivery ... ok
-
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
-

@@ -58,6 +58,8 @@ def preserve_dream_observer_outputs():
     if git("diff", "--name-only", "HEAD"):
         raise RuntimeError("tracked source changed during Dream gate")
     names = [name for name in git("ls-files", "--others", "--exclude-standard", "-z").split("\0") if name]
+    # Run evidence is machine-local (.bboxy/.gitignore); find the observer outputs there.
+    names += sorted(str(p.relative_to(ROOT)) for p in (ROOT / ".bboxy/runs").glob("dream-wp8-observer-*.json"))
     expected = {"good", "aba", "wrong_temp", "omit_dir_sync", "hand_race"}
     pattern = re.compile(r"\.bboxy/runs/dream-wp8-observer-(good|aba|wrong_temp|omit_dir_sync|hand_race)-[0-7][0-9A-HJKMNP-TV-Z]{25}\.json")
     records = []

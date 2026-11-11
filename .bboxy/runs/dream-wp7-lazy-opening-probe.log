@@ -1,3 +1,0 @@
-command: target/dream-wp7-lazy-opening-probe
-source: fe1c4e89491d83a7b5c144fc994e0e1fcdefafb8
-{"four_busy_permits_confirmed":true,"first_poll_queued":true,"all_four_jobs_joined":true,"unpolled_opening_did_not_start_after_permits_returned":true,"driven_opening_entered_and_completed":true,"claim":"diagnostic only; full ACP failure remains red"}

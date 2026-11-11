@@ -1,7 +1,0 @@
-{
-  "source": "0ab55023228a7f7f49305c9c08f5bdbcfb39c10f",
-  "command": "make test-formal",
-  "exit_code": 2,
-  "log": "target/feature-land-ir/baseline-formal.log",
-  "sha256": "80fac97250e909ff70941d443231d1bce5faa5b98f9ed3d6db48895cce058c32"
-}

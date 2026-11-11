@@ -1,7 +1,0 @@
-{
-  "command": "cargo test --test import_native --test ir_edge --test cli_headless",
-  "exit_code": 0,
-  "log": ".bboxy/runs/feature-land-vcs-inherited-focused.log",
-  "sha256": "e4679ee61bef233cc6133dc4f0c1b534c9c35c82b939880c2e539be0cd5d83c9",
-  "seconds": 11.872801065444946
-}

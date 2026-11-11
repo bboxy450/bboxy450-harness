@@ -1,7 +1,0 @@
-{
-  "command": "cargo test --features acp --test dream_vcs && cargo test --test cli_headless",
-  "exit_code": 0,
-  "log": ".bboxy/runs/feature-land-vcs-fixture-fixed.log",
-  "sha256": "8d115d52d853efb98481813a6aac0101c9cd82914712ceb2f4499067503de3f7",
-  "seconds": 6.076252222061157
-}

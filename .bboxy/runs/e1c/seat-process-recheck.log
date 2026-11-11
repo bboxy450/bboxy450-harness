@@ -1,9 +1,0 @@
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.39s
-     Running tests/seat_process.rs (target/debug/deps/seat_process-33bccc80658372a4)
-
-running 3 tests
-test no_bboxy_sock_still_finishes_a_turn ... ok
-test terminate_during_key_resolution_joins_the_key_process ... ok
-test hangup_stops_without_an_operator ... ok
-
-test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.22s

@@ -1,6 +1,0 @@
-    Updating git repository `https://github.com/bboxy450/bboxy450-term`
-    Updating crates.io index
-     Locking 1 package to highest Rust 1.99 compatible version
-    Removing bboxy450-ui-core v0.1.1
-      Adding bboxy450-ui-core v0.1.1 (https://github.com/bboxy450/bboxy450-term?rev=59dedc64861d66650e163bfabab88f5ed67eb810#59dedc64)
-note: pass `--verbose` to see 20 unchanged dependencies behind latest
