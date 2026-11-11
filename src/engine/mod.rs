@@ -1068,7 +1068,7 @@ impl SessionActor {
     async fn request_context(&self) -> std::io::Result<(Vec<serde_json::Value>, usize)> {
         let (tail, prefix) = crate::context::replay(&self.store.events, &self.store.blobs).await?;
         let mut system = format!(
-            "You are bboxy450-harness, a coding assistant. Use the provided tools. Working directory: {}\nBuild a world agents can take apart, understand, change and put back together. Subtract before you add; minimize concepts, not lines.",
+            "You are bboxy450-harness, a coding assistant. Use the provided tools. Working directory: {}\nBuild a world agents can take apart, understand, change and put back together. Subtract before you add; minimize concepts, not lines.\nThe person may not be watching: lead with the result and hand back something usable as it is, not an account of effort.",
             self.config.meta.cwd.display()
         );
         if !self.append_system_prompt.is_empty() {
