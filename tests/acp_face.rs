@@ -159,6 +159,106 @@ async fn cli_initializes_acp_agent_without_native_endpoint() {
     let reply: Value = serde_json::from_str(&line.expect("ACP closed before initialize")).unwrap();
     assert_eq!(reply["id"], 1);
     assert_eq!(reply["result"]["agentInfo"]["name"], "bboxy450-harness");
+    assert_eq!(
+        reply["result"]["agentCapabilities"]["promptCapabilities"]["image"],
+        true
+    );
+}
+
+#[cfg(feature = "acp-agent")]
+#[tokio::test]
+async fn deferred_profile_forwards_images_and_preserves_the_actual_agent_guard() {
+    for supported in [true, false] {
+        let temp = tempfile::tempdir().unwrap();
+        let provider = Arc::new(bboxy450_harness::provider::FailedProvider(
+            bboxy450_harness::provider::ProviderError::new(
+                ErrorClass::Config,
+                "profile resolution pending",
+            ),
+        ));
+        let mut config = test_config(&temp, provider, Unattended::Deny);
+        assert!(!config.provider.caps().images);
+        config.meta.profile = Some("private".into());
+        std::fs::create_dir_all(&config.profiles).unwrap();
+        let calls = temp.path().join("calls.jsonl");
+        let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/acp-agent/attachments.py");
+        let command = json!([
+            "python3",
+            "-I",
+            script,
+            calls,
+            if supported { "yes" } else { "no" }
+        ]);
+        std::fs::write(
+            config.profiles.join("private.md"),
+            format!("---\nname: private\nprovider: acp-agent\nagent:\n  command: {command}\n---\n"),
+        )
+        .unwrap();
+        let mut c = client_config(config, 1024 * 1024).await;
+        c.request(
+            1,
+            "initialize",
+            json!({"protocolVersion":1,"clientCapabilities":{}}),
+        )
+        .await;
+        assert_eq!(
+            c.next().await["result"]["agentCapabilities"]["promptCapabilities"]["image"],
+            true
+        );
+        c.request(2, "session/new", json!({"cwd":temp.path(),"mcpServers":[]}))
+            .await;
+        let sid = loop {
+            let value = c.next().await;
+            validate(&value);
+            if value["id"] == 2 {
+                break value["result"]["sessionId"]
+                    .as_str()
+                    .expect("new session")
+                    .to_owned();
+            }
+        };
+        let image = json!({"type":"image","data":"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC","mimeType":"image/png"});
+        c.request(
+            3,
+            "session/prompt",
+            json!({"sessionId":sid,"prompt":[{"type":"text","text":"inspect"},image]}),
+        )
+        .await;
+        loop {
+            let value = c.next().await;
+            validate(&value);
+            if value["id"] == 3 {
+                assert_eq!(value.get("result").is_some(), supported, "{value}");
+                if !supported {
+                    assert!(
+                        value["error"]["message"]
+                            .as_str()
+                            .unwrap()
+                            .contains("does not advertise image input")
+                    );
+                }
+                break;
+            }
+        }
+        let prompts: Vec<Value> = std::fs::read_to_string(calls)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str::<Value>(line).unwrap())
+            .filter(|v| v["method"] == "session/prompt")
+            .collect();
+        assert_eq!(prompts.len(), usize::from(supported));
+        if supported {
+            let images: Vec<_> = prompts[0]["params"]["prompt"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|block| block["type"] == "image")
+                .collect();
+            assert_eq!(images, vec![&image]);
+        }
+        c.close().await;
+    }
 }
 #[tokio::test]
 async fn max_tokens_max_rounds_and_error_replies_match_the_ending() {

@@ -200,7 +200,9 @@ impl Face {
                     self.error(id, -32602, "Invalid params", None).await;
                     return;
                 }
-                self.response(id,json!({"protocolVersion":1,"authMethods":[],"agentCapabilities":{"loadSession":true,"promptCapabilities":{"image":self.config.provider.caps().images,"audio":false,"embeddedContext":true},"mcpCapabilities":{"http":false,"sse":false},"sessionCapabilities":{"close":{}}},"agentInfo":{"name":"bboxy450-harness","version":env!("CARGO_PKG_VERSION")}})).await;
+                // This face stores and forwards images. The session backend
+                // checks its selected agent; the launch provider may be deferred.
+                self.response(id,json!({"protocolVersion":1,"authMethods":[],"agentCapabilities":{"loadSession":true,"promptCapabilities":{"image":true,"audio":false,"embeddedContext":true},"mcpCapabilities":{"http":false,"sse":false},"sessionCapabilities":{"close":{}}},"agentInfo":{"name":"bboxy450-harness","version":env!("CARGO_PKG_VERSION")}})).await;
             }
             "session/new" | "session/load" => self.load(method == "session/load", id, params).await,
             "session/prompt" => {
