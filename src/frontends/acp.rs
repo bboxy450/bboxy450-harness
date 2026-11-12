@@ -690,25 +690,6 @@ impl Face {
         let mut changed = None;
         let mut completed = false;
         match &e.event {
-            Event::ContextChanged {
-                mode,
-                permission_mode,
-                config,
-            } => {
-                self.update(
-                    sid,
-                    chunk(
-                        "agent_message_chunk",
-                        format!(
-                            "Context: {} · {} · {} settings",
-                            mode.as_deref().unwrap_or("unreported"),
-                            permission_mode.as_deref().unwrap_or("unreported"),
-                            config.as_ref().map_or(0, |c| c.len())
-                        ),
-                    ),
-                )
-                .await;
-            }
             Event::ItemStarted {
                 item,
                 kind,

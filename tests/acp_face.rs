@@ -1292,11 +1292,7 @@ async fn nested_acp_keeps_native_records_out_of_live_and_replayed_reply_text() {
                 let update = &value["params"]["update"];
                 if let Some(text) = update["content"]["text"].as_str() {
                     match update["sessionUpdate"].as_str() {
-                        Some("agent_message_chunk")
-                            if text != "Context: unreported · unreported · 1 settings" =>
-                        {
-                            message.push_str(text)
-                        }
+                        Some("agent_message_chunk") => message.push_str(text),
                         Some("agent_thought_chunk") => reasoning.push_str(text),
                         _ => {}
                     }
@@ -1306,6 +1302,12 @@ async fn nested_acp_keeps_native_records_out_of_live_and_replayed_reply_text() {
             assert_eq!(reasoning, thought, "{scenario}, replay={replay}");
             let log = session_log(&config, &sid);
             bboxy450_harness::protocol::laws::check_authored(&log).unwrap();
+            if scenario == "text" {
+                assert!(
+                    log.iter()
+                        .any(|e| matches!(&e.event, Event::ContextChanged { .. }))
+                );
+            }
             assert!(
                 log.iter().any(|e| matches!(&e.event,
                     Event::ItemCompleted {body: Item::Native {record_type, raw, ..}, ..}
