@@ -1882,6 +1882,18 @@ pub(crate) fn selected_command_input(
     }
     result
 }
+#[cfg(not(target_os = "macos"))]
+fn selected_command_input_owned(
+    _cwd: &Path,
+    _program: &str,
+    _args: &[String],
+    _home: Option<&Path>,
+    _input: Option<&[u8]>,
+) -> Result<(i32, Vec<u8>), Invalid> {
+    Err(Invalid("prepared native helpers unavailable on host"))
+}
+
+#[cfg(target_os = "macos")]
 fn selected_command_input_owned(
     cwd: &Path,
     program: &str,
@@ -1891,12 +1903,6 @@ fn selected_command_input_owned(
 ) -> Result<(i32, Vec<u8>), Invalid> {
     use std::io::{Read, Write};
     use std::os::fd::AsRawFd;
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = (cwd, program, args, home, input);
-        return Err(Invalid("prepared native helpers unavailable on host"));
-    }
-    #[cfg(target_os = "macos")]
     let (
         mut prepared,
         request,
@@ -1960,9 +1966,7 @@ fn selected_command_input_owned(
             bytes,
         )
     };
-    #[cfg(target_os = "macos")]
     let pgid = pid; // kernel START_SUSPENDED retains the typed positive effect before verdict
-    #[cfg(target_os = "macos")]
     if pid <= 0 {
         dispose_spawn_preparation(&mut prepared);
         let raw = helper_stamp(HelperPhase::RawInclusive, true);

@@ -2228,6 +2228,7 @@ impl HelperGroup {
             user != u64::MAX && before.checked_add(1_000).is_some_and(|upper| user <= upper);
         self.metrics.pause_user_pass
     }
+    #[cfg(target_os = "macos")]
     fn initial_kernel_tail_pending(&self) -> bool {
         let i = self.metrics.initial;
         let m = self.members[0];
@@ -2251,6 +2252,10 @@ impl HelperGroup {
             && m.live
             && m.verified
             && !m.stopped
+    }
+    #[cfg(not(target_os = "macos"))]
+    fn initial_kernel_tail_pending(&self) -> bool {
+        false
     }
     /// false is a retained, positively identified SSTOP/kernel-tail observation,
     /// not admission. The caller pays this complete unit before re-observing.
