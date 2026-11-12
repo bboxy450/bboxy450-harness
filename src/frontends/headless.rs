@@ -440,13 +440,19 @@ async fn run_cli(
             Ok(p) if defer_acp_profile => {
                 // Advertise capabilities without executing a credential command.
                 // Host resolves the real provider inside its cancellable factory.
-                let client = p
-                    .build_provider(
+                let client: Arc<dyn Provider> = if p.is_acp_agent() {
+                    Arc::new(FailedProvider(ProviderError::new(
+                        ErrorClass::Config,
+                        "profile resolution pending",
+                    )))
+                } else {
+                    p.build_provider(
                         crate::redact::Secret::new(String::new(), &redactor),
                         redactor.clone(),
                         Default::default(),
                     )
-                    .map_err(|e| e.message)?;
+                    .map_err(|e| e.message)?
+                };
                 (client, p.model.clone(), p.policy())
             }
             Ok(p) => match p.key(&redactor, stop.child_token()).await {

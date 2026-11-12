@@ -114,6 +114,52 @@ fn session_log(config: &Config, sid: &str) -> Vec<Envelope> {
     .map(|line| serde_json::from_str(line).unwrap())
     .collect()
 }
+#[cfg(feature = "acp-agent")]
+#[tokio::test]
+async fn cli_initializes_acp_agent_without_native_endpoint() {
+    let temp = tempfile::tempdir().unwrap();
+    let profiles = temp.path().join(".bboxy450-harness/profiles");
+    std::fs::create_dir_all(&profiles).unwrap();
+    std::fs::write(
+        profiles.join("private.md"),
+        "---\nname: private\nprovider: acp-agent\nagent:\n  command: [/bin/false]\n---\n",
+    )
+    .unwrap();
+    let mut child = tokio::process::Command::new(env!("CARGO_BIN_EXE_bboxy450-harness"))
+        .args(["acp", "--profile", "private"])
+        .arg("--cwd")
+        .arg(temp.path())
+        .env_clear()
+        .env("HOME", temp.path())
+        .env("PATH", std::env::var_os("PATH").unwrap())
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .unwrap();
+    let mut input = child.stdin.take().unwrap();
+    let mut output = tokio::io::BufReader::new(child.stdout.take().unwrap()).lines();
+    input.write_all(b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":1,\"clientCapabilities\":{}}}\n").await.unwrap();
+    input.flush().await.unwrap();
+    let line = tokio::time::timeout(std::time::Duration::from_secs(8), output.next_line())
+        .await
+        .expect("ACP initialize stalled")
+        .unwrap();
+    drop(input);
+    let exited = tokio::time::timeout(std::time::Duration::from_secs(8), child.wait_with_output())
+        .await
+        .expect("ACP EOF did not join")
+        .unwrap();
+    assert!(
+        exited.status.success(),
+        "{}",
+        String::from_utf8_lossy(&exited.stderr)
+    );
+    let reply: Value = serde_json::from_str(&line.expect("ACP closed before initialize")).unwrap();
+    assert_eq!(reply["id"], 1);
+    assert_eq!(reply["result"]["agentInfo"]["name"], "bboxy450-harness");
+}
 #[tokio::test]
 async fn max_tokens_max_rounds_and_error_replies_match_the_ending() {
     let length = json!({"choices":[{"delta":{"content":"limited"},"finish_reason":"length"}]});
