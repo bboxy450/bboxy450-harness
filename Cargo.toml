@@ -6,7 +6,7 @@
 # Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
 [package]
 name = "bboxy450-harness"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 default-run = "bboxy450-harness"
 rust-version = "1.99"
@@ -27,19 +27,19 @@ acp-agent = ["dep:agent-client-protocol"]
 test-fixtures = []
 
 [dependencies]
-bbt_doc = { package = "bboxy450-doc", version = "=0.1.1", optional = true }
-bbt_ui = { package = "bboxy450-ui", version = "=0.1.1", optional = true }
-bbt_ui_model = { package = "bboxy450-ui-core", version = "=0.1.1", optional = true }
-bbt_render = { package = "bboxy450-render", version = "=0.1.1", optional = true }
+bbt_doc = { package = "bboxy450-doc", version = "=0.2.0", optional = true }
+bbt_ui = { package = "bboxy450-ui", version = "=0.2.0", optional = true }
+bbt_ui_model = { package = "bboxy450-ui-core", version = "=0.2.0", optional = true }
+bbt_render = { package = "bboxy450-render", version = "=0.2.0", optional = true }
 # The term's platform-free menu model and window actions (harness-spec.md Standalone window),
 # and its AppKit menu bar, window and title-bar helpers.
-bbt_desktop_core = { package = "bboxy450-term-desktop-core", version = "=0.1.1", optional = true }
-bbt_desktop = { package = "bboxy450-term-desktop", version = "=0.1.1", optional = true }
+bbt_desktop_core = { package = "bboxy450-term-desktop-core", version = "=0.2.0", optional = true }
+bbt_desktop = { package = "bboxy450-term-desktop", version = "=0.2.0", optional = true }
 winit = { version = "0.30", optional = true }
 wgpu = { version = "=30.0.1", default-features = false, features = ["metal", "wgsl"], optional = true }
 png = { version = "0.18", optional = true }
-bbt_rt = { package = "bboxy450-rt", version = "=0.1.1" }
-bbt_yarn = { package = "bboxy450-yarn", version = "=0.1.1" }
+bbt_rt = { package = "bboxy450-rt", version = "=0.2.0" }
+bbt_yarn = { package = "bboxy450-yarn", version = "=0.2.0" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 schemars = "1"
@@ -72,9 +72,9 @@ base64 = "0.22"
 
 [dev-dependencies]
 proptest = { version = "1", default-features = false, features = ["std"] }
-bbt_yarn = { package = "bboxy450-yarn", version = "=0.1.1", features = ["model"] }
+bbt_yarn = { package = "bboxy450-yarn", version = "=0.2.0", features = ["model"] }
 tempfile = "3"
-bbt_tlc = { package = "bboxy450-tlc", version = "=0.1.1" }
+bbt_tlc = { package = "bboxy450-tlc", version = "=0.2.0" }
 portable-pty = "0.9"
 
 [lib]
@@ -100,4 +100,4 @@ bboxy450-term-desktop-macos = { git = "https://github.com/bboxy450/bboxy450-term
 
 # Share the published runtime with the git-pinned UI/core widgets (R15).
 [patch."https://github.com/bboxy450/bboxy450-term"]
-bboxy450-rt = { version = "=0.1.1" }
+bboxy450-rt = { version = "=0.2.0" }
