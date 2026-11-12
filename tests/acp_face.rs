@@ -1208,7 +1208,6 @@ async fn load_v1_additions_exports_valid_updates_and_keeps_sealed_reasoning_priv
         "Command: /help",
         "Hook: pre_tool",
         "Developer:",
-        "Native: fixture/unmapped",
         "Audio:",
         "usage_update",
         "Read reference",
@@ -1217,5 +1216,116 @@ async fn load_v1_additions_exports_valid_updates_and_keeps_sealed_reasoning_priv
         assert!(text.contains(needle), "missing {needle}: {text}");
     }
     assert!(!text.contains("opaque fixture"));
+    assert!(!text.contains("Native:"));
+    assert!(session_log(&client.config, &meta.session.to_string()).iter().any(
+        |e| matches!(&e.event, Event::ItemCompleted {body: Item::Native {provider, record_type, raw, ..}, ..}
+            if provider == "fixture" && record_type == "unmapped" && raw["kept"] == true)
+    ));
     client.close().await;
+}
+
+#[cfg(feature = "acp-agent")]
+#[tokio::test]
+async fn nested_acp_keeps_native_records_out_of_live_and_replayed_reply_text() {
+    for (scenario, expected, thought, native_kind) in [
+        (
+            "text",
+            "Hello from the fake agent.",
+            "Thinking about it.",
+            "available_commands_update",
+        ),
+        ("ir-edge", "hello", "", "agent_message_chunk"),
+    ] {
+        let temp = tempfile::tempdir().unwrap();
+        let mut config = test_config(
+            &temp,
+            Arc::new(ScriptedProvider::new(vec![])),
+            Unattended::Deny,
+        );
+        config.meta.profile = Some("fake".into());
+        std::fs::create_dir_all(&config.profiles).unwrap();
+        let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/acp-agent/fake_agent.py");
+        let command = json!(["python3", "-I", script, scenario]);
+        std::fs::write(
+            config.profiles.join("fake.md"),
+            format!("---\nname: fake\nprovider: acp-agent\nagent:\n  command: {command}\n---\n"),
+        )
+        .unwrap();
+        let mut c = client_config(config.clone(), 1024 * 1024).await;
+        c.request(1, "session/new", json!({"cwd":temp.path(),"mcpServers":[]}))
+            .await;
+        let sid = loop {
+            let value = c.next().await;
+            validate(&value);
+            if value["id"] == 1 {
+                break value["result"]["sessionId"]
+                    .as_str()
+                    .expect("new session")
+                    .to_owned();
+            }
+        };
+        c.request(
+            2,
+            "session/prompt",
+            json!({"sessionId":sid,"prompt":[{"type":"text","text":"hello"}]}),
+        )
+        .await;
+        for replay in [false, true] {
+            if replay {
+                c.request(
+                    3,
+                    "session/load",
+                    json!({"sessionId":sid,"cwd":temp.path(),"mcpServers":[]}),
+                )
+                .await;
+            }
+            let mut message = String::new();
+            let mut reasoning = String::new();
+            loop {
+                let value = c.next().await;
+                validate(&value);
+                if value["id"] == if replay { 3 } else { 2 } {
+                    assert!(value.get("result").is_some(), "{value}");
+                    break;
+                }
+                let update = &value["params"]["update"];
+                if let Some(text) = update["content"]["text"].as_str() {
+                    match update["sessionUpdate"].as_str() {
+                        Some("agent_message_chunk")
+                            if text != "Context: unreported · unreported · 1 settings" =>
+                        {
+                            message.push_str(text)
+                        }
+                        Some("agent_thought_chunk") => reasoning.push_str(text),
+                        _ => {}
+                    }
+                }
+            }
+            assert_eq!(message, expected, "{scenario}, replay={replay}");
+            assert_eq!(reasoning, thought, "{scenario}, replay={replay}");
+            let log = session_log(&config, &sid);
+            bboxy450_harness::protocol::laws::check_authored(&log).unwrap();
+            assert!(
+                log.iter().any(|e| matches!(&e.event,
+                    Event::ItemCompleted {body: Item::Native {record_type, raw, ..}, ..}
+                        if record_type == native_kind && raw["sessionUpdate"] == native_kind
+                )),
+                "native evidence missing for {scenario}"
+            );
+            if !replay {
+                // Replay the durable checkpoint from before EOF closes the
+                // private fixture session, as after a dropped connection.
+                let path = bboxy450_harness::store::log_path(
+                    &config.sessions,
+                    SessionId(sid.parse().unwrap()),
+                );
+                let checkpoint = std::fs::read(&path).unwrap();
+                c.close().await;
+                std::fs::write(path, checkpoint).unwrap();
+                c = client_config(config.clone(), 1024 * 1024).await;
+            }
+        }
+        c.close().await;
+    }
 }

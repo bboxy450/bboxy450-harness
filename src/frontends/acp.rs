@@ -792,7 +792,10 @@ impl Face {
             }
             Item::Approval {..} if completed=>self.permissions.lock().unwrap().retain(|_,p|p.session!=sid||p.item!=item),
             Item::MemoryWrite { .. } | Item::MemoryState { .. } | Item::Trial { .. } | Item::Adoption { .. } | Item::Recall { .. }
-                    | Item::Receipt { .. } | Item::Command { .. } | Item::Hook { .. } | Item::SystemMessage { .. } | Item::Native { .. } if completed => self.update(sid,chunk("agent_message_chunk",body.extension_text().unwrap_or_default())).await,
+                    | Item::Receipt { .. } | Item::Command { .. } | Item::Hook { .. } | Item::SystemMessage { .. } if completed => self.update(sid,chunk("agent_message_chunk",body.extension_text().unwrap_or_default())).await,
+            // Native records stay in the log, as in the GUI/seat, rather than
+            // becoming assistant prose when another harness consumes this face.
+            Item::Native { .. } => {},
             Item::Usage {usage} if completed && usage.context_used.is_some() && usage.context_window.is_some() => self.update(sid,json!({"sessionUpdate":"usage_update","used":usage.context_used,"size":usage.context_window,"_meta":{"bboxy450-harness":usage}})).await,
             Item::Usage {usage} if completed && usage.scope.is_some() => self.update(sid,chunk("agent_message_chunk",format!("Usage: {}", usage.numbers().into_iter().map(|(k,v)|format!("{k}={v}")).collect::<Vec<_>>().join(" · ")))).await,
             Item::Subagent {session,name,..} if completed && name.is_some() => self.update(sid,chunk("agent_message_chunk",format!("Subagent {} · {session}",name.as_deref().unwrap_or("")))).await,
