@@ -134,7 +134,7 @@ impl HarnessView {
         }
         if self.inputs.observed_text != self.composer.view.text {
             self.inputs.changed();
-            self.inputs.observed_text = self.composer.view.text.clone();
+            self.reconcile_markers();
         }
         let scope = (state.transcript.session, state.transcript.epoch);
         if scope != (self.inputs.owner.session, self.inputs.owner.epoch) {
@@ -210,7 +210,7 @@ impl HarnessView {
                         continue;
                     }
                     self.inputs.intake_owner = Some(self.inputs.owner.clone());
-                    for a in rows {
+                    for mut a in rows {
                         let title = a.label.clone();
                         // File-style chips avoid mutating the editor from an async callback.
                         self.composer
@@ -223,15 +223,40 @@ impl HarnessView {
                                 path: a.id.clone(),
                                 ..Default::default()
                             }));
-                        if self.composer.view.text.is_empty() {
-                            self.composer.handle(composer::Command::Edit(Edit::Insert(
-                                if a.preview.is_some() {
-                                    format!("[Image #{}]", self.inputs.attachments.len() + 1)
-                                } else {
-                                    format!("@{}", a.label)
-                                },
-                            )));
+                        // An image always stands in the text as `[Image #n]`, at
+                        // the caret, like a terminal paste; a dropped file only
+                        // when the draft is empty (a chosen file already wrote `@path`).
+                        let marker = if a.preview.is_some() {
+                            let mut n = self
+                                .inputs
+                                .attachments
+                                .iter()
+                                .filter(|a| a.preview.is_some())
+                                .count()
+                                + 1;
+                            while self.composer.view.text.contains(&format!("[Image #{n}]")) {
+                                n += 1;
+                            }
+                            Some(format!("[Image #{n}]"))
+                        } else if self.composer.view.text.is_empty() {
+                            Some(format!("@{}", a.label))
+                        } else {
+                            None
+                        };
+                        if let Some(marker) = &marker {
+                            let before = self.caret_prefix();
+                            let lead = if before.is_empty() || before.ends_with(char::is_whitespace)
+                            {
+                                ""
+                            } else {
+                                " "
+                            };
+                            self.composer
+                                .handle(composer::Command::Edit(Edit::Insert(format!(
+                                    "{lead}{marker}"
+                                ))));
                         }
+                        a.marker = marker;
                         self.inputs.observed_text = self.composer.view.text.clone();
                         self.inputs.attachments.push(a);
                     }
@@ -451,12 +476,69 @@ impl HarnessView {
     }
     pub(super) fn remove_attachment(&mut self, index: usize) {
         if index < self.inputs.attachments.len() {
+            let marker = self.inputs.attachments.remove(index).marker;
+            self.composer
+                .handle(composer::Command::RemoveAttachment(index));
+            if let Some(marker) = marker {
+                self.cut(&marker);
+            }
+            self.inputs.changed();
+            self.invalidate();
+        }
+    }
+    /// The draft text before the caret.
+    fn caret_prefix(&self) -> &str {
+        let text = &self.composer.view.text;
+        let caret = self.composer.view.edit.as_ref().and_then(|e| e.caret);
+        caret
+            .and_then(|c| ui::components::utf16_byte_index(text, c))
+            .map_or(text.as_str(), |end| &text[..end])
+    }
+    /// Removes the first occurrence of `needle` from the draft through the
+    /// editor, so the caret lands where the text closed up.
+    fn cut(&mut self, needle: &str) -> bool {
+        let Some(at) = self.composer.view.text.find(needle) else {
+            return false;
+        };
+        let start = self.composer.view.text[..at].encode_utf16().count();
+        let end = start + needle.encode_utf16().count();
+        for (at, extend) in [(start, false), (end, true)] {
+            self.composer
+                .handle(composer::Command::Edit(Edit::SetCaret { at, extend }));
+        }
+        self.composer
+            .handle(composer::Command::Edit(Edit::Insert(String::new())));
+        true
+    }
+    /// A marker is one thing with its attachment: when the text no longer
+    /// holds it whole, the rest of the marker leaves the draft and the
+    /// attachment leaves the chips. Deleting the `]` of `[Image #2]` is enough.
+    pub(super) fn reconcile_markers(&mut self) {
+        let mut dropped = vec![];
+        for (index, a) in self.inputs.attachments.iter().enumerate() {
+            if let Some(marker) = &a.marker
+                && !self.composer.view.text.contains(marker.as_str())
+            {
+                dropped.push((index, marker.clone()));
+            }
+        }
+        for (index, marker) in dropped.into_iter().rev() {
+            // Any one-character gap in the marker is the operator's deletion in progress.
+            let remnants = marker
+                .char_indices()
+                .map(|(i, c)| format!("{}{}", &marker[..i], &marker[i + c.len_utf8()..]));
+            for remnant in remnants {
+                if self.cut(&remnant) {
+                    break;
+                }
+            }
             self.inputs.attachments.remove(index);
             self.composer
                 .handle(composer::Command::RemoveAttachment(index));
             self.inputs.changed();
             self.invalidate();
         }
+        self.inputs.observed_text = self.composer.view.text.clone();
     }
     pub(super) fn file_menu(
         &self,
@@ -502,25 +584,19 @@ impl HarnessView {
             return composer;
         }
         let ink = f::ink(context());
-        // One row of compact chips, as a terminal shows `[Image #1]`: a small
-        // thumbnail, the label and a × that removes it.
+        // One row of compact chips: a thumbnail you can recognise, the marker
+        // that stands for it in the text, and a × that removes both.
         let mut chips = vec![];
         for (i, a) in self.inputs.attachments.iter().enumerate() {
             let mut chip = vec![];
-            let label = if let Some(image) = &a.preview {
+            if let Some(image) = &a.preview {
                 chip.push(fixed(c::Element::Image {
                     asset: image.name.clone(),
-                    size: ui::Length::Px(20.),
-                    radius: ui::Length::Px(4.),
+                    size: ui::Length::Px(28.),
+                    radius: ui::Length::Px(5.),
                 }));
-                if a.label == "Pasted image" {
-                    format!("Image #{}", i + 1)
-                } else {
-                    a.label.clone()
-                }
-            } else {
-                a.label.clone()
-            };
+            }
+            let label = a.marker.clone().unwrap_or_else(|| a.label.clone());
             chip.push(fixed(line(&label, 11.5, 500, ink.fg, false)));
             chip.push(fixed(named(
                 format!("attachment/remove/{i}"),

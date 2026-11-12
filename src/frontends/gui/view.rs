@@ -2134,7 +2134,7 @@ impl HarnessView {
     pub fn edit(&mut self, command: ui::text_edit::Command) {
         self.inputs.changed();
         self.composer.handle(composer::Command::Edit(command));
-        self.inputs.observed_text = self.composer.view.text.clone();
+        self.reconcile_markers();
         self.completion = self.composer.popover(&self.profile_names());
         self.refresh_files();
         self.last_edit = self.anim.now();

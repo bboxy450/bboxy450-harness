@@ -840,3 +840,37 @@ async fn queued_image_file_keeps_real_prior_history_pixels_during_preparation_ga
     .await;
     f.close().await;
 }
+// State: a draft with text, then a pasted image. Safety: the marker lands at
+// the caret inside the text; any break in the marker removes it whole and
+// detaches the image; the × chip removes the marker from the text too.
+#[tokio::test]
+async fn image_marker_is_one_thing_with_its_attachment() {
+    let mut f = Fixture::new(false, true).await;
+    f.view
+        .edit(bbt_ui::text_edit::Command::Insert("look at this".into()));
+    f.view.intake(Intake::Png(png()), &f.bridge);
+    f.wait(|f| f.view.attachment_count() == 1).await;
+    assert_eq!(f.view.composer.view.text, "look at this [Image #1]");
+    f.view.intake(Intake::Png(png()), &f.bridge);
+    f.wait(|f| f.view.attachment_count() == 2).await;
+    assert_eq!(
+        f.view.composer.view.text,
+        "look at this [Image #1] [Image #2]"
+    );
+    // Backspace over the final `]` of [Image #2]: the whole marker goes, and so does the image.
+    f.view
+        .edit(bbt_ui::text_edit::Command::Delete { backwards: true });
+    assert_eq!(f.view.composer.view.text, "look at this [Image #1] ");
+    assert_eq!(f.view.attachment_count(), 1);
+    assert_eq!(f.view.composer.view.attach.len(), 1);
+    // The chip's × removes the marker from the text as well.
+    f.view.activate(Action::RemoveAttachment(0), &f.bridge);
+    assert_eq!(f.view.attachment_count(), 0);
+    assert!(f.view.composer.view.attach.is_empty());
+    assert_eq!(f.view.composer.view.text, "look at this  ");
+    // A marker typed by hand without an image is plain text.
+    f.view
+        .edit(bbt_ui::text_edit::Command::Insert("[Image #9]".into()));
+    assert_eq!(f.view.attachment_count(), 0);
+    f.close().await;
+}

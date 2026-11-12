@@ -30,6 +30,9 @@ pub struct Attachment {
     pub block: InputBlock,
     pub preview: Option<Arc<Image>>,
     pub custody: Option<Arc<ImageCustody>>,
+    /// The text that stands for this attachment in the draft, `[Image #1]`
+    /// or `@file`; deleting any of it removes the attachment.
+    pub marker: Option<String>,
 }
 fn admitted(root: &Path, path: &Path) -> Result<PathBuf, String> {
     let root = root.canonicalize().map_err(|_| "Workspace unavailable")?;
@@ -253,6 +256,7 @@ pub fn read_file(root: &Path, path: &Path) -> Result<Attachment, String> {
         },
         preview: None,
         custody: None,
+        marker: None,
     })
 }
 pub fn image(bytes: Vec<u8>, label: String) -> Result<Attachment, String> {
@@ -316,5 +320,6 @@ pub fn image(bytes: Vec<u8>, label: String) -> Result<Attachment, String> {
             rgba,
         })),
         custody: Some(custody),
+        marker: None,
     })
 }
