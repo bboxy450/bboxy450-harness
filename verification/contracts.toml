@@ -1217,3 +1217,14 @@ assumptions = "Decision66007 C is bound to signed authority commit b26d7cd3432e9
 property = "A consumed closure is atomic complete, strictly typed, explicitly premise-bound, candidate-complete and within unchanged limits; all five raw load modes preserve source order/multiplicity and resolve only to bound candidate/cache targets; per-tool static/member/map and image source/file/UUID facts match immutable provenance. Birth and settlement receipts match the exact platform/incarnation; observed mismatches are sticky even after return to A. No OS-internal catalogue or runtime grant is produced."
 checks = ["make test-formal", "make test"]
 additional_checks = ["make test-dream-proof-tools"]
+
+[[contract]]
+name = "HarnessMcpRelay"
+title = "A relay reports catalogue restoration and binds new lists to the current server birth"
+models = ["HarnessMcpRelay", "BrokenHarnessMcpRelayNotify", "BrokenHarnessMcpRelayCapture"]
+controls = [{name="BrokenHarnessMcpRelayNotify",expected="safety"},{name="BrokenHarnessMcpRelayCapture",expected="safety"}]
+sources = ["src/mcp/relay.rs", "src/mcp/relay_model.rs", "src/mcp.rs", "tests/formal/models.rs"]
+implementation_tests = ["src/mcp/relay.rs"]
+assumptions = "Two nonreused server births, optional readiness/observation/capture, atomic completed observation and completed first-page list. Observe abstracts an uncancelled watcher iteration with an available downstream writer and a successful notification write; busy writers and coalesced transient upstream states may suppress optional notices. No fairness or liveness claim. Actual stdio/Unix IO, backoff, schema bytes, pinned pagination and generation-fenced calls remain implementation witnesses."
+property = "MCP-RELAY-001: every changed completed observation, including unavailable-to-ready, issues a catalogue notification. MCP-RELAY-002: a completed first-page list uses the current birth. Separate controls forget the observed unavailable state and retain the first capture across re-list. The real stdio restart witness checks both notifications, refuses a stale call before listing without sending it, and admits exactly one future call after listing. Existing HarnessMcpServer models generation-fenced results."
+checks = ["make test-formal", "make test"]

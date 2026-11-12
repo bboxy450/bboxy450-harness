@@ -93,7 +93,7 @@ async fn serve(stream: UnixStream, manager: Manager, name: String, cancel: Cance
                 notified.as_mut().enable();
                 let current = slot.ready.load_full();
                 let version = current.as_ref().as_ref().map(|ready| (ready.generation, ready.schema_digest.clone()));
-                if previous.is_some() && previous != version {
+                if previous.as_ref().is_some_and(|previous| previous != &version) {
                     let notification = b"{\"jsonrpc\":\"2.0\",\"method\":\"notifications/tools/list_changed\"}\n";
                     // Do not queue behind a blocked response for an optional
                     // notification. A pre-dispatch tool miss also refreshes.
@@ -101,7 +101,7 @@ async fn serve(stream: UnixStream, manager: Manager, name: String, cancel: Cance
                         tokio::select! {biased;_=cancel.cancelled()=>return,_=writer.write_all(notification)=>{}}
                     }
                 }
-                previous = version;
+                previous = Some(version);
                 tokio::select! {biased;_=cancel.cancelled()=>return,_=notified=>{}}
             }
         });
@@ -141,7 +141,13 @@ async fn serve(stream: UnixStream, manager: Manager, name: String, cancel: Cance
                         if ready||tokio::time::Instant::now()>=deadline{break;}
                         tokio::select!{biased;_=cancel.cancelled()=>return,_=tokio::time::sleep(Duration::from_millis(10))=>{}}
                     }
-                    let captured={let mut bound=capture.lock().await;bound.get_or_insert_with(||manager.capture()).clone()};
+                    // A new catalogue starts a new generation binding. Calls
+                    // and subsequent pages retain exactly that advertised view.
+                    let captured={let mut bound=capture.lock().await;
+                        if request["method"]=="tools/list" && request["params"]["cursor"].as_str().is_none_or(|cursor|cursor=="0") {
+                            *bound=Some(manager.capture());
+                        }
+                        bound.get_or_insert_with(||manager.capture()).clone()};
                     if request["method"]=="tools/list" {
                         let offset=request["params"]["cursor"].as_str().unwrap_or("0").parse::<usize>().unwrap_or(usize::MAX);
                         manager.tools_page(&captured,&name,offset).map(|page|{
@@ -165,4 +171,165 @@ async fn serve(stream: UnixStream, manager: Manager, name: String, cancel: Cance
     // Disconnect stops corresponding requests, never restarts a singleton server.
     cancel.cancel();
     while tasks.join_next().await.is_some() {}
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // An actual stdio MCP server exits after a restart request. Its next
+    // supervised process advertises the same schema with a new generation.
+    const SERVER: &str = r#"
+import json, os, pathlib, sys
+for line in sys.stdin:
+    q = json.loads(line)
+    if 'id' not in q:
+        continue
+    method = q['method']
+    if method == 'initialize':
+        result = {'protocolVersion':'2024-11-05','capabilities':{'tools':{}},'serverInfo':{'name':'restart-fixture','version':'1'}}
+    elif method == 'tools/list':
+        result = {'tools':[{'name':n,'inputSchema':{'type':'object'}} for n in ['restart','echo']]}
+    elif method == 'tools/call':
+        name = q['params']['name']
+        if name == 'echo':
+            with pathlib.Path('calls').open('a') as f:
+                f.write('echo\n')
+        result = {'content':[{'type':'text','text':name}]}
+    else:
+        result = {}
+    print(json.dumps({'jsonrpc':'2.0','id':q['id'],'result':result}), flush=True)
+    if method == 'tools/call' and q['params']['name'] == 'restart':
+        os._exit(0)
+"#;
+
+    async fn request(write: &mut tokio::net::unix::OwnedWriteHalf, id: u64, method: &str) {
+        let params = match method {
+            "initialize" => {
+                json!({"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"relay-test","version":"1"}})
+            }
+            "restart" | "echo" => json!({"name":method,"arguments":{}}),
+            _ => json!({}),
+        };
+        let method = if matches!(method, "restart" | "echo") {
+            "tools/call"
+        } else {
+            method
+        };
+        write
+            .write_all(
+                format!(
+                    "{}\n",
+                    json!({"jsonrpc":"2.0","id":id,"method":method,"params":params})
+                )
+                .as_bytes(),
+            )
+            .await
+            .unwrap();
+    }
+
+    async fn read(reader: &mut BufReader<tokio::net::unix::OwnedReadHalf>) -> Value {
+        let mut line = String::new();
+        let n = tokio::time::timeout(Duration::from_secs(8), reader.read_line(&mut line))
+            .await
+            .expect("MCP reply or notification within eight seconds")
+            .unwrap();
+        assert!(n > 0, "relay ended");
+        serde_json::from_str(&line).unwrap()
+    }
+
+    async fn reply(reader: &mut BufReader<tokio::net::unix::OwnedReadHalf>, id: u64) -> Value {
+        loop {
+            let value = read(reader).await;
+            if value["id"] == id {
+                return value;
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn restart_notifies_restoration_and_relist_refreshes_only_future_calls() {
+        let dir = tempfile::tempdir().unwrap();
+        let fixture = dir.path().join("server.py");
+        std::fs::write(&fixture, SERVER).unwrap();
+        let config = ServerConfig {
+            command: "python3".into(),
+            args: vec!["-u".into(), fixture.to_string_lossy().into()],
+            env: BTreeMap::new(),
+            timeout_s: 2,
+            trust_hints: false,
+        };
+        let (notices, _output) = mpsc::channel(256);
+        let mut services = TaskGroup::new(CancellationToken::new());
+        let manager = Manager::start_in(
+            [(
+                "probe".into(),
+                SpawnConfig {
+                    config,
+                    origin: Origin::Profile,
+                },
+            )]
+            .into(),
+            Set::default(),
+            notices,
+            &mut services,
+            Some(dir.path().into()),
+        );
+        tokio::time::timeout(Duration::from_secs(8), async {
+            while manager.slots[0].ready.load().is_none() {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("initial fixture startup");
+        let relay = Relay::shared(manager.clone(), &mut services).await.unwrap();
+        let stream = UnixStream::connect(relay.directory.join("0"))
+            .await
+            .unwrap();
+        let (read_half, mut write) = stream.into_split();
+        let mut reader = BufReader::new(read_half);
+        request(&mut write, 1, "initialize").await;
+        assert!(reply(&mut reader, 1).await["error"].is_null());
+        request(&mut write, 2, "tools/list").await;
+        assert_eq!(
+            reply(&mut reader, 2).await["result"]["tools"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+        request(&mut write, 3, "restart").await;
+        let mut changes = 0;
+        while changes < 2 {
+            if read(&mut reader).await["method"] == "notifications/tools/list_changed" {
+                changes += 1;
+            }
+        }
+        request(&mut write, 4, "echo").await;
+        let stale = reply(&mut reader, 4).await;
+        assert_eq!(
+            stale["error"]["data"]["code"], "server_generation_changed",
+            "{stale}"
+        );
+        assert!(
+            !dir.path().join("calls").exists(),
+            "a stale call reached the replacement server"
+        );
+        request(&mut write, 5, "tools/list").await;
+        let refreshed = reply(&mut reader, 5).await;
+        assert!(
+            refreshed["error"].is_null(),
+            "catalogue remained stale: {refreshed}"
+        );
+        request(&mut write, 6, "echo").await;
+        let current = reply(&mut reader, 6).await;
+        assert!(current["error"].is_null(), "{current}");
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("calls")).unwrap(),
+            "echo\n"
+        );
+        drop(write);
+        drop(reader);
+        services.cancel_and_join().await.unwrap();
+    }
 }

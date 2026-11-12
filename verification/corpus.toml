@@ -2582,3 +2582,18 @@ frontend = "project"
 name = "BrokenHarnessDreamProofToolsClosureBoundaryObservedABA"
 expected = "safety"
 frontend = "project"
+
+[[model]]
+name = "HarnessMcpRelay"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessMcpRelayNotify"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessMcpRelayCapture"
+expected = "safety"
+frontend = "project"

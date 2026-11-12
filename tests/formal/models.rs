@@ -6918,10 +6918,10 @@ fn wp8_recall(mode: u8) -> Model {
 
 #[path = "dream_c1.rs"]
 mod dream_c1;
-#[path = "dream_read.rs"]
-mod dream_read;
 #[path = "dream_proof_tools.rs"]
 mod dream_proof_tools;
+#[path = "dream_read.rs"]
+mod dream_read;
 pub fn corpus() -> Vec<(Model, &'static str)> {
     let mut out = vec![
         (dream_c1::bootstrap_entry(0), "pass"),
@@ -7340,6 +7340,18 @@ pub fn corpus() -> Vec<(Model, &'static str)> {
     out.push((auto_compact(4), "safety"));
     out.push((mcp_server(4), "safety"));
     out.push((mcp_server(5), "safety"));
+    out.push((
+        bboxy450_harness::mcp::relay_model::HarnessMcpRelay::model(),
+        "pass",
+    ));
+    out.push((
+        bboxy450_harness::mcp::relay_model::BrokenHarnessMcpRelayNotify::model(),
+        "safety",
+    ));
+    out.push((
+        bboxy450_harness::mcp::relay_model::BrokenHarnessMcpRelayCapture::model(),
+        "safety",
+    ));
     out.push((acp_flow(0), "pass"));
     out.push((acp_flow(1), "safety"));
     out.push((acp_flow(2), "safety"));

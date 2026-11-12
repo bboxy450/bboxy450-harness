@@ -60,6 +60,8 @@ impl std::fmt::Debug for ServerConfig {
 }
 #[cfg(feature = "acp-agent")]
 pub(crate) mod relay;
+#[doc(hidden)]
+pub mod relay_model;
 
 pub type Servers = BTreeMap<String, ServerConfig>;
 mod python_broker;
