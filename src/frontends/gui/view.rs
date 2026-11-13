@@ -3542,6 +3542,9 @@ pub struct PreparedRows {
     rows: im::HashMap<ItemId, Arc<CachedRow>>,
     /// The rows' solved heights summed: the content height once every height tween rests.
     pub height: f32,
+    /// False while a cold preparation still owes older rows; the bridge
+    /// prepares again at once and the face shows the tail meanwhile.
+    pub complete: bool,
     pub(crate) pending: HashMap<OpId, Arc<c::Layout>>,
     pub layout_builds: usize,
     pub parsed_markdown_bytes: usize,
@@ -3558,7 +3561,6 @@ impl PreparedRows {
             .filter_map(|id| self.rows.get(id).map(|row| &row.layout))
     }
 }
-#[derive(Default)]
 pub struct Preparer {
     theme: Theme,
     theme_revision: u64,
@@ -3570,8 +3572,39 @@ pub struct Preparer {
     documents: super::rich::Documents,
     /// Global text zoom for the rows it prepares; rows at another zoom are rebuilt.
     zoom: Zoom,
+    /// A cold preparation builds the newest rows first and stops after this
+    /// long once at least `PREPARE_FIRST_ROWS` are built; the rest follow in
+    /// the next preparation. One frame of the loader instead of minutes.
+    budget: std::time::Duration,
+}
+/// Rows a cold preparation always builds before its budget may stop it.
+pub const PREPARE_FIRST_ROWS: usize = 200;
+/// How long a cold preparation runs before publishing what it has.
+pub const PREPARE_BUDGET: std::time::Duration = std::time::Duration::from_millis(150);
+impl Default for Preparer {
+    fn default() -> Self {
+        Self {
+            theme: Default::default(),
+            theme_revision: 0,
+            metrics: Default::default(),
+            rows: Default::default(),
+            scope: None,
+            layout_builds: 0,
+            terminal_outputs: Default::default(),
+            documents: Default::default(),
+            zoom: Default::default(),
+            budget: PREPARE_BUDGET,
+        }
+    }
 }
 impl Preparer {
+    /// A preparer whose cold runs stop after `budget` (tests use a tiny one).
+    pub fn with_budget(budget: std::time::Duration) -> Self {
+        Self {
+            budget,
+            ..Self::default()
+        }
+    }
     pub(crate) fn prepare_pending(
         &mut self,
         prepared: &mut PreparedRows,
@@ -3667,13 +3700,19 @@ impl Preparer {
     }
     pub(crate) fn scope(&mut self, model: &Transcript) {
         let scope = (model.session, model.epoch);
-        if self.scope != Some(scope) {
+        // A new epoch of the same session (a reconnect after idling) keeps the
+        // rows: item ids stay unique and a changed row misses the cache on its
+        // own. Only another session starts over.
+        if self
+            .scope
+            .is_some_and(|(session, _)| session != model.session)
+        {
             self.rows.clear();
             self.terminal_outputs.clear();
             self.documents = Default::default();
             self.documents.set_theme(self.theme);
-            self.scope = Some(scope);
         }
+        self.scope = Some(scope);
     }
     /// Caller must use the bounded runtime::blocking preparation pool.
     pub fn prepare(&mut self, source: Arc<Transcript>, width: f32) -> Result<PreparedRows, String> {
@@ -3695,7 +3734,12 @@ impl Preparer {
         let mut total_height = 0.;
         bbt_rt::assert_not_ui_thread();
         let folds = Folds::of(model, faces);
-        for (index, id) in model.order.iter().enumerate() {
+        let started = std::time::Instant::now();
+        let mut built = 0;
+        let mut complete = true;
+        // Newest first: what the face shows is the tail, so a cold start
+        // publishes it within the budget and owes the rest to the next call.
+        for (index, id) in model.order.iter().enumerate().rev() {
             let row = &model.items[id];
             let face = faces.get(id).cloned().unwrap_or_default();
             if folds.parent.contains_key(id) {
@@ -3715,6 +3759,11 @@ impl Preparer {
                 total_height += h;
                 continue;
             }
+            if built >= PREPARE_FIRST_ROWS && started.elapsed() > self.budget {
+                complete = false;
+                continue;
+            }
+            built += 1;
             let deps = folds.deps(model, id, self);
             // Transcript rows fill their pane with 14 px side padding; the composer
             // keeps its independent reading-width cap.
@@ -3760,6 +3809,7 @@ impl Preparer {
             zoom: zoom.percent(),
             rows: self.rows.clone(),
             height: total_height,
+            complete,
             pending: HashMap::new(),
             layout_builds: self.layout_builds,
             parsed_markdown_bytes: self.documents.parsed_bytes,
@@ -4390,5 +4440,109 @@ mod onboarding_markdown_tests {
                 }
             }
         }).await;
+    }
+}
+
+#[cfg(test)]
+mod progressive_prepare_tests {
+    use super::*;
+    fn transcript(rows: usize) -> Transcript {
+        let base: Envelope = serde_json::from_str(
+            include_str!("../../../tests/fixtures/protocol/all-items.jsonl")
+                .lines()
+                .next()
+                .unwrap(),
+        )
+        .unwrap();
+        let mut model = Transcript::default();
+        model.apply(&base);
+        let mut seq = 2;
+        for i in 0..rows {
+            let id = ItemId::new();
+            let mut event = base.clone();
+            event.seq = Some(Seq(seq));
+            event.at = Seq(seq);
+            event.event = Event::ItemStarted {
+                turn: None,
+                item: id,
+                kind: ItemKind::AgentMessage,
+                parent: None,
+                head: None,
+            };
+            model.apply(&event);
+            seq += 1;
+            event.seq = Some(Seq(seq));
+            event.at = Seq(seq);
+            event.event = Event::ItemCompleted {
+                item: id,
+                status: ItemStatus::Completed,
+                body: Item::AgentMessage {
+                    markdown: format!("row {i}: a line of text that lays out\nand a second line"),
+                },
+            };
+            model.apply(&event);
+            seq += 1;
+        }
+        model
+    }
+    async fn run(p: &mut Preparer, source: Arc<Transcript>) -> PreparedRows {
+        let mut owned = std::mem::take(p);
+        let (next, prepared) = crate::runtime::blocking(move || {
+            let prepared = owned.prepare(source, 900.).unwrap();
+            (owned, prepared)
+        })
+        .await;
+        *p = next;
+        prepared
+    }
+    // State: a cold preparer and a long transcript. Safety: the first run
+    // builds at least PREPARE_FIRST_ROWS newest rows and reports incomplete;
+    // the view already has the tail; further runs finish without rebuilding;
+    // a new epoch of the same session keeps the cache.
+    #[test]
+    fn a_cold_preparation_publishes_the_tail_first_and_finishes_later() {
+        // Hundreds of rows need more stack than the test thread carries.
+        std::thread::Builder::new()
+            .stack_size(64 << 20)
+            .spawn(|| {
+                tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap()
+                    .block_on(cold_preparation())
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+    async fn cold_preparation() {
+        let mut model = transcript(PREPARE_FIRST_ROWS + 60);
+        let source = Arc::new(model.clone());
+        let mut p = Preparer::with_budget(std::time::Duration::ZERO);
+        let first = run(&mut p, source.clone()).await;
+        assert!(!first.complete);
+        assert!(first.layout_builds >= PREPARE_FIRST_ROWS);
+        assert!(first.layout_builds < model.order.len());
+        let newest = model.order.last().unwrap();
+        let oldest = &model.order[model.order.len() - (PREPARE_FIRST_ROWS + 60)];
+        assert!(first.rows.contains_key(newest), "the tail comes first");
+        assert!(!first.rows.contains_key(oldest), "the oldest row waits");
+        let mut builds = first.layout_builds;
+        let mut complete = false;
+        for _ in 0..8 {
+            let next = run(&mut p, source.clone()).await;
+            assert!(next.layout_builds > builds || next.complete);
+            builds = next.layout_builds;
+            if next.complete {
+                complete = true;
+                break;
+            }
+        }
+        assert!(complete, "every row is laid out after a few runs");
+        // A reconnect epoch keeps every cached row.
+        model.epoch = crate::protocol::Epoch(model.epoch.0 + 1);
+        let again = run(&mut p, Arc::new(model)).await;
+        assert!(again.complete);
+        assert_eq!(again.layout_builds, builds, "no rebuild across epochs");
     }
 }
