@@ -684,8 +684,10 @@ mod tests {
             for frame in 1..180 {
                 c.tick(frame as f32 * step);
                 let x = c.spring("scroll", 10_000., 180.);
-                assert!(x.is_finite() && x >= previous - 0.01 && x <= 10_000.,
-                    "{step} ms frame {frame}: {previous} -> {x}");
+                assert!(
+                    x.is_finite() && x >= previous - 0.01 && x <= 10_000.,
+                    "{step} ms frame {frame}: {previous} -> {x}"
+                );
                 previous = x;
                 c.end_frame();
             }

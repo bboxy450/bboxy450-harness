@@ -77,7 +77,8 @@ fn private_discovery_later_addition_and_profile_bytes() {
     std::fs::write(&goose, edited).unwrap();
     discover(&env);
     assert_eq!(std::fs::read(&goose).unwrap(), edited);
-    let omp = Profile::parse(&std::fs::read_to_string(env.profiles.join("omp.md")).unwrap()).unwrap();
+    let omp =
+        Profile::parse(&std::fs::read_to_string(env.profiles.join("omp.md")).unwrap()).unwrap();
     assert_eq!(omp.policy.as_deref(), Some("yolo"));
     assert_eq!(omp.agent.unwrap().command, ["omp", "--mode", "acp"]);
     let snapshot = discover(&env);

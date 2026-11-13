@@ -2259,9 +2259,7 @@ async fn quiet_code_large_mcp_expansion_raster_preserves_unicode_first_and_last_
             let frame = view.render(&state, [width, 900.]).unwrap();
             let layout = frame.layout.as_ref().unwrap();
             let head = find(layout, &format!("toolhead/{id}")).unwrap();
-            assert!(
-                layout_text(head).contains("bboxy.knowledge_fetch")
-            );
+            assert!(layout_text(head).contains("bboxy.knowledge_fetch"));
             let key = format!("mdout/{id}");
             let panel = find(layout, &key).unwrap();
             assert!(panel.rect.h <= 400.1 && layout_text(panel).contains("MCP-FIRST"));
@@ -2505,7 +2503,8 @@ fn python_state_call(source: &str, value: serde_json::Value) -> Item {
 
 fn python_states() -> Vec<(&'static str, Item)> {
     use serde_json::json;
-    let source = "import sys; sys.path.insert(0,'/tmp/oracle-bridge')\nimport bb\nemit(bb.task_write(...))";
+    let source =
+        "import sys; sys.path.insert(0,'/tmp/oracle-bridge')\nimport bb\nemit(bb.task_write(...))";
     vec![
         (
             "completed",
@@ -2625,14 +2624,39 @@ async fn python_cell_states_render_structured_cards() {
             let temp = Arc::new(temp);
             [bbt_ui::Theme::Dark, bbt_ui::Theme::Light]
                 .into_iter()
-                .flat_map(|theme| [(theme, false, false), (theme, true, false), (theme, false, true)])
+                .flat_map(|theme| {
+                    [
+                        (theme, false, false),
+                        (theme, true, false),
+                        (theme, false, true),
+                    ]
+                })
                 .filter(move |(_, _, details)| !details || state == "long")
-                .map(|(theme, toggled, details)| (state, theme, toggled, details, source.clone(), ids.clone(), temp.clone()))
+                .map(|(theme, toggled, details)| {
+                    (
+                        state,
+                        theme,
+                        toggled,
+                        details,
+                        source.clone(),
+                        ids.clone(),
+                        temp.clone(),
+                    )
+                })
                 .collect::<Vec<_>>()
         });
         for (state, theme, toggled, details, source, ids, _temp) in captures {
             let faces: Faces = if toggled || details {
-                [(ids[1], Face { output_closed: toggled, arguments_closed: details, ..Default::default() })].into_iter().collect()
+                [(
+                    ids[1],
+                    Face {
+                        output_closed: toggled,
+                        arguments_closed: details,
+                        ..Default::default()
+                    },
+                )]
+                .into_iter()
+                .collect()
             } else {
                 Faces::default()
             };
@@ -2643,12 +2667,18 @@ async fn python_cell_states_render_structured_cards() {
                 ready: true,
                 replay: true,
                 faces: Arc::new(faces.clone()),
-                prepared: Some(Arc::new(preparer.prepare_with_faces(source.clone(), width as f32, &faces).unwrap())),
+                prepared: Some(Arc::new(
+                    preparer
+                        .prepare_with_faces(source.clone(), width as f32, &faces)
+                        .unwrap(),
+                )),
                 ..Default::default()
             };
             let mut view = HarnessView::default();
             view.set_theme(theme);
-            let frame = view.render(&state_frame, [width as f32, height as f32]).unwrap();
+            let frame = view
+                .render(&state_frame, [width as f32, height as f32])
+                .unwrap();
             let layout = frame.layout.as_ref().unwrap();
             let card = find(layout, &format!("tool/{}", ids[1])).unwrap();
             let id = ids[1];
@@ -2656,24 +2686,54 @@ async fn python_cell_states_render_structured_cards() {
             let head = text(format!("toolhead/{id}"));
             let chip = text(format!("python/{id}/status"));
             let body = layout_text(card);
-            assert!(!body.contains("Execution ") && !body.contains("execution "), "{state}: the id is not a body line: {body}");
-            assert!(!body.contains("emit ["), "{state}: no raw one-line emit dump: {body}");
-            assert!(!body.contains("no output"), "{state}: no empty-output placeholder: {body}");
+            assert!(
+                !body.contains("Execution ") && !body.contains("execution "),
+                "{state}: the id is not a body line: {body}"
+            );
+            assert!(
+                !body.contains("emit ["),
+                "{state}: no raw one-line emit dump: {body}"
+            );
+            assert!(
+                !body.contains("no output"),
+                "{state}: no empty-output placeholder: {body}"
+            );
             // The header names the meaningful line, never the import/sys.path setup.
-            assert!(!head.contains("import sys"), "{state}: boilerplate headline: {head}");
+            assert!(
+                !head.contains("import sys"),
+                "{state}: boilerplate headline: {head}"
+            );
             let closed = find(layout, &format!("tool/{id}/body")).is_none();
             if closed {
                 // A closed card spends no row or column on the execution id.
-                assert!(find(layout, &format!("python/{id}/execution")).is_none(), "{state}: {body}");
+                assert!(
+                    find(layout, &format!("python/{id}/execution")).is_none(),
+                    "{state}: {body}"
+                );
             }
             // Light theme draws with the light palette's tokens (state inks mixed to fg).
-            let ink = bboxy450_harness::frontends::gui::face::ink(bbt_ui::Context::new(theme, bbt_ui::Density::Cozy));
+            let ink = bboxy450_harness::frontends::gui::face::ink(bbt_ui::Context::new(
+                theme,
+                bbt_ui::Density::Cozy,
+            ));
             if let Some(node) = find(layout, &format!("python/{id}/emit/0")) {
                 let paints = paints(node);
-                let key = paints.iter().find(|(t, _)| t.trim() == "path").map(|p| p.1).unwrap();
-                assert_eq!(key, bboxy450_harness::frontends::gui::face::mix(ink.fg, ink.dim, 0.3), "{state}/{theme:?}: key ink");
+                let key = paints
+                    .iter()
+                    .find(|(t, _)| t.trim() == "path")
+                    .map(|p| p.1)
+                    .unwrap();
+                assert_eq!(
+                    key,
+                    bboxy450_harness::frontends::gui::face::mix(ink.fg, ink.dim, 0.3),
+                    "{state}/{theme:?}: key ink"
+                );
                 if state == "failed" {
-                    let err = paints.iter().find(|(t, _)| t.trim() == "err").map(|p| p.1).unwrap();
+                    let err = paints
+                        .iter()
+                        .find(|(t, _)| t.trim() == "err")
+                        .map(|p| p.1)
+                        .unwrap();
                     assert_eq!(err, ink.bad, "{state}/{theme:?}: err ink");
                 }
             }
@@ -2681,52 +2741,89 @@ async fn python_cell_states_render_structured_cards() {
                 // Details expanded: the whole source and the full id, still one footer tag.
                 let source = text(format!("codeout/{id}/command"));
                 assert!(source.contains("emit({'open'"), "{source}");
-                assert_eq!(text(format!("python/{id}/execution")), "01M6YPAZT1S2QG0NCSSQEVHC9Y");
+                assert_eq!(
+                    text(format!("python/{id}/execution")),
+                    "01M6YPAZT1S2QG0NCSSQEVHC9Y"
+                );
             }
             match (state, toggled || details) {
                 ("completed", false) => {
-                    assert!(chip.is_empty() && !head.contains("exit"), "the check disc says completed: {head}");
+                    assert!(
+                        chip.is_empty() && !head.contains("exit"),
+                        "the check disc says completed: {head}"
+                    );
                     assert!(head.contains("emit(bb.task_write(...))"), "{head}");
                     assert!(head.contains("1.5s"), "duration in the header: {head}");
                     let preview = text(format!("python/{id}/preview"));
-                    assert!(preview.contains("path") && preview.contains("err null"), "{preview}");
+                    assert!(
+                        preview.contains("path") && preview.contains("err null"),
+                        "{preview}"
+                    );
                     assert!(!body.contains("01M6XXWN"), "{body}");
-                    assert!(find(layout, &format!("python/{id}/emit/0")).is_none(), "closed card draws no blocks");
+                    assert!(
+                        find(layout, &format!("python/{id}/emit/0")).is_none(),
+                        "closed card draws no blocks"
+                    );
                 }
                 ("completed", true) => {
                     let first = text(format!("python/{id}/emit/0"));
-                    assert!(first.contains("path") && first.contains("err") && first.contains("null"), "{first}");
+                    assert!(
+                        first.contains("path") && first.contains("err") && first.contains("null"),
+                        "{first}"
+                    );
                     let second = text(format!("python/{id}/emit/1"));
-                    for row in ["written", "dry_run", "false", "0.75", "owner", "name", "primary"] {
+                    for row in [
+                        "written", "dry_run", "false", "0.75", "owner", "name", "primary",
+                    ] {
                         assert!(second.contains(row), "missing {row}: {second}");
                     }
                     assert!(find(layout, &format!("python/{id}/error")).is_none());
                     // Expanded, the id is one small footer tag, shortened.
-                    assert_eq!(text(format!("python/{id}/execution")), "01M6XXWN\u{2026}GDPH");
+                    assert_eq!(
+                        text(format!("python/{id}/execution")),
+                        "01M6XXWN\u{2026}GDPH"
+                    );
                 }
                 ("failed", false) => {
                     assert_eq!(chip, "exit 1", "the x disc says failed: {chip}");
                     let error = text(format!("python/{id}/error"));
-                    assert!(error.contains("python_failed") && error.contains("Python exited unsuccessfully"), "{error}");
+                    assert!(
+                        error.contains("python_failed")
+                            && error.contains("Python exited unsuccessfully"),
+                        "{error}"
+                    );
                     assert!(text(format!("python/{id}/emit/0")).contains("permission denied"));
                     assert!(text(format!("term/{id}")).contains("KeyError: 'path'"));
                 }
                 ("running", false) => {
                     assert!(chip.is_empty(), "the activity disc says running: {chip}");
-                    assert!(!head.contains("1.5s"), "a running call has no duration yet: {head}");
+                    assert!(
+                        !head.contains("1.5s"),
+                        "a running call has no duration yet: {head}"
+                    );
                     assert!(text(format!("python/{id}/preview")).contains("scanning 12 tasks"));
-                    assert!(find(layout, &format!("term/{id}")).is_none(), "running stays compact");
+                    assert!(
+                        find(layout, &format!("term/{id}")).is_none(),
+                        "running stays compact"
+                    );
                 }
                 ("output", false) => {
                     let out = text(format!("term/{id}"));
-                    assert!(out.contains("tasks/a.md ok") && out.contains("warning: 2 stale tasks skipped"), "{out}");
+                    assert!(
+                        out.contains("tasks/a.md ok")
+                            && out.contains("warning: 2 stale tasks skipped"),
+                        "{out}"
+                    );
                     assert!(head.contains("for t in tasks: print(t)"), "{head}");
                 }
                 ("long", false) => {
                     assert!(head.contains("f=await b.call('knowledge_fetch'"), "{head}");
                     // Clamped source: one expand control, no arrow row.
                     assert!(find(layout, &format!("more/{id}")).is_some());
-                    assert!(find(layout, &format!("codeleft/codeout/{id}/command")).is_none(), "no scroll arrow row");
+                    assert!(
+                        find(layout, &format!("codeleft/codeout/{id}/command")).is_none(),
+                        "no scroll arrow row"
+                    );
                     assert!(text(format!("python/{id}/emit/0")).contains("open"));
                 }
                 _ => {}
@@ -2735,8 +2832,11 @@ async fn python_cell_states_render_structured_cards() {
                 .render_to_rgba(&frame.list, width, height, 1.)
                 .unwrap();
             if let Some(root) = std::env::var_os("PYTHON_CELL_CAPTURE_DIR") {
-                let root = std::path::PathBuf::from(root)
-                    .join(if theme == bbt_ui::Theme::Light { "light" } else { "dark" });
+                let root = std::path::PathBuf::from(root).join(if theme == bbt_ui::Theme::Light {
+                    "light"
+                } else {
+                    "dark"
+                });
                 std::fs::create_dir_all(&root).unwrap();
                 let top = find(layout, &format!("tool/{}", ids[0]))
                     .map_or(0., |n| (n.rect.y - 16.).max(0.)) as u32;
@@ -2746,7 +2846,13 @@ async fn python_cell_states_render_structured_cards() {
                 let mut encoder = png::Encoder::new(
                     std::fs::File::create(root.join(format!(
                         "python-{state}{}.png",
-                        if details { "-details" } else if toggled { "-toggled" } else { "" }
+                        if details {
+                            "-details"
+                        } else if toggled {
+                            "-toggled"
+                        } else {
+                            ""
+                        }
                     )))
                     .unwrap(),
                     width,
@@ -2770,11 +2876,15 @@ async fn python_cell_states_render_structured_cards() {
 #[tokio::test]
 async fn retained_mermaid_canvas_keeps_offscreen_nodes() {
     let temp = tempfile::tempdir().unwrap();
-    let chain: String = (0..24).map(|i| format!("  N{i}[\"node {i}\"] --> N{}\n", i + 1)).collect();
+    let chain: String = (0..24)
+        .map(|i| format!("  N{i}[\"node {i}\"] --> N{}\n", i + 1))
+        .collect();
     let (path, _) = markdown_replay(
         temp.path(),
         vec![(
-            Item::AgentMessage { markdown: format!("Intro\n\n```mermaid\nflowchart TB\n{chain}```\n") },
+            Item::AgentMessage {
+                markdown: format!("Intro\n\n```mermaid\nflowchart TB\n{chain}```\n"),
+            },
             Some(ItemStatus::Completed),
         )],
     );

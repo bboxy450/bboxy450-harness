@@ -110,8 +110,16 @@ fn prepare(
     // A result made of many small fields can exceed the cap in aggregate.
     // Persist both raw and rendered representations before publishing references.
     if let Event::ItemCompleted {
-        body: Item::ToolCall { raw_output, output, spill, .. }, ..
-    } = &mut event {
+        body:
+            Item::ToolCall {
+                raw_output,
+                output,
+                spill,
+                ..
+            },
+        ..
+    } = &mut event
+    {
         if let Some(raw) = raw_output {
             spill_json(raw, &mut put)?;
         }

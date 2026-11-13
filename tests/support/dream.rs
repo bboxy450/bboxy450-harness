@@ -384,7 +384,12 @@ async fn replay_explicit_sources(f: &Fixture, root: PathBuf) -> Vec<d0::Episode>
         assert!(replay.max_poll_cpu_ns <= 1_000_000);
         episodes.extend(replay.episodes);
     }
-    episodes.sort_by_cached_key(|episode| (episode.repo.clone(), serde_json::to_string(&episode.origin).unwrap()));
+    episodes.sort_by_cached_key(|episode| {
+        (
+            episode.repo.clone(),
+            serde_json::to_string(&episode.origin).unwrap(),
+        )
+    });
     assert_eq!(f.source_bytes(), before);
     episodes
 }

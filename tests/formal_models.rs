@@ -53,12 +53,16 @@ fn gui_polish_pending_native_models_and_controls() {
 
 #[test]
 fn scroll_native_models_and_controls() {
-    let root = std::path::PathBuf::from(std::env::var("SCROLL_FORMAL_OUT")
-        .unwrap_or_else(|_| "target/scroll/formal".into()));
+    let root = std::path::PathBuf::from(
+        std::env::var("SCROLL_FORMAL_OUT").unwrap_or_else(|_| "target/scroll/formal".into()),
+    );
     std::fs::create_dir_all(&root).unwrap();
     let mut manifest = String::new();
-    for (model, expected) in [(models::scroll_stick(false), "pass"),
-        (models::scroll_stick(true), "safety"), (models::scroll_resume_control(), "safety")] {
+    for (model, expected) in [
+        (models::scroll_stick(false), "pass"),
+        (models::scroll_stick(true), "safety"),
+        (models::scroll_resume_control(), "safety"),
+    ] {
         export::export(model, expected, &root, &mut manifest).unwrap();
     }
     std::fs::write(root.join("manifest.tsv"), manifest).unwrap();
@@ -398,16 +402,24 @@ fn conditional_lowering_preserves_full_finite_successors_and_fairness() {
 
 #[test]
 fn pane_recovery_native_models_and_controls() {
-    let root = std::path::PathBuf::from(std::env::var("PANE_FORMAL_OUT")
-        .unwrap_or_else(|_| "target/pane/formal".into()));
+    let root = std::path::PathBuf::from(
+        std::env::var("PANE_FORMAL_OUT").unwrap_or_else(|_| "target/pane/formal".into()),
+    );
     std::fs::create_dir_all(&root).unwrap();
     let mut manifest = String::new();
     let cases = models::corpus()
         .into_iter()
-        .filter(|(model, _)| matches!(model.name.as_str(),
-            "HarnessUnrestrictedStartup" | "BrokenHarnessUnrestrictedStartup"
-            | "HarnessDraftHandoff" | "BrokenHarnessDraftHandoff"
-            | "HarnessNativeSpill" | "BrokenHarnessNativeSpill"))
+        .filter(|(model, _)| {
+            matches!(
+                model.name.as_str(),
+                "HarnessUnrestrictedStartup"
+                    | "BrokenHarnessUnrestrictedStartup"
+                    | "HarnessDraftHandoff"
+                    | "BrokenHarnessDraftHandoff"
+                    | "HarnessNativeSpill"
+                    | "BrokenHarnessNativeSpill"
+            )
+        })
         .collect::<Vec<_>>();
     assert_eq!(cases.len(), 6);
     for (model, expected) in cases {

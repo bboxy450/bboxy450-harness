@@ -671,8 +671,16 @@ pub fn describe<'a>(
         n if let Some((server, tool)) = mcp_tool(n) => {
             // Only identifying arguments, never arbitrary payload values.
             let hint = [
-                "path", "locator", "query", "task", "seat_id", "message_id", "swarm_id", "id",
-                "name", "url",
+                "path",
+                "locator",
+                "query",
+                "task",
+                "seat_id",
+                "message_id",
+                "swarm_id",
+                "id",
+                "name",
+                "url",
             ]
             .iter()
             .find_map(|k| args.get(*k).and_then(serde_json::Value::as_str))
@@ -888,16 +896,34 @@ mod gui_polish_output_tests {
             assert_eq!(mixed.stderr.iter().copied().collect::<Vec<_>>(), vec![1]);
             assert_eq!(
                 mixed.error_parts(),
-                Some((Some("python_failed".into()), "Python exited unsuccessfully".into()))
+                Some((
+                    Some("python_failed".into()),
+                    "Python exited unsuccessfully".into()
+                ))
             );
-            assert_eq!(PythonCell::short_id("01M6XXWN1CY9A0746DJHQMGDPH"), "01M6XXWN\u{2026}GDPH");
+            assert_eq!(
+                PythonCell::short_id("01M6XXWN1CY9A0746DJHQMGDPH"),
+                "01M6XXWN\u{2026}GDPH"
+            );
             assert_eq!(PythonCell::short_id("run-1"), "run-1");
             // The header prefers the meaningful call over import/sys.path setup.
             let bridge = "import sys; sys.path.insert(0,'/tmp/oracle-bridge')\nfrom bb import Bridge\nb=Bridge(); await b.start()\nf=await b.call('knowledge_fetch',{})\nemit(f)";
-            assert_eq!(PythonCell::headline(bridge), "f=await b.call('knowledge_fetch',{})");
-            assert_eq!(PythonCell::headline("import os\n# note\nx = os.getcwd()\nprint(x)"), "x = os.getcwd()");
-            assert_eq!(PythonCell::headline("import sys\n\n  emit(sys.argv)  "), "emit(sys.argv)");
-            assert_eq!(PythonCell::headline("import sys; import os"), "import sys; import os");
+            assert_eq!(
+                PythonCell::headline(bridge),
+                "f=await b.call('knowledge_fetch',{})"
+            );
+            assert_eq!(
+                PythonCell::headline("import os\n# note\nx = os.getcwd()\nprint(x)"),
+                "x = os.getcwd()"
+            );
+            assert_eq!(
+                PythonCell::headline("import sys\n\n  emit(sys.argv)  "),
+                "emit(sys.argv)"
+            );
+            assert_eq!(
+                PythonCell::headline("import sys; import os"),
+                "import sys; import os"
+            );
             assert_eq!(PythonCell::headline("\n\nprint(1)"), "print(1)");
             assert_eq!(PythonCell::headline(""), "");
             let mut later = mixed.clone();
@@ -905,7 +931,10 @@ mod gui_polish_output_tests {
                 "execution_id":"01M6XXWN1CY9A0746DJHQMGDPH","status":"failed","exit_code":1,
                 "output":[{"stream":"stdout","text":"ok\n"},{"stream":"stdout","text":"replaced\n"}]
             }))).unwrap());
-            assert!(later.stderr.is_empty(), "a replaced chunk takes its new stream");
+            assert!(
+                later.stderr.is_empty(),
+                "a replaced chunk takes its new stream"
+            );
         }
         assert!(python_cell("mcp__bboxy__unrelated", "{}", &[], None).is_none());
     }

@@ -14,43 +14,100 @@ use super::*;
 /// complete measured cutoff, inclusive CPU<=1ms and fresh9x debt remain hard.
 /// External CPU/caps/debt are HelperShimBudget. No native success is fair.
 pub fn failed_stop_terminal(control: u8) -> Model {
-    let suffix = ["", "ErrnoAck", "RetryStop", "Resume", "LeaderOnly", "Roster",
-        "Identity", "FailedEndpoint", "Controller", "Pipe", "Late", "Quantum",
-        "Clock", "Debt", "Reap", "UnknownExit", "WorkWhilePending", "PayloadWhilePending"][control as usize];
-    let mut m = base(&format!("DreamReadFailedStop{suffix}"), control != 0, &[
-        ("phase", 6, 0), ("profile", 13, 0), ("rawErrnoEpermEsrch", 2, 0),
-        ("consumedStopAttempts", 2, 0), ("leaderWnowaitOriginal", 1, 0),
-        ("everyMemberPositiveExit", 1, 0), ("causallyClosedRoster", 1, 0),
-        ("exactRetainedIncarnation", 1, 0), ("ownControllerUnitEndFailedOrMeasured", 2, 0),
-        ("controllerIncluded", 1, 0), ("pipeIncluded", 1, 0),
-        ("ownRetirementObservationCostIncluded", 1, 0), ("ownControllerUnitWithinOrOver1ms", 2, 0),
-        ("clockKnownOrdered", 1, 0), ("freshRestDebt", 1, 0),
-        ("actualExactWait4AndGroupSettlement", 1, 0),
-        ("stoppedAck", 1, 0), ("continueCount", 1, 0), ("proofOrPayloadWork", 1, 0),
-        ("terminalClassified", 1, 0), ("ownershipReleased", 1, 0),
-    ]);
-    const P: usize = 0; const CASE: usize = 1; const ERR: usize = 2;
-    const ATT: usize = 3; const LEAD: usize = 4; const MEMBERS: usize = 5;
-    const ROSTER: usize = 6; const ID: usize = 7; const END: usize = 8;
-    const CTL: usize = 9; const PIPE: usize = 10; const LATE: usize = 11;
-    const Q: usize = 12; const CLOCK: usize = 13; const DEBT: usize = 14;
-    const REAP: usize = 15; const ACK: usize = 16; const CONT: usize = 17;
-    const WORK: usize = 18; const TERMINAL: usize = 19; const RELEASE: usize = 20;
+    let suffix = [
+        "",
+        "ErrnoAck",
+        "RetryStop",
+        "Resume",
+        "LeaderOnly",
+        "Roster",
+        "Identity",
+        "FailedEndpoint",
+        "Controller",
+        "Pipe",
+        "Late",
+        "Quantum",
+        "Clock",
+        "Debt",
+        "Reap",
+        "UnknownExit",
+        "WorkWhilePending",
+        "PayloadWhilePending",
+    ][control as usize];
+    let mut m = base(
+        &format!("DreamReadFailedStop{suffix}"),
+        control != 0,
+        &[
+            ("phase", 6, 0),
+            ("profile", 13, 0),
+            ("rawErrnoEpermEsrch", 2, 0),
+            ("consumedStopAttempts", 2, 0),
+            ("leaderWnowaitOriginal", 1, 0),
+            ("everyMemberPositiveExit", 1, 0),
+            ("causallyClosedRoster", 1, 0),
+            ("exactRetainedIncarnation", 1, 0),
+            ("ownControllerUnitEndFailedOrMeasured", 2, 0),
+            ("controllerIncluded", 1, 0),
+            ("pipeIncluded", 1, 0),
+            ("ownRetirementObservationCostIncluded", 1, 0),
+            ("ownControllerUnitWithinOrOver1ms", 2, 0),
+            ("clockKnownOrdered", 1, 0),
+            ("freshRestDebt", 1, 0),
+            ("actualExactWait4AndGroupSettlement", 1, 0),
+            ("stoppedAck", 1, 0),
+            ("continueCount", 1, 0),
+            ("proofOrPayloadWork", 1, 0),
+            ("terminalClassified", 1, 0),
+            ("ownershipReleased", 1, 0),
+        ],
+    );
+    const P: usize = 0;
+    const CASE: usize = 1;
+    const ERR: usize = 2;
+    const ATT: usize = 3;
+    const LEAD: usize = 4;
+    const MEMBERS: usize = 5;
+    const ROSTER: usize = 6;
+    const ID: usize = 7;
+    const END: usize = 8;
+    const CTL: usize = 9;
+    const PIPE: usize = 10;
+    const LATE: usize = 11;
+    const Q: usize = 12;
+    const CLOCK: usize = 13;
+    const DEBT: usize = 14;
+    const REAP: usize = 15;
+    const ACK: usize = 16;
+    const CONT: usize = 17;
+    const WORK: usize = 18;
+    const TERMINAL: usize = 19;
+    const RELEASE: usize = 20;
     for profile in 0..=13 {
         for errno in 1..=2 {
-            act(&mut m, &format!("ConsumeOriginalStopProfile{profile}Errno{errno}"), eq(P, 0), &[
-                (P, Int(1)), (CASE, Int(profile)), (ERR, Int(errno)),
-                (ATT, Int(1)), (DEBT, Int(1)),
-                (ACK, Int(i64::from(control == 1))),
-            ]);
+            act(
+                &mut m,
+                &format!("ConsumeOriginalStopProfile{profile}Errno{errno}"),
+                eq(P, 0),
+                &[
+                    (P, Int(1)),
+                    (CASE, Int(profile)),
+                    (ERR, Int(errno)),
+                    (ATT, Int(1)),
+                    (DEBT, Int(1)),
+                    (ACK, Int(i64::from(control == 1))),
+                ],
+            );
         }
     }
     // A failed signal alone changes none of the independent physical facts.
     // Profiles cover runnable leader, live descendant, unknown slot, replaced
     // token/exec, unclosed own-unit cutoff, controller/pipe/retirement cost omissions, own-unit overrun, clock and unavailable reap.
     for profile in 0..=13 {
-        act(&mut m, &format!("ObserveIndependentOriginalTerminalFacts{profile}"),
-            all([eq(P, 1), eq(CASE, profile)]), &[
+        act(
+            &mut m,
+            &format!("ObserveIndependentOriginalTerminalFacts{profile}"),
+            all([eq(P, 1), eq(CASE, profile)]),
+            &[
                 (P, Int(2)),
                 (LEAD, Int(i64::from(profile != 1 && profile != 13))),
                 (MEMBERS, Int(i64::from(profile != 2))),
@@ -62,54 +119,135 @@ pub fn failed_stop_terminal(control: u8) -> Model {
                 (LATE, Int(i64::from(profile != 8))),
                 (Q, Int(if profile == 9 { 2 } else { 1 })),
                 (CLOCK, Int(i64::from(profile != 10))),
-            ]);
+            ],
+        );
     }
-    let predicates = [(LEAD, 1, 15), (MEMBERS, 1, 4), (ROSTER, 1, 5),
-        (ID, 1, 6), (END, 2, 7), (CTL, 1, 8), (PIPE, 1, 9), (LATE, 1, 10),
-        (Q, 1, 11), (CLOCK, 1, 12)];
+    let predicates = [
+        (LEAD, 1, 15),
+        (MEMBERS, 1, 4),
+        (ROSTER, 1, 5),
+        (ID, 1, 6),
+        (END, 2, 7),
+        (CTL, 1, 8),
+        (PIPE, 1, 9),
+        (LATE, 1, 10),
+        (Q, 1, 11),
+        (CLOCK, 1, 12),
+    ];
     let exact = all(predicates.iter().map(|&(v, val, _)| eq(v, val)));
-    let admitted = all(predicates.iter().map(|&(v, val, mutant)|
-        if control == mutant { Bool(true) } else { eq(v, val) }));
+    let admitted = all(predicates.iter().map(|&(v, val, mutant)| {
+        if control == mutant {
+            Bool(true)
+        } else {
+            eq(v, val)
+        }
+    }));
     let classify = m.actions.len();
-    act(&mut m, "ClassifyIndependentTerminalWithoutSignalAck",
-        all([eq(P, 2), admitted]), &[(P, Int(3)), (TERMINAL, Int(1))]);
+    act(
+        &mut m,
+        "ClassifyIndependentTerminalWithoutSignalAck",
+        all([eq(P, 2), admitted]),
+        &[(P, Int(3)), (TERMINAL, Int(1))],
+    );
     let pay = m.actions.len();
-    act(&mut m, "PayFullFreshDebtAfterPositiveEndpoint",
-        all([eq(P, 3), eq(DEBT, 1), eq(CASE, 11).negate()]), &[(DEBT, Int(0))]);
+    act(
+        &mut m,
+        "PayFullFreshDebtAfterPositiveEndpoint",
+        all([eq(P, 3), eq(DEBT, 1), eq(CASE, 11).negate()]),
+        &[(DEBT, Int(0))],
+    );
     for actual in 0..=1 {
-        act(&mut m, &format!("ObserveActualOriginalWait4AndGroupSettlement{actual}"),
-            all([eq(P, 3), if actual == 1 { eq(CASE, 12).negate() }
-                else { eq(CASE, 12) }]), &[(P, Int(4)), (REAP, Int(actual))]);
+        act(
+            &mut m,
+            &format!("ObserveActualOriginalWait4AndGroupSettlement{actual}"),
+            all([
+                eq(P, 3),
+                if actual == 1 {
+                    eq(CASE, 12).negate()
+                } else {
+                    eq(CASE, 12)
+                },
+            ]),
+            &[(P, Int(4)), (REAP, Int(actual))],
+        );
     }
-    act(&mut m, "CompleteOnlyAfterActualSettlementAndPaidDebt", all([
-        eq(P, 4), if control == 13 { Bool(true) } else { eq(DEBT, 0) },
-        if control == 14 { Bool(true) } else { eq(REAP, 1) },
-    ]), &[(P, Int(5)), (RELEASE, Int(1))]);
-    act(&mut m, "PayRemainingOriginalDebtAfterReap", all([
-        eq(P, 4), eq(DEBT, 1), eq(CASE, 11).negate(),
-    ]), &[(DEBT, Int(0))]);
-    for (mutant, name, slot) in [(2, "BrokenRepeatConsumedStop", ATT),
+    act(
+        &mut m,
+        "CompleteOnlyAfterActualSettlementAndPaidDebt",
+        all([
+            eq(P, 4),
+            if control == 13 {
+                Bool(true)
+            } else {
+                eq(DEBT, 0)
+            },
+            if control == 14 {
+                Bool(true)
+            } else {
+                eq(REAP, 1)
+            },
+        ]),
+        &[(P, Int(5)), (RELEASE, Int(1))],
+    );
+    act(
+        &mut m,
+        "PayRemainingOriginalDebtAfterReap",
+        all([eq(P, 4), eq(DEBT, 1), eq(CASE, 11).negate()]),
+        &[(DEBT, Int(0))],
+    );
+    for (mutant, name, slot) in [
+        (2, "BrokenRepeatConsumedStop", ATT),
         (3, "BrokenContinueWhileTerminalPending", CONT),
         (16, "BrokenProofWorkWhileTerminalPending", WORK),
-        (17, "BrokenPayloadWriteWhileTerminalPending", WORK)] {
+        (17, "BrokenPayloadWriteWhileTerminalPending", WORK),
+    ] {
         if control == mutant {
-            act(&mut m, name, eq(P, 1), &[(slot, Int(if slot == ATT { 2 } else { 1 }))]);
+            act(
+                &mut m,
+                name,
+                eq(P, 1),
+                &[(slot, Int(if slot == ATT { 2 } else { 1 }))],
+            );
         }
     }
-    act(&mut m, "DeadlineRetainsOriginalOwnedQuarantine",
-        all([Int(0).lt(Var(P)), Var(P).lt(Int(5))]), &[(P, Int(6))]);
+    act(
+        &mut m,
+        "DeadlineRetainsOriginalOwnedQuarantine",
+        all([Int(0).lt(Var(P)), Var(P).lt(Int(5))]),
+        &[(P, Int(6))],
+    );
     safe(&mut m, "ConsumedFailureNeverBecomesStopAck", eq(ACK, 0));
-    safe(&mut m, "PendingTerminalNeverRepeatsStopOrContinuesOrWorks",
-        all([eq(ATT, 2).negate(), eq(CONT, 0), eq(WORK, 0)]));
-    safe(&mut m, "TerminalNeedsEveryIndependentOriginalFact",
-        eq(TERMINAL, 0).or(exact.clone()));
-    safe(&mut m, "ReleaseRequiresActualSettlementAndFullPaidDebt",
-        eq(RELEASE, 0).or(all([eq(TERMINAL, 1), eq(REAP, 1), eq(DEBT, 0)])));
-    safe(&mut m, "QuarantineKeepsOriginalEffectAndRawSignalReceipt",
-        eq(P, 0).or(all([eq(ATT, 0).negate(), eq(ERR, 0).negate(),
-            eq(P, 6).negate().or(eq(RELEASE, 0))])));
-    progress(&mut m, "KnownTerminalCanBeClassifiedWithoutAnotherSignal",
-        all([eq(P, 2), exact]), eq(TERMINAL, 1).or(eq(P, 6)), vec![classify]);
+    safe(
+        &mut m,
+        "PendingTerminalNeverRepeatsStopOrContinuesOrWorks",
+        all([eq(ATT, 2).negate(), eq(CONT, 0), eq(WORK, 0)]),
+    );
+    safe(
+        &mut m,
+        "TerminalNeedsEveryIndependentOriginalFact",
+        eq(TERMINAL, 0).or(exact.clone()),
+    );
+    safe(
+        &mut m,
+        "ReleaseRequiresActualSettlementAndFullPaidDebt",
+        eq(RELEASE, 0).or(all([eq(TERMINAL, 1), eq(REAP, 1), eq(DEBT, 0)])),
+    );
+    safe(
+        &mut m,
+        "QuarantineKeepsOriginalEffectAndRawSignalReceipt",
+        eq(P, 0).or(all([
+            eq(ATT, 0).negate(),
+            eq(ERR, 0).negate(),
+            eq(P, 6).negate().or(eq(RELEASE, 0)),
+        ])),
+    );
+    progress(
+        &mut m,
+        "KnownTerminalCanBeClassifiedWithoutAnotherSignal",
+        all([eq(P, 2), exact]),
+        eq(TERMINAL, 1).or(eq(P, 6)),
+        vec![classify],
+    );
     // No fairness of successful rest clock, WNOWAIT, RI/audit, wait4 or kernel.
     m.weak_fair.push(vec![pay]);
     m
@@ -121,8 +259,7 @@ mod failed_stop_terminal_tests {
 
     #[test]
     fn independent_terminal_facts_and_all_broken_controls_export_complete_graphs() {
-        let output = std::env::var_os("DREAM_FAILED_STOP_FORMAL_OUT")
-            .map(std::path::PathBuf::from);
+        let output = std::env::var_os("DREAM_FAILED_STOP_FORMAL_OUT").map(std::path::PathBuf::from);
         if let Some(root) = &output {
             std::fs::create_dir_all(root).unwrap();
         }
@@ -133,30 +270,67 @@ mod failed_stop_terminal_tests {
             assert!(checked.violations.iter().all(|v| v.property != "TypeOK"));
             if control == 0 {
                 assert!(checked.violations.is_empty());
-                assert!(checked.states.iter().any(|s| {
-                    s[0] == 1 && s[2] == 1 && s[3] == 1 && s[4] == 0
-                        && s[16] == 0 && s[17] == 0 && s[18] == 0 && s[20] == 0
-                }), "consumed EPERM is pending without physical terminal facts");
-                assert!(checked.states.iter().any(|s| {
-                    s[0] == 1 && s[2] == 2 && s[3] == 1 && s[4] == 0
-                        && s[16] == 0 && s[17] == 0 && s[18] == 0 && s[20] == 0
-                }), "consumed ESRCH is pending without physical terminal facts");
-                assert!(checked.states.iter().any(|s| {
-                    s[0] == 5 && s[2] != 0 && s[3] == 1 && s[14] == 0
-                        && s[15] == 1 && s[19] == 1 && s[20] == 1
-                }), "positive independent proof can pay and actually settle without another signal");
-                assert!(checked.states.iter().any(|s| {
-                    s[0] == 6 && s[2] != 0 && s[3] == 1 && s[20] == 0
-                }), "deadline retains raw failure and original owned quarantine");
+                assert!(
+                    checked.states.iter().any(|s| {
+                        s[0] == 1
+                            && s[2] == 1
+                            && s[3] == 1
+                            && s[4] == 0
+                            && s[16] == 0
+                            && s[17] == 0
+                            && s[18] == 0
+                            && s[20] == 0
+                    }),
+                    "consumed EPERM is pending without physical terminal facts"
+                );
+                assert!(
+                    checked.states.iter().any(|s| {
+                        s[0] == 1
+                            && s[2] == 2
+                            && s[3] == 1
+                            && s[4] == 0
+                            && s[16] == 0
+                            && s[17] == 0
+                            && s[18] == 0
+                            && s[20] == 0
+                    }),
+                    "consumed ESRCH is pending without physical terminal facts"
+                );
+                assert!(
+                    checked.states.iter().any(|s| {
+                        s[0] == 5
+                            && s[2] != 0
+                            && s[3] == 1
+                            && s[14] == 0
+                            && s[15] == 1
+                            && s[19] == 1
+                            && s[20] == 1
+                    }),
+                    "positive independent proof can pay and actually settle without another signal"
+                );
+                assert!(
+                    checked
+                        .states
+                        .iter()
+                        .any(|s| { s[0] == 6 && s[2] != 0 && s[3] == 1 && s[20] == 0 }),
+                    "deadline retains raw failure and original owned quarantine"
+                );
             } else {
-                assert!(!checked.violations.is_empty(), "control {control} must fail causally");
+                assert!(
+                    !checked.violations.is_empty(),
+                    "control {control} must fail causally"
+                );
             }
             println!(
                 "failed_stop_terminal control={control} model={} states={} labelled_edges={} named_verdicts={:?}",
                 model.name,
                 checked.states.len(),
                 checked.edges.iter().map(Vec::len).sum::<usize>(),
-                checked.violations.iter().map(|v| &v.property).collect::<Vec<_>>()
+                checked
+                    .violations
+                    .iter()
+                    .map(|v| &v.property)
+                    .collect::<Vec<_>>()
             );
             if let Some(root) = &output {
                 super::helper_observer_lowering_export::export(
@@ -164,7 +338,8 @@ mod failed_stop_terminal_tests {
                     if control == 0 { "pass" } else { "safety" },
                     root,
                     &mut manifest,
-                ).unwrap();
+                )
+                .unwrap();
             }
         }
         if let Some(root) = output {
@@ -2339,8 +2514,6 @@ fn helper_observer(control: u8, full_observer: bool) -> Model {
     m
 }
 
-
-
 /// Task66364 adds a DISJOINT retained-child terminal/rollup projection to
 /// VerifierEvents. The registered knote denotes one process, not a PID lookup;
 /// an approved clone-to-GPG exec changes its token chain, not that process.
@@ -3950,9 +4123,12 @@ pub fn total_budget(control: u8) -> Model {
             (REFUSE, if control == 18 { Var(FAILED) } else { Int(0) }),
         ],
     );
-    act(&mut m, "ReapRefusedShimAndRetainItsFull9xBill",
+    act(
+        &mut m,
+        "ReapRefusedShimAndRetainItsFull9xBill",
         all([eq(P, 3), eq(EXEC, 0)]),
-        &[(P, Int(4)), (REAP, Int(1)), (DUE, Int(9)), (PAID, Int(9))]);
+        &[(P, Int(4)), (REAP, Int(1)), (DUE, Int(9)), (PAID, Int(9))],
+    );
     // Scenarios20/21 are post-reap ESRCH/other-error observations; scenario22
     // positively observes the same birth/start alive outside the original group.
     // Scenario12 is a positive live same-incarnation final census hit, not an
@@ -3969,8 +4145,16 @@ pub fn total_budget(control: u8) -> Model {
                 (P, Int(4)),
                 (STOP, Int(i64::from(!killed))),
                 (ACK, Int(i64::from(!killed))),
-                (CONT, Int(if case == 16 && control == 16 { 2 }
-                    else if killed { i64::from(control == 16) } else { 1 })),
+                (
+                    CONT,
+                    Int(if case == 16 && control == 16 {
+                        2
+                    } else if killed {
+                        i64::from(control == 16)
+                    } else {
+                        1
+                    }),
+                ),
                 (REAP, Int(i64::from(case != 11))),
                 (DUE, Int(due)),
                 (PAID, Int(if case == 10 && control == 10 { 0 } else { due })),
@@ -4070,7 +4254,8 @@ pub fn total_budget(control: u8) -> Model {
     safe(
         &mut m,
         "PostReapFailedEscapeReadDoesNotRefuse",
-        Var(P).lt(Int(4))
+        Var(P)
+            .lt(Int(4))
             .or(eq(ESCAPE_READ, 1).or(eq(ESCAPE_READ, 2)).negate())
             .or(eq(REFUSE, 0)),
     );
@@ -4085,10 +4270,11 @@ pub fn total_budget(control: u8) -> Model {
     safe(
         &mut m,
         "PositiveSameIncarnationEscapedLiveProcessRefuses",
-        Var(P)
-            .lt(Int(4))
-            .or(eq(ESCAPE_READ, 3).negate())
-            .or(all([eq(REAP, 1), eq(REFUSE, 1), eq(TRUST, 0)])),
+        Var(P).lt(Int(4)).or(eq(ESCAPE_READ, 3).negate()).or(all([
+            eq(REAP, 1),
+            eq(REFUSE, 1),
+            eq(TRUST, 0),
+        ])),
     );
     safe(&mut m, "DebtBeforeNext", eq(NEXT, 0).or(bill));
     safe(&mut m, "OneStopAckAndOneContinue", Var(CONT).lt(Int(2)));
@@ -4144,9 +4330,12 @@ mod total_budget_tests {
             let result = total_budget(control).check(10000).unwrap();
             assert!(!result.violations.is_empty(), "control {control} escaped");
             if control == 20 {
-                assert!(result.violations.iter().any(|v| {
-                    v.property == "PostReapFailedEscapeReadDoesNotRefuse"
-                }));
+                assert!(
+                    result
+                        .violations
+                        .iter()
+                        .any(|v| { v.property == "PostReapFailedEscapeReadDoesNotRefuse" })
+                );
                 assert!(!result.violations.iter().any(|v| v.property == "TypeOK"));
             }
         }
@@ -7260,7 +7449,6 @@ mod close_delivery_boundary_tests {
     }
 }
 
-
 #[cfg(test)]
 mod qualification_observer_value_equivalence {
     use super::*;
@@ -7291,11 +7479,17 @@ mod qualification_observer_value_equivalence {
             assert_eq!(original_model.actions.len(), value_model.actions.len());
             for (original, value) in original_model.actions.iter().zip(&value_model.actions) {
                 assert_eq!(original.name, value.name);
-                assert_eq!(format!("{:?}", original.updates), format!("{:?}", value.updates));
+                assert_eq!(
+                    format!("{:?}", original.updates),
+                    format!("{:?}", value.updates)
+                );
             }
             let original = original_model.check(100_000).unwrap();
             let value = value_model.check(100_000).unwrap();
-            assert_eq!(original.states, value.states, "control{control} complete states");
+            assert_eq!(
+                original.states, value.states,
+                "control{control} complete states"
+            );
             assert_eq!(original.edges.len(), value.edges.len());
             for (a, b) in original.edges.iter().zip(&value.edges) {
                 assert_eq!(
@@ -7305,10 +7499,16 @@ mod qualification_observer_value_equivalence {
                 );
             }
             assert_eq!(
-                original.violations.iter()
-                    .map(|v| (&v.property, &v.prefix, &v.cycle)).collect::<Vec<_>>(),
-                value.violations.iter()
-                    .map(|v| (&v.property, &v.prefix, &v.cycle)).collect::<Vec<_>>(),
+                original
+                    .violations
+                    .iter()
+                    .map(|v| (&v.property, &v.prefix, &v.cycle))
+                    .collect::<Vec<_>>(),
+                value
+                    .violations
+                    .iter()
+                    .map(|v| (&v.property, &v.prefix, &v.cycle))
+                    .collect::<Vec<_>>(),
                 "control{control} named safety/liveness verdicts and complete prefix/cycle traces"
             );
             assert!(
@@ -7320,7 +7520,11 @@ mod qualification_observer_value_equivalence {
                 original_model.name,
                 original.states.len(),
                 original.edges.iter().map(Vec::len).sum::<usize>(),
-                original.violations.iter().map(|v| &v.property).collect::<Vec<_>>()
+                original
+                    .violations
+                    .iter()
+                    .map(|v| &v.property)
+                    .collect::<Vec<_>>()
             );
         }
     }
