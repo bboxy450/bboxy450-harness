@@ -226,10 +226,19 @@ async fn fork_is_self_contained_and_builds_the_same_first_request() {
     assert_eq!(p[0].messages, c[0].messages);
     assert_eq!(p[0].model, c[0].model);
     assert_eq!(p[0].stable_prefix, c[0].stable_prefix);
-    assert_eq!(
-        serde_json::to_value(&p[0].tools).unwrap(),
-        serde_json::to_value(&c[0].tools).unwrap()
-    );
+    // Runtime MCP servers (bboxy_python) attach asynchronously; the first
+    // request does not wait for them, so compare the session's own tools.
+    let own = |tools: &[_]| -> Vec<serde_json::Value> {
+        serde_json::to_value(tools)
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|tool| !tool["name"].as_str().unwrap().starts_with("mcp__"))
+            .cloned()
+            .collect()
+    };
+    assert_eq!(own(&p[0].tools), own(&c[0].tools));
     let events = std::fs::read_to_string(log_path(&root, child_id))
         .unwrap()
         .lines()
@@ -293,6 +302,10 @@ async fn fork_while_parent_appends_copies_exactly_the_fixed_prefix() {
     let (created, _) = tokio::join!(host.create(start), append);
     let (gateway, _) = created.unwrap();
     assert_eq!(gateway.hello().head, Seq(at.0 + 1));
+    // Read the child's log once it is final: a live session may be mid-item
+    // (an MCP startup notice) at any instant.
+    gateway.send(support::op(&gateway, Op::Close)).unwrap();
+    host.join().await.unwrap();
     let log = std::fs::read_to_string(log_path(&temp.path().join("sessions"), child)).unwrap();
     let events = log
         .lines()
@@ -307,8 +320,6 @@ async fn fork_while_parent_appends_copies_exactly_the_fixed_prefix() {
         Event::ProfileChanged { .. }
     ));
     laws::check_transcript(&events).unwrap();
-    gateway.send(support::op(&gateway, Op::Close)).unwrap();
-    host.join().await.unwrap();
 }
 #[tokio::test]
 async fn invalid_fork_points_are_refused_without_a_child_log() {

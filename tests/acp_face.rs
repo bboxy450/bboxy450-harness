@@ -1401,7 +1401,6 @@ async fn nested_acp_keeps_native_records_out_of_live_and_replayed_reply_text() {
             assert_eq!(message, expected, "{scenario}, replay={replay}");
             assert_eq!(reasoning, thought, "{scenario}, replay={replay}");
             let log = session_log(&config, &sid);
-            bboxy450_harness::protocol::laws::check_authored(&log).unwrap();
             if scenario == "text" {
                 assert!(
                     log.iter()
@@ -1429,5 +1428,8 @@ async fn nested_acp_keeps_native_records_out_of_live_and_replayed_reply_text() {
             }
         }
         c.close().await;
+        // Laws hold for a complete transcript, not a live one that may be
+        // mid-item (an MCP startup notice) at any instant.
+        bboxy450_harness::protocol::laws::check_authored(&session_log(&config, &sid)).unwrap();
     }
 }

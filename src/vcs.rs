@@ -12,7 +12,7 @@ use tokio_util::sync::CancellationToken;
 
 /// One shared deadline for all five sequential queries. The existing owned
 /// process runner additionally bounds termination/drain cleanup to 1 second.
-pub const CAPTURE_BUDGET: Duration = Duration::from_secs(3);
+pub const CAPTURE_BUDGET: Duration = Duration::from_secs(10);
 pub(crate) const MAX_METADATA_BYTES: usize = 16 * 1024;
 
 /// Strip authentication/query data before a known native remote enters raw IR.

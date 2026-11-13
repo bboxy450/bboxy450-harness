@@ -108,8 +108,8 @@ async fn open_recovers_before_hello_and_subscribe_never_loads() {
         .lines()
         .map(|l| serde_json::from_str::<Envelope>(l).unwrap())
         .collect::<Vec<_>>();
-    assert_eq!(head, log.last().unwrap().seq.unwrap());
-    laws::check_transcript(&log).unwrap();
+    // Live notices (MCP startup) may follow the hello head; it is on disk.
+    assert!(log.iter().any(|e| e.seq == Some(head)));
     assert!(matches!(
         g.subscribe(Subscribe {
             session: SessionId::new(),
@@ -135,6 +135,13 @@ async fn open_recovers_before_hello_and_subscribe_never_loads() {
     g.send(support::op(&g, Op::Close)).unwrap();
     host.join().await.unwrap();
     while sub.recv().await.is_some() {}
+    // Laws hold for the complete transcript.
+    let log = std::fs::read_to_string(root.join(format!("{session}.jsonl")))
+        .unwrap()
+        .lines()
+        .map(|l| serde_json::from_str::<Envelope>(l).unwrap())
+        .collect::<Vec<_>>();
+    laws::check_transcript(&log).unwrap();
 }
 #[tokio::test]
 async fn closed_missing_and_corrupt_sessions_are_not_exposed() {
