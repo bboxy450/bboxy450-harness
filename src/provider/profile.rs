@@ -58,7 +58,38 @@ impl Profile {
     pub fn is_acp_agent(&self) -> bool {
         self.provider.as_deref() == Some("acp-agent")
     }
+    /// The profile named `remote`, when the host put an agent command in
+    /// `BBOXY450_HARNESS_AGENT` (a JSON `AgentSpec`): a seat on a machine runs
+    /// this GUI here and its agent through that command. No file is written.
+    pub fn from_agent_env(name: &str) -> Option<Self> {
+        if name != REMOTE_PROFILE {
+            return None;
+        }
+        let agent: AgentSpec =
+            serde_json::from_str(&std::env::var("BBOXY450_HARNESS_AGENT").ok()?).ok()?;
+        if agent.command.is_empty() {
+            return None;
+        }
+        Some(Self {
+            name: REMOTE_PROFILE.into(),
+            model: String::new(),
+            endpoint: String::new(),
+            provider: Some("acp-agent".into()),
+            api_key: None,
+            api_key_env: None,
+            retry_deadline: None,
+            max_tokens: None,
+            on_unattended: Unattended::Allow,
+            policy: Some("yolo".into()),
+            auto_compact: true,
+            context_tokens: None,
+            mcp_servers: Default::default(),
+            agent: Some(agent),
+        })
+    }
 }
+/// The profile a machine seat runs on; see [`Profile::from_agent_env`].
+pub const REMOTE_PROFILE: &str = "remote";
 fn enabled() -> bool {
     true
 }
@@ -247,4 +278,38 @@ pub(crate) async fn resolve_command(
     }
     String::from_utf8(bytes.to_vec())
         .map_err(|_| ProviderError::new(ErrorClass::Auth, "key command failed (exit -1)"))
+}
+
+#[cfg(test)]
+mod remote_profile_tests {
+    use super::*;
+    // State: the host put an agent command in the environment. Safety: only
+    // the `remote` name yields the synthesized acp-agent profile, with the
+    // command verbatim and a yolo policy; anything else keeps loading files.
+    #[test]
+    fn remote_profile_comes_from_the_environment_only_by_name() {
+        // Environment is process-wide; this test owns the variable.
+        unsafe {
+            std::env::set_var(
+                "BBOXY450_HARNESS_AGENT",
+                r#"{"command":["/app/bboxy450-term-remote","attach","--via","ssh box"]}"#,
+            );
+        }
+        let profile = Profile::from_agent_env(REMOTE_PROFILE).expect("remote profile");
+        assert!(profile.is_acp_agent());
+        assert_eq!(profile.policy.as_deref(), Some("yolo"));
+        assert_eq!(
+            profile.agent.as_ref().unwrap().command,
+            ["/app/bboxy450-term-remote", "attach", "--via", "ssh box"]
+        );
+        assert!(Profile::from_agent_env("codex").is_none());
+        unsafe {
+            std::env::set_var("BBOXY450_HARNESS_AGENT", "{\"command\":[]}");
+        }
+        assert!(Profile::from_agent_env(REMOTE_PROFILE).is_none());
+        unsafe {
+            std::env::remove_var("BBOXY450_HARNESS_AGENT");
+        }
+        assert!(Profile::from_agent_env(REMOTE_PROFILE).is_none());
+    }
 }

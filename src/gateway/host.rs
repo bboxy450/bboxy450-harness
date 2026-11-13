@@ -287,8 +287,14 @@ impl Host {
     }
     /// An `acp-agent` profile selects the ACP agent backend instead of the engine.
     async fn acp_agent(&self, config: &mut Config, name: Option<&str>) -> Option<Profile> {
-        let path = Profile::file_in(&config.profiles, name?).ok()?;
-        let profile = Profile::load(&path).await.ok()?;
+        let name = name?;
+        let profile = match Profile::from_agent_env(name) {
+            Some(profile) => profile,
+            None => {
+                let path = Profile::file_in(&config.profiles, name).ok()?;
+                Profile::load(&path).await.ok()?
+            }
+        };
         if !profile.is_acp_agent() {
             return None;
         }
