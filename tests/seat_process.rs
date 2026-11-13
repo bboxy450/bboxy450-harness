@@ -1479,7 +1479,7 @@ for line in sys.stdin:
                 let sentinel = paths.home.path().join("credential-must-not-run");
                 let profile_bytes = std::fs::read(&managed.profile).unwrap();
                 match mode {
-                    0 | 1 | 2 | 3 | 4 | 5 | 6 => {}
+                    0..=6 => {}
                     7 => {
                         let text = String::from_utf8(profile_bytes.clone()).unwrap().replace(
                             "---\nname",
