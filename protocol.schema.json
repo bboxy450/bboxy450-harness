@@ -1400,6 +1400,17 @@
             "answer": {
               "default": null
             },
+            "by": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Resolver"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Set when automation answered; a human's answer leaves it out."
+            },
             "kind": {
               "const": "question",
               "type": "string"
@@ -2264,6 +2275,23 @@
           "type": "object"
         },
         {
+          "description": "Whether a configured decision model may answer this session's questions\nfor the operator. On when a session starts.",
+          "properties": {
+            "on": {
+              "default": false,
+              "type": "boolean"
+            },
+            "type": {
+              "const": "set_automation",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
           "properties": {
             "profile": {
               "type": "string"
@@ -2989,6 +3017,28 @@
           "properties": {
             "by": {
               "const": "cancelled",
+              "type": "string"
+            }
+          },
+          "required": [
+            "by"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A decision model answered for the operator (`crate::decision`).",
+          "properties": {
+            "by": {
+              "const": "model",
+              "type": "string"
+            },
+            "confidence": {
+              "default": 0.0,
+              "format": "double",
+              "type": "number"
+            },
+            "model": {
+              "default": "",
               "type": "string"
             }
           },

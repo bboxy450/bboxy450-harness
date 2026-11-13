@@ -65,6 +65,12 @@ pub(crate) enum Internal {
         level: Level,
         text: String,
     },
+    /// Automation's verdict on one open question (ACP agent sessions).
+    #[cfg(feature = "acp-agent")]
+    Decided {
+        item: ItemId,
+        outcome: crate::decision::Outcome,
+    },
     PrepareRound {
         generation: u64,
         turn: TurnId,
@@ -815,6 +821,9 @@ impl SessionActor {
             Internal::ServiceNotice { level, text } => {
                 self.record_item(None, Item::Notice { level, text }).await?
             }
+            // The native engine asks no questions; only an ACP agent session does.
+            #[cfg(feature = "acp-agent")]
+            Internal::Decided { .. } => {}
             Internal::PrepareRound {
                 generation,
                 turn,

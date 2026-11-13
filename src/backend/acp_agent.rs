@@ -247,6 +247,16 @@ pub struct AcpAgentActor {
     services: TaskGroup,
     internal: mpsc::Receiver<Internal>,
     relay: crate::mcp::relay::Relay,
+    /// The machine's decision model, when one is configured (`crate::decision`).
+    decision: Option<Arc<crate::decision::Model>>,
+    /// Whether that model may answer this session's questions (`Op::SetAutomation`).
+    automation: bool,
+    /// Consecutive questions automation left to the human; three pause it.
+    abstained: u8,
+    /// Where an automation task reports its verdict.
+    decided: mpsc::Sender<Internal>,
+    /// The operator's latest request, the decision model's only context.
+    last_request: String,
 }
 
 impl AcpAgentActor {
@@ -339,6 +349,14 @@ impl AcpAgentActor {
         let (mut servers, collisions) =
             crate::mcp::select_sources(profile.mcp_servers, overrides, launch.mcp_servers);
         let (output, internal) = mpsc::channel(256);
+        let decided = output.clone();
+        let (decision, decision_notice) = match config.sessions.parent() {
+            Some(root) => match crate::decision::Model::load(root, &config.redactor).await {
+                Ok(model) => (model.map(Arc::new), None),
+                Err(error) => (None, Some(format!("Automation unavailable: {error}"))),
+            },
+            None => (None, None),
+        };
         let mut services = TaskGroup::new(tokio_util::sync::CancellationToken::new());
         let endpoint = crate::python_execute::Endpoint::new().await?;
         crate::mcp::Manager::with_python(&mut servers, &endpoint.socket());
@@ -369,6 +387,11 @@ impl AcpAgentActor {
             services,
             internal,
             relay,
+            decision,
+            automation: true,
+            abstained: 0,
+            decided,
+            last_request: String::new(),
             store,
             gateway: gateway.clone(),
             work,
@@ -393,6 +416,7 @@ impl AcpAgentActor {
         };
         for text in notice
             .into_iter()
+            .chain(decision_notice)
             .chain(launch.notices)
             .chain(actor.config.redactor.capability_notice())
         {
@@ -524,7 +548,11 @@ impl AcpAgentActor {
                 tokio::select! {biased;
                     Some(op) = self.control.recv() => { if self.op(op).await? { break; } }
                     Some(op) = self.work.recv() => { if self.op(op).await? { break; } }
-                    Some(Internal::ServiceNotice { level, text }) = self.internal.recv() => self.notice(level, text).await?,
+                    Some(internal) = self.internal.recv() => match internal {
+                        Internal::ServiceNotice { level, text } => self.notice(level, text).await?,
+                        Internal::Decided { item, outcome } => self.decided(item, outcome).await?,
+                        _ => {}
+                    },
                     Some(wire) = recv(&mut self.wire) => self.wire(wire).await?,
                     _ = sleep_until(cancel_at) => self.cancel_expired().await?,
                     _ = sleep_until(quiet_at) => self.quiet_expired().await?,
@@ -588,6 +616,17 @@ impl AcpAgentActor {
                         return Ok(false);
                     }
                 };
+                let said = blocks
+                    .iter()
+                    .filter_map(|b| match b {
+                        InputBlock::Text { text } => Some(text.as_str()),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                if !said.is_empty() {
+                    self.last_request = said;
+                }
                 // Runtime capability negotiation covers Codex, Claude and other ACP adapters.
                 if blocks.is_empty() || blocks.iter().any(|b| matches!(b, InputBlock::Unknown(_))) {
                     self.reject(
@@ -676,11 +715,24 @@ impl AcpAgentActor {
                     )
                     .await?;
                 } else if open {
-                    self.settle_question(question, answer, Some(id)).await?;
+                    self.settle_question(question, answer, None, Some(id))
+                        .await?;
                 } else if self.resolved.contains(&question) {
                     self.reject(id, Rejection::AlreadyResolved).await?;
                 } else {
                     self.reject(id, Rejection::NoSuchApproval).await?;
+                }
+            }
+            Op::SetAutomation { on } => {
+                self.abstained = 0;
+                if self.automation != on {
+                    self.automation = on;
+                    let text = if on {
+                        "Automation on: a decision model may answer questions for you."
+                    } else {
+                        "Automation off: questions wait for you."
+                    };
+                    self.notice(Level::Info, text.into()).await?;
                 }
             }
             Op::SetProfile { .. } => {
@@ -1309,7 +1361,7 @@ impl AcpAgentActor {
                 .await?;
         }
         for item in asked {
-            self.settle_question(item, json!({"action": "cancel"}), None)
+            self.settle_question(item, json!({"action": "cancel"}), None, None)
                 .await?;
         }
         Ok(())
@@ -1354,7 +1406,7 @@ impl AcpAgentActor {
                     json!({"jsonrpc": "2.0", "id": rpc, "result": cancel}),
                 );
             }
-            self.complete(item, ItemStatus::Cancelled, answered(body, cancel))
+            self.complete(item, ItemStatus::Cancelled, answered(body, cancel, None))
                 .await?;
         }
         self.running = Some(r);
@@ -2120,6 +2172,7 @@ impl AcpAgentActor {
                 .cloned()
                 .unwrap_or(Value::Null),
             answer: None,
+            by: None,
         };
         let item = ItemId::new();
         let turn = self.running.as_ref().expect("running").turn;
@@ -2136,20 +2189,90 @@ impl AcpAgentActor {
             .as_mut()
             .expect("running")
             .questions
-            .insert(item, (id, body));
+            .insert(item, (id, body.clone()));
         self.publish(
             Event::Status {
                 phase: Phase::Approval { item },
             },
             None,
         )
-        .await
+        .await?;
+        self.automate(item, &body);
+        Ok(())
     }
-    /// Send the human's answer to the agent and complete the question.
+    /// Ask the decision model about an open question, off the actor. Its verdict
+    /// returns as `Internal::Decided`; the question waits for the human meanwhile,
+    /// and whoever answers first settles it.
+    fn automate(&mut self, item: ItemId, body: &Item) {
+        let (
+            Some(model),
+            true,
+            Item::Question {
+                message, schema, ..
+            },
+        ) = (self.decision.clone(), self.automation, body)
+        else {
+            return;
+        };
+        let (message, schema) = (message.clone(), schema.clone());
+        let context = self.last_request.clone();
+        let decided = self.decided.clone();
+        self.services.spawn(async move {
+            let outcome = model.decide(&message, &schema, &context).await;
+            let _ = decided.send(Internal::Decided { item, outcome }).await;
+        });
+    }
+    /// Apply automation's verdict if the question is still open and automation
+    /// is still on; otherwise the human, a cancel or the switch already decided.
+    async fn decided(
+        &mut self,
+        item: ItemId,
+        outcome: crate::decision::Outcome,
+    ) -> std::io::Result<()> {
+        let open = self
+            .running
+            .as_ref()
+            .is_some_and(|r| r.questions.contains_key(&item));
+        if !open || !self.automation {
+            return Ok(());
+        }
+        match outcome {
+            crate::decision::Outcome::Answer {
+                answer,
+                model,
+                confidence,
+            } => {
+                self.abstained = 0;
+                self.settle_question(
+                    item,
+                    answer,
+                    Some(Resolver::Model { model, confidence }),
+                    None,
+                )
+                .await
+            }
+            crate::decision::Outcome::Human(reason) => {
+                self.abstained += 1;
+                let paused = self.abstained >= 3;
+                if paused {
+                    self.automation = false;
+                }
+                let text = if paused {
+                    format!("Automation paused after three questions left to you: {reason}.")
+                } else {
+                    format!("Automation left this question to you: {reason}.")
+                };
+                self.notice(Level::Info, text).await
+            }
+        }
+    }
+    /// Send an answer to the agent and complete the question. `by` names
+    /// automation; a human's answer leaves it out.
     async fn settle_question(
         &mut self,
         item: ItemId,
         answer: Value,
+        by: Option<Resolver>,
         cause: Option<OpId>,
     ) -> std::io::Result<()> {
         let Some((rpc, body)) = self
@@ -2170,7 +2293,7 @@ impl AcpAgentActor {
             Event::ItemCompleted {
                 item,
                 status: ItemStatus::Completed,
-                body: answered(body, answer),
+                body: answered(body, answer, by),
             },
             cause,
         )
@@ -3070,7 +3193,7 @@ pub fn content_block(b: &InputBlock) -> Value {
         InputBlock::Unknown(_) => json!({ "type": "text", "text": "Unsupported input" }),
     }
 }
-fn answered(body: Item, answer: Value) -> Item {
+fn answered(body: Item, answer: Value, by: Option<Resolver>) -> Item {
     match body {
         Item::Question {
             message, schema, ..
@@ -3078,6 +3201,7 @@ fn answered(body: Item, answer: Value) -> Item {
             message,
             schema,
             answer: Some(answer),
+            by,
         },
         other => other,
     }

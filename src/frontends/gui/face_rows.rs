@@ -50,59 +50,7 @@ pub(super) fn drawn(model: &Transcript, id: &ItemId) -> bool {
             && (r.kind != ItemKind::UserMessage || r.completed.is_some())
     })
 }
-/// One field of a Question's form: a select (`oneOf`, `anyOf` or `enum`; an
-/// array type is multi-select) or, with no options, free text.
-pub(super) struct QuestionField {
-    pub key: String,
-    pub title: Option<String>,
-    pub description: Option<String>,
-    /// (value sent back, label shown)
-    pub options: Vec<(String, String)>,
-    pub multi: bool,
-}
-pub(super) fn question_fields(schema: &serde_json::Value) -> Vec<QuestionField> {
-    let Some(properties) = schema.get("properties").and_then(|p| p.as_object()) else {
-        return vec![];
-    };
-    properties
-        .iter()
-        .map(|(key, p)| {
-            let multi = p.get("type").and_then(|t| t.as_str()) == Some("array");
-            let source = if multi {
-                p.get("items").unwrap_or(p)
-            } else {
-                p
-            };
-            let options = ["oneOf", "anyOf", "enum"]
-                .iter()
-                .find_map(|k| source.get(*k).and_then(|v| v.as_array()))
-                .into_iter()
-                .flatten()
-                .filter_map(|o| match o {
-                    serde_json::Value::String(s) => Some((s.clone(), s.clone())),
-                    serde_json::Value::Object(_) => {
-                        let value = o.get("const")?.as_str()?.to_owned();
-                        let label = o
-                            .get("title")
-                            .and_then(|t| t.as_str())
-                            .unwrap_or(&value)
-                            .to_owned();
-                        Some((value, label))
-                    }
-                    _ => None,
-                })
-                .collect();
-            let text = |k: &str| p.get(k).and_then(|v| v.as_str()).map(str::to_owned);
-            QuestionField {
-                key: key.clone(),
-                title: text("title"),
-                description: text("description"),
-                options,
-                multi,
-            }
-        })
-        .collect()
-}
+pub(super) use crate::decision::{QuestionField, question_fields};
 /// A Question's answer in a few words, for its settled row.
 fn answer_summary(answer: &serde_json::Value) -> String {
     match answer.get("action").and_then(|a| a.as_str()) {
@@ -724,6 +672,7 @@ impl Preparer {
                 message,
                 schema,
                 answer,
+                by,
             } => match answer {
                 None => {
                     let fields = question_fields(schema);
@@ -836,7 +785,20 @@ impl Preparer {
                     vec![
                         f::fixed(f::icon("shield", ink.dim, 13., 1.4)),
                         f::fixed(f::line(message.clone(), 12., 400, ink.dim, false)),
-                        f::fill(f::line(answer_summary(answer), 12., 600, ink.fg, false)),
+                        f::fill(f::line(
+                            match by {
+                                // Automation answered: say so, with the model's confidence.
+                                Some(Resolver::Model { confidence, .. }) => format!(
+                                    "{} · answered by automation ({confidence:.2})",
+                                    answer_summary(answer)
+                                ),
+                                _ => answer_summary(answer),
+                            },
+                            12.,
+                            600,
+                            ink.fg,
+                            false,
+                        )),
                     ],
                     8.,
                 ),

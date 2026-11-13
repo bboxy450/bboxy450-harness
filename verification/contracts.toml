@@ -120,6 +120,16 @@ property = "No approver implies eventual immediate unattended resolution."
 checks = ["make test-formal", "make test"]
 
 [[contract]]
+name = "HarnessQuestionAutomation"
+title = "A decision model answers an open question at most once, never after the human, a cancel or the switch."
+models = ["HarnessQuestionAutomation", "BrokenHarnessQuestionAutomation"]
+sources = ["src/backend/acp_agent.rs", "src/decision.rs", "tests/formal/models.rs"]
+implementation_tests = ["tests/acp_agent.rs", "src/decision.rs"]
+assumptions = "Finite integer model: one open question at a time, four questions, one model verdict per question, a two-state switch. The two HTTP calls, their 5 s deadline, option reordering, eligibility rules, the confidence floor and the human-only word list are one abstract verdict (answer or abstain) and remain implementation witnesses in src/decision.rs and tests/acp_agent.rs. Verdict delivery order against human answers, cancels and switch changes is unconstrained. Safety only; no liveness claim: the question always remains answerable by the human. No refinement proof."
+property = "The agent receives one reply per question; a late model verdict is dropped; three consecutive abstentions switch automation off."
+checks = ["make test-formal", "make test"]
+
+[[contract]]
 name = "HarnessSubscriberReplay"
 title = "Register before replay read; no silent durable gap; epoch loss requires reset."
 models = ["HarnessSubscriberReplay", "BrokenHarnessSubscriberReplay", "BrokenHarnessSubscriberReplayEpochReuse"]

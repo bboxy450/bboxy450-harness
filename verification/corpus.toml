@@ -110,6 +110,16 @@ expected = "liveness"
 frontend = "project"
 
 [[model]]
+name = "HarnessQuestionAutomation"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessQuestionAutomation"
+expected = "safety"
+frontend = "project"
+
+[[model]]
 name = "HarnessSubscriberReplay"
 expected = "pass"
 frontend = "project"

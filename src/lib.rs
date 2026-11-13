@@ -14,6 +14,7 @@ pub mod protocol;
 pub mod vcs;
 
 pub mod capability;
+pub mod decision;
 pub mod process;
 pub mod redact;
 pub mod runtime;

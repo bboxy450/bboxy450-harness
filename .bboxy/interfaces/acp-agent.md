@@ -72,7 +72,10 @@ The harness sends no `session/load` or `session/resume`: a reopened or forked se
 | `session/request_permission` while a turn runs and no cancel is pending | an `Approval` item (effect from the tool kind: edit/delete/move → Write, execute → Exec, fetch → Network, else Unknown) and `Phase::Approval`; then, in order: profile yolo → `allow_once` (resolver `profile-yolo`); no approver attached → `on_unattended` (allow → `allow_once`, deny → `reject_once`/`reject_always` first present, resolver `Unattended`); else a face's `ResolveApproval` |
 | `session/request_permission` with no turn running | opens an agent-initiated turn (§4.5), then the row above |
 | `session/request_permission` after cancel | `{"outcome":"cancelled"}` at once |
-| anything else (`fs/*`, `terminal/*`, `elicitation/*`, unknown) | JSON-RPC error `-32601` "… is not supported by this client" |
+| `elicitation/create` in form mode while a turn runs | a `Question` item and `Phase::Approval`; full access never answers it. With a decision model configured (`decision-model.json` beside `profiles/`, or `BBOXY450_HARNESS_DECISION_MODEL`) and automation on (`Op::SetAutomation`, on at session start), the model is asked off the actor (`src/decision.rs`): single-select fields of 2–6 options only, never a question that mentions credentials, publishing or something irreversible, two calls in opposite option order that must agree at confidence ≥ 0.6, 5 s for both. Its answer completes the item with resolver `Model {model, confidence}`; anything else leaves the question open with a notice saying why, and three in a row switch automation off. Whoever answers first settles it: a face's `AnswerQuestion`, a cancel, or the model. The agent gets exactly one reply |
+| `elicitation/create` with no turn running | opens an agent-initiated turn (§4.5), then the row above |
+| `elicitation/create` after cancel | `{"action":"cancel"}` at once |
+| anything else (`fs/*`, `terminal/*`, URL elicitation, unknown) | JSON-RPC error `-32601` "… is not supported by this client" |
 
 Option choice: Allow → `allow_once`; under yolo only, fall back to `allow_always`
 when no `allow_once` is offered. AllowAlways → `allow_always`; Deny →

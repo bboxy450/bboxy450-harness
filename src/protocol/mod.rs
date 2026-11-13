@@ -320,6 +320,12 @@ pub enum Op {
         #[serde(default)]
         answer: Value,
     },
+    /// Whether a configured decision model may answer this session's questions
+    /// for the operator. On when a session starts.
+    SetAutomation {
+        #[serde(default)]
+        on: bool,
+    },
     SetProfile {
         profile: String,
     },
@@ -651,6 +657,9 @@ pub enum Item {
         schema: Value,
         #[serde(default)]
         answer: Option<Value>,
+        /// Set when automation answered; a human's answer leaves it out.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        by: Option<Resolver>,
     },
     Image {
         mime: String,
@@ -1098,6 +1107,13 @@ pub enum Resolver {
     },
     Unattended,
     Cancelled,
+    /// A decision model answered for the operator (`crate::decision`).
+    Model {
+        #[serde(default)]
+        model: String,
+        #[serde(default)]
+        confidence: f64,
+    },
     #[serde(untagged)]
     Unknown(Value),
 }
@@ -1374,6 +1390,7 @@ impl Item {
                 message: String::new(),
                 schema: Value::Null,
                 answer: Some(serde_json::json!({"action": "cancel"})),
+                by: None,
             },
             ItemKind::Image => Self::Image {
                 mime: "application/octet-stream".into(),

@@ -32,7 +32,19 @@ async fn fake_command(
     unattended: Unattended,
     command: Option<Vec<String>>,
 ) -> Fake {
+    fake_with(scenario, unattended, command, None).await
+}
+/// `decision` is the machine's `decision-model.json`, written before the session starts.
+async fn fake_with(
+    scenario: &str,
+    unattended: Unattended,
+    command: Option<Vec<String>>,
+    decision: Option<String>,
+) -> Fake {
     let temp = tempfile::tempdir().unwrap();
+    if let Some(decision) = decision {
+        std::fs::write(temp.path().join("decision-model.json"), decision).unwrap();
+    }
     let profiles = temp.path().join("profiles");
     std::fs::create_dir_all(&profiles).unwrap();
     let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -500,6 +512,7 @@ async fn a_face_answers_an_agents_question_and_the_agent_receives_it() {
                         message,
                         schema,
                         answer: None,
+                        ..
                     },
             } => {
                 assert_eq!(message, "Which database?");
@@ -552,6 +565,228 @@ async fn a_face_answers_an_agents_question_and_the_agent_receives_it() {
         "an unknown action is refused"
     );
     assert_eq!(ended(&log), vec![StopReason::EndTurn]);
+}
+
+/// A local stand-in for the hosted decision model (System One wire). It records
+/// each request and answers `question_0` by `mode`: a fixed option, or `first`
+/// for whichever of the two databases comes first on the wire (an order-biased model).
+async fn decision_model(mode: &'static str) -> (String, Arc<std::sync::Mutex<Vec<String>>>) {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}/v1/systemone", listener.local_addr().unwrap());
+    let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let record = seen.clone();
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut stream, _)) = listener.accept().await else {
+                return;
+            };
+            let record = record.clone();
+            tokio::spawn(async move {
+                let mut request = Vec::new();
+                let mut buffer = [0u8; 4096];
+                let text = loop {
+                    let Ok(n) = stream.read(&mut buffer).await else {
+                        return;
+                    };
+                    if n == 0 {
+                        return;
+                    }
+                    request.extend_from_slice(&buffer[..n]);
+                    let text = String::from_utf8_lossy(&request).into_owned();
+                    let Some(head) = text.find("\r\n\r\n") else {
+                        continue;
+                    };
+                    let length = text[..head]
+                        .lines()
+                        .find_map(|l| {
+                            l.to_ascii_lowercase()
+                                .strip_prefix("content-length:")
+                                .map(|v| v.trim().parse::<usize>().unwrap())
+                        })
+                        .unwrap_or(0);
+                    if request.len() >= head + 4 + length {
+                        break text;
+                    }
+                };
+                let choice = match mode {
+                    "first"
+                        if text.find("\"Postgres\":").unwrap()
+                            < text.find("\"SQLite\":").unwrap() =>
+                    {
+                        "Postgres"
+                    }
+                    "first" => "SQLite",
+                    fixed => fixed,
+                };
+                record.lock().unwrap().push(text);
+                let body = serde_json::json!({"model": "jev-test", "answers": {"question_0": {
+                    "type": "choice", "choice": choice, "confidence": 0.9, "probabilities": {}}},
+                    "usage": {"input_tokens": 1, "output_tokens": 1}})
+                .to_string();
+                let _ = stream
+                    .write_all(format!("HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len()).as_bytes())
+                    .await;
+            });
+        }
+    });
+    (url, seen)
+}
+fn decision_spec(url: &str) -> Option<String> {
+    Some(
+        serde_json::json!({"url": url, "model": "jev-test", "api_key": "decision-key-123"})
+            .to_string(),
+    )
+}
+/// Answer the open question as a face, once the session waits on it.
+async fn answer_as_face(f: &Fake, sub: &mut Subscription, value: &str) {
+    loop {
+        if let Event::Status {
+            phase: Phase::Approval { item },
+        } = next(sub).await.event
+        {
+            f.gateway
+                .send(support::op(&f.gateway, Op::AnswerQuestion {
+                    question: item,
+                    answer: serde_json::json!({"action": "accept", "content": {"question_0": value}}),
+                }))
+                .unwrap();
+            return;
+        }
+    }
+}
+
+// Automation (operator, 2026-11-12): with a decision model configured, an agent's
+// multiple-choice question is answered for the operator. The model is asked twice
+// with the options in opposite order; the optional free-text field stays empty.
+#[tokio::test]
+async fn automation_answers_an_agents_question_when_the_model_agrees_with_itself() {
+    let (url, seen) = decision_model("SQLite").await;
+    let f = fake_with("question", Unattended::Deny, None, decision_spec(&url)).await;
+    let mut sub = subscribe(&f.gateway, true);
+    f.gateway
+        .send(support::prompt(&f.gateway, "set up storage"))
+        .unwrap();
+    until_end(&mut sub).await;
+    let log = close(f).await;
+    let items = completed(&log);
+    assert!(
+        items
+            .iter()
+            .any(|(_, b)| matches!(b, Item::AgentMessage { markdown }
+            if markdown == r#"answer {"action": "accept", "content": {"question_0": "SQLite"}}"#)),
+        "{items:?}"
+    );
+    assert!(items.iter().any(|(s, b)| matches!(s, ItemStatus::Completed)
+        && matches!(b, Item::Question { answer: Some(_), by: Some(Resolver::Model { model, confidence }), .. }
+            if model == "jev-test" && *confidence == 0.9)), "{items:?}");
+    let seen = seen.lock().unwrap();
+    assert_eq!(seen.len(), 2, "asked twice");
+    let postgres_first =
+        |text: &String| text.find("\"Postgres\":").unwrap() < text.find("\"SQLite\":").unwrap();
+    assert_ne!(
+        postgres_first(&seen[0]),
+        postgres_first(&seen[1]),
+        "in opposite orders"
+    );
+    for request in seen.iter() {
+        assert!(
+            request
+                .to_ascii_lowercase()
+                .contains("authorization: bearer decision-key-123")
+        );
+        assert!(request.contains("\"ask_human\":") && request.contains("set up storage"));
+        assert!(
+            !request.contains("question_0_custom"),
+            "free text is not the model's"
+        );
+    }
+    assert!(
+        !serde_json::to_string(&log)
+            .unwrap()
+            .contains("decision-key-123"),
+        "the key stays out of the log"
+    );
+    assert_eq!(ended(&log), vec![StopReason::EndTurn]);
+}
+
+// A model that picks whatever comes first disagrees with itself across the two
+// orders: the question stays open, says why, and the human's answer settles it.
+#[tokio::test]
+async fn automation_leaves_the_question_to_the_human_when_the_model_disagrees_or_asks() {
+    for (mode, why) in [
+        ("first", "did not agree with itself"),
+        ("ask_human", "asked for you"),
+        ("MySQL", "was not a choice"),
+    ] {
+        let (url, seen) = decision_model(mode).await;
+        let f = fake_with("question", Unattended::Deny, None, decision_spec(&url)).await;
+        let mut sub = subscribe(&f.gateway, true);
+        f.gateway
+            .send(support::prompt(&f.gateway, "set up storage"))
+            .unwrap();
+        let mut question = None;
+        loop {
+            match next(&mut sub).await.event {
+                Event::ItemSnapshot {
+                    item,
+                    partial: Item::Question { .. },
+                } => question = Some(item),
+                Event::ItemCompleted {
+                    body: Item::Notice { text, .. },
+                    ..
+                } if text.starts_with("Automation") => {
+                    assert!(
+                        text.starts_with("Automation left this question to you")
+                            && text.contains(why),
+                        "{text}"
+                    );
+                    break;
+                }
+                _ => {}
+            }
+        }
+        assert_eq!(seen.lock().unwrap().len(), 2);
+        // The question is still open: a face answers it now.
+        f.gateway.send(support::op(&f.gateway, Op::AnswerQuestion {
+            question: question.expect("an open question"),
+            answer: serde_json::json!({"action": "accept", "content": {"question_0": "Postgres"}}),
+        })).unwrap();
+        until_end(&mut sub).await;
+        let log = close(f).await;
+        assert!(
+            completed(&log).iter().any(
+                |(_, b)| matches!(b, Item::Question { answer: Some(a), by: None, .. }
+            if a["content"]["question_0"] == "Postgres")
+            ),
+            "{mode}"
+        );
+    }
+}
+
+// Switched off, the model is never called and the question waits as before.
+#[tokio::test]
+async fn automation_switched_off_never_calls_the_model() {
+    let (url, seen) = decision_model("SQLite").await;
+    let f = fake_with("question", Unattended::Deny, None, decision_spec(&url)).await;
+    let mut sub = subscribe(&f.gateway, true);
+    f.gateway
+        .send(support::op(&f.gateway, Op::SetAutomation { on: false }))
+        .unwrap();
+    f.gateway
+        .send(support::prompt(&f.gateway, "set up storage"))
+        .unwrap();
+    answer_as_face(&f, &mut sub, "Postgres").await;
+    until_end(&mut sub).await;
+    let log = close(f).await;
+    assert!(seen.lock().unwrap().is_empty());
+    assert!(completed(&log).iter().any(
+        |(_, b)| matches!(b, Item::Notice { text, .. } if text.starts_with("Automation off"))
+    ));
+    assert!(completed(&log).iter().any(
+        |(_, b)| matches!(b, Item::Question { answer: Some(a), by: None, .. }
+        if a["content"]["question_0"] == "Postgres")
+    ));
 }
 
 #[tokio::test]

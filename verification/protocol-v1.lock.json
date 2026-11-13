@@ -829,6 +829,10 @@
       "required": false,
       "type": "any"
      },
+     "by": {
+      "required": false,
+      "type": "Resolver|null"
+     },
      "message": {
       "required": false,
       "type": "string"
@@ -1251,6 +1255,12 @@
       "type": "string|null"
      }
     },
+    "set_automation": {
+     "on": {
+      "required": false,
+      "type": "boolean"
+     }
+    },
     "set_profile": {
      "profile": {
       "required": true,
@@ -1574,6 +1584,16 @@
     "face": {
      "name": {
       "required": true,
+      "type": "string"
+     }
+    },
+    "model": {
+     "confidence": {
+      "required": false,
+      "type": "number"
+     },
+     "model": {
+      "required": false,
       "type": "string"
      }
     },

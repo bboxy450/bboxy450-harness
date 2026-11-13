@@ -449,6 +449,108 @@ fn approval(b: bool, unattended: bool) -> Model {
     safe(&mut m, "ExactlyOneResolver", Var(4).le(Int(1)));
     m
 }
+// Automation (src/decision.rs, AcpAgentActor::automate/decided): a decision model
+// may answer an open question for the operator. The agent gets exactly one reply
+// per question; a model verdict that arrives after the human answered, after a
+// cancel, or after automation was switched off is dropped. Three questions left
+// to the human in a row pause automation until the operator switches it on again.
+fn question_automation(b: bool) -> Model {
+    let mut m = base::<7>(
+        "QuestionAutomation",
+        b,
+        &[
+            ("question", 3, 0),   // 0 open, 1 human, 2 model, 3 cancelled
+            ("verdict", 4, 0),    // 0 none, 1 in flight, 2 answer, 3 abstain, 4 consumed
+            ("automation", 1, 1), // the switch; on when a session starts
+            ("replies", 2, 0),    // replies the agent received for this question
+            ("abstained", 3, 0),  // consecutive questions left to the human
+            ("asked", 3, 0),      // questions so far (finite bound)
+            ("overrode", 1, 0),   // a model answer landed where it had no right to
+        ],
+    );
+    let live = || all([eq(0, 0), eq(2, 1)]);
+    act(
+        &mut m,
+        "AskModel",
+        all([eq(0, 0), eq(1, 0), eq(2, 1)]),
+        &[(1, Int(1))],
+    );
+    act(&mut m, "ModelAnswers", eq(1, 1), &[(1, Int(2))]);
+    act(&mut m, "ModelAbstainsOrFails", eq(1, 1), &[(1, Int(3))]);
+    act(
+        &mut m,
+        "HumanAnswers",
+        eq(0, 0),
+        &[(0, Int(1)), (3, Var(3).plus(Int(1)))],
+    );
+    act(
+        &mut m,
+        "CancelAnswers",
+        eq(0, 0),
+        &[(0, Int(3)), (3, Var(3).plus(Int(1)))],
+    );
+    act(&mut m, "SwitchOff", eq(2, 1), &[(2, Int(0)), (4, Int(0))]);
+    act(&mut m, "SwitchOn", eq(2, 0), &[(2, Int(1)), (4, Int(0))]);
+    act(
+        &mut m,
+        "ApplyModelAnswer",
+        all([eq(1, 2), if b { Var(3).lt(Int(2)) } else { live() }]),
+        &[
+            (0, Int(2)),
+            (1, Int(4)),
+            (3, Var(3).plus(Int(1))),
+            (4, Int(0)),
+            (6, live().ite(Var(6), Int(1))),
+        ],
+    );
+    act(
+        &mut m,
+        "DropLateAnswer",
+        all([eq(1, 2), live().negate()]),
+        &[(1, Int(4))],
+    );
+    act(
+        &mut m,
+        "ApplyAbstain",
+        all([eq(1, 3), live()]),
+        &[
+            (1, Int(4)),
+            (4, Var(4).plus(Int(1))),
+            (2, eq(4, 2).ite(Int(0), Var(2))),
+        ],
+    );
+    act(
+        &mut m,
+        "DropLateAbstain",
+        all([eq(1, 3), live().negate()]),
+        &[(1, Int(4))],
+    );
+    act(
+        &mut m,
+        "NextQuestion",
+        all([
+            eq(0, 0).negate(),
+            eq(1, 1).negate(),
+            eq(1, 2).negate(),
+            eq(1, 3).negate(),
+            Var(5).lt(Int(3)),
+        ]),
+        &[
+            (0, Int(0)),
+            (1, Int(0)),
+            (3, Int(0)),
+            (5, Var(5).plus(Int(1))),
+        ],
+    );
+    safe(&mut m, "OneReplyPerQuestion", Var(3).le(Int(1)));
+    safe(&mut m, "ModelNeverOverridesHumanCancelOrSwitch", eq(6, 0));
+    safe(
+        &mut m,
+        "ThreeAbstentionsPause",
+        Var(4).lt(Int(3)).or(eq(2, 0)),
+    );
+    m
+}
 fn replay_base(b: bool) -> Model {
     // Read head=1; one concurrent append can race registration. Subscriber
     // buffer=1; loss closes with lag and replay repairs the cursor.
@@ -7287,6 +7389,7 @@ pub fn corpus() -> Vec<(Model, &'static str)> {
             control_bound(b),
             approval(b, false),
             approval(b, true),
+            question_automation(b),
             replay(b),
             replay_drop(b),
             replay_healthy(b),
