@@ -937,6 +937,11 @@ async fn publish_frame(mut state: FrameState, mailbox: &Arc<Mailbox>, preparer: 
                     if let Err(error) = owned.prepare_pending(&mut prepared, &prompts, &faces) {
                         state.error = Some(error);
                     }
+                    // A cold preparation that stopped at its budget continues
+                    // at once; the face already shows the tail.
+                    if !prepared.complete {
+                        publisher.resized.notify_one();
+                    }
                     state.prepared = Some(Arc::new(prepared));
                 }
                 Err(error) => state.error = Some(error),
