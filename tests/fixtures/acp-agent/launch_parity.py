@@ -150,17 +150,22 @@ def call_server(config, journal):
                 record['python_execute_requests'] += 1
             child.stdin.write((json.dumps({'jsonrpc':'2.0','id':i,'method':method,'params':params})+'\n').encode())
             child.stdin.flush()
-            line = child.stdout.readline(FRAME_LIMIT + 1)
-            raw, truncated = bounded_text(line.decode('utf-8', errors='replace'), 1024)
-            record['responses'].append({'id': i, 'stage': record['stage'], 'bytes': len(line),
-                                        'response': raw, 'truncated': truncated})
-            record['responses_discarded'] += max(0, len(record['responses']) - 16)
-            del record['responses'][:-16]
-            if not line:
-                raise RpcFailure('RPC EOF')
-            if len(line) > FRAME_LIMIT or not line.endswith(b'\n'):
-                raise RpcFailure('RPC response exceeds64KiB or lacks newline')
-            response = json.loads(line)
+            while True:
+                line = child.stdout.readline(FRAME_LIMIT + 1)
+                raw, truncated = bounded_text(line.decode('utf-8', errors='replace'), 1024)
+                record['responses'].append({'id': i, 'stage': record['stage'], 'bytes': len(line),
+                                            'response': raw, 'truncated': truncated})
+                record['responses_discarded'] += max(0, len(record['responses']) - 16)
+                del record['responses'][:-16]
+                if not line:
+                    raise RpcFailure('RPC EOF')
+                if len(line) > FRAME_LIMIT or not line.endswith(b'\n'):
+                    raise RpcFailure('RPC response exceeds64KiB or lacks newline')
+                response = json.loads(line)
+                # A server may send a notification (no id), such as
+                # tools/list_changed, before any reply: it is not the reply.
+                if not (isinstance(response, dict) and 'id' not in response and 'method' in response):
+                    break
             if response.get('jsonrpc') != '2.0' or response.get('id') != i:
                 raise RpcFailure('RPC identity mismatch')
             if 'error' in response:
