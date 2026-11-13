@@ -123,7 +123,12 @@ impl Rig {
     }
     async fn run(&self, source: &str) -> Value {
         let start = self.call("python_execute", json!({"source":source})).await;
-        self.finish(start["execution_id"].as_str().unwrap()).await
+        self.finish(
+            start["execution_id"]
+                .as_str()
+                .unwrap_or_else(|| panic!("python_execute did not start: {start}")),
+        )
+        .await
     }
     async fn finish(&self, id: &str) -> Value {
         tokio::time::timeout(Duration::from_secs(15), async {
@@ -329,6 +334,181 @@ for form in ['result_unknown','rpc_unknown']:
     rig.close().await;
 }
 
+// Code mode in one call: tools without await, a shell line, a guarded edit, and
+// the final expression as the result.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn one_program_calls_tools_runs_shell_edits_files_and_returns_its_last_expression() {
+    let rig = Rig::start().await;
+    let value = rig
+        .run(
+            r#"
+import pathlib
+pathlib.Path('note.txt').write_text('alpha\nbeta\nbeta\n')
+plain = tools.a.echo(op_id=1).arguments.op_id
+awaited = (await tools.a.echo(op_id=2)).arguments.op_id
+shell = sh('printf hi; exit 3')
+try:
+    sh('echo nope >&2; exit 4', check=True)
+except RuntimeError as error:
+    checked = str(error)
+try:
+    fs.replace('note.txt', 'beta', 'gamma')
+except ValueError as error:
+    refused = str(error)
+replaced = fs.replace('note.txt', 'alpha', 'omega')
+every = fs.replace('note.txt', 'beta', 'gamma', count=None)
+try:
+    fs.replace('note.txt', 'absent line', 'x')
+except ValueError as error:
+    missing = str(error)
+emit({'big': 'x' * 200000})
+{'plain': plain, 'awaited': awaited, 'shell': [shell.out, shell.code, shell.ok], 'checked': checked,
+ 'refused': refused, 'replaced': replaced, 'every': every, 'missing': missing,
+ 'lines': fs.lines('note.txt', 2, 3), 'text': pathlib.Path('note.txt').read_text()}
+"#,
+        )
+        .await;
+    assert_eq!(value["status"], "completed", "{value}");
+    let spilled = &value["emitted"][0];
+    assert_eq!(spilled["bytes"], 200_011, "{spilled}");
+    let path = spilled["spilled"].as_str().unwrap();
+    assert_eq!(std::fs::metadata(path).unwrap().len(), 200_011);
+    std::fs::remove_file(path).unwrap();
+    let out = &value["emitted"][1];
+    assert_eq!(out["plain"], 1);
+    assert_eq!(out["awaited"], 2);
+    assert_eq!(out["shell"], json!(["hi", 3, false]));
+    assert!(
+        out["checked"].as_str().unwrap().contains("exited 4\nnope"),
+        "{out}"
+    );
+    assert!(
+        out["refused"]
+            .as_str()
+            .unwrap()
+            .contains("expected 1 occurrence(s) of the old text, found 2; nothing was written"),
+        "{out}"
+    );
+    assert_eq!(out["replaced"], 1);
+    assert_eq!(out["every"], 2);
+    assert!(
+        out["missing"].as_str().unwrap().contains("found 0"),
+        "{out}"
+    );
+    assert_eq!(out["lines"], "2\tgamma\n3\tgamma\n");
+    assert_eq!(out["text"], "omega\ngamma\ngamma\n");
+    rig.close().await;
+}
+
+// A script that stops itself is done; one that raises shows its own frames and a
+// readable tool error; a wrong argument is named.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn exits_tracebacks_tool_errors_and_argument_errors_say_what_happened() {
+    let rig = Rig::start().await;
+    let stopped = rig.run("emit('done')\nimport sys\nsys.exit(0)").await;
+    assert_eq!(stopped["status"], "completed", "{stopped}");
+    let raised = rig
+        .run("def inner():\n    return {}['missing']\ninner()")
+        .await;
+    assert_eq!(raised["status"], "failed", "{raised}");
+    let text = raised["output"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|chunk| chunk["text"].as_str())
+        .collect::<String>();
+    assert!(
+        text.contains("line 2, in inner") && text.contains("return {}['missing']"),
+        "{text}"
+    );
+    assert!(
+        !text.contains("asyncio") && !text.contains("_main"),
+        "only the script's frames: {text}"
+    );
+    let refused = rig.run("tools.z.fail(op_id=99)").await;
+    let text = refused["output"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|chunk| chunk["text"].as_str())
+        .collect::<String>();
+    assert!(
+        text.contains("ToolError: z.fail: fixture_rejected:"),
+        "{text}"
+    );
+    let unknown = rig
+        .call("python_execute", json!({"source":"1","wait":5}))
+        .await;
+    assert_eq!(
+        unknown["error"]["message"],
+        "unknown argument \"wait\"; python_execute takes source, inputs, timeout_ms, wait_ms, op_id"
+    );
+    rig.close().await;
+}
+
+// The bridge: a server's tools are functions that take keywords or one dict and
+// return the tool's data; discovery happens inside the program.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn servers_are_function_namespaces_with_search_describe_and_plain_data() {
+    let rig = Rig::start().await;
+    let value = rig
+        .run(
+            r#"
+echoed = await tools.a.echo(op_id=42, payload={'n': [3, 2, 1]})
+same = await tools.z.echo({'op_id': 7})
+try:
+    await tools.z.fail(op_id=99)
+except ToolError as error:
+    failed = [error.server, error.tool, error.code]
+try:
+    await tools.a.echo({'op_id': 1}, payload=2)
+except TypeError as error:
+    both = str(error)
+try:
+    await tools.a.describe('absent')
+except AttributeError as error:
+    absent = str(error)
+listed = await tools.a.tools()
+found = await tools.search('echo', limit=3)
+described = await tools.a.describe('echo')
+timed = await tools.a.echo(op_id=5, _timeout_ms=5000)
+emit({'echoed': echoed.arguments, 'same': same.arguments.op_id, 'failed': failed, 'both': both,
+      'absent': absent, 'listed': [len(listed), listed[0].name, listed[0].signature],
+      'found': [[t.server, t.name] for t in found], 'described': described.signature,
+      'timed': timed.arguments, 'bboxy': repr(bboxy)})
+"#,
+        )
+        .await;
+    let out = &value["emitted"][0];
+    // One nested call failed and was caught; the run says so.
+    assert_eq!(value["status"], "completed_with_errors", "{value}");
+    assert_eq!(out["echoed"], json!({"op_id":42,"payload":{"n":[3,2,1]}}));
+    assert_eq!(out["same"], 7);
+    assert_eq!(out["failed"][0], "z");
+    assert_eq!(out["failed"][1], "fail");
+    assert!(out["both"].as_str().unwrap().contains("not both"));
+    assert!(
+        out["absent"]
+            .as_str()
+            .unwrap()
+            .contains("a has no tool 'absent'")
+    );
+    assert_eq!(
+        out["listed"][0], 186,
+        "every page of the catalogue, read once"
+    );
+    assert_eq!(out["listed"][1], "echo");
+    assert_eq!(out["found"], json!([["a", "echo"], ["z", "echo"]]));
+    assert!(out["described"].as_str().unwrap().starts_with("echo("));
+    assert_eq!(
+        out["timed"],
+        json!({"op_id":5}),
+        "call options never reach the tool"
+    );
+    assert!(out["bboxy"].as_str().unwrap().contains("mcp server bboxy"));
+    rig.close().await;
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn lost_outer_output_duplicate_and_restart_never_replay_successful_write() {
     let rig = Rig::start().await;
@@ -368,7 +548,7 @@ async fn lost_outer_output_duplicate_and_restart_never_replay_successful_write()
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn cancellation_timeout_and_grandchild_pipes_leave_other_execution_live() {
     let rig = Rig::start().await;
-    let started=rig.call("python_execute",json!({"source":"import subprocess,time\nsubprocess.Popen(['sleep','60'])\nprint('ready',flush=True)\ntime.sleep(60)"})).await;
+    let started=rig.call("python_execute",json!({"wait_ms":0,"source":"import subprocess,time\nsubprocess.Popen(['sleep','60'])\nprint('ready',flush=True)\ntime.sleep(60)"})).await;
     let id = started["execution_id"].as_str().unwrap();
     let other = rig.run("emit(6*7)").await;
     assert_eq!(other["emitted"][0], 42);
@@ -394,7 +574,7 @@ async fn cancellation_timeout_and_grandchild_pipes_leave_other_execution_live() 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn stalled_mcp_batch_cannot_starve_other_run_or_fresh_proxy_cancel() {
     let rig = Rig::start().await;
-    let started=rig.call("python_execute",json!({"source":"import asyncio\nfrom concurrent.futures import ThreadPoolExecutor\nasyncio.get_running_loop().set_default_executor(ThreadPoolExecutor(max_workers=40))\nawait asyncio.gather(*(mcp.call('a','echo',{'payload':{'wait':True}}) for _ in range(32)))"})).await;
+    let started=rig.call("python_execute",json!({"wait_ms":0,"source":"import asyncio\nfrom concurrent.futures import ThreadPoolExecutor\nasyncio.get_running_loop().set_default_executor(ThreadPoolExecutor(max_workers=40))\nawait asyncio.gather(*(mcp.call('a','echo',{'payload':{'wait':True}}) for _ in range(32)))"})).await;
     let id = started["execution_id"].as_str().unwrap();
     tokio::time::timeout(Duration::from_secs(5), async {
         while !rig._dir.path().join("a.waiting").is_file() {

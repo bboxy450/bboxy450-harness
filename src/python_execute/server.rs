@@ -11,10 +11,10 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 pub fn catalogue() -> Vec<Value> {
     let id = json!({"type":"string","pattern":"^[0-7][0-9A-HJKMNP-TV-Z]{25}$"});
     [
-        ("python_execute","Run full CPython in your current source workspace. Waits up to wait_ms (default 1000, clamped to 25000 ms), returning short results inline and durable handles for long runs. Earlier effects are never replayed after lost output. Read python_execute_orient first.",json!({"source":{"type":"string","minLength":1,"maxLength":SOURCE},"inputs":{},"timeout_ms":{"type":"integer","minimum":10,"maximum":TIMEOUT},"wait_ms":{"type":"integer","minimum":0,"description":"Bounded result wait, clamped to 25000 ms; 0 returns immediately."},"op_id":id}),vec!["source"]),
-        ("python_execution_get","Read your session's Python execution and bounded output pages, optionally waiting for completion (wait_ms, default 1000, cap 25000 ms). UTF-8 output has text only; otherwise decode base64 for exact bytes. child:N:OFFSET reads exact JSON result bytes for nested receipt N.",json!({"execution_id":id,"cursor":{"type":"string","maxLength":256},"wait_ms":{"type":"integer","minimum":0}}),vec!["execution_id"]),
+        ("python_execute","Run a Python program in your workspace and get its result in the same call. Every MCP tool is a function inside it: `bboxy.task_status(task=\"#12\")`, `tools.<server>.<tool>(...)`; no `await` needed. Do many tool calls, loop, filter and join in ONE call and return only what you need: a final bare expression (or `emit(value)`) is the result. Also preloaded: `sh(\"git status --porcelain\").out`, `fs.replace(path, old, new)`, `fs.lines(path, a, b)`, `tools.search(\"close seat\")` to find a tool and its signature. Prefer this over a chain of single tool calls or a shell heredoc. Full CPython with the standard library; a large result is spilled to a file, never an error. Waits up to 25 s for the result; a longer run (default limit 1 hour, up to 24) returns a handle for python_execution_get.",json!({"source":{"type":"string","minLength":1,"maxLength":SOURCE,"description":"Python source. Top-level await is allowed and optional."},"inputs":{"description":"Optional JSON, available as `inputs`"},"timeout_ms":{"type":"integer","minimum":10,"maximum":TIMEOUT,"description":"Wall limit for the run; default 3600000 (1 hour), at most 86400000 (24 hours)."},"wait_ms":{"type":"integer","minimum":0,"description":"How long this call waits for the result; default and maximum 25000. 0 returns a handle at once."},"op_id":id}),vec!["source"]),
+        ("python_execution_get","Read a Python run that outlived its call: status, result and bounded output pages, waiting for completion up to wait_ms (default and maximum 25000). UTF-8 output has text only; otherwise decode base64 for exact bytes. child:N:OFFSET reads exact JSON result bytes for nested receipt N.",json!({"execution_id":id,"cursor":{"type":"string","maxLength":256},"wait_ms":{"type":"integer","minimum":0}}),vec!["execution_id"]),
         ("python_execution_cancel","Cancel new work and retire the exact owned Python/command children. Earlier writes may have completed; inspect receipts. No script replay or rollback.",json!({"execution_id":id,"op_id":id}),vec!["execution_id"]),
-        ("python_execute_orient","Read Python readiness, source workspace, current MCP server discovery, argv/jq bindings, limits and recovery examples. No package installation is required.",json!({}),vec![]),
+        ("python_execute_orient","Optional: Python readiness, workspace, the MCP servers reachable as functions, every binding with examples, limits and recovery. python_execute works without reading this first.",json!({}),vec![]),
     ].into_iter().map(|(name,description,properties,required)|json!({"name":name,"description":description,
         "inputSchema":{"type":"object","properties":properties,"required":required,"additionalProperties":false},
         "outputSchema":{"type":"object","additionalProperties":true},
@@ -224,7 +224,7 @@ impl Service {
                     if !(10..=TIMEOUT).contains(&timeout) {
                         return Err(fault(
                             "invalid_arguments",
-                            "nested MCP timeout_ms must be 10..600000",
+                            "nested MCP timeout_ms must be 10..86400000 (24 hours)",
                         ));
                     }
                     Some(Duration::from_millis(timeout))
@@ -445,8 +445,9 @@ impl Service {
             .map(|s| STANDARD.decode(s))
             .transpose()
             .map_err(|_| fault("invalid_arguments", "invalid command input bytes"))?;
+        // A command runs until the execution's own deadline unless it sets one.
         let timeout = if args["timeout_ms"].is_null() {
-            120_000
+            TIMEOUT
         } else {
             args["timeout_ms"].as_u64().ok_or_else(|| {
                 fault("invalid_arguments", "command timeout_ms must be an integer")
@@ -455,7 +456,7 @@ impl Service {
         if !(10..=TIMEOUT).contains(&timeout) {
             return Err(fault(
                 "invalid_arguments",
-                "command timeout must be 10..600000 ms",
+                "command timeout must be 10..86400000 ms (24 hours)",
             ));
         }
         let started = tokio::time::Instant::now();

@@ -37,14 +37,19 @@ use ulid::Ulid;
 
 pub(crate) const FRAME: usize = 8 * 1024 * 1024;
 const OUTPUT: usize = 1024 * 1024;
-const CALLS: usize = 128;
-const SOURCE: usize = 64 * 1024;
-const TIMEOUT: u64 = 600_000;
+const CALLS: usize = 4096;
+const SOURCE: usize = 1024 * 1024;
+/// A run may take a day. Its default is an hour: long enough for a build or a
+/// sweep, and a runaway script still ends.
+const TIMEOUT: u64 = 24 * 60 * 60 * 1000;
+const DEFAULT_TIMEOUT: u64 = 60 * 60 * 1000;
 const CALLBACKS_PER_RUN: usize = 8;
 /// MCP requests wait at most 25 seconds, below the usual 30-second client deadline.
 /// The execution itself keeps its independent durable wall deadline.
 const MAX_WAIT_MS: u64 = 25_000;
-const DEFAULT_WAIT_MS: u64 = 1_000;
+/// Wait as long as the request may: a run that finishes in time answers in the
+/// same call, without a handle and a poll.
+const DEFAULT_WAIT_MS: u64 = MAX_WAIT_MS;
 type Progress = Option<(Value, mpsc::Sender<Value>)>;
 
 pub(crate) struct Endpoint {
@@ -416,13 +421,16 @@ impl Service {
             .ok_or_else(|| {
                 fault(
                     "invalid_arguments",
-                    "source must contain 1..65536 UTF-8 bytes",
+                    "source must contain 1..1048576 UTF-8 bytes",
                 )
             })?
             .to_owned();
-        let timeout = args["timeout_ms"].as_u64().unwrap_or(120_000);
+        let timeout = args["timeout_ms"].as_u64().unwrap_or(DEFAULT_TIMEOUT);
         if !(10..=TIMEOUT).contains(&timeout) {
-            return Err(fault("invalid_arguments", "timeout_ms must be 10..600000"));
+            return Err(fault(
+                "invalid_arguments",
+                "timeout_ms must be 10..86400000 (24 hours)",
+            ));
         }
         let execution = if args.get("op_id").is_some() {
             id(&args, "op_id")?
@@ -605,10 +613,17 @@ impl Service {
                 "arguments must be a JSON object",
             ));
         };
-        if object.keys().any(|key| !allowed.contains(&key.as_str())) {
+        if let Some(unknown) = object.keys().find(|key| !allowed.contains(&key.as_str())) {
             return envelope(fault(
                 "invalid_arguments",
-                "unknown argument; read the exact Python tool schema",
+                &format!(
+                    "unknown argument {unknown:?}; {name} takes {}",
+                    if allowed.is_empty() {
+                        "no arguments".to_owned()
+                    } else {
+                        allowed.join(", ")
+                    }
+                ),
             ));
         }
         if object
@@ -801,10 +816,15 @@ impl Service {
         };
         let local = context["target"]["kind"] == "local";
         json!({"ready":version.is_some()&&local,"interpreter":interpreter,"version":version,"runtime":"owned CPython process; standard library and top-level await; ordinary host execution authority",
-            "cwd":context["cwd"],"context":context,"mcp_servers":self.0.mcp.servers(),"limits":{"source_bytes":SOURCE,"timeout_ms":TIMEOUT,"wait_ms":MAX_WAIT_MS,"default_wait_ms":DEFAULT_WAIT_MS,"nested_call_timeout_ms":crate::mcp::NESTED_CALL_TIMEOUT_MS,"retained_output_bytes":OUTPUT,"callback_frame_bytes":FRAME,"nested_calls":CALLS,"active_executions":4,"active_callbacks_per_execution":CALLBACKS_PER_RUN,"connections":256},
+            "cwd":context["cwd"],"context":context,"mcp_servers":self.0.mcp.servers(),"limits":{"source_bytes":SOURCE,"timeout_ms":TIMEOUT,"default_timeout_ms":DEFAULT_TIMEOUT,"wait_ms":MAX_WAIT_MS,"default_wait_ms":DEFAULT_WAIT_MS,"nested_call_timeout_ms":crate::mcp::NESTED_CALL_TIMEOUT_MS,"retained_output_bytes":OUTPUT,"callback_frame_bytes":FRAME,"nested_calls":CALLS,"active_executions":4,"active_callbacks_per_execution":CALLBACKS_PER_RUN,"connections":256},
             "policy":"Original MCP server authorization and credentials apply; parent Codex/Claude hooks are not automatically invoked per nested call. Python and subprocess use normal harness host authority, with durable nested receipts.",
-            "bindings":{"mcp":["await mcp.servers()","await mcp.tools(server, cursor=None)","await mcp.call(server, tool, arguments, op_id=None, timeout_ms=25000)"],"commands":["await commands.run([executable, *args], input=None, json_input=value, cwd=None, check=False)","await commands.rg('--json', pattern, path)","await commands.jq('.items', json_input=data)","await commands.shell('explicit pipeline')"],"python":["inputs", "execution", "workspace", "emit(value)"]},
-            "examples":["emit({'cwd':execution.cwd,'json':json.dumps({'sorted':sorted([3,1,2])})})","servers=await mcp.servers()\nserver=next(item.name for item in servers if item.ready)\npage=await mcp.tools(server)\nemit({'server':server,'tools':[tool.name for tool in page.tools],'next_cursor':page.next_cursor})"],
+            "bindings":{
+                "tools as functions":["bboxy.<tool>(key=value, ...)  # the host's tools; returns the tool's data, raises ToolError","tools.<server>.<tool>(...)  # any MCP server","tools.search('words')  # find a tool: [{server, name, signature, description}]","bboxy.tools() / bboxy.describe('knowledge_write')  # signatures and the exact input schema","_timeout_ms= and _op_id= bound and name one call; every other keyword reaches the tool","await is optional on all of the above"],
+                "result":["a final bare expression is the result","emit(value)  # more results; a value too large to return is spilled to a file as {spilled, bytes, head}","print(...) is kept as output"],
+                "shell and files":["sh('git status --porcelain').out  # .out .err .code .ok .json(); check=True raises","fs.replace(path, old, new, count=1)  # refuses and says what it found unless old occurs exactly count times","fs.lines(path, start, end)  # numbered lines","commands.run([executable, *args], input=None, json_input=value, cwd=None, check=False)  # exact argv, async"],
+                "raw MCP":["await mcp.servers()","await mcp.tools(server, cursor=None)","await mcp.call(server, tool, arguments, op_id=None, timeout_ms=25000)  # the full envelope; .data is what the tool returned; use with asyncio.gather for overlapping calls"],
+                "python":["inputs","execution","workspace"]},
+            "examples":["open_tasks = bboxy.task_list(status='open')\n[t.title for t in open_tasks['items']]","for seat in bboxy.seat_list()['items']:\n    if seat.record.lifecycle != 'open':\n        continue\n    emit({'seat': seat.record.name, 'tasks': len(seat.record.tasks)})","hits = sh(\"git grep -n 'fn main' -- '*.rs'\").out.splitlines()\nlen(hits)","found = tools.search('close seat')\n[(t.server, t.signature) for t in found]"],
             "workflow":"Discover your native server's current tools. Read knowledge_orient before KB edits; workspace_orient describes provisioning/selecting a source workspace when your current capability permits it. Existing managed writers retain their admitted source cwd and canonical KB. Use knowledge_commit for a substantial checkpoint, sharing or acceptance, rather than each draft edit.",
             "recovery":"Supply a caller-generated ULID op_id before effectful execution when handle recovery matters. Read python_execution_get and original nested operation IDs. Do not replay source with a new ID after lost output or unknown effects.",
             "setup_error":if !local {fault("unsupported_target","This runtime requires the authenticated local execution target")}else if version.is_some(){Value::Null}else{fault("python_unavailable","Configure a working Python 3 in the existing harness PATH; no package installation is performed")}})
