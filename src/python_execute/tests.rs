@@ -1249,3 +1249,79 @@ async fn progress_tokens_receive_optional_notifications_and_control_remains_avai
     drop(reader);
     rig.close().await;
 }
+
+// One call fetches and keeps; a later call, in a fresh interpreter, filters. The
+// data stays in the session's files and the result names only what was written.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn store_keeps_values_between_executions_and_lists_what_a_run_wrote() {
+    let rig = Rig::start().await;
+    let first = rig
+        .run("store['rows'] = [{'n': n, 'even': n % 2 == 0} for n in range(1000)]\nstore['scratch'] = 1\nstore['scratch'] = {'a': [1, 2]}\nstore['gone'] = 1\ndel store['gone']")
+        .await;
+    assert_eq!(first["status"], "completed", "{first}");
+    assert_eq!(first["emitted"], json!([]), "the data did not come back");
+    let file = rig._dir.path().join("executions/state/rows.json");
+    let bytes = tokio::fs::metadata(&file).await.unwrap().len();
+    assert_eq!(
+        first["stored"],
+        json!([{"key":"rows","bytes":bytes},{"key":"scratch","bytes":13}])
+    );
+    let second = rig
+        .run(
+            r#"
+import os
+def raised(kind, action):
+    try:
+        action()
+    except kind as error:
+        return str(error)
+def write(key, value):
+    store[key] = value
+{
+    "filtered": [row.n for row in store["rows"] if row.even and row.n % 250 == 0],
+    "has": ["rows" in store, "gone" in store],
+    "keys": store.keys(),
+    "path": [store.path("rows"), os.path.getsize(store.path("rows"))],
+    "scratch": store["scratch"],
+    "default": store.get("absent", 7),
+    "missing": raised(KeyError, lambda: store["absent"]),
+    "bad_key": raised(ValueError, lambda: store.path("../escape")),
+    "not_json": raised(TypeError, lambda: write("odd", {1, 2})),
+    "too_large": raised(ValueError, lambda: write("big", "x" * (64 * 1024 * 1024))),
+    "after_refusals": store.keys(),
+}
+"#,
+        )
+        .await;
+    assert_eq!(second["status"], "completed", "{second}");
+    assert_eq!(second["stored"], json!([]), "this run wrote nothing");
+    let out = &second["emitted"][0];
+    assert_eq!(out["filtered"], json!([0, 250, 500, 750]));
+    assert_eq!(out["has"], json!([true, false]));
+    assert_eq!(out["keys"], json!(["rows", "scratch"]));
+    assert_eq!(out["path"], json!([file, bytes]));
+    assert_eq!(out["scratch"], json!({"a":[1,2]}));
+    assert_eq!(out["default"], 7);
+    assert_eq!(out["missing"], "'absent'");
+    assert!(
+        out["bad_key"]
+            .as_str()
+            .unwrap()
+            .contains("[A-Za-z0-9_.-]{1,64}"),
+        "{out}"
+    );
+    assert!(out["not_json"].as_str().unwrap().contains("set"), "{out}");
+    let too_large = out["too_large"].as_str().unwrap();
+    assert!(
+        too_large.contains("67108866 bytes") && too_large.contains("64 MiB"),
+        "{too_large}"
+    );
+    assert_eq!(out["after_refusals"], json!(["rows", "scratch"]));
+    let third = rig
+        .run("store['kept'] = 1\nstore.clear()\n[store.keys(), len(store)]")
+        .await;
+    assert_eq!(third["emitted"][0], json!([[], 0]), "{third}");
+    assert_eq!(third["stored"], json!([]));
+    assert!(!file.exists());
+    rig.close().await;
+}

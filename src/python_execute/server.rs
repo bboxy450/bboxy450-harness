@@ -11,7 +11,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 pub fn catalogue() -> Vec<Value> {
     let id = json!({"type":"string","pattern":"^[0-7][0-9A-HJKMNP-TV-Z]{25}$"});
     [
-        ("python_execute","Run a Python program in your workspace and get its result in the same call. Every MCP tool is a function inside it: `bboxy.task_status(task=\"#12\")`, `tools.<server>.<tool>(...)`; no `await` needed. Do many tool calls, loop, filter and join in ONE call and return only what you need: a final bare expression (or `emit(value)`) is the result. Also preloaded: `sh(\"git status --porcelain\").out`, `fs.replace(path, old, new)`, `fs.lines(path, a, b)`, `tools.search(\"close seat\")` to find a tool and its signature. Prefer this over a chain of single tool calls or a shell heredoc. Full CPython with the standard library; a large result is spilled to a file, never an error. Waits up to 25 s for the result; a longer run (default limit 1 hour, up to 24) returns a handle for python_execution_get.",json!({"source":{"type":"string","minLength":1,"maxLength":SOURCE,"description":"Python source. Top-level await is allowed and optional."},"inputs":{"description":"Optional JSON, available as `inputs`"},"timeout_ms":{"type":"integer","minimum":10,"maximum":TIMEOUT,"description":"Wall limit for the run; default 3600000 (1 hour), at most 86400000 (24 hours)."},"wait_ms":{"type":"integer","minimum":0,"description":"How long this call waits for the result; default and maximum 25000. 0 returns a handle at once."},"op_id":id}),vec!["source"]),
+        ("python_execute","Run a Python program in your workspace and get its result in the same call. Every MCP tool is a function inside it: `bboxy.task_status(task=\"#12\")`, `tools.<server>.<tool>(...)`; no `await` needed. Do many tool calls, loop, filter and join in ONE call and return only what you need: a final bare expression (or `emit(value)`) is the result. Also preloaded: `sh(\"git status --porcelain\").out`, `fs.replace(path, old, new)`, `fs.lines(path, a, b)`, `tools.search(\"close seat\")` to find a tool and its signature. Prefer this over a chain of single tool calls or a shell heredoc. Full CPython with the standard library; a large result is spilled to a file, never an error. `store[\"rows\"] = value` persists between calls in this session: keep large data in `store` and return only what you need. Waits up to 25 s for the result; a longer run (default limit 1 hour, up to 24) returns a handle for python_execution_get.",json!({"source":{"type":"string","minLength":1,"maxLength":SOURCE,"description":"Python source. Top-level await is allowed and optional."},"inputs":{"description":"Optional JSON, available as `inputs`"},"timeout_ms":{"type":"integer","minimum":10,"maximum":TIMEOUT,"description":"Wall limit for the run; default 3600000 (1 hour), at most 86400000 (24 hours)."},"wait_ms":{"type":"integer","minimum":0,"description":"How long this call waits for the result; default and maximum 25000. 0 returns a handle at once."},"op_id":id}),vec!["source"]),
         ("python_execution_get","Read a Python run that outlived its call: status, result and bounded output pages, waiting for completion up to wait_ms (default and maximum 25000). UTF-8 output has text only; otherwise decode base64 for exact bytes. child:N:OFFSET reads exact JSON result bytes for nested receipt N.",json!({"execution_id":id,"cursor":{"type":"string","maxLength":256},"wait_ms":{"type":"integer","minimum":0}}),vec!["execution_id"]),
         ("python_execution_cancel","Cancel new work and retire the exact owned Python/command children. Earlier writes may have completed; inspect receipts. No script replay or rollback.",json!({"execution_id":id,"op_id":id}),vec!["execution_id"]),
         ("python_execute_orient","Optional: Python readiness, workspace, the MCP servers reachable as functions, every binding with examples, limits and recovery. python_execute works without reading this first.",json!({}),vec![]),
@@ -188,6 +188,48 @@ impl Service {
                 self.save_record(&record)
                     .await
                     .map_err(|_| fault("execution_storage", "cannot persist emitted result"))?;
+                Ok(Value::Null)
+            }
+            Some("stored") => {
+                let mut record = run.record.lock().await;
+                if record.status != "running" {
+                    return Err(fault(
+                        "execution_retired",
+                        "Terminal executions do not list stored keys",
+                    ));
+                }
+                match args["key"].as_str() {
+                    // `store.clear()`: nothing this run wrote remains.
+                    None => record.stored.clear(),
+                    Some(key) => {
+                        if !(1..=64).contains(&key.len())
+                            || !key
+                                .bytes()
+                                .all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
+                        {
+                            return Err(fault(
+                                "invalid_arguments",
+                                "store key must match [A-Za-z0-9_.-]{1,64}",
+                            ));
+                        }
+                        record.stored.retain(|stored| stored.key != key);
+                        if let Some(bytes) = args["bytes"].as_u64() {
+                            if record.stored.len() >= CALLS {
+                                return Err(fault(
+                                    "store_limit",
+                                    "the value was written, but one run lists at most 4096 stored keys; keep rows in one value",
+                                ));
+                            }
+                            record.stored.push(Stored {
+                                key: key.to_owned(),
+                                bytes,
+                            });
+                        }
+                    }
+                }
+                self.save_record(&record)
+                    .await
+                    .map_err(|_| fault("execution_storage", "cannot persist stored keys"))?;
                 Ok(Value::Null)
             }
             Some("available") => {

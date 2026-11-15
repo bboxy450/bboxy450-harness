@@ -12,6 +12,7 @@ import inspect
 import json
 import linecache
 import os
+import re
 import socket
 import sys
 import tempfile
@@ -411,6 +412,90 @@ class Files:
         return found if count is None else count
 
 
+class Store:
+    """Values kept for the whole session, one JSON file per key, so a later call
+    filters what an earlier call fetched without the data passing through the model.
+
+        store["rows"] = bboxy.task_list()["items"]        # one call
+        [row.title for row in store["rows"] if row.open]  # a later call
+
+    Keys match [A-Za-z0-9_.-]{1,64}; a value is JSON of at most 64 MiB. A key is
+    read from its file each time it is used. The run's result lists what it wrote.
+    """
+    _KEY = re.compile(r"[A-Za-z0-9_.-]{1,64}")
+    _LIMIT = 64 * 1024 * 1024
+
+    def __init__(self, directory):
+        self._directory = directory
+
+    def path(self, key):
+        """The file that holds `key`, to hand to a command."""
+        if not isinstance(key, str) or not self._KEY.fullmatch(key):
+            raise ValueError(f"store key must match [A-Za-z0-9_.-]{{1,64}}, got {key!r}")
+        return os.path.join(self._directory, key + ".json")
+
+    def __setitem__(self, key, value):
+        path = self.path(key)
+        data = json.dumps(value, ensure_ascii=False).encode()
+        if len(data) > self._LIMIT:
+            raise ValueError(f"store[{key!r}] is {len(data)} bytes as JSON; one value holds at most "
+                             f"{self._LIMIT} (64 MiB). Split it across keys or write a file")
+        os.makedirs(self._directory, mode=0o700, exist_ok=True)
+        # Readers see the old value or the new one, never a partial file.
+        handle, temporary = tempfile.mkstemp(dir=self._directory, suffix=".tmp")
+        with os.fdopen(handle, "wb") as output:
+            output.write(data)
+        os.replace(temporary, path)
+        _rpc_sync("stored", {"key": key, "bytes": len(data)})
+
+    def __getitem__(self, key):
+        try:
+            with open(self.path(key), encoding="utf-8") as source:
+                return _objects(json.load(source))
+        except FileNotFoundError:
+            raise KeyError(key) from None
+
+    def get(self, key, default=None):
+        try:
+            return self[key]
+        except KeyError:
+            return default
+
+    def __contains__(self, key):
+        return os.path.isfile(self.path(key))
+
+    def __delitem__(self, key):
+        try:
+            os.remove(self.path(key))
+        except FileNotFoundError:
+            raise KeyError(key) from None
+        _rpc_sync("stored", {"key": key, "bytes": None})
+
+    def keys(self):
+        try:
+            names = os.listdir(self._directory)
+        except FileNotFoundError:
+            return []
+        return sorted(name[:-5] for name in names if name.endswith(".json"))
+
+    def __iter__(self):
+        return iter(self.keys())
+
+    def __len__(self):
+        return len(self.keys())
+
+    def clear(self):
+        for key in self.keys():
+            try:
+                os.remove(self.path(key))
+            except FileNotFoundError:
+                pass
+        _rpc_sync("stored", {"key": None})
+
+    def __repr__(self):
+        return f"<store {self.keys()}>"
+
+
 # The host keeps at most 64 KiB of emitted values for one run.
 _EMIT_ROOM = [56 * 1024]
 
@@ -439,6 +524,7 @@ tools = mcp
 bboxy = Server("bboxy")
 commands = Commands()
 fs = Files()
+store = Store(_launch["state"])
 inputs = _objects(_launch.get("inputs", {}))
 execution = _objects({**_launch["context"], "execution_id": _execution})
 workspace = execution.get("workspace")

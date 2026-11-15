@@ -106,6 +106,11 @@ struct Child {
     result_resource: Option<PathBuf>,
 }
 #[derive(Serialize, Deserialize, Clone)]
+struct Stored {
+    key: String,
+    bytes: u64,
+}
+#[derive(Serialize, Deserialize, Clone)]
 struct Record {
     execution_id: Ulid,
     request_digest: String,
@@ -131,6 +136,9 @@ struct Record {
     emitted: Vec<Value>,
     #[serde(default)]
     children: Vec<Child>,
+    /// `store` keys this run wrote: the model sees what is kept, not the data.
+    #[serde(default)]
+    stored: Vec<Stored>,
 }
 struct Run {
     record: Mutex<Record>,
@@ -316,6 +324,7 @@ impl Service {
                         omitted_bytes: 0,
                         emitted: vec![],
                         children: vec![],
+                        stored: vec![],
                     }
                 }
             };
@@ -472,6 +481,7 @@ impl Service {
                 omitted_bytes: 0,
                 emitted: vec![],
                 children: vec![],
+                stored: vec![],
             }),
             cancel: self.0.cancel.child_token(),
             capture: std::sync::Mutex::new(self.0.mcp.capture()),
@@ -587,7 +597,7 @@ impl Service {
         json!({"execution_id":record.execution_id,"status":record.status,"cwd":record.cwd,
             "context":record.context,"pid":record.pid,"exit_code":record.exit_code,"signal":record.signal,
             "output":record.output.get(offset..end).unwrap_or_default(),"next_cursor":(end<record.output.len() || matches!(record.status.as_str(),"starting"|"running"|"cancelling")).then(||end.to_string()),
-            "omitted_bytes":record.omitted_bytes,"emitted":record.emitted,"children":record.children.iter().map(|c|json!({"id":c.id,"sequence":c.sequence,"kind":c.kind,"server":c.server,"tool":c.tool,"arguments_digest":c.arguments_digest,"server_generation":c.server_generation,"schema_digest":c.schema_digest,"status":c.status,"result_cursor":format!("child:{}:0",c.sequence)})).collect::<Vec<_>>(),
+            "omitted_bytes":record.omitted_bytes,"emitted":record.emitted,"stored":record.stored,"children":record.children.iter().map(|c|json!({"id":c.id,"sequence":c.sequence,"kind":c.kind,"server":c.server,"tool":c.tool,"arguments_digest":c.arguments_digest,"server_generation":c.server_generation,"schema_digest":c.schema_digest,"status":c.status,"result_cursor":format!("child:{}:0",c.sequence)})).collect::<Vec<_>>(),
             "error":record.error.as_ref().map(|failure|failure.get("error").unwrap_or(failure)),
             "failure":record.error,"hints":record.error.as_ref().and_then(|failure|failure.get("hints")).cloned().unwrap_or_else(||json!([])),"retry_script":false})
     }
@@ -821,10 +831,11 @@ impl Service {
             "bindings":{
                 "tools as functions":["bboxy.<tool>(key=value, ...)  # the host's tools; returns the tool's data, raises ToolError","tools.<server>.<tool>(...)  # any MCP server","tools.search('words')  # find a tool: [{server, name, signature, description}]","bboxy.tools() / bboxy.describe('knowledge_write')  # signatures and the exact input schema","_timeout_ms= and _op_id= bound and name one call; every other keyword reaches the tool","await is optional on all of the above"],
                 "result":["a final bare expression is the result","emit(value)  # more results; a value too large to return is spilled to a file as {spilled, bytes, head}","print(...) is kept as output"],
+                "state between calls":["store['rows'] = value  # kept for the session as one JSON file per key; keep large data in `store` and return only what you need","store['rows'], 'rows' in store, del store['rows'], store.keys(), store.clear()","store.path('rows')  # the file, to hand to a command","the result lists `stored: [{key, bytes}]` for what this run wrote"],
                 "shell and files":["sh('git status --porcelain').out  # .out .err .code .ok .json(); check=True raises","fs.replace(path, old, new, count=1)  # refuses and says what it found unless old occurs exactly count times","fs.lines(path, start, end)  # numbered lines","commands.run([executable, *args], input=None, json_input=value, cwd=None, check=False)  # exact argv, async"],
                 "raw MCP":["await mcp.servers()","await mcp.tools(server, cursor=None)","await mcp.call(server, tool, arguments, op_id=None, timeout_ms=25000)  # the full envelope; .data is what the tool returned; use with asyncio.gather for overlapping calls"],
                 "python":["inputs","execution","workspace"]},
-            "examples":["open_tasks = bboxy.task_list(status='open')\n[t.title for t in open_tasks['items']]","for seat in bboxy.seat_list()['items']:\n    if seat.record.lifecycle != 'open':\n        continue\n    emit({'seat': seat.record.name, 'tasks': len(seat.record.tasks)})","hits = sh(\"git grep -n 'fn main' -- '*.rs'\").out.splitlines()\nlen(hits)","found = tools.search('close seat')\n[(t.server, t.signature) for t in found]"],
+            "examples":["open_tasks = bboxy.task_list(status='open')\n[t.title for t in open_tasks['items']]","for seat in bboxy.seat_list()['items']:\n    if seat.record.lifecycle != 'open':\n        continue\n    emit({'seat': seat.record.name, 'tasks': len(seat.record.tasks)})","hits = sh(\"git grep -n 'fn main' -- '*.rs'\").out.splitlines()\nlen(hits)","found = tools.search('close seat')\n[(t.server, t.signature) for t in found]","store['tasks'] = bboxy.task_list()['items']  # one call fetches\nlen(store['tasks'])","[t.title for t in store['tasks'] if 'python' in t.title]  # a later call filters"],
             "workflow":"Discover your native server's current tools. Read knowledge_orient before KB edits; workspace_orient describes provisioning/selecting a source workspace when your current capability permits it. Existing managed writers retain their admitted source cwd and canonical KB. Use knowledge_commit for a substantial checkpoint, sharing or acceptance, rather than each draft edit.",
             "recovery":"Supply a caller-generated ULID op_id before effectful execution when handle recovery matters. Read python_execution_get and original nested operation IDs. Do not replay source with a new ID after lost output or unknown effects.",
             "setup_error":if !local {fault("unsupported_target","This runtime requires the authenticated local execution target")}else if version.is_some(){Value::Null}else{fault("python_unavailable","Configure a working Python 3 in the existing harness PATH; no package installation is performed")}})
@@ -950,7 +961,7 @@ impl Service {
                 "Python 3 is not available in the harness PATH",
             )
         })?;
-        let launch = json!({"socket":self.0.endpoint.socket(),"execution_id":run.record.lock().await.execution_id,"callback_token":run.token,"source":source,"inputs":inputs,"context":context});
+        let launch = json!({"socket":self.0.endpoint.socket(),"execution_id":run.record.lock().await.execution_id,"callback_token":run.token,"source":source,"inputs":inputs,"context":context,"state":self.0.root.join("state")});
         let mut command = tokio::process::Command::new(program);
         command.args(["-I", "-u", "-c", include_str!("worker.py")]);
         let output = self
