@@ -2483,7 +2483,7 @@ impl AcpAgentActor {
                 )
                 .await?;
                 let status = u.get("status").and_then(Value::as_str).unwrap_or("");
-                if matches!(status, "completed" | "failed") {
+                if matches!(status, "completed" | "failed" | "cancelled") {
                     let id = u
                         .get("toolCallId")
                         .and_then(Value::as_str)
@@ -2508,7 +2508,9 @@ impl AcpAgentActor {
                         .tools
                         .remove(&id)
                         .expect("tool");
-                    let st = if status == "failed" {
+                    let st = if status == "cancelled" || never_ran(&u) {
+                        ItemStatus::Cancelled
+                    } else if status == "failed" {
                         ItemStatus::Failed {
                             code: None,
                             reason: "tool failed".into(),
@@ -2796,7 +2798,7 @@ pub fn update_remainder(update: &Value) -> Value {
                 }
                 if o.get("status")
                     .and_then(Value::as_str)
-                    .is_some_and(|s| matches!(s, "completed" | "failed"))
+                    .is_some_and(|s| matches!(s, "completed" | "failed" | "cancelled"))
                 {
                     o.remove("status");
                 }
@@ -3072,6 +3074,19 @@ pub fn tool_kind(k: &str) -> ToolKind {
         _ => ToolKind::Other,
     }
 }
+/// claude-agent-acp closes a streamed tool_use that Claude dropped before it
+/// ran as `failed` for a v1 client (its renderer's `unfinished`, `ran: false`).
+/// Nothing failed: it is a stopped call, not an error card.
+fn never_ran(u: &Value) -> bool {
+    u.get("content")
+        .and_then(Value::as_array)
+        .is_some_and(|c| {
+            c.iter().any(|b| {
+                b.pointer("/content/text").and_then(Value::as_str)
+                    == Some("Claude stopped this tool call before it ran.")
+            })
+        })
+}
 fn tool_body(t: Tool, empty: &str) -> Item {
     let output = if t.output.is_empty() {
         match t.raw_output.as_ref().filter(|value| !value.is_null()) {
@@ -3336,5 +3351,17 @@ async fn sleep_until(at: Option<Instant>) {
     match at {
         Some(at) => tokio::time::sleep_until(at).await,
         None => std::future::pending().await,
+    }
+}
+#[cfg(test)]
+mod never_ran_tests {
+    use super::never_ran;
+    use serde_json::json;
+    #[test]
+    fn a_dropped_tool_use_is_stopped_and_a_real_failure_is_not() {
+        let text = |t: &str| json!({"content":[{"type":"content","content":{"type":"text","text":t}}]});
+        assert!(never_ran(&text("Claude stopped this tool call before it ran.")));
+        assert!(!never_ran(&text("exit 1")));
+        assert!(!never_ran(&json!({})));
     }
 }
