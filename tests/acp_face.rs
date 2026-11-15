@@ -675,6 +675,7 @@ async fn scripted_client_full_turn_and_permission_keep_the_dispatcher_live() {
         json!({"loadSession":true,"promptCapabilities":{"image":true,"audio":false,"embeddedContext":true},"mcpCapabilities":{"http":false,"sse":false},"sessionCapabilities":{"close":{}}})
     );
     assert_eq!(init["result"]["authMethods"], json!([]));
+    assert_eq!(init["result"]["_meta"]["steering"]["supported"], true);
     c.request(2, "session/new", json!({"cwd":temp.path(),"mcpServers":[]}))
         .await;
     let sid = c.next().await["result"]["sessionId"]

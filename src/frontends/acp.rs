@@ -202,7 +202,11 @@ impl Face {
                 }
                 // This face stores and forwards images. The session backend
                 // checks its selected agent; the launch provider may be deferred.
-                self.response(id,json!({"protocolVersion":1,"authMethods":[],"agentCapabilities":{"loadSession":true,"promptCapabilities":{"image":true,"audio":false,"embeddedContext":true},"mcpCapabilities":{"http":false,"sse":false},"sessionCapabilities":{"close":{}}},"agentInfo":{"name":"bboxy450-harness","version":env!("CARGO_PKG_VERSION")}})).await;
+                // `_meta.steering.supported` is what a client's ACP backend reads
+                // to decide between injecting mid-turn and queueing until the
+                // turn ends (see backend/acp_agent.rs). The native engine already
+                // honours TurnMode::Steer, so a remote seat steers like a local one.
+                self.response(id,json!({"protocolVersion":1,"authMethods":[],"agentCapabilities":{"loadSession":true,"promptCapabilities":{"image":true,"audio":false,"embeddedContext":true},"mcpCapabilities":{"http":false,"sse":false},"sessionCapabilities":{"close":{}}},"agentInfo":{"name":"bboxy450-harness","version":env!("CARGO_PKG_VERSION")},"_meta":{"steering":{"supported":true}}})).await;
             }
             "session/new" | "session/load" => self.load(method == "session/load", id, params).await,
             "session/prompt" => {
@@ -269,6 +273,51 @@ impl Face {
                                 &self.cancel,
                             )
                             .await;
+                        }
+                    }
+                    Err(message) => self.error(id, -32602, &message, None).await,
+                }
+            }
+            // Steering: inject input into the running turn instead of queueing it
+            // until the turn ends. The engine already implements this as
+            // TurnMode::Steer; this face only supplies the ACP seam. The result
+            // shape is the contract backend/acp_agent.rs reads: `injected` once
+            // the steer is admitted, or `promptRequired`/`noRunningTurn` when the
+            // session is idle, which tells the caller to send a normal prompt.
+            "_session/steering" => {
+                let Some(session) = self.session(&params) else {
+                    self.error(id, -32002, "Unknown session", None).await;
+                    return;
+                };
+                match self.input(&session, &params["prompt"]).await {
+                    Ok(blocks) => {
+                        if session.pending.lock().unwrap().turns.is_empty() {
+                            self.response(
+                                id,
+                                json!({"outcome":"promptRequired","reason":"noRunningTurn"}),
+                            )
+                            .await;
+                            return;
+                        }
+                        let op_id = OpId::new();
+                        if let Err(reason) = session.gateway.send(OpEnvelope {
+                            v: PROTOCOL,
+                            session: session.gateway.session(),
+                            op_id,
+                            op: Op::UserTurn {
+                                blocks,
+                                mode: TurnMode::Steer,
+                            },
+                        }) {
+                            self.error(
+                                id,
+                                -32603,
+                                "Steering admission refused",
+                                Some(json!({"reason":reason})),
+                            )
+                            .await;
+                        } else {
+                            self.response(id, json!({"outcome":"injected"})).await;
                         }
                     }
                     Err(message) => self.error(id, -32602, &message, None).await,
@@ -1219,6 +1268,125 @@ mod tests {
             assert!(text.contains(expected), "{text}");
         }
         assert!(tools > 0);
+        gateway
+            .send(OpEnvelope {
+                v: PROTOCOL,
+                session: sid,
+                op_id: OpId::new(),
+                op: Op::Close,
+            })
+            .unwrap();
+        host.join().await.unwrap();
+    }
+    // State: one ACP session, with and without a running turn. Safety: a steer
+    // on a running turn is admitted as `injected` and does not wait for the turn
+    // to end; a steer on an idle session answers `promptRequired`/`noRunningTurn`
+    // so the caller sends a normal prompt instead. Together with the advertised
+    // `_meta.steering.supported`, this is what stops a remote seat from queueing
+    // a mid-turn redirect until end_turn (backend/acp_agent.rs steering gate).
+    #[tokio::test]
+    async fn steering_injects_into_a_running_turn_and_asks_for_a_prompt_when_idle() {
+        let temp = tempfile::tempdir().unwrap();
+        let sid = SessionId::new();
+        let config = Config {
+            meta: SessionMeta {
+                vcs: None,
+                dream: None,
+                source: None,
+                session: sid,
+                cwd: temp.path().into(),
+                profile: None,
+                fork: None,
+                protocol: PROTOCOL,
+                harness: "test".into(),
+                created_ms: 0,
+            },
+            sessions: temp.path().join("sessions"),
+            profiles: temp.path().join("profiles"),
+            provider: Arc::new(crate::provider::ScriptedProvider::new(vec![])),
+            model: "scripted".into(),
+            policy: crate::policy::Policy::new(Unattended::Deny),
+            redactor: Default::default(),
+            max_rounds: 1,
+            profile_error: None,
+        };
+        let host = Host::new(config.clone());
+        let gateway = host
+            .create(OpEnvelope {
+                v: PROTOCOL,
+                session: sid,
+                op_id: OpId::new(),
+                op: Op::StartSession {
+                    cwd: temp.path().into(),
+                    profile: None,
+                    fork: None,
+                },
+            })
+            .await
+            .unwrap()
+            .0;
+        let session = Arc::new(Session {
+            gateway: gateway.clone(),
+            pending: Arc::default(),
+            blobs: Blobs {
+                dir: config.sessions.join(sid.to_string()).join("blobs"),
+                redactor: config.redactor.clone(),
+            },
+        });
+        let (output, mut rx) = mpsc::channel(128);
+        let (connection, _requests) = mpsc::unbounded_channel();
+        let cancel = CancellationToken::new();
+        let face = Arc::new(Face {
+            host: Host::new(config.clone()),
+            config,
+            sessions: Mutex::new([(sid, session.clone())].into_iter().collect()),
+            permissions: Mutex::default(),
+            output,
+            drivers: Mutex::new(TaskGroup::new(cancel.clone())),
+            inputs: Mutex::default(),
+            connection,
+            cancel,
+            next: 0.into(),
+            unknown: 0.into(),
+        });
+
+        // The capability must be advertised, or a client's backend never steers.
+        face.clone()
+            .dispatch(json!({"jsonrpc":"2.0","id":1,"method":"initialize",
+                "params":{"protocolVersion":1,"clientCapabilities":{}}}))
+            .await;
+        let init = rx.try_recv().expect("initialize reply");
+        assert_eq!(
+            init["result"]["_meta"]["steering"]["supported"],
+            json!(true),
+            "steering must be advertised: {init}"
+        );
+
+        // Idle: no turn is running, so steering asks for a normal prompt.
+        let steer = json!({"jsonrpc":"2.0","id":2,"method":"_session/steering",
+            "params":{"sessionId":sid.to_string(),"prompt":[{"type":"text","text":"turn left"}]}});
+        face.clone().dispatch(steer.clone()).await;
+        let idle = rx.try_recv().expect("idle steering reply");
+        assert_eq!(idle["result"]["outcome"], json!("promptRequired"), "{idle}");
+        assert_eq!(idle["result"]["reason"], json!("noRunningTurn"), "{idle}");
+
+        // A running turn: the steer is injected, and the reply does not wait for
+        // the turn to end. A stale pending turn id stands in for "running"; the
+        // engine owns real turn admission and is covered by its own tests.
+        session
+            .pending
+            .lock()
+            .unwrap()
+            .turns
+            .insert(TurnId::new(), json!(99));
+        face.clone().dispatch(steer).await;
+        let injected = rx.try_recv().expect("steering reply");
+        assert_eq!(
+            injected["result"]["outcome"],
+            json!("injected"),
+            "a mid-turn steer must not wait for end_turn: {injected}"
+        );
+
         gateway
             .send(OpEnvelope {
                 v: PROTOCOL,
