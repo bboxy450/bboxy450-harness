@@ -455,7 +455,12 @@ pub fn python_cell(
         })
         .unwrap_or(Value::Null);
     let offset = cursor.parse::<usize>().unwrap_or(0);
-    let chunks = value["output"].as_array().cloned().unwrap_or_default();
+    // The default result carries `output` as one text and `result` as the
+    // emitted value; the detail record carries chunks per stream and `emitted`.
+    let chunks = match &value["output"] {
+        Value::String(text) => vec![serde_json::json!({"text":text})],
+        other => other.as_array().cloned().unwrap_or_default(),
+    };
     Some(PythonCell {
         stderr: chunks
             .iter()
@@ -470,11 +475,12 @@ pub fn python_cell(
             .map(str::to_owned),
         status: value["status"].as_str().map(str::to_owned),
         exit_code: value["exit_code"].as_i64(),
-        emitted: value.get("emitted").cloned(),
-        output: value["output"]
-            .as_array()
-            .into_iter()
-            .flatten()
+        emitted: value
+            .get("emitted")
+            .or_else(|| value.get("result"))
+            .cloned(),
+        output: chunks
+            .iter()
             .enumerate()
             .map(|(i, chunk)| {
                 (
@@ -936,6 +942,15 @@ mod gui_polish_output_tests {
                 "a replaced chunk takes its new stream"
             );
         }
+        let lean = python_cell(
+            "python_execute",
+            r#"{"source":"print('seen')\n42"}"#,
+            &[],
+            Some(&serde_json::json!({"execution_id":"run-2","status":"completed","result":42,"output":"seen\n","calls":0})),
+        )
+        .unwrap();
+        assert_eq!(lean.preview(), "emit 42");
+        assert_eq!(lean.text(), "Emitted\n42\n\nseen\n");
         assert!(python_cell("mcp__bboxy__unrelated", "{}", &[], None).is_none());
     }
     #[test]

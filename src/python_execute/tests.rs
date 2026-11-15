@@ -130,11 +130,15 @@ impl Rig {
         )
         .await
     }
+    /// The settled full record (`detail`), where receipts and chunks are witnessed.
     async fn finish(&self, id: &str) -> Value {
         tokio::time::timeout(Duration::from_secs(15), async {
             loop {
                 let value = self
-                    .call("python_execution_get", json!({"execution_id":id}))
+                    .call(
+                        "python_execution_get",
+                        json!({"execution_id":id,"detail":true}),
+                    )
                     .await;
                 if !matches!(
                     value["status"].as_str(),
@@ -619,7 +623,7 @@ async fn output_pages_and_partial_admission_do_not_corrupt_protocol_or_block_sta
     let mut cursor = Value::Null;
     let mut bytes = 0;
     loop {
-        let mut args = json!({"execution_id":id});
+        let mut args = json!({"execution_id":id,"detail":true});
         if !cursor.is_null() {
             args["cursor"] = cursor;
         }
@@ -1136,9 +1140,12 @@ async fn short_execution_returns_result_in_one_call_and_utf8_has_no_base64() {
         )
         .await;
     assert_eq!(value["status"], "completed", "{value}");
-    assert_eq!(value["exit_code"], 0);
-    assert_eq!(value["emitted"], json!([1]));
-    for chunk in value["output"].as_array().unwrap() {
+    assert_eq!(value["result"], 1);
+    assert_eq!(value["output"], "hello\n");
+    let detail = rig.finish(value["execution_id"].as_str().unwrap()).await;
+    assert_eq!(detail["exit_code"], 0);
+    assert_eq!(detail["emitted"], json!([1]));
+    for chunk in detail["output"].as_array().unwrap() {
         assert!(chunk.get("base64").is_none(), "{chunk}");
     }
     rig.close().await;
@@ -1177,7 +1184,7 @@ async fn sixty_second_worker_wait_is_capped_and_get_wait_observes_completion() {
         .service
         .dispatch(
             "python_execution_get",
-            json!({"execution_id":id,"wait_ms":60000}),
+            json!({"execution_id":id,"wait_ms":60000,"detail":true}),
             None,
             None,
             None,
@@ -1241,7 +1248,7 @@ async fn progress_tokens_receive_optional_notifications_and_control_remains_avai
         } else if value["id"] == 2 {
             ping = true;
         } else if value["id"] == 1 {
-            assert_eq!(value["result"]["structuredContent"]["emitted"], json!([9]));
+            assert_eq!(value["result"]["structuredContent"]["result"], 9);
             break;
         }
     }
@@ -1323,5 +1330,150 @@ def write(key, value):
     assert_eq!(third["emitted"][0], json!([[], 0]), "{third}");
     assert_eq!(third["stored"], json!([]));
     assert!(!file.exists());
+    rig.close().await;
+}
+
+// What a model reads by default: the answer and what went wrong, without the
+// context, receipts, digests, pid or cursors of the full record.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn default_result_is_lean_and_detail_keeps_the_full_record() {
+    let rig = Rig::start().await;
+    let keys = |value: &Value| {
+        value
+            .as_object()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    let one = rig
+        .call(
+            "python_execute",
+            json!({"source":"store['n'] = [1, 2, 3]\nprint('seen')\ntools.a.echo(op_id=1)['arguments']['op_id'] + 41"}),
+        )
+        .await;
+    assert_eq!(
+        keys(&one),
+        [
+            "execution_id",
+            "status",
+            "result",
+            "output",
+            "stored",
+            "duration_ms",
+            "calls"
+        ],
+        "{one}"
+    );
+    assert_eq!(one["status"], "completed");
+    assert_eq!(one["result"], 42, "one emitted value is the result itself");
+    assert_eq!(one["output"], "seen\n");
+    assert_eq!(one["stored"], json!([{"key":"n","bytes":9}]));
+    assert_eq!(one["calls"], 1);
+    assert!(one["duration_ms"].is_u64());
+    let id = one["execution_id"].as_str().unwrap();
+    let again = rig
+        .call("python_execution_get", json!({"execution_id":id}))
+        .await;
+    assert_eq!(again, one, "get returns the same lean shape");
+    let detail = rig
+        .call(
+            "python_execution_get",
+            json!({"execution_id":id,"detail":true}),
+        )
+        .await;
+    assert_eq!(detail["emitted"], json!([42]));
+    assert_eq!(detail["output"][0]["stream"], "stdout");
+    assert_eq!(detail["children"][0]["tool"], "echo");
+    assert!(detail["children"][0]["arguments_digest"].is_string());
+    assert!(detail["context"].is_object() && detail["pid"].is_u64());
+    assert_eq!(detail["exit_code"], 0);
+    assert_eq!(detail["duration_ms"], one["duration_ms"]);
+    assert!(
+        one.to_string().len() * 3 < detail.to_string().len(),
+        "lean {} bytes, detail {} bytes",
+        one.to_string().len(),
+        detail.to_string().len()
+    );
+    let many = rig
+        .call("python_execute", json!({"source":"emit(1)\nemit('two')"}))
+        .await;
+    assert_eq!(many["result"], json!([1, "two"]));
+    let silent = rig.call("python_execute", json!({"source":"x = 1"})).await;
+    assert_eq!(
+        keys(&silent),
+        ["execution_id", "status", "duration_ms", "calls"],
+        "{silent}"
+    );
+    let raised = rig
+        .call(
+            "python_execute",
+            json!({"source":"def inner():\n    return {}['missing']\ninner()"}),
+        )
+        .await;
+    assert_eq!(raised["status"], "failed");
+    assert_eq!(
+        raised["error"],
+        json!({"code":"python_failed","message":"KeyError: 'missing'"})
+    );
+    assert!(
+        raised["output"]
+            .as_str()
+            .unwrap()
+            .contains("line 2, in inner")
+    );
+    let refused = rig
+        .call(
+            "python_execute",
+            json!({"source":"try:\n    tools.z.fail(op_id=1)\nexcept ToolError:\n    pass\ntools.z.fail(op_id=2)"}),
+        )
+        .await;
+    assert_eq!(refused["status"], "failed");
+    assert_eq!(refused["error"]["code"], "fixture_rejected");
+    assert_eq!(refused["error"]["message"], "correct the payload");
+    assert_eq!(refused["error"]["server"], "z");
+    assert_eq!(refused["error"]["tool"], "fail");
+    assert_eq!(
+        refused["error"]["raised"],
+        "ToolError: z.fail: fixture_rejected: correct the payload"
+    );
+    assert!(refused["error"].get("hints").is_none());
+    assert_eq!(refused["calls"], 2);
+    assert_eq!(refused["failed_calls"], 2);
+    let exited = rig
+        .call(
+            "python_execute",
+            json!({"source":"import sys\nsys.exit(3)"}),
+        )
+        .await;
+    assert_eq!(exited["error"]["exit_code"], 3, "{exited}");
+    // Output that does not fit one page is cut, and says where to continue.
+    let long = rig
+        .call(
+            "python_execute",
+            json!({"source":"import os\nfor _ in range(40):\n    os.write(1, b'y' * 8000)"}),
+        )
+        .await;
+    let mut text = long["output"].as_str().unwrap().to_owned();
+    let mut cursor = long["next_cursor"].clone();
+    assert!(cursor.is_string(), "{long}");
+    while !cursor.is_null() {
+        let page = rig
+            .call(
+                "python_execution_get",
+                json!({"execution_id":long["execution_id"],"cursor":cursor}),
+            )
+            .await;
+        text.push_str(page["output"].as_str().unwrap());
+        cursor = page["next_cursor"].clone();
+    }
+    assert_eq!(text.len(), 320_000);
+    let invalid = rig
+        .call(
+            "python_execution_get",
+            json!({"execution_id":id,"detail":"yes"}),
+        )
+        .await;
+    assert_eq!(invalid["error"]["code"], "invalid_arguments");
     rig.close().await;
 }

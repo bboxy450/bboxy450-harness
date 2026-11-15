@@ -139,6 +139,9 @@ struct Record {
     /// `store` keys this run wrote: the model sees what is kept, not the data.
     #[serde(default)]
     stored: Vec<Stored>,
+    /// Admission to terminal state, wall time.
+    #[serde(default)]
+    duration_ms: Option<u64>,
 }
 struct Run {
     record: Mutex<Record>,
@@ -325,6 +328,7 @@ impl Service {
                         emitted: vec![],
                         children: vec![],
                         stored: vec![],
+                        duration_ms: None,
                     }
                 }
             };
@@ -456,7 +460,7 @@ impl Service {
                     "operation ID already names different Python source/inputs/context",
                 ));
             }
-            return Ok(self.view(&old, 0));
+            return Ok(self.view(&old, 0, false));
         }
         let permit = self.0.slots.clone().try_acquire_owned().map_err(|_| {
             fault(
@@ -482,6 +486,7 @@ impl Service {
                 emitted: vec![],
                 children: vec![],
                 stored: vec![],
+                duration_ms: None,
             }),
             cancel: self.0.cancel.child_token(),
             capture: std::sync::Mutex::new(self.0.mcp.capture()),
@@ -532,7 +537,7 @@ impl Service {
                         "operation ID already names different source",
                     ));
                 }
-                return Ok(self.view(&old, 0));
+                return Ok(self.view(&old, 0, false));
             }
             Err(_) => {
                 return Err(fault(
@@ -550,11 +555,12 @@ impl Service {
             self.persist(&run)
                 .await
                 .map_err(|_| fault("execution_storage", "cannot persist cancelled admission"))?;
-            return Ok(self.view(&*run.record.lock().await, 0));
+            return Ok(self.view(&*run.record.lock().await, 0, false));
         }
         self.0.runs.lock().await.insert(execution, run.clone());
         let service = self.clone();
         let current = run.clone();
+        let started = std::time::Instant::now();
         let task = bbt_rt::handle().spawn(async move {
             let _permit = permit;
             let result = service
@@ -569,10 +575,13 @@ impl Service {
             // Retire callback admission on every terminal outcome. A delayed
             // socket or a copied token cannot reopen a completed execution.
             current.cancel.cancel();
-            if let Err(error) = result {
+            {
                 let mut record = current.record.lock().await;
-                record.status = if was_cancelled { "cancelled" } else { "failed" }.into();
-                record.error = Some(error);
+                record.duration_ms = Some(started.elapsed().as_millis() as u64);
+                if let Err(error) = result {
+                    record.status = if was_cancelled { "cancelled" } else { "failed" }.into();
+                    record.error = Some(error);
+                }
             }
             let _ = service.persist(&current).await;
             current.finished.notify_waiters();
@@ -580,9 +589,12 @@ impl Service {
         executions.retain(|task| !task.is_finished());
         executions.push(task);
         drop(executions);
-        Ok(self.view(&*run.record.lock().await, 0))
+        Ok(self.view(&*run.record.lock().await, 0, false))
     }
-    fn view(&self, record: &Record, offset: usize) -> Value {
+    /// The answer a model reads: the result, the text, what failed and what was
+    /// kept. `detail` is the whole record: context, receipts with digests, pid,
+    /// signal and output chunks with their stream and exact bytes.
+    fn view(&self, record: &Record, offset: usize, detail: bool) -> Value {
         let mut end = offset.min(record.output.len());
         let mut bytes = 0;
         while end < record.output.len() && end - offset < 32 {
@@ -594,12 +606,89 @@ impl Service {
             bytes += size;
             end += 1;
         }
-        json!({"execution_id":record.execution_id,"status":record.status,"cwd":record.cwd,
+        let running = matches!(
+            record.status.as_str(),
+            "starting" | "running" | "cancelling"
+        );
+        if detail {
+            return json!({"execution_id":record.execution_id,"status":record.status,"cwd":record.cwd,
             "context":record.context,"pid":record.pid,"exit_code":record.exit_code,"signal":record.signal,
-            "output":record.output.get(offset..end).unwrap_or_default(),"next_cursor":(end<record.output.len() || matches!(record.status.as_str(),"starting"|"running"|"cancelling")).then(||end.to_string()),
-            "omitted_bytes":record.omitted_bytes,"emitted":record.emitted,"stored":record.stored,"children":record.children.iter().map(|c|json!({"id":c.id,"sequence":c.sequence,"kind":c.kind,"server":c.server,"tool":c.tool,"arguments_digest":c.arguments_digest,"server_generation":c.server_generation,"schema_digest":c.schema_digest,"status":c.status,"result_cursor":format!("child:{}:0",c.sequence)})).collect::<Vec<_>>(),
+            "output":record.output.get(offset..end).unwrap_or_default(),"next_cursor":(end<record.output.len() || running).then(||end.to_string()),
+            "omitted_bytes":record.omitted_bytes,"emitted":record.emitted,"stored":record.stored,"duration_ms":record.duration_ms,"children":record.children.iter().map(|c|json!({"id":c.id,"sequence":c.sequence,"kind":c.kind,"server":c.server,"tool":c.tool,"arguments_digest":c.arguments_digest,"server_generation":c.server_generation,"schema_digest":c.schema_digest,"status":c.status,"result_cursor":format!("child:{}:0",c.sequence)})).collect::<Vec<_>>(),
             "error":record.error.as_ref().map(|failure|failure.get("error").unwrap_or(failure)),
-            "failure":record.error,"hints":record.error.as_ref().and_then(|failure|failure.get("hints")).cloned().unwrap_or_else(||json!([])),"retry_script":false})
+            "failure":record.error,"hints":record.error.as_ref().and_then(|failure|failure.get("hints")).cloned().unwrap_or_else(||json!([])),"retry_script":false});
+        }
+        let mut lean = json!({"execution_id":record.execution_id,"status":record.status});
+        match record.emitted.as_slice() {
+            [] => {}
+            [one] => lean["result"] = one.clone(),
+            many => lean["result"] = json!(many),
+        }
+        let output: String = record.output[offset.min(end)..end]
+            .iter()
+            .map(|chunk| chunk.text.as_str())
+            .collect();
+        if !output.is_empty() {
+            lean["output"] = json!(output);
+        }
+        if let Some(failure) = &record.error {
+            let inner = failure.get("error").unwrap_or(failure);
+            let mut error = json!({});
+            for key in ["code", "message", "server", "tool", "op_id"] {
+                if let Some(value) = inner.get(key).filter(|value| !value.is_null()) {
+                    error[key] = value.clone();
+                }
+            }
+            if inner["unknown"] == true {
+                error["unknown"] = json!(true);
+            }
+            // The exception line of the traceback; continuation lines are indented.
+            let stderr: String = record
+                .output
+                .iter()
+                .filter(|chunk| chunk.stream == "stderr")
+                .map(|chunk| chunk.text.as_str())
+                .collect();
+            let raised = stderr
+                .lines()
+                .rev()
+                .find(|line| !line.is_empty() && !line.starts_with(char::is_whitespace))
+                .filter(|_| record.status == "failed")
+                .map(|line| line.chars().take(500).collect::<String>());
+            if error["code"] == "python_failed" {
+                // The generic exit fault says nothing the exception does not.
+                match raised {
+                    Some(line) => error["message"] = json!(line),
+                    None => error["exit_code"] = failure["exit_code"].clone(),
+                }
+            } else if let Some(line) = raised {
+                error["raised"] = json!(line);
+            }
+            lean["error"] = error;
+        }
+        if !record.stored.is_empty() {
+            lean["stored"] = json!(record.stored);
+        }
+        if let Some(duration) = record.duration_ms {
+            lean["duration_ms"] = json!(duration);
+        }
+        lean["calls"] = json!(record.children.len());
+        let failed = record
+            .children
+            .iter()
+            .filter(|child| matches!(child.status.as_str(), "failed" | "unknown"))
+            .count();
+        if failed > 0 {
+            lean["failed_calls"] = json!(failed);
+        }
+        // A cursor only when there is more to read: cut output, or a live run.
+        if end < record.output.len() || (running && end > 0) {
+            lean["next_cursor"] = json!(end.to_string());
+        }
+        if record.omitted_bytes > 0 {
+            lean["omitted_bytes"] = json!(record.omitted_bytes);
+        }
+        lean
     }
     async fn dispatch(
         &self,
@@ -612,7 +701,7 @@ impl Service {
         let started = tokio::time::Instant::now();
         let allowed: &[&str] = match name {
             "python_execute" => &["source", "inputs", "timeout_ms", "wait_ms", "op_id"],
-            "python_execution_get" => &["execution_id", "cursor", "wait_ms"],
+            "python_execution_get" => &["execution_id", "cursor", "wait_ms", "detail"],
             "python_execution_cancel" => &["execution_id", "op_id"],
             "python_execute_orient" => &[],
             _ => return envelope(fault("tool_unavailable", "unknown Python runtime tool")),
@@ -640,13 +729,14 @@ impl Service {
             .get("timeout_ms")
             .is_some_and(|v| v.as_u64().is_none())
             || object.get("wait_ms").is_some_and(|v| v.as_u64().is_none())
+            || object.get("detail").is_some_and(|v| !v.is_boolean())
             || object
                 .get("cursor")
                 .is_some_and(|v| v.as_str().is_none_or(|s| s.len() > 256))
         {
             return envelope(fault(
                 "invalid_arguments",
-                "timeout_ms and wait_ms must be nonnegative integers; cursor must be a string of at most 256 bytes",
+                "timeout_ms and wait_ms must be nonnegative integers; detail must be a boolean; cursor must be a string of at most 256 bytes",
             ));
         }
         if object.contains_key("op_id") && id(&args, "op_id").is_err() {
@@ -830,7 +920,7 @@ impl Service {
             "policy":"Original MCP server authorization and credentials apply; parent Codex/Claude hooks are not automatically invoked per nested call. Python and subprocess use normal harness host authority, with durable nested receipts.",
             "bindings":{
                 "tools as functions":["bboxy.<tool>(key=value, ...)  # the host's tools; returns the tool's data, raises ToolError","tools.<server>.<tool>(...)  # any MCP server","tools.search('words')  # find a tool: [{server, name, signature, description}]","bboxy.tools() / bboxy.describe('knowledge_write')  # signatures and the exact input schema","_timeout_ms= and _op_id= bound and name one call; every other keyword reaches the tool","await is optional on all of the above"],
-                "result":["a final bare expression is the result","emit(value)  # more results; a value too large to return is spilled to a file as {spilled, bytes, head}","print(...) is kept as output"],
+                "result":["a final bare expression is the result","emit(value)  # more results; a value too large to return is spilled to a file as {spilled, bytes, head}","print(...) is kept as output","what comes back: {execution_id, status, result, output, error, stored, duration_ms, calls}; result is the one emitted value, or the list when there are several; python_execution_get(detail=true) has the full record (context, receipts, pid, output chunks)"],
                 "state between calls":["store['rows'] = value  # kept for the session as one JSON file per key; keep large data in `store` and return only what you need","store['rows'], 'rows' in store, del store['rows'], store.keys(), store.clear()","store.path('rows')  # the file, to hand to a command","the result lists `stored: [{key, bytes}]` for what this run wrote"],
                 "shell and files":["sh('git status --porcelain').out  # .out .err .code .ok .json(); check=True raises","fs.replace(path, old, new, count=1)  # refuses and says what it found unless old occurs exactly count times","fs.lines(path, start, end)  # numbered lines","commands.run([executable, *args], input=None, json_input=value, cwd=None, check=False)  # exact argv, async"],
                 "raw MCP":["await mcp.servers()","await mcp.tools(server, cursor=None)","await mcp.call(server, tool, arguments, op_id=None, timeout_ms=25000)  # the full envelope; .data is what the tool returned; use with asyncio.gather for overlapping calls"],
@@ -927,7 +1017,7 @@ impl Service {
                 "output cursor is outside this execution",
             ));
         }
-        Ok(self.view(&record, offset))
+        Ok(self.view(&record, offset, args["detail"] == true))
     }
     async fn drive(
         &self,

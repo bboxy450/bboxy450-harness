@@ -461,7 +461,7 @@ async fn downstream_startup_order_preserves_refusal_before_any_python_effect() {
             assert_eq!(python["python_execute_requests"], 0);
         } else {
             assert_eq!(result["tools"]["bboxy_python"]["status"], "completed");
-            assert_eq!(result["tools"]["bboxy_python"]["emitted"][0]["answer"], 42);
+            assert_eq!(result["tools"]["bboxy_python"]["result"]["answer"], 42);
             assert!(python["error"].is_null());
             assert_eq!(python["python_execute_requests"], 1);
         }
@@ -530,7 +530,7 @@ async fn downstream_context_and_callable_mcp() {
             result["tools"]["bboxy_python"]["status"], "completed",
             "{result}"
         );
-        assert_eq!(result["tools"]["bboxy_python"]["emitted"][0]["answer"], 42);
+        assert_eq!(result["tools"]["bboxy_python"]["result"]["answer"], 42);
         let j = f.journal(name);
         assert_context(&j, CONTEXT, 1);
         assert_eq!(
