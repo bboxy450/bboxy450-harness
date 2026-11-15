@@ -1477,3 +1477,120 @@ async fn default_result_is_lean_and_detail_keeps_the_full_record() {
     assert_eq!(invalid["error"]["code"], "invalid_arguments");
     rig.close().await;
 }
+
+// The formal loop returns data: a verdict is a value, a crash or a missing
+// checker raises. A scripted `bboxy450-den` on PATH stands in for the checker.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn den_functions_return_parsed_verdicts_and_raise_on_crash_or_missing_checker() {
+    let rig = Rig::start().await;
+    let bin = rig._dir.path().join("bin");
+    tokio::fs::create_dir(&bin).await.unwrap();
+    let fake = bin.join("bboxy450-den");
+    tokio::fs::write(
+        &fake,
+        r#"#!/bin/sh
+case "$1 $2" in
+"check --json")
+    case "$3" in
+    *bad.den)
+        echo '{"path":"bad.den","report":{"records":[],"diagnostics":[{"code":"X101","line":3,"column":5,"record":"outbox","message":"state sent is unreachable","repair":"add a transition into sent"}]}}'
+        exit 1 ;;
+    *crash.den) echo "crash.den: No such file or directory (os error 2)" >&2; exit 2 ;;
+    *)
+        echo '{"path":"specs/a.den","report":{"records":[{"kind":"machine","name":"outbox","intent":"deliver once","domains":[],"states":3,"transitions":4,"invariants":[],"assumptions":[],"properties":[],"theorems":["once"],"scenarios":1}],"diagnostics":[]}}'
+        echo '{"path":"specs/b.den","report":{"records":[{"kind":"machine","name":"inbox","intent":"","domains":[],"states":1,"transitions":0,"invariants":[],"assumptions":[],"properties":[],"theorems":[],"scenarios":0}],"diagnostics":[]}}' ;;
+    esac ;;
+"lean --out")
+    : > "$3/Outbox.lean"; : > "$3/OutboxCheck.lean"; : > "$3/OutboxProof.lean"; : > "$3/Other.lean"
+    echo "$4 -> $3/Outbox"
+    echo "specs/b.den:1:1 X905 theorems once have no proof. Repair: write specs/b.lean -> proving once"
+    exit 1 ;;
+"replay "*)
+    shift
+    [ "$#" = 3 ] || { echo "usage" >&2; exit 2; }
+    echo "$2:"
+    echo "$3:4:1 X700 step deliver is not allowed from sent. Repair: record the retry first"
+    exit 1 ;;
+"render --markdown")
+    [ "$3" = "--out" ] || { echo "usage" >&2; exit 2; }
+    echo "$4/specs/a.md <- Outbox 0123456789ab"
+    echo "$4/specs/b.md unchanged" ;;
+*) echo "usage: bboxy450-den check [--json] PATH..." >&2; exit 2 ;;
+esac
+"#,
+    )
+    .await
+    .unwrap();
+    tokio::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755))
+        .await
+        .unwrap();
+    let value = rig
+        .call(
+            "python_execute",
+            json!({"inputs":{"bin":bin},"source":r#"
+import os, contextlib, io
+path = os.environ["PATH"]
+os.environ["PATH"] = inputs.bin + os.pathsep + path
+def raised(action):
+    try:
+        action()
+    except RuntimeError as error:
+        return str(error)
+os.mkdir("lean")
+printed = io.StringIO()
+with contextlib.redirect_stdout(printed):
+    sound = den.check("specs")
+    unsound = den.check("specs/bad.den")
+    lean = den.lean("specs/a.den", out="lean")
+    replay = den.replay("specs/a.den", "one.trace", "two.trace")
+    render = den.render("specs", "docs")
+    crash = raised(lambda: den.check("specs/crash.den"))
+os.environ["PATH"] = os.path.join(inputs.bin, "empty")
+missing = raised(lambda: den.check("specs"))
+{"sound": [sound.sound, [r.name for r in sound.records], sound.diagnostics],
+ "unsound": unsound, "lean": lean,
+ "replay": replay, "render": render, "crash": crash, "missing": missing, "printed": printed.getvalue()}
+"#}),
+        )
+        .await;
+    assert_eq!(value["status"], "completed", "{value}");
+    let out = &value["result"];
+    assert_eq!(out["sound"], json!([true, ["outbox", "inbox"], []]));
+    assert_eq!(
+        out["unsound"],
+        json!({"sound":false,"records":[],"diagnostics":[{"path":"bad.den","code":"X101","line":3,"column":5,"record":"outbox","message":"state sent is unreachable","repair":"add a transition into sent"}]})
+    );
+    assert_eq!(
+        out["lean"],
+        json!({"sound":false,"out":"lean","files":["lean/Outbox.lean","lean/OutboxCheck.lean","lean/OutboxProof.lean"],
+            "lines":["specs/b.den:1:1 X905 theorems once have no proof. Repair: write specs/b.lean -> proving once"]})
+    );
+    assert_eq!(
+        out["replay"],
+        json!({"conforms":false,"lines":["one.trace:","two.trace:4:1 X700 step deliver is not allowed from sent. Repair: record the retry first"]})
+    );
+    assert_eq!(
+        out["render"],
+        json!({"sound":true,"files":["docs/specs/a.md","docs/specs/b.md"],"lines":[]})
+    );
+    assert_eq!(
+        out["crash"],
+        "bboxy450-den check exited 2\ncrash.den: No such file or directory (os error 2)"
+    );
+    assert!(
+        out["missing"]
+            .as_str()
+            .unwrap()
+            .starts_with("bboxy450-den is not available"),
+        "{out}"
+    );
+    assert_eq!(
+        out["printed"], "",
+        "the functions return data and print nothing"
+    );
+    assert_eq!(
+        value["calls"], 6,
+        "each ran through the command path: {value}"
+    );
+    rig.close().await;
+}

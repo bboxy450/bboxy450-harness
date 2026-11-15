@@ -13,6 +13,7 @@ import json
 import linecache
 import os
 import re
+import shutil
 import socket
 import sys
 import tempfile
@@ -496,6 +497,90 @@ class Store:
         return f"<store {self.keys()}>"
 
 
+class Den:
+    """The formal loop as functions over the `bboxy450-den` checker. Each returns
+    data and prints nothing; a verdict (unsound, does not conform) is a value,
+    while a missing checker or a crash raises RuntimeError with its stderr.
+
+        report = den.check("specs/outbox.den")
+        report.sound or [(d.line, d.code, d.repair) for d in report.diagnostics]
+    """
+    def _run(self, *arguments):
+        """`(verdict, stdout lines)`: exit 0 is True, exit 1 is False."""
+        program = shutil.which("bboxy450-den")
+        if program:
+            argv = [program]
+        else:
+            directory = os.getcwd()
+            while True:
+                manifest = os.path.join(directory, "Cargo.toml")
+                if os.path.isfile(manifest) and (
+                        os.path.isfile(os.path.join(directory, "crates", "bboxy450-den", "Cargo.toml"))
+                        or "bboxy450-den" in open(manifest, encoding="utf-8", errors="replace").read()):
+                    argv = ["cargo", "run", "-q", "--manifest-path", manifest, "-p", "bboxy450-den", "--"]
+                    break
+                parent = os.path.dirname(directory)
+                if parent == directory:
+                    raise RuntimeError("bboxy450-den is not available: put it on PATH, or run inside "
+                                       "a Cargo workspace that has the bboxy450-den crate")
+                directory = parent
+        result = Shell(_rpc_sync("command", {
+            "argv": argv + [os.fspath(argument) for argument in arguments],
+            "cwd": None, "input_base64": None, "timeout_ms": None,
+        }))
+        if result.code not in (0, 1):
+            raise RuntimeError(f"bboxy450-den {arguments[0]} exited {result.code}\n{result.err or result.out}".rstrip())
+        return result.ok, [line for line in result.out.splitlines() if line]
+
+    def check(self, path):
+        """`{sound, records, diagnostics}` for a `.den` file or a directory of them.
+        A diagnostic is `{path, code, line, column, record, message, repair}`."""
+        sound, lines = self._run("check", "--json", path)
+        records, diagnostics = [], []
+        for line in lines:
+            try:
+                row = json.loads(line)
+                records.extend(row["report"]["records"])
+                diagnostics.extend({"path": row["path"], **found} for found in row["report"]["diagnostics"])
+            except (ValueError, KeyError, TypeError):
+                raise RuntimeError(f"bboxy450-den check printed an unexpected line: {line[:200]}") from None
+        return Data(_objects({"sound": sound, "records": records, "diagnostics": diagnostics}))
+
+    def lean(self, path, out=None):
+        """Write the Lean modules of each sound spec that declares a theorem into
+        `out` (a new temporary directory when None): `{sound, out, files, lines}`,
+        where `lines` are the diagnostics of specs that produced nothing."""
+        out = os.fspath(out) if out is not None else tempfile.mkdtemp(prefix="den-lean-")
+        sound, lines = self._run("lean", "--out", out, path)
+        made = [line for line in lines if line.partition(" -> ")[2].startswith(os.path.join(out, ""))]
+        modules = [line.partition(" -> ")[2] for line in made]
+        files = [module + suffix for module in modules for suffix in (".lean", "Check.lean", "Proof.lean")
+                 if os.path.isfile(module + suffix)]
+        return Data(_objects({"sound": sound, "out": out, "files": files,
+                              "lines": [line for line in lines if line not in made]}))
+
+    def replay(self, spec, *traces):
+        """Does the spec allow each recorded trace: `{conforms, lines}`."""
+        if not traces:
+            raise TypeError("den.replay takes the spec and at least one trace file")
+        conforms, lines = self._run("replay", spec, *traces)
+        return Data(_objects({"conforms": conforms, "lines": lines}))
+
+    def render(self, path, out):
+        """Lower each sound spec to Markdown under `out`: `{sound, files, lines}`,
+        where `lines` are the diagnostics of specs that were not written."""
+        out = os.fspath(out)
+        sound, lines = self._run("render", "--markdown", "--out", out, path)
+        files, rest = [], []
+        for line in lines:
+            target = line.partition(" <- ")[0] if " <- " in line else line.removesuffix(" unchanged")
+            if target != line and target.startswith(os.path.join(out, "")):
+                files.append(target)
+            else:
+                rest.append(line)
+        return Data(_objects({"sound": sound, "files": files, "lines": rest}))
+
+
 # The host keeps at most 64 KiB of emitted values for one run.
 _EMIT_ROOM = [56 * 1024]
 
@@ -525,6 +610,7 @@ bboxy = Server("bboxy")
 commands = Commands()
 fs = Files()
 store = Store(_launch["state"])
+den = Den()
 inputs = _objects(_launch.get("inputs", {}))
 execution = _objects({**_launch["context"], "execution_id": _execution})
 workspace = execution.get("workspace")
