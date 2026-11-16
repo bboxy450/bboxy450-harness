@@ -398,6 +398,19 @@ impl PythonCell {
         parts.join("\n\n")
     }
 }
+/// A tool call's arguments. Codex sends an MCP call as
+/// `{"server","tool","arguments":{...}}`; Claude sends the arguments bare.
+fn call_args(input_raw: &str) -> serde_json::Value {
+    let mut v: serde_json::Value =
+        serde_json::from_str(input_raw).unwrap_or(serde_json::Value::Null);
+    if v.get("server").is_some_and(serde_json::Value::is_string)
+        && v.get("tool").is_some_and(serde_json::Value::is_string)
+        && v.get("arguments").is_some_and(serde_json::Value::is_object)
+    {
+        v = v["arguments"].take();
+    }
+    v
+}
 pub fn python_cell(
     name: &str,
     input_raw: &str,
@@ -421,6 +434,14 @@ pub fn python_cell(
         {
             return Some(value.clone());
         }
+        // Codex wraps an MCP reply as `{"result":{"content",...,"structuredContent"}}`;
+        // a bare `result` is the run's emitted value and is not unwrapped.
+        if let Some(inner) = value
+            .get("result")
+            .filter(|r| r.get("structuredContent").is_some() || r.get("content").is_some())
+        {
+            return result(inner);
+        }
         if let Some(text) = value.as_str()
             && let Ok(value) = serde_json::from_str::<Value>(text)
         {
@@ -435,7 +456,7 @@ pub fn python_cell(
                     .find_map(|block| block.get("text").and_then(result))
             })
     }
-    let args: Value = serde_json::from_str(input_raw).unwrap_or(Value::Null);
+    let args = call_args(input_raw);
     let cursor = args["cursor"].as_str().unwrap_or("0");
     // These pages contain exact nested-result bytes, not execution output.
     // Preserve their ordinary MCP card, including its base64 recovery payload.
@@ -589,8 +610,7 @@ pub fn describe<'a>(
     output: &[OutputBlock],
     cwd: &str,
 ) -> Tool<'a> {
-    let args: serde_json::Value =
-        serde_json::from_str(input_raw).unwrap_or(serde_json::Value::Null);
+    let args = call_args(input_raw);
     let s = |k: &str| {
         args.get(k)
             .and_then(serde_json::Value::as_str)
@@ -815,6 +835,34 @@ pub fn raw_tool_output(value: &serde_json::Value) -> String {
 #[cfg(test)]
 mod gui_polish_output_tests {
     use super::*;
+    // Shapes copied from a Codex ACP session log: the call is wrapped in
+    // {server,tool,arguments} and the reply in {result:{content,structuredContent}}.
+    #[test]
+    fn a_codex_python_call_keeps_its_source_and_status() {
+        use serde_json::json;
+        let input = r#"{"server":"bboxy_python","tool":"python_execute","arguments":{"source":"emit(1)","wait_ms":1000}}"#;
+        let reply = json!({"result":{"content":[{"type":"text","text":"{\"execution_id\":\"E1\",\"status\":\"completed\",\"exit_code\":0,\"output\":[]}"}],
+            "structuredContent":{"execution_id":"E1","status":"completed","exit_code":0,"output":[]}}});
+        let cell =
+            python_cell("mcp.bboxy_python.python_execute", input, &[], Some(&reply)).unwrap();
+        assert_eq!(cell.source.as_deref(), Some("emit(1)"));
+        assert_eq!(cell.status.as_deref(), Some("completed"));
+        assert_eq!(cell.execution_id.as_deref(), Some("E1"));
+        // A run's own `result` is its emitted value, not an envelope.
+        let bare = json!({"execution_id":"E2","status":"completed","result":{"content":"x"}});
+        let cell = python_cell("python_execute", r#"{"source":"s"}"#, &[], Some(&bare)).unwrap();
+        assert_eq!(cell.execution_id.as_deref(), Some("E2"));
+        assert_eq!(cell.emitted, Some(json!({"content":"x"})));
+        // A Codex MCP card names its path hint like a Claude one.
+        let d = describe(
+            "mcp.bboxy.knowledge_fetch",
+            ToolKind::Other,
+            r#"{"server":"bboxy","tool":"knowledge_fetch","arguments":{"locator":"specs/a.md"}}"#,
+            &[],
+            "/",
+        );
+        assert_eq!(d.target, "specs/a.md");
+    }
     #[test]
     fn python_execution_cell_model_keeps_source_status_preview_and_pages() {
         use serde_json::json;
