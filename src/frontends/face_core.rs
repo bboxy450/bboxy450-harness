@@ -284,6 +284,9 @@ pub struct PythonCell {
     pub stderr: std::collections::BTreeSet<usize>,
     pub error: Option<String>,
     pub continued: bool,
+    /// What the run did, in order: `(line, status)` per nested call (`server.tool`
+    /// or the command line) and per file edit (`path:line −n +m`, status `edited`).
+    pub steps: Vec<(String, String)>,
 }
 impl PythonCell {
     pub fn merge(&mut self, next: Self) {
@@ -311,6 +314,9 @@ impl PythonCell {
             self.status = next.status;
             self.exit_code = next.exit_code;
             self.error = next.error;
+        }
+        if next.steps.len() > self.steps.len() || (!stale && !next.steps.is_empty()) {
+            self.steps = next.steps;
         }
         if let Some(emitted) = next.emitted {
             let count = |value: &serde_json::Value| value.as_array().map_or(0, Vec::len);
@@ -520,7 +526,48 @@ pub fn python_cell(
             .filter(|v| !v.is_null())
             .map(raw_tool_output),
         continued: tool == "python_execution_get",
+        steps: python_steps(&value),
     })
+}
+/// The lean result's `steps: [[line, status]]` and `edits`, or the detail
+/// record's `children: [{label, status}]` and `edits`.
+fn python_steps(value: &serde_json::Value) -> Vec<(String, String)> {
+    use serde_json::Value;
+    let text = |v: &Value| v.as_str().unwrap_or_default().to_owned();
+    let mut steps: Vec<(String, String)> = match (&value["steps"], &value["children"]) {
+        (Value::Array(rows), _) => rows
+            .iter()
+            .map(|row| (text(&row[0]), text(&row[1])))
+            .collect(),
+        (_, Value::Array(children)) => children
+            .iter()
+            .map(|c| {
+                let line = c["label"].as_str().map(str::to_owned).unwrap_or_else(|| {
+                    match (c["server"].as_str(), c["tool"].as_str()) {
+                        (Some(server), Some(tool)) => format!("{server}.{tool}"),
+                        _ => text(&c["kind"]),
+                    }
+                });
+                (line, text(&c["status"]))
+            })
+            .collect(),
+        _ => vec![],
+    };
+    for edit in value["edits"].as_array().into_iter().flatten() {
+        let n = |key: &str| edit[key].as_u64().unwrap_or_default();
+        steps.push((
+            format!(
+                "{}:{} \u{2212}{} +{}",
+                text(&edit["path"]),
+                n("line"),
+                n("removed"),
+                n("added")
+            ),
+            "edited".into(),
+        ));
+    }
+    steps.retain(|(line, _)| !line.is_empty());
+    steps
 }
 /// One grep hit (harness.js `hits`: `/^(.*?):(\d+):(.*)$/`): the file, its line and the
 /// matched text; a line without `:N:` is a file alone.

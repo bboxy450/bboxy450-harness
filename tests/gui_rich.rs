@@ -2562,6 +2562,17 @@ fn python_states() -> Vec<(&'static str, Item)> {
                     "emitted":[{"open":2,"path":"tasks/2026-11-08-dream-q2-unit-split-and-margin.md"}]}),
             ),
         ),
+        (
+            // The lean result a model reads: what the run did, line by line.
+            "steps",
+            python_state_call(
+                "open = bboxy.task_list(status='open')\nfs.replace('src/lib.rs', 'retries: 3', 'retries: 5')\nsh('cargo test -p retry')",
+                json!({"execution_id":"01M6Y1STEPS0A0746DJHQMGDPH","status":"completed",
+                    "result":{"path":"src/lib.rs","tests":"failed"},"calls":3,
+                    "steps":[["bboxy.task_list","succeeded"],["cargo test -p retry","failed"],["bboxy.task_accept","unknown"]],
+                    "edits":[{"path":"src/lib.rs","line":42,"removed":1,"added":1}]}),
+            ),
+        ),
     ]
 }
 
@@ -2815,6 +2826,21 @@ async fn python_cell_states_render_structured_cards() {
                         "{out}"
                     );
                     assert!(head.contains("for t in tasks: print(t)"), "{head}");
+                }
+                ("steps", false) => {
+                    let steps = text(format!("python/{id}/steps"));
+                    for line in [
+                        "\u{2713} bboxy.task_list",
+                        "\u{2715} cargo test -p retry",
+                        "? bboxy.task_accept",
+                        "\u{270e} src/lib.rs:42 \u{2212}1 +1",
+                    ] {
+                        assert!(steps.contains(line), "missing {line}: {steps}");
+                    }
+                    let paints = paints(find(layout, &format!("python/{id}/steps")).unwrap());
+                    let mark = |m: &str| paints.iter().find(|(t, _)| t.trim() == m).unwrap().1;
+                    assert_eq!(mark("\u{2713}"), ink.ok, "{theme:?}: done mark");
+                    assert_eq!(mark("\u{2715}"), ink.bad, "{theme:?}: failed mark");
                 }
                 ("long", false) => {
                     assert!(head.contains("f=await b.call('knowledge_fetch'"), "{head}");

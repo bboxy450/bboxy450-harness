@@ -38,6 +38,8 @@ use ulid::Ulid;
 pub(crate) const FRAME: usize = 8 * 1024 * 1024;
 const OUTPUT: usize = 1024 * 1024;
 const CALLS: usize = 4096;
+/// A run's card lists at most this many calls and edits.
+const STEPS: usize = 24;
 const SOURCE: usize = 1024 * 1024;
 /// A run may take a day. Its default is an hour: long enough for a build or a
 /// sweep, and a runaway script still ends.
@@ -104,11 +106,22 @@ struct Child {
     result: Option<Value>,
     #[serde(default)]
     result_resource: Option<PathBuf>,
+    /// What a person reads for this call: `server.tool`, or the command line.
+    #[serde(default)]
+    label: Option<String>,
 }
 #[derive(Serialize, Deserialize, Clone)]
 struct Stored {
     key: String,
     bytes: u64,
+}
+/// A file the run changed through `fs.replace`, as the line counts a diff shows.
+#[derive(Serialize, Deserialize, Clone)]
+struct Edit {
+    path: String,
+    line: u64,
+    removed: u64,
+    added: u64,
 }
 #[derive(Serialize, Deserialize, Clone)]
 struct Record {
@@ -139,6 +152,8 @@ struct Record {
     /// `store` keys this run wrote: the model sees what is kept, not the data.
     #[serde(default)]
     stored: Vec<Stored>,
+    #[serde(default)]
+    edits: Vec<Edit>,
     /// Admission to terminal state, wall time.
     #[serde(default)]
     duration_ms: Option<u64>,
@@ -328,6 +343,7 @@ impl Service {
                         emitted: vec![],
                         children: vec![],
                         stored: vec![],
+                        edits: vec![],
                         duration_ms: None,
                     }
                 }
@@ -486,6 +502,7 @@ impl Service {
                 emitted: vec![],
                 children: vec![],
                 stored: vec![],
+                edits: vec![],
                 duration_ms: None,
             }),
             cancel: self.0.cancel.child_token(),
@@ -614,7 +631,7 @@ impl Service {
             return json!({"execution_id":record.execution_id,"status":record.status,"cwd":record.cwd,
             "context":record.context,"pid":record.pid,"exit_code":record.exit_code,"signal":record.signal,
             "output":record.output.get(offset..end).unwrap_or_default(),"next_cursor":(end<record.output.len() || running).then(||end.to_string()),
-            "omitted_bytes":record.omitted_bytes,"emitted":record.emitted,"stored":record.stored,"duration_ms":record.duration_ms,"children":record.children.iter().map(|c|json!({"id":c.id,"sequence":c.sequence,"kind":c.kind,"server":c.server,"tool":c.tool,"arguments_digest":c.arguments_digest,"server_generation":c.server_generation,"schema_digest":c.schema_digest,"status":c.status,"result_cursor":format!("child:{}:0",c.sequence)})).collect::<Vec<_>>(),
+            "omitted_bytes":record.omitted_bytes,"emitted":record.emitted,"stored":record.stored,"edits":record.edits,"duration_ms":record.duration_ms,"children":record.children.iter().map(|c|json!({"id":c.id,"sequence":c.sequence,"kind":c.kind,"label":c.label,"server":c.server,"tool":c.tool,"arguments_digest":c.arguments_digest,"server_generation":c.server_generation,"schema_digest":c.schema_digest,"status":c.status,"result_cursor":format!("child:{}:0",c.sequence)})).collect::<Vec<_>>(),
             "error":record.error.as_ref().map(|failure|failure.get("error").unwrap_or(failure)),
             "failure":record.error,"hints":record.error.as_ref().and_then(|failure|failure.get("hints")).cloned().unwrap_or_else(||json!([])),"retry_script":false});
         }
@@ -673,6 +690,21 @@ impl Service {
             lean["duration_ms"] = json!(duration);
         }
         lean["calls"] = json!(record.children.len());
+        // What the run did, in order, for the card a person reads: the first
+        // STEPS calls and every edit, each a short line, never their data.
+        if !record.children.is_empty() {
+            lean["steps"] = json!(
+                record
+                    .children
+                    .iter()
+                    .take(STEPS)
+                    .map(|c| json!([c.label.clone().unwrap_or_else(|| c.kind.clone()), c.status]))
+                    .collect::<Vec<_>>()
+            );
+        }
+        if !record.edits.is_empty() {
+            lean["edits"] = json!(record.edits.iter().take(STEPS).collect::<Vec<_>>());
+        }
         let failed = record
             .children
             .iter()
@@ -920,7 +952,7 @@ impl Service {
             "policy":"Original MCP server authorization and credentials apply; parent Codex/Claude hooks are not automatically invoked per nested call. Python and subprocess use normal harness host authority, with durable nested receipts.",
             "bindings":{
                 "tools as functions":["bboxy.<tool>(key=value, ...)  # the host's tools; returns the tool's data, raises ToolError","tools.<server>.<tool>(...)  # any MCP server","tools.search('words')  # find a tool: [{server, name, signature, description}]","bboxy.tools() / bboxy.describe('knowledge_write')  # signatures and the exact input schema","_timeout_ms= and _op_id= bound and name one call; every other keyword reaches the tool","await is optional on all of the above"],
-                "result":["a final bare expression is the result","emit(value)  # more results; a value too large to return is spilled to a file as {spilled, bytes, head}","print(...) is kept as output","what comes back: {execution_id, status, result, output, error, stored, duration_ms, calls}; result is the one emitted value, or the list when there are several; python_execution_get(detail=true) has the full record (context, receipts, pid, output chunks)"],
+                "result":["a final bare expression is the result","emit(value)  # more results; a value too large to return is spilled to a file as {spilled, bytes, head}","print(...) is kept as output","what comes back: {execution_id, status, result, output, error, stored, duration_ms, calls, steps, edits}; steps is [line, status] per call (the first 24), edits is {path, line, removed, added} per fs.replace: the card shows them, so return only what you need to read; result is the one emitted value, or the list when there are several; python_execution_get(detail=true) has the full record (context, receipts, pid, output chunks)"],
                 "state between calls":["store['rows'] = value  # kept for the session as one JSON file per key; keep large data in `store` and return only what you need","store['rows'], 'rows' in store, del store['rows'], store.keys(), store.clear()","store.path('rows')  # the file, to hand to a command","the result lists `stored: [{key, bytes}]` for what this run wrote"],
                 "shell and files":["sh('git status --porcelain').out  # .out .err .code .ok .json(); check=True raises","fs.replace(path, old, new, count=1)  # refuses and says what it found unless old occurs exactly count times","fs.lines(path, start, end)  # numbered lines","commands.run([executable, *args], input=None, json_input=value, cwd=None, check=False)  # exact argv, async"],
                 "formal loop":["den.check(path)  # {sound, records, diagnostics: [{path, code, line, message, repair}]} from bboxy450-den; an unsound spec is a value, a missing checker raises","den.lean(path, out=None)  # {sound, out, files, lines}","den.replay(spec, *traces)  # {conforms, lines}","den.render(path, out)  # {sound, files, lines}"],

@@ -1796,6 +1796,9 @@ fn python_body(
     let emits = python_emits(cell);
     let mut cut = false;
     let mut results: Vec<c::Item> = vec![];
+    if !cell.steps.is_empty() {
+        results.push(named(format!("python/{id}/steps"), python_steps(cell, full, ink)).into());
+    }
     for (n, value) in emits.iter().enumerate() {
         let (block, shortened) = f::emit_block(value, full, ink);
         cut |= shortened || (full && f::emit_block(value, false, ink).1);
@@ -1898,6 +1901,64 @@ fn python_body(
         kids.push(named(format!("more/{id}"), f::hstack(row, 8.)).into());
     }
     Ok(kids)
+}
+/// What the run did, one line per tool call, command and edit, as Code Mode shows
+/// the calls its code made: a status mark, then `server.tool`, the command line,
+/// or `path:line −n +m`.
+fn python_steps(
+    cell: &crate::frontends::face_core::PythonCell,
+    full: bool,
+    ink: &f::Ink,
+) -> c::Element {
+    const SHOWN: usize = 8;
+    let shown = if full {
+        cell.steps.len()
+    } else {
+        cell.steps.len().min(SHOWN)
+    };
+    let mut lines: Vec<c::Item> = cell.steps[..shown]
+        .iter()
+        .map(|(line, status)| {
+            let (mark, color) = match status.as_str() {
+                "succeeded" => ("\u{2713}", ink.ok),
+                "edited" => ("\u{270e}", ink.ok),
+                "failed" => ("\u{2715}", ink.bad),
+                "unknown" => ("?", ink.ask),
+                _ => ("\u{25d4}", ink.seat),
+            };
+            f::term_line(
+                vec![
+                    (format!("{mark} "), color, 600, false),
+                    (line.clone(), ink.fg, 400, false),
+                ],
+                12.,
+                false,
+            )
+            .into()
+        })
+        .collect();
+    if shown < cell.steps.len() {
+        lines.push(
+            f::term_line(
+                vec![(
+                    format!("+{} more", cell.steps.len() - shown),
+                    ink.dim,
+                    400,
+                    false,
+                )],
+                12.,
+                false,
+            )
+            .into(),
+        );
+    }
+    f::frame(
+        f::Frame {
+            padding: [0., 4., 0., 4.],
+            ..Default::default()
+        },
+        vec![f::vstack(lines, 0.).into()],
+    )
 }
 /// A Markdown code block without its own frame, for a section that supplies the tint.
 fn bare(code: &mut c::Element) {

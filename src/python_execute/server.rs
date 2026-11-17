@@ -232,6 +232,34 @@ impl Service {
                     .map_err(|_| fault("execution_storage", "cannot persist stored keys"))?;
                 Ok(Value::Null)
             }
+            Some("edited") => {
+                let mut record = run.record.lock().await;
+                if record.status != "running" {
+                    return Err(fault(
+                        "execution_retired",
+                        "Terminal executions do not list edits",
+                    ));
+                }
+                let count = |key: &str| args[key].as_u64().unwrap_or_default();
+                if record.edits.len() < CALLS {
+                    let path = self.0.redactor.value(args["path"].clone());
+                    record.edits.push(Edit {
+                        path: path
+                            .as_str()
+                            .unwrap_or_default()
+                            .chars()
+                            .take(400)
+                            .collect(),
+                        line: count("line"),
+                        removed: count("removed"),
+                        added: count("added"),
+                    });
+                }
+                self.save_record(&record)
+                    .await
+                    .map_err(|_| fault("execution_storage", "cannot persist edits"))?;
+                Ok(Value::Null)
+            }
             Some("available") => {
                 let name = args["name"]
                     .as_str()
@@ -285,6 +313,33 @@ impl Service {
                 } else {
                     None
                 };
+                // `sh` sends `/bin/sh -c line`: the line is what was run.
+                let label = match args["argv"].as_array().map(Vec::as_slice) {
+                    _ if kind == "call" => format!(
+                        "{}.{}",
+                        args["server"].as_str().unwrap_or_default(),
+                        args["tool"].as_str().unwrap_or_default()
+                    ),
+                    Some([shell, flag, line]) if shell == "/bin/sh" && flag == "-c" => {
+                        line.as_str().unwrap_or_default().to_owned()
+                    }
+                    Some(argv) => argv
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .collect::<Vec<_>>()
+                        .join(" "),
+                    None => kind.to_owned(),
+                };
+                let label = self.0.redactor.value(json!(label));
+                let label: String = label
+                    .as_str()
+                    .unwrap_or_default()
+                    .split_whitespace()
+                    .collect::<Vec<_>>()
+                    .join(" ")
+                    .chars()
+                    .take(160)
+                    .collect();
                 let sequence = {
                     let mut record = run.record.lock().await;
                     // This same record lock serializes finish/cancel with new
@@ -320,6 +375,7 @@ impl Service {
                         status: "dispatching".into(),
                         result: None,
                         result_resource: None,
+                        label: Some(label),
                     });
                     self.save_record(&record).await.map_err(|_| {
                         fault(

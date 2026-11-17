@@ -373,6 +373,38 @@ emit({'big': 'x' * 200000})
         )
         .await;
     assert_eq!(value["status"], "completed", "{value}");
+    // The card's lines: each call as `server.tool`, `sh` as its own line, and
+    // each fs.replace that wrote as `path`, its first line and the line counts.
+    let labels: Vec<&str> = value["children"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["label"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        labels,
+        [
+            "a.echo",
+            "a.echo",
+            "printf hi; exit 3",
+            "echo nope >&2; exit 4"
+        ],
+        "{value}"
+    );
+    assert_eq!(
+        value["edits"],
+        json!([{"path":"note.txt","line":1,"removed":1,"added":1},
+               {"path":"note.txt","line":2,"removed":2,"added":2}]),
+        "refused replacements write nothing and list nothing"
+    );
+    let cell =
+        crate::frontends::face_core::python_cell("python_execution_get", "{}", &[], Some(&value))
+            .unwrap();
+    assert_eq!(cell.steps[0], ("a.echo".to_owned(), "succeeded".to_owned()));
+    assert_eq!(
+        cell.steps[5],
+        ("note.txt:2 \u{2212}2 +2".to_owned(), "edited".to_owned())
+    );
     let spilled = &value["emitted"][0];
     assert_eq!(spilled["bytes"], 200_011, "{spilled}");
     let path = spilled["spilled"].as_str().unwrap();
@@ -1361,10 +1393,12 @@ async fn default_result_is_lean_and_detail_keeps_the_full_record() {
             "output",
             "stored",
             "duration_ms",
-            "calls"
+            "calls",
+            "steps"
         ],
         "{one}"
     );
+    assert_eq!(one["steps"], json!([["a.echo", "succeeded"]]));
     assert_eq!(one["status"], "completed");
     assert_eq!(one["result"], 42, "one emitted value is the result itself");
     assert_eq!(one["output"], "seen\n");

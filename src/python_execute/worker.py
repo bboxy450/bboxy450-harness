@@ -410,7 +410,11 @@ class Files:
                              + ("; closest lines: " + " | ".join(near) if near and not found else ""))
         with open(path, "w", encoding="utf-8") as output:
             output.write(text.replace(old, new) if count is None else text.replace(old, new, count))
-        return found if count is None else count
+        done = found if count is None else count
+        # The card shows the edit as a diff's line counts; the text stays here.
+        _rpc_sync("edited", {"path": os.fspath(path), "line": text[:text.index(old)].count("\n") + 1,
+                             "removed": done * len(old.splitlines()), "added": done * len(new.splitlines())})
+        return done
 
 
 class Store:
