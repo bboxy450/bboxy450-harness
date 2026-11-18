@@ -3574,6 +3574,8 @@ pub struct Preparer {
     scope: Option<(Option<SessionId>, Epoch)>,
     layout_builds: usize,
     terminal_outputs: std::collections::HashMap<ItemId, String>,
+    /// Tool outputs read back from their blob; `None` when the blob could not be read.
+    tool_blobs: std::collections::HashMap<ItemId, Option<Vec<OutputBlock>>>,
     documents: super::rich::Documents,
     /// Global text zoom for the rows it prepares; rows at another zoom are rebuilt.
     zoom: Zoom,
@@ -3596,6 +3598,7 @@ impl Default for Preparer {
             scope: None,
             layout_builds: 0,
             terminal_outputs: Default::default(),
+            tool_blobs: Default::default(),
             documents: Default::default(),
             zoom: Default::default(),
             budget: PREPARE_BUDGET,
@@ -3700,6 +3703,14 @@ impl Preparer {
         self.rows.remove(&id);
     }
 
+    pub(crate) fn tool_blob(&self, id: &ItemId) -> Option<&Option<Vec<OutputBlock>>> {
+        self.tool_blobs.get(id)
+    }
+    pub(crate) fn set_tool_blob(&mut self, id: ItemId, output: Option<Vec<OutputBlock>>) {
+        self.tool_blobs.insert(id, output);
+        self.rows.remove(&id);
+    }
+
     pub(crate) fn same_scope(&self, model: &Transcript) -> bool {
         self.scope == Some((model.session, model.epoch))
     }
@@ -3714,6 +3725,7 @@ impl Preparer {
         {
             self.rows.clear();
             self.terminal_outputs.clear();
+            self.tool_blobs.clear();
             self.documents = Default::default();
             self.documents.set_theme(self.theme);
         }

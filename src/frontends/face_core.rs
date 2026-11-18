@@ -404,6 +404,78 @@ impl PythonCell {
         parts.join("\n\n")
     }
 }
+/// Where a completed tool call's real output lives when the store kept only
+/// a preview (over 64 KiB): the whole output array in a JSON blob (`$blob`,
+/// sometimes itself sent as text), or one text block's full bytes (`spill`).
+#[derive(Debug, PartialEq)]
+pub enum BlobOutput {
+    Blocks(crate::protocol::BlobRef),
+    Text(crate::protocol::BlobRef),
+}
+impl BlobOutput {
+    pub fn blob(&self) -> &crate::protocol::BlobRef {
+        match self {
+            Self::Blocks(blob) | Self::Text(blob) => blob,
+        }
+    }
+}
+pub fn blob_output(
+    output: &[OutputBlock],
+    spill: Option<&crate::protocol::BlobRef>,
+) -> Option<BlobOutput> {
+    let reference = |value: &serde_json::Value| {
+        serde_json::from_value::<crate::protocol::BlobRef>(value.get("$blob")?.clone()).ok()
+    };
+    match output {
+        [OutputBlock::Text { .. } | OutputBlock::Error { .. }] if spill.is_some() => {
+            spill.cloned().map(BlobOutput::Text)
+        }
+        [OutputBlock::Json { value }] => reference(value).map(BlobOutput::Blocks),
+        [OutputBlock::Text { text }] if text.starts_with("{\"$blob\"") => {
+            serde_json::from_str(text)
+                .ok()
+                .as_ref()
+                .and_then(reference)
+                .map(BlobOutput::Blocks)
+        }
+        _ => None,
+    }
+}
+/// The output a blob held; `None` if its bytes do not read as one.
+pub fn decode_blob_output(source: &BlobOutput, bytes: &[u8]) -> Option<Vec<OutputBlock>> {
+    match source {
+        BlobOutput::Text(_) => Some(vec![OutputBlock::Text {
+            text: String::from_utf8_lossy(bytes).into_owned(),
+        }]),
+        BlobOutput::Blocks(_) => serde_json::from_slice::<Vec<OutputBlock>>(bytes)
+            .ok()
+            .or_else(|| {
+                serde_json::from_slice(bytes)
+                    .ok()
+                    .map(|value| vec![OutputBlock::Json { value }])
+            }),
+    }
+}
+/// Codex reports an MCP call's outcome as `{"result": <CallToolResult>, "error": null}`
+/// or `{"result": null, "error": {"message": ...}}` (codex-acp, 2026-11). The
+/// MCP result inside, or the error's message; `None` for any other shape.
+pub fn codex_outcome(value: &serde_json::Value) -> Option<Result<&serde_json::Value, String>> {
+    use serde_json::Value;
+    let object = value.as_object()?;
+    if object.is_empty() || !object.keys().all(|k| k == "result" || k == "error") {
+        return None;
+    }
+    match (value.get("result"), value.get("error")) {
+        (_, Some(error)) if !error.is_null() => Some(Err(error
+            .get("message")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .or_else(|| error.as_str().map(str::to_owned))
+            .unwrap_or_else(|| error.to_string()))),
+        (Some(result), _) if result.is_object() => Some(Ok(result)),
+        _ => None,
+    }
+}
 /// A tool call's arguments. Codex sends an MCP call as
 /// `{"server","tool","arguments":{...}}`; Claude sends the arguments bare.
 fn call_args(input_raw: &str) -> serde_json::Value {
@@ -429,15 +501,20 @@ pub fn python_cell(
         return None;
     }
     fn result(value: &Value) -> Option<Value> {
+        match codex_outcome(value) {
+            Some(Ok(inner)) => return result(inner),
+            Some(Err(message)) => return Some(serde_json::json!({ "error": message })),
+            None => {}
+        }
         if let Some(value) = value.get("structuredContent")
             && let Some(result) = result(value)
         {
             return Some(result);
         }
-        if value.get("execution_id").is_some()
-            || value.get("status").is_some()
-            || value.get("error").is_some()
-        {
+        // A present-but-null field is absent: `{"result", "error": null}` is an
+        // envelope, not a run record.
+        let present = |key: &str| value.get(key).is_some_and(|v| !v.is_null());
+        if present("execution_id") || present("status") || present("error") {
             return Some(value.clone());
         }
         // Codex wraps an MCP reply as `{"result":{"content",...,"structuredContent"}}`;
@@ -672,7 +749,13 @@ pub fn describe<'a>(
     let out = output
         .iter()
         .filter_map(|b| match b {
-            OutputBlock::Text { text } | OutputBlock::Error { text } => Some(text.clone()),
+            // Some codex-acp builds sent the MCP outcome as JSON text.
+            OutputBlock::Text { text } | OutputBlock::Error { text } => Some(
+                serde_json::from_str::<serde_json::Value>(text)
+                    .ok()
+                    .filter(|v| codex_outcome(v).is_some())
+                    .map_or_else(|| text.clone(), |v| raw_tool_output(&v)),
+            ),
             OutputBlock::Diff { unified, .. } => Some(unified.clone()),
             OutputBlock::Json { value } => Some(raw_tool_output(value)),
             OutputBlock::Audio { .. }
@@ -849,13 +932,31 @@ pub fn raw_tool_output(value: &serde_json::Value) -> String {
     if let Some(text) = value.as_str() {
         return text.to_owned();
     }
+    match codex_outcome(value) {
+        Some(Ok(inner)) => return raw_tool_output(inner),
+        Some(Err(message)) => return message,
+        None => {}
+    }
     let mut parts = vec![];
     if let Some(content) = value.get("content").and_then(Value::as_array) {
+        // MCP servers send the same object twice: as `structuredContent` and as
+        // its JSON text. Show it once, readable; `_meta` is for machines.
+        let structured = value.get("structuredContent").filter(|v| !v.is_null());
+        let mut shown_structured = false;
         for block in content {
             match block.get("type").and_then(Value::as_str) {
                 Some("text") => {
                     if let Some(text) = block.get("text").and_then(Value::as_str) {
-                        parts.push(text.to_owned());
+                        match serde_json::from_str::<Value>(text) {
+                            Ok(parsed) if parsed.is_object() || parsed.is_array() => {
+                                shown_structured |= structured == Some(&parsed);
+                                parts.push(
+                                    serde_json::to_string_pretty(&safe(&parsed))
+                                        .unwrap_or_default(),
+                                );
+                            }
+                            _ => parts.push(text.to_owned()),
+                        }
                     }
                 }
                 Some("image" | "audio") => parts.push(format!(
@@ -869,7 +970,9 @@ pub fn raw_tool_output(value: &serde_json::Value) -> String {
                 _ => parts.push(serde_json::to_string_pretty(&safe(block)).unwrap_or_default()),
             }
         }
-        if let Some(structured) = value.get("structuredContent") {
+        if let Some(structured) = structured
+            && !shown_structured
+        {
             parts.push(serde_json::to_string_pretty(&safe(structured)).unwrap_or_default());
         }
         if !parts.is_empty() {
@@ -1104,5 +1207,228 @@ mod gui_polish_output_tests {
         assert!(!placeholder_output(&[OutputBlock::Error {
             text: "real error".into()
         }]));
+    }
+}
+#[cfg(test)]
+mod codex_outcome_tests {
+    use super::*;
+    use serde_json::json;
+    // Shapes copied from codex-acp session logs (2026-11-18): 1681 of 1768 MCP
+    // replies were `{result: {_meta, content, structuredContent}, error: null}`,
+    // with content[0].text equal to structuredContent; 6 were `{result: null,
+    // error: {message}}`.
+    fn reply(structured: serde_json::Value) -> Vec<OutputBlock> {
+        vec![OutputBlock::Json {
+            value: json!({"result":{
+                "_meta":{"bboxy450/hints":[{"method":"tools/call"}]},
+                "content":[{"type":"text","text":structured.to_string()}],
+                "structuredContent":structured},"error":null}),
+        }]
+    }
+    #[test]
+    fn a_codex_python_run_reads_its_status_through_the_outcome_envelope() {
+        let input =
+            r#"{"server":"bboxy","tool":"python_execute","arguments":{"source":"emit(1)"}}"#;
+        let running = reply(json!({"execution_id":"E1","status":"running","result":[1],"calls":1}));
+        let cell = python_cell("mcp.bboxy.python_execute", input, &running, None).unwrap();
+        assert_eq!(cell.status.as_deref(), Some("running"));
+        assert_eq!(cell.execution_id.as_deref(), Some("E1"));
+        assert_eq!(
+            cell.emitted,
+            Some(json!([1])),
+            "the run's value, not the envelope"
+        );
+        let done = reply(json!({"execution_id":"E1","status":"completed","result":[1]}));
+        let get =
+            r#"{"server":"bboxy","tool":"python_execution_get","arguments":{"execution_id":"E1"}}"#;
+        let cell = python_cell("mcp.bboxy.python_execution_get", get, &done, None).unwrap();
+        assert_eq!(cell.status.as_deref(), Some("completed"));
+        let failed = [OutputBlock::Json {
+            value: json!({"result":null,"error":{"message":"tool call failed for `bboxy/python_execute`"}}),
+        }];
+        let cell = python_cell("mcp.bboxy.python_execute", input, &failed, None).unwrap();
+        assert!(
+            cell.error
+                .as_deref()
+                .is_some_and(|e| e.contains("tool call failed"))
+        );
+    }
+    #[test]
+    fn a_blob_backed_output_reads_back_whole_in_all_three_stored_forms() {
+        let blob = BlobRef {
+            sha256: "a".repeat(64),
+            len: 9,
+            mime: "application/json".into(),
+        };
+        let reference = json!({"$blob": blob, "$preview": "[{\"type\":\"json\""});
+        let json = [OutputBlock::Json {
+            value: reference.clone(),
+        }];
+        let text = [OutputBlock::Text {
+            text: reference.to_string(),
+        }];
+        let spilled = [OutputBlock::Text {
+            text: "head\n[full content: blob …]".into(),
+        }];
+        assert_eq!(
+            blob_output(&json, None),
+            Some(BlobOutput::Blocks(blob.clone()))
+        );
+        assert_eq!(
+            blob_output(&text, None),
+            Some(BlobOutput::Blocks(blob.clone()))
+        );
+        assert_eq!(
+            blob_output(&spilled, Some(&blob)),
+            Some(BlobOutput::Text(blob.clone()))
+        );
+        assert_eq!(
+            blob_output(&[OutputBlock::Text { text: "ok".into() }], None),
+            None
+        );
+        // The blob holds the output array as the store serialized it.
+        let stored =
+            serde_json::to_vec(&reply(json!({"execution_id":"E","status":"completed"}))).unwrap();
+        let output = decode_blob_output(&BlobOutput::Blocks(blob.clone()), &stored).unwrap();
+        let input = r#"{"server":"bboxy","tool":"python_execute","arguments":{"source":"x"}}"#;
+        let cell = python_cell("mcp.bboxy.python_execute", input, &output, None).unwrap();
+        assert_eq!(cell.status.as_deref(), Some("completed"));
+        let full = decode_blob_output(&BlobOutput::Text(blob), b"whole text").unwrap();
+        assert!(matches!(&full[..], [OutputBlock::Text { text }] if text == "whole text"));
+    }
+    #[test]
+    fn a_codex_mcp_reply_shows_its_result_once_and_an_error_as_its_message() {
+        let out = raw_tool_output(match &reply(json!({"task":"#3","status":"open"}))[0] {
+            OutputBlock::Json { value } => value,
+            _ => unreachable!(),
+        });
+        assert_eq!(out.matches("\"task\"").count(), 1, "{out}");
+        assert!(
+            !out.contains("_meta") && !out.contains("bboxy450/hints"),
+            "{out}"
+        );
+        assert!(
+            out.contains("\"status\": \"open\""),
+            "pretty, not compact: {out}"
+        );
+        let error =
+            raw_tool_output(&json!({"result":null,"error":{"message":"Mcp error: -32603"}}));
+        assert_eq!(error, "Mcp error: -32603");
+        // Not an envelope: a tool's own `result`/`error` fields stay data.
+        assert!(codex_outcome(&json!({"result":1,"other":2})).is_none());
+        assert!(codex_outcome(&json!({"result":null,"error":null})).is_none());
+    }
+}
+/// Smoke over real session logs: `BBOXY_SMOKE_SESSIONS=<dir of *.jsonl>`.
+/// Every completed tool call goes through the face's parsers; the run fails
+/// on an envelope leak or a Python card without a status, and prints counts.
+#[cfg(test)]
+mod real_session_smoke {
+    use super::*;
+    use crate::protocol::{Envelope, Event, Item, ItemStatus};
+    #[test]
+    fn real_sessions_render_without_envelope_leaks() {
+        let Some(dir) = std::env::var_os("BBOXY_SMOKE_SESSIONS") else {
+            return;
+        };
+        let mut seen = std::collections::BTreeMap::<String, usize>::new();
+        let mut bad = vec![];
+        let mut files: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.extension().is_some_and(|x| x == "jsonl"))
+            .collect();
+        files.sort();
+        for path in &files {
+            let text = std::fs::read_to_string(path).unwrap_or_default();
+            let mut provider = String::from("native");
+            for line in text.lines() {
+                let Ok(e) = serde_json::from_str::<Envelope>(line) else {
+                    continue;
+                };
+                let Event::ItemCompleted { body, status, .. } = &e.event else {
+                    continue;
+                };
+                if let Item::Native { provider: p, .. } = body {
+                    provider = p.rsplit('/').next().unwrap_or(p).to_owned();
+                }
+                let Item::ToolCall {
+                    name,
+                    tool_kind,
+                    input_raw,
+                    output,
+                    spill,
+                    ..
+                } = body
+                else {
+                    continue;
+                };
+                *seen.entry(format!("{provider} calls")).or_default() += 1;
+                // Over 64 KiB the store keeps a preview and the bytes in a blob:
+                // read them back as the face does (bridge::load_tool_blobs).
+                let source = blob_output(output, spill.as_ref());
+                let loaded = source.as_ref().and_then(|source| {
+                    let dir = path.with_extension("").join("blobs");
+                    let bytes = std::fs::read(dir.join(&source.blob().sha256)).ok()?;
+                    decode_blob_output(source, &bytes)
+                });
+                if source.is_some() {
+                    *seen
+                        .entry(format!(
+                            "{provider} blob {}",
+                            if loaded.is_some() { "read" } else { "missing" }
+                        ))
+                        .or_default() += 1;
+                }
+                let output = loaded.as_deref().unwrap_or(output);
+                let blob = source.is_some() && loaded.is_none();
+                let d = describe(name, tool_kind.clone(), input_raw, output, "/");
+                let card = match python_cell(name, input_raw, output, None) {
+                    Some(cell) => {
+                        *seen.entry(format!("{provider} python")).or_default() += 1;
+                        if blob {
+                            *seen.entry(format!("{provider} python blob")).or_default() += 1;
+                        } else if cell.status.is_none()
+                            && cell.error.is_none()
+                            && matches!(status, ItemStatus::Completed)
+                        {
+                            bad.push(format!("{}: python without status: {name}", path.display()));
+                        }
+                        cell.text()
+                    }
+                    None => d.out.clone(),
+                };
+                // A card leaks when its text *is* an envelope; a Python run's own
+                // emitted data and a diff may mention `_meta` legitimately.
+                let envelope = serde_json::from_str::<serde_json::Value>(&card)
+                    .is_ok_and(|v| codex_outcome(&v).is_some() || v.get("_meta").is_some());
+                if !blob && envelope {
+                    bad.push(format!(
+                        "{}: envelope leaked into {name}: {}",
+                        path.display(),
+                        &card[..card.len().min(160)]
+                    ));
+                }
+                for block in output {
+                    if let OutputBlock::Json { value } = block
+                        && let Some(Err(message)) = codex_outcome(value)
+                    {
+                        *seen.entry(format!("{provider} errors")).or_default() += 1;
+                        if !card.contains(message.lines().next().unwrap_or_default()) {
+                            bad.push(format!(
+                                "{}: error message hidden in {name}",
+                                path.display()
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+        eprintln!("SMOKE files={} bad={} {seen:?}", files.len(), bad.len());
+        for line in bad.iter().take(20) {
+            eprintln!("SMOKE BAD {line}");
+        }
+        assert!(bad.is_empty(), "{} cards render wrong", bad.len());
     }
 }

@@ -924,6 +924,7 @@ async fn publish_frame(mut state: FrameState, mailbox: &Arc<Mailbox>, preparer: 
     {
         if let Some(blobs) = mailbox.blobs.load_full() {
             load_terminal_outputs(&state.transcript, &blobs, preparer).await;
+            state.transcript = load_tool_blobs(state.transcript, &blobs, preparer).await;
         }
         state.faces = mailbox.faces.load_full();
         let faces = state.faces.clone();
@@ -1414,6 +1415,62 @@ pub async fn load_terminal_outputs(
             preparer.terminal_output(row.id, text);
         }
     }
+}
+/// Completed tool calls show their whole output, not the store's preview: a
+/// large Python or MCP reply otherwise lost its status and rendered as cut JSON.
+#[cfg(feature = "embedded")]
+pub async fn load_tool_blobs(
+    model: Arc<Transcript>,
+    blobs: &crate::store::Blobs,
+    preparer: &mut super::view::Preparer,
+) -> Arc<Transcript> {
+    const MAX: u64 = 8 * 1024 * 1024;
+    let found: Vec<_> = model
+        .items
+        .values()
+        .filter(|row| row.completed.is_some())
+        .filter_map(|row| match &row.body {
+            Item::ToolCall { output, spill, .. } => {
+                crate::frontends::face_core::blob_output(output, spill.as_ref())
+                    .map(|source| (row.id, source))
+            }
+            _ => None,
+        })
+        .collect();
+    if found.is_empty() {
+        return model;
+    }
+    let mut next = (*model).clone();
+    for (id, source) in found {
+        let output = match preparer.tool_blob(&id) {
+            Some(output) => output.clone(),
+            None => {
+                let blob = source.blob();
+                let output = if blob.len > MAX {
+                    None
+                } else {
+                    match blobs.get(blob).await {
+                        Ok(bytes) => {
+                            crate::runtime::blocking(move || {
+                                crate::frontends::face_core::decode_blob_output(&source, &bytes)
+                            })
+                            .await
+                        }
+                        Err(_) => None,
+                    }
+                };
+                preparer.set_tool_blob(id, output.clone());
+                output
+            }
+        };
+        if let Some(output) = output
+            && let Some(row) = next.items.get_mut(&id)
+            && let Item::ToolCall { output: shown, .. } = &mut row.body
+        {
+            *shown = output;
+        }
+    }
+    Arc::new(next)
 }
 pub fn refusal_text(error: &Refused) -> &'static str {
     match error {
