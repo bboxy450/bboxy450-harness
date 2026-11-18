@@ -457,6 +457,11 @@ impl HarnessView {
     pub fn theme(&self) -> Theme {
         self.theme
     }
+    /// The presentation identity a preparation must carry to be shown here
+    /// (`Bridge::set_appearance`).
+    pub fn theme_revision(&self) -> u64 {
+        self.theme_revision
+    }
     pub fn context(&self) -> ui::Context {
         ui::Context::new(self.theme, Density::Cozy)
     }

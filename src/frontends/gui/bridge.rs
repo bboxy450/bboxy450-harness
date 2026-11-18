@@ -477,6 +477,20 @@ impl Bridge {
         }
         changed
     }
+    /// Prepare for exactly the view's theme and revision. A view outlives its
+    /// bridge (a parked pane reattaches with a new one), so a bridge that counted
+    /// its own revisions would drift from the view's after the next appearance
+    /// change, and every later preparation would fail the view's compatibility
+    /// check: the pane would stay on its loading screen.
+    #[cfg(feature = "embedded")]
+    pub fn set_appearance(&self, theme: bbt_ui::Theme, revision: u64) -> bool {
+        let next = (revision << 1) | u64::from(theme == bbt_ui::Theme::Light);
+        let changed = self.mailbox.appearance.swap(next, Ordering::AcqRel) != next;
+        if changed {
+            self.mailbox.resized.notify_one();
+        }
+        changed
+    }
     /// A zoom change schedules preparation at the new text size, like a resize.
     pub fn set_zoom(&self, percent: u8) {
         let percent = u32::from(percent);
@@ -2337,5 +2351,43 @@ mod actor_intake_tests {
             0,
             "old same-session response is stale"
         );
+    }
+}
+#[cfg(all(test, feature = "embedded"))]
+mod appearance_tests {
+    use super::*;
+    struct Wake;
+    impl Waker for Wake {
+        fn wake(&self) {}
+    }
+    // State: a parked view's theme revision and a reattached bridge's prepared
+    // revision. Safety: after the view hands its appearance to the bridge, the
+    // bridge prepares for exactly that revision, so the view accepts the rows.
+    // Broken control: a fresh bridge counting its own revisions drifts.
+    #[test]
+    fn a_reattached_bridge_prepares_for_the_parked_views_revision() {
+        let mut view = super::super::view::HarnessView::default();
+        for theme in [
+            bbt_ui::Theme::Light,
+            bbt_ui::Theme::Dark,
+            bbt_ui::Theme::Light,
+        ] {
+            assert!(view.set_theme(theme));
+        }
+        let prepared = |bridge: &Bridge| bridge.mailbox.appearance.load(Ordering::Acquire) >> 1;
+
+        let counting = Bridge::new(Arc::new(Wake));
+        counting.set_theme(view.theme());
+        assert_ne!(
+            prepared(&counting),
+            view.theme_revision(),
+            "control: own count drifts"
+        );
+
+        let synced = Bridge::new(Arc::new(Wake));
+        assert!(synced.set_appearance(view.theme(), view.theme_revision()));
+        assert!(!synced.set_appearance(view.theme(), view.theme_revision()));
+        assert_eq!(prepared(&synced), view.theme_revision());
+        assert_eq!(synced.mailbox.appearance.load(Ordering::Acquire) & 1, 1);
     }
 }
