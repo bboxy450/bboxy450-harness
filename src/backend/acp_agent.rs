@@ -2251,6 +2251,15 @@ impl AcpAgentActor {
                 )
                 .await
             }
+            // A failure to reach Jev is not a judgment: it is shown as a warning
+            // and does not count toward pausing automation.
+            crate::decision::Outcome::Failed(reason) => {
+                self.notice(
+                    Level::Warn,
+                    format!("Automation failed; this question waits for you: {reason}."),
+                )
+                .await
+            }
             crate::decision::Outcome::Human(reason) => {
                 self.abstained += 1;
                 let paused = self.abstained >= 3;
@@ -3078,14 +3087,12 @@ pub fn tool_kind(k: &str) -> ToolKind {
 /// ran as `failed` for a v1 client (its renderer's `unfinished`, `ran: false`).
 /// Nothing failed: it is a stopped call, not an error card.
 fn never_ran(u: &Value) -> bool {
-    u.get("content")
-        .and_then(Value::as_array)
-        .is_some_and(|c| {
-            c.iter().any(|b| {
-                b.pointer("/content/text").and_then(Value::as_str)
-                    == Some("Claude stopped this tool call before it ran.")
-            })
+    u.get("content").and_then(Value::as_array).is_some_and(|c| {
+        c.iter().any(|b| {
+            b.pointer("/content/text").and_then(Value::as_str)
+                == Some("Claude stopped this tool call before it ran.")
         })
+    })
 }
 fn tool_body(t: Tool, empty: &str) -> Item {
     let output = if t.output.is_empty() {
@@ -3359,8 +3366,11 @@ mod never_ran_tests {
     use serde_json::json;
     #[test]
     fn a_dropped_tool_use_is_stopped_and_a_real_failure_is_not() {
-        let text = |t: &str| json!({"content":[{"type":"content","content":{"type":"text","text":t}}]});
-        assert!(never_ran(&text("Claude stopped this tool call before it ran.")));
+        let text =
+            |t: &str| json!({"content":[{"type":"content","content":{"type":"text","text":t}}]});
+        assert!(never_ran(&text(
+            "Claude stopped this tool call before it ran."
+        )));
         assert!(!never_ran(&text("exit 1")));
         assert!(!never_ran(&json!({})));
     }

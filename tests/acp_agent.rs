@@ -620,6 +620,13 @@ async fn decision_model(mode: &'static str) -> (String, Arc<std::sync::Mutex<Vec
                     fixed => fixed,
                 };
                 record.lock().unwrap().push(text);
+                if mode == "refuse" {
+                    let body = r#"{"error":"invalid api key"}"#;
+                    let _ = stream
+                        .write_all(format!("HTTP/1.1 401 Unauthorized\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len()).as_bytes())
+                        .await;
+                    return;
+                }
                 let body = serde_json::json!({"model": "jev-test", "answers": {"question_0": {
                     "type": "choice", "choice": choice, "confidence": 0.9, "probabilities": {}}},
                     "usage": {"input_tokens": 1, "output_tokens": 1}})
@@ -762,6 +769,49 @@ async fn automation_leaves_the_question_to_the_human_when_the_model_disagrees_or
             "{mode}"
         );
     }
+}
+
+// A Jev failure is visible: a warning naming the provider's reason, the question
+// still open for the human, and automation not paused by it.
+#[tokio::test]
+async fn automation_failure_is_a_warning_and_the_question_waits() {
+    let (url, seen) = decision_model("refuse").await;
+    let f = fake_with("question", Unattended::Deny, None, decision_spec(&url)).await;
+    let mut sub = subscribe(&f.gateway, true);
+    f.gateway
+        .send(support::prompt(&f.gateway, "set up storage"))
+        .unwrap();
+    let mut question = None;
+    loop {
+        match next(&mut sub).await.event {
+            Event::ItemSnapshot {
+                item,
+                partial: Item::Question { .. },
+            } => question = Some(item),
+            Event::ItemCompleted {
+                body: Item::Notice { level, text },
+                ..
+            } if text.starts_with("Automation") => {
+                assert_eq!(level, Level::Warn, "{text}");
+                assert!(
+                    text.starts_with("Automation failed")
+                        && text.contains("HTTP 401")
+                        && text.contains("invalid api key")
+                        && !text.contains("decision-key-123"),
+                    "{text}"
+                );
+                break;
+            }
+            _ => {}
+        }
+    }
+    assert!(!seen.lock().unwrap().is_empty());
+    f.gateway.send(support::op(&f.gateway, Op::AnswerQuestion {
+        question: question.expect("an open question"),
+        answer: serde_json::json!({"action": "accept", "content": {"question_0": "Postgres"}}),
+    })).unwrap();
+    until_end(&mut sub).await;
+    close(f).await;
 }
 
 // Switched off, the model is never called and the question waits as before.

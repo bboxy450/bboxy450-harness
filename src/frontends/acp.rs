@@ -31,6 +31,9 @@ use tokio_util::sync::CancellationToken;
 struct Pending {
     ops: BTreeMap<OpId, Value>,
     turns: BTreeMap<TurnId, Value>,
+    /// `_session/steering` requests awaiting the engine's verdict: injected
+    /// into the running turn, refused, or queued as a turn of its own.
+    steers: BTreeMap<OpId, Value>,
 }
 struct Session {
     gateway: InProc,
@@ -299,7 +302,17 @@ impl Face {
                             .await;
                             return;
                         }
+                        // Reply only once the engine shows where the input went
+                        // (see `event`): a steer the turn did not take becomes a
+                        // queued turn no client request owns, so the caller must
+                        // send it as a normal prompt instead.
                         let op_id = OpId::new();
+                        session
+                            .pending
+                            .lock()
+                            .unwrap()
+                            .steers
+                            .insert(op_id, id.clone());
                         if let Err(reason) = session.gateway.send(OpEnvelope {
                             v: PROTOCOL,
                             session: session.gateway.session(),
@@ -309,6 +322,7 @@ impl Face {
                                 mode: TurnMode::Steer,
                             },
                         }) {
+                            session.pending.lock().unwrap().steers.remove(&op_id);
                             self.error(
                                 id,
                                 -32603,
@@ -316,8 +330,6 @@ impl Face {
                                 Some(json!({"reason":reason})),
                             )
                             .await;
-                        } else {
-                            self.response(id, json!({"outcome":"injected"})).await;
                         }
                     }
                     Err(message) => self.error(id, -32602, &message, None).await,
@@ -711,17 +723,44 @@ impl Face {
                 .await;
             }
             Event::TurnQueued { turn } => {
+                let mut steer = None;
                 if let Some(op) = e.cause {
                     let mut p = session.pending.lock().unwrap();
                     if let Some(id) = p.ops.remove(&op) {
                         p.turns.insert(*turn, id);
+                    } else {
+                        steer = p.steers.remove(&op);
                     }
+                }
+                // The running turn ended before it took this steer, so the
+                // engine queued it as a new turn no session/prompt owns: its
+                // updates and end would reach a client whose own turn already
+                // ended. Withdraw it and have the caller prompt instead.
+                if let Some(id) = steer {
+                    let _ = self.send(session, Op::Interrupt { turn: Some(*turn) });
+                    self.response(
+                        id,
+                        json!({"outcome":"promptRequired","reason":"noRunningTurn"}),
+                    )
+                    .await;
+                }
+            }
+            Event::ItemStarted {
+                kind: ItemKind::UserMessage,
+                ..
+            } => {
+                let id = e
+                    .cause
+                    .and_then(|op| session.pending.lock().unwrap().steers.remove(&op));
+                if let Some(id) = id {
+                    self.response(id, json!({"outcome":"injected"})).await;
                 }
             }
             Event::OpRejected { reason, .. } => {
-                let id = e
-                    .cause
-                    .and_then(|op| session.pending.lock().unwrap().ops.remove(&op));
+                let id = e.cause.and_then(|op| {
+                    let mut p = session.pending.lock().unwrap();
+                    p.ops.remove(&op).or_else(|| p.steers.remove(&op))
+                });
                 if let Some(id) = id {
                     self.error(id, -32603, "Operation rejected", Some(json!(reason)))
                         .await;
@@ -1370,22 +1409,131 @@ mod tests {
         assert_eq!(idle["result"]["outcome"], json!("promptRequired"), "{idle}");
         assert_eq!(idle["result"]["reason"], json!("noRunningTurn"), "{idle}");
 
-        // A running turn: the steer is injected, and the reply does not wait for
-        // the turn to end. A stale pending turn id stands in for "running"; the
-        // engine owns real turn admission and is covered by its own tests.
+        // A turn is pending: the steer goes to the engine and the reply waits
+        // for its verdict. Each verdict is replayed into `event` as the engine
+        // would publish it, with the steer's op as cause.
         session
             .pending
             .lock()
             .unwrap()
             .turns
             .insert(TurnId::new(), json!(99));
-        face.clone().dispatch(steer).await;
-        let injected = rx.try_recv().expect("steering reply");
+        let envelope = |event, cause| Envelope {
+            raw: None,
+            ext: Default::default(),
+            native: None,
+            v: PROTOCOL,
+            session: sid,
+            epoch: Epoch(1),
+            seq: Some(Seq(2)),
+            at: Seq(2),
+            ts_ms: 0,
+            cause,
+            event,
+        };
+        let steer_op = || {
+            let p = session.pending.lock().unwrap();
+            assert_eq!(p.steers.len(), 1, "one steer awaits its verdict");
+            *p.steers.keys().next().unwrap()
+        };
+        let mut mapper = Mapper::default();
+
+        // Injected: the running turn took the input.
+        face.clone().dispatch(steer.clone()).await;
+        assert!(
+            rx.try_recv().is_err(),
+            "no reply before the engine's verdict"
+        );
+        let op = steer_op();
+        face.event(
+            &session,
+            &mut mapper,
+            envelope(
+                Event::ItemStarted {
+                    turn: Some(TurnId::new()),
+                    item: ItemId::new(),
+                    kind: ItemKind::UserMessage,
+                    parent: None,
+                    head: None,
+                },
+                Some(op),
+            ),
+            false,
+        )
+        .await;
+        let injected = loop {
+            let m = rx.try_recv().expect("steering reply");
+            if m.get("id") == Some(&json!(2)) {
+                break m;
+            }
+        };
         assert_eq!(
             injected["result"]["outcome"],
             json!("injected"),
-            "a mid-turn steer must not wait for end_turn: {injected}"
+            "{injected}"
         );
+
+        // Re-queued: the turn ended first, so the engine queued the steer as a
+        // turn nobody prompted. The caller is told to prompt instead (the face
+        // withdraws that turn), never told it was injected.
+        while rx.try_recv().is_ok() {}
+        face.clone().dispatch(steer.clone()).await;
+        let op = steer_op();
+        face.event(
+            &session,
+            &mut mapper,
+            envelope(
+                Event::TurnQueued {
+                    turn: TurnId::new(),
+                },
+                Some(op),
+            ),
+            false,
+        )
+        .await;
+        let requeued = loop {
+            let m = rx.try_recv().expect("steering reply");
+            if m.get("id") == Some(&json!(2)) {
+                break m;
+            }
+        };
+        assert_eq!(
+            requeued["result"]["outcome"],
+            json!("promptRequired"),
+            "{requeued}"
+        );
+        assert_eq!(
+            requeued["result"]["reason"],
+            json!("noRunningTurn"),
+            "{requeued}"
+        );
+
+        // Refused: the engine's rejection reaches the caller as an error.
+        face.clone().dispatch(steer).await;
+        let op = steer_op();
+        face.event(
+            &session,
+            &mut mapper,
+            envelope(
+                Event::OpRejected {
+                    op,
+                    reason: Rejection::InvalidInput {
+                        detail: "steer queue is full".into(),
+                    },
+                },
+                Some(op),
+            ),
+            false,
+        )
+        .await;
+        let refused = loop {
+            let m = rx.try_recv().expect("steering reply");
+            if m.get("id") == Some(&json!(2)) {
+                break m;
+            }
+        };
+        assert!(refused.get("error").is_some(), "{refused}");
+        assert!(session.pending.lock().unwrap().steers.is_empty());
 
         gateway
             .send(OpEnvelope {

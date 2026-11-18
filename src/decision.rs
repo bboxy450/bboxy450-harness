@@ -35,6 +35,8 @@ const ASK_HUMAN: &str = "ask_human";
 const CONFIDENCE: f64 = 0.6;
 /// Both calls together. A human would take far longer; a hang must not.
 const DEADLINE: Duration = Duration::from_secs(5);
+/// An `api_key: "!command"` gets this long at session start.
+const KEY_COMMAND_DEADLINE: Duration = Duration::from_secs(10);
 const DEFAULT_MODEL: &str = "jev-1.14.0";
 const MAX_OPTIONS: usize = 6;
 const MAX_CONTEXT: usize = 4096;
@@ -100,6 +102,10 @@ pub enum Outcome {
     },
     /// The question stays with the human, for this reason.
     Human(String),
+    /// The decision model could not be asked (unreachable, refused, timed out,
+    /// malformed reply). The question stays with the human, and the failure is
+    /// reported as a warning rather than as a judgment.
+    Failed(String),
 }
 
 impl Model {
@@ -119,9 +125,24 @@ impl Model {
         let key = match (&spec.api_key, &spec.api_key_env) {
             (Some(source), _) => match source.strip_prefix('!') {
                 Some(cmd) => {
-                    crate::provider::profile::resolve_command(cmd, CancellationToken::new())
-                        .await
-                        .map_err(|e| format!("{FILE}: {}", e.message))?
+                    // A key command that hangs (a locked vault, a prompt nobody
+                    // answers) must not hold the session's startup.
+                    let cancel = CancellationToken::new();
+                    match tokio::time::timeout(
+                        KEY_COMMAND_DEADLINE,
+                        crate::provider::profile::resolve_command(cmd, cancel.clone()),
+                    )
+                    .await
+                    {
+                        Ok(key) => key.map_err(|e| format!("{FILE}: {}", e.message))?,
+                        Err(_) => {
+                            cancel.cancel();
+                            return Err(format!(
+                                "{FILE}: api_key command did not finish within {}s",
+                                KEY_COMMAND_DEADLINE.as_secs()
+                            ));
+                        }
+                    }
                 }
                 None => source.clone(),
             },
@@ -161,8 +182,13 @@ impl Model {
         let both = async { tokio::join!(ask(false), ask(true)) };
         let (first, second) = match tokio::time::timeout(DEADLINE, both).await {
             Ok((Ok(first), Ok(second))) => (first, second),
-            Ok((Err(reason), _)) | Ok((_, Err(reason))) => return Outcome::Human(reason),
-            Err(_) => return Outcome::Human("the decision model timed out".into()),
+            Ok((Err(reason), _)) | Ok((_, Err(reason))) => return Outcome::Failed(reason),
+            Err(_) => {
+                return Outcome::Failed(format!(
+                    "the decision model timed out after {}s",
+                    DEADLINE.as_secs()
+                ));
+            }
         };
         let mut content = serde_json::Map::new();
         let mut lowest = 1.0f64;
@@ -254,10 +280,33 @@ impl Model {
             .body(body)
             .send()
             .await
-            .map_err(|_| "the decision model was unreachable".to_owned())?;
+            .map_err(|error| {
+                let kind = if error.is_timeout() {
+                    "timed out"
+                } else if error.is_connect() {
+                    "connection failed"
+                } else {
+                    "request failed"
+                };
+                format!(
+                    "the decision model at {} was unreachable ({kind})",
+                    self.url
+                )
+            })?;
         let status = reply.status();
         if !status.is_success() {
-            return Err(format!("the decision model refused ({})", status.as_u16()));
+            // The provider's own error text says why (bad key, quota, model id);
+            // it never carries our key, and it is capped.
+            let detail = reply.text().await.unwrap_or_default();
+            let detail = cap_chars(detail.trim(), 200);
+            return Err(if detail.is_empty() {
+                format!("the decision model refused (HTTP {})", status.as_u16())
+            } else {
+                format!(
+                    "the decision model refused (HTTP {}): {detail}",
+                    status.as_u16()
+                )
+            });
         }
         let bytes = reply
             .bytes()
@@ -269,6 +318,12 @@ impl Model {
         serde_json::from_slice(&bytes)
             .map_err(|_| "the decision model's reply was not JSON".to_owned())
     }
+}
+
+fn cap_chars(text: &str, max: usize) -> &str {
+    text.char_indices()
+        .nth(max)
+        .map_or(text, |(at, _)| &text[..at])
 }
 
 /// The fields automation may answer, or why the question is the human's.
