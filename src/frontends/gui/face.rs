@@ -813,7 +813,7 @@ pub fn python_status(status: &str, exit: Option<i64>, ink: &Ink) -> Option<c::El
         "completed" => (ink.ok, false, true),
         "running" => (ink.seat, false, true),
         "starting" | "cancelling" => (ink.seat, false, false),
-        "cancelled" | "interrupted" | "pending" => (ink.dim, false, false),
+        "cancelled" | "interrupted" | "pending" | "not polled" => (ink.dim, false, false),
         "failed" => (ink.bad, true, true),
         _ => (ink.bad, true, false),
     };

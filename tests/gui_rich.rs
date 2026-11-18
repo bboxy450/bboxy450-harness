@@ -2939,3 +2939,119 @@ async fn retained_mermaid_canvas_keeps_offscreen_nodes() {
     assert_eq!(seen[0], seen[1], "short viewport elided canvas nodes");
     assert!(seen[0][0] >= 25, "every node label is retained: {seen:?}");
 }
+
+// A Codex python_execute that returned a handle (`running`) in a turn that then
+// ended with no poll: the outcome was never read, so the card says "not polled"
+// and stops spinning. While the turn runs, the same card still says running.
+#[tokio::test]
+async fn an_unpolled_python_run_stops_spinning_when_its_turn_ends() {
+    use bboxy450_harness::frontends::gui::{
+        bridge::{FrameState, read_replay},
+        view::{Preparer, find, layout_text},
+    };
+    let reply = serde_json::json!({"result":{
+        "content":[{"type":"text","text":"{\"execution_id\":\"E1\",\"status\":\"running\"}"}],
+        "structuredContent":{"execution_id":"E1","status":"running"},
+        "_meta":{"bboxy450/hints":[]}},"error":null});
+    let call = Item::ToolCall {
+        call_id: "exec-1".into(),
+        name: "mcp.bboxy.python_execute".into(),
+        tool_kind: ToolKind::Execute,
+        title: None,
+        server: None,
+        input_raw: r#"{"server":"bboxy","tool":"python_execute","arguments":{"source":"emit(1)"}}"#
+            .into(),
+        output: vec![OutputBlock::Json { value: reply }],
+        raw_output: None,
+        locations: vec![],
+        spill: None,
+    };
+    for ended in [false, true] {
+        let temp = tempfile::tempdir().unwrap();
+        let base: Envelope = serde_json::from_str(
+            include_str!("fixtures/protocol/all-items.jsonl")
+                .lines()
+                .next()
+                .unwrap(),
+        )
+        .unwrap();
+        let (turn, item) = (TurnId::new(), ItemId::new());
+        let mut events = vec![base.clone()];
+        let mut push = |event: Event| {
+            let mut e = base.clone();
+            e.seq = Some(Seq(events.len() as u64 + 1));
+            e.at = e.seq.unwrap();
+            e.event = event;
+            events.push(e);
+        };
+        push(Event::TurnQueued { turn });
+        push(Event::TurnStarted {
+            turn,
+            model: Some("codex".into()),
+            origin: None,
+        });
+        push(Event::ItemStarted {
+            turn: Some(turn),
+            item,
+            kind: call.kind(),
+            parent: None,
+            head: call.head(),
+        });
+        push(Event::ItemCompleted {
+            item,
+            status: ItemStatus::Completed,
+            body: call.clone(),
+        });
+        {
+            push(Event::TurnEnded {
+                turn,
+                reason: StopReason::EndTurn,
+                usage: None,
+            });
+        }
+        let path = temp.path().join("unpolled.jsonl");
+        let mut bytes = Vec::new();
+        for event in events {
+            serde_json::to_writer(&mut bytes, &event).unwrap();
+            bytes.push(b'\n');
+        }
+        std::fs::write(&path, bytes).unwrap();
+        let mut source = read_replay(path).await.unwrap();
+        if !ended {
+            // Replays end every turn; the control reopens this one.
+            source.turns.insert(
+                turn,
+                bboxy450_harness::frontends::gui::model::TurnState::Running,
+            );
+        }
+        let source = Arc::new(source);
+        let layout = runtime::blocking(move || {
+            let mut preparer = Preparer::default();
+            let state = FrameState {
+                transcript: source.clone(),
+                ready: true,
+                replay: true,
+                prepared: Some(Arc::new(preparer.prepare(source, 760.).unwrap())),
+                ..Default::default()
+            };
+            HarnessView::default()
+                .render(&state, [760., 900.])
+                .unwrap()
+                .layout
+                .clone()
+                .unwrap()
+        })
+        .await;
+        let chip = find(&layout, &format!("python/{item}/status"))
+            .map(layout_text)
+            .unwrap_or_default();
+        if ended {
+            assert!(chip.contains("not polled"), "ended turn: {chip:?}");
+        } else {
+            assert!(
+                !chip.contains("not polled") && !chip.contains("pending"),
+                "running turn: {chip:?}"
+            );
+        }
+    }
+}

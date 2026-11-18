@@ -341,6 +341,14 @@ impl Folds {
             any = true;
             format!("{:?}", model.turns.get(t)).hash(&mut h);
         }
+        // A Python run reported `running` settles to "not polled" when its turn ends.
+        if let Some(row) = model.items.get(id)
+            && let Some(turn) = row.turn
+            && python_cell(row).is_some()
+        {
+            any = true;
+            matches!(model.turns.get(&turn), Some(TurnState::Ended { .. })).hash(&mut h);
+        }
         for k in self
             .kids
             .get(id)
@@ -1174,9 +1182,21 @@ impl Preparer {
             d.target = command.clone();
             d.mono = true;
         }
+        // The call returned a handle (`running`) and its turn ended without a
+        // poll: the run's outcome was never read, so the card stops spinning.
+        let unpolled = python.as_ref().is_some_and(|cell| {
+            matches!(
+                cell.status.as_deref(),
+                Some("starting" | "running" | "cancelling")
+            )
+        }) && row.completed.is_some()
+            && row.turn.is_some_and(|turn| {
+                matches!(model.turns.get(&turn), Some(TurnState::Ended { .. }))
+            });
         if let Some(cell) = &python {
             d.out = cell.text();
             status = match cell.status.as_deref() {
+                _ if unpolled => f::Status::Stopped,
                 Some("starting" | "running" | "cancelling") => f::Status::Running,
                 Some("completed") => f::Status::Done,
                 Some("cancelled" | "interrupted") => f::Status::Stopped,
@@ -1312,7 +1332,12 @@ impl Preparer {
         // Python's state is a chip beside any approval badge.
         let badge = match &python {
             Some(cell) => {
-                let label = cell.status.clone().unwrap_or_else(|| {
+                let label = if unpolled {
+                    Some("not polled".to_owned())
+                } else {
+                    cell.status.clone()
+                };
+                let label = label.unwrap_or_else(|| {
                     if cell.error.is_some() {
                         "failed"
                     } else {
