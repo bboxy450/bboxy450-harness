@@ -41,7 +41,7 @@ png = { version = "0.18", optional = true }
 bbt_rt = { package = "bboxy450-rt", version = "=0.2.0" }
 bbt_yarn = { package = "bboxy450-yarn", version = "=0.2.0" }
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde_json = { version = "1", features = ["preserve_order"] }
 schemars = "1"
 ulid = { version = "1", features = ["serde"] }
 tokio = { version = "1", features = ["full", "test-util"] }
