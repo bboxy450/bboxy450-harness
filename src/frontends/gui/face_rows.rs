@@ -616,6 +616,7 @@ impl Preparer {
                 options,
                 decision,
                 by,
+                ..
             } => match decision {
                 None => {
                     let mut prompt = approval_atom(id, subject, options);
@@ -685,6 +686,7 @@ impl Preparer {
                 schema,
                 answer,
                 by,
+                ..
             } => match answer {
                 None => {
                     let fields = question_fields(schema);

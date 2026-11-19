@@ -3434,6 +3434,16 @@ pub(crate) mod disposal {
             }
         }
     }
+    impl Drain for ItemHead {
+        fn drain_step(&mut self) -> bool {
+            match self {
+                Self::Question { schema, .. } => schema.drain_step(),
+                Self::Approval { options, .. } => options.drain_step(),
+                Self::Unknown(value) => value.drain_step(),
+                _ => false,
+            }
+        }
+    }
     macro_rules! fields {
         ($t:ty; $($field:ident),+ $(,)?) => { impl Drain for $t {
             fn drain_step(&mut self) -> bool { false $(|| self.$field.drain_step())+ }
@@ -3452,7 +3462,6 @@ pub(crate) mod disposal {
         TurnOrigin,
         ItemKind,
         ToolKind,
-        ItemHead,
         Stream,
         ChangeKind,
         PlanStatus,
@@ -3568,6 +3577,7 @@ pub(crate) mod disposal {
                     options,
                     decision,
                     by,
+                    ..
                 } => {
                     subject.drain_step()
                         || options.drain_step()

@@ -2780,6 +2780,7 @@ fn real_worker_reuses_failure_retry_and_denial_fingerprints() {
             },
             options: vec![ApprovalDecisionKind::Deny],
             decision: Some(ApprovalDecision::Deny { reason: None }),
+            answered_by: None,
             by: Some(Resolver::Unattended),
         },
     });

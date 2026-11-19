@@ -190,6 +190,7 @@ async fn turn(h: &mut Harness, approve: bool) -> Vec<Envelope> {
             let _ = h.gateway.send(support::op(
                 &h.gateway,
                 Op::ResolveApproval {
+                    client: None,
                     approval: *item,
                     decision: if approve {
                         ApprovalDecision::Allow

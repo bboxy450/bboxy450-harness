@@ -30,7 +30,7 @@ use crate::{
 };
 use serde_json::{Value, json};
 use std::{
-    collections::{BTreeMap, HashMap, HashSet, VecDeque},
+    collections::{BTreeMap, HashMap, VecDeque},
     ffi::{OsStr, OsString},
     os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
@@ -249,7 +249,7 @@ pub struct AcpAgentActor {
     wire: Option<mpsc::UnboundedReceiver<Wire>>,
     queue: VecDeque<(TurnId, Vec<InputBlock>, OpId)>,
     running: Option<Running>,
-    resolved: HashSet<ItemId>,
+    resolved: HashMap<ItemId, Answerer>,
     projected_ext: BTreeMap<String, Value>,
     /// Earlier turns of this log (a reopened or forked session), handed to the next
     /// fresh agent with its first prompt: the agent's own context starts empty.
@@ -430,7 +430,7 @@ impl AcpAgentActor {
             wire: None,
             queue: VecDeque::new(),
             running: None,
-            resolved: HashSet::new(),
+            resolved: HashMap::new(),
             projected_ext: BTreeMap::new(),
             handoff,
             recall,
@@ -731,16 +731,17 @@ impl AcpAgentActor {
                     self.reject(id, Rejection::NoSuchTurn).await?;
                 }
             }
-            Op::ResolveApproval { approval, decision } => {
-                let face = face.to_owned();
-                self.resolve_by_face(id, approval, decision, face).await?;
+            Op::ResolveApproval { approval, decision, client } => {
+                self.resolve_by_face(id, approval, decision, Answerer::face(client, face)).await?;
             }
-            Op::AnswerQuestion { question, answer } => {
+            Op::AnswerQuestion { question, answer, client } => {
                 let open = self
                     .running
                     .as_ref()
                     .is_some_and(|r| r.questions.contains_key(&question));
-                if !matches!(
+                if let Some(by) = self.resolved.get(&question) {
+                    self.reject(id, Rejection::AlreadyAnswered { by: by.clone() }).await?;
+                } else if !matches!(
                     answer.get("action").and_then(Value::as_str),
                     Some("accept" | "decline" | "cancel")
                 ) {
@@ -752,10 +753,8 @@ impl AcpAgentActor {
                     )
                     .await?;
                 } else if open {
-                    self.settle_question(question, answer, None, Some(id))
+                    self.settle_question(question, answer, Answerer::face(client, face), Some(id))
                         .await?;
-                } else if self.resolved.contains(&question) {
-                    self.reject(id, Rejection::AlreadyResolved).await?;
                 } else {
                     self.reject(id, Rejection::NoSuchApproval).await?;
                 }
@@ -1469,11 +1468,11 @@ impl AcpAgentActor {
         self.send_cancel();
         // the protocol: every pending permission is answered `cancelled`
         for item in pending {
-            self.settle_permission(item, None, Resolver::Cancelled, None)
+            self.settle_permission(item, None, Resolver::Cancelled.into(), None)
                 .await?;
         }
         for item in asked {
-            self.settle_question(item, json!({"action": "cancel"}), None, None)
+            self.settle_question(item, json!({"action": "cancel"}), Resolver::Cancelled.into(), None)
                 .await?;
         }
         Ok(())
@@ -1509,12 +1508,12 @@ impl AcpAgentActor {
             return Ok(());
         };
         for (item, p) in std::mem::take(&mut r.permissions) {
-            self.resolved.insert(item);
-            let body = decided(p.body, None, Resolver::Cancelled);
+            self.resolved.insert(item, Resolver::Cancelled.into());
+            let body = decided(p.body, None, Resolver::Cancelled.into());
             self.complete(item, ItemStatus::Cancelled, body).await?;
         }
         for (item, (rpc, body)) in std::mem::take(&mut r.questions) {
-            self.resolved.insert(item);
+            self.resolved.insert(item, Resolver::Cancelled.into());
             let cancel = json!({"action": "cancel"});
             if let Some(agent) = self.agent.as_mut() {
                 let _ = reply(
@@ -1522,7 +1521,7 @@ impl AcpAgentActor {
                     json!({"jsonrpc": "2.0", "id": rpc, "result": cancel}),
                 );
             }
-            self.complete(item, ItemStatus::Cancelled, answered(body, cancel, None))
+            self.complete(item, ItemStatus::Cancelled, answered(body, cancel, Resolver::Cancelled.into()))
                 .await?;
         }
         self.running = Some(r);
@@ -2180,6 +2179,7 @@ impl AcpAgentActor {
             options: kinds,
             decision: None,
             by: None,
+            answered_by: None,
         };
         let item = ItemId::new();
         let turn = r.turn;
@@ -2216,7 +2216,7 @@ impl AcpAgentActor {
                     Some(ApprovalDecision::Allow),
                     Resolver::Rule {
                         id: "profile-yolo".into(),
-                    },
+                    }.into(),
                     None,
                 )
                 .await;
@@ -2229,7 +2229,7 @@ impl AcpAgentActor {
                 },
             };
             return self
-                .settle_permission(item, Some(decision), Resolver::Unattended, None)
+                .settle_permission(item, Some(decision), Resolver::Unattended.into(), None)
                 .await;
         }
         Ok(())
@@ -2239,7 +2239,7 @@ impl AcpAgentActor {
         op: OpId,
         approval: ItemId,
         decision: ApprovalDecision,
-        face: String,
+        by: Answerer,
     ) -> std::io::Result<()> {
         if self
             .running
@@ -2249,13 +2249,13 @@ impl AcpAgentActor {
             self.settle_permission(
                 approval,
                 Some(decision),
-                Resolver::Face { name: face },
+                by,
                 Some(op),
             )
             .await
         } else {
-            let reason = if self.resolved.contains(&approval) {
-                Rejection::AlreadyResolved
+            let reason = if let Some(by) = self.resolved.get(&approval) {
+                Rejection::AlreadyAnswered { by: by.clone() }
             } else {
                 Rejection::NoSuchApproval
             };
@@ -2290,6 +2290,7 @@ impl AcpAgentActor {
                 .unwrap_or(Value::Null),
             answer: None,
             by: None,
+            answered_by: None,
         };
         let item = ItemId::new();
         let turn = self.running.as_ref().expect("running").turn;
@@ -2363,7 +2364,7 @@ impl AcpAgentActor {
                 self.settle_question(
                     item,
                     answer,
-                    Some(Resolver::Model { model, confidence }),
+                    Resolver::Model { model, confidence }.into(),
                     None,
                 )
                 .await
@@ -2392,13 +2393,12 @@ impl AcpAgentActor {
             }
         }
     }
-    /// Send an answer to the agent and complete the question. `by` names
-    /// automation; a human's answer leaves it out.
+    /// Send an answer to the agent and complete the question with its first answerer.
     async fn settle_question(
         &mut self,
         item: ItemId,
         answer: Value,
-        by: Option<Resolver>,
+        by: Answerer,
         cause: Option<OpId>,
     ) -> std::io::Result<()> {
         let Some((rpc, body)) = self
@@ -2414,7 +2414,13 @@ impl AcpAgentActor {
                 json!({"jsonrpc": "2.0", "id": rpc, "result": answer}),
             );
         }
-        self.resolved.insert(item);
+        if matches!(by, Answerer::Resolver(Resolver::Face { .. } | Resolver::Cancelled)) {
+            self.projected_ext.insert(
+                "question_answerer".into(),
+                serde_json::to_value(&by)?,
+            );
+        }
+        self.resolved.insert(item, by.clone());
         self.publish(
             Event::ItemCompleted {
                 item,
@@ -2430,7 +2436,7 @@ impl AcpAgentActor {
         &mut self,
         item: ItemId,
         decision: Option<ApprovalDecision>,
-        by: Resolver,
+        by: Answerer,
         cause: Option<OpId>,
     ) -> std::io::Result<()> {
         let Some(p) = self
@@ -2468,7 +2474,7 @@ impl AcpAgentActor {
                 reason: Some("cancelled".into()),
             })
         };
-        self.resolved.insert(item);
+        self.resolved.insert(item, by.clone());
         let _ = p.tool;
         let body = decided(p.body, decision, by);
         self.publish(
@@ -2632,7 +2638,7 @@ impl AcpAgentActor {
                         .map(|(i, _)| *i)
                         .collect();
                     for i in open {
-                        self.settle_permission(i, None, Resolver::Cancelled, None)
+                        self.settle_permission(i, None, Resolver::Cancelled.into(), None)
                             .await?;
                     }
                     let r = self.running.as_mut().expect("running");
@@ -3240,7 +3246,8 @@ fn tool_body(t: Tool, empty: &str) -> Item {
     }
 }
 
-fn decided(body: Item, decision: Option<ApprovalDecision>, by: Resolver) -> Item {
+fn decided(body: Item, decision: Option<ApprovalDecision>, by: Answerer) -> Item {
+    let (resolver, client) = by.approval_fields();
     match body {
         Item::Approval {
             subject, options, ..
@@ -3250,7 +3257,8 @@ fn decided(body: Item, decision: Option<ApprovalDecision>, by: Resolver) -> Item
             decision: Some(decision.unwrap_or(ApprovalDecision::Deny {
                 reason: Some("cancelled".into()),
             })),
-            by: Some(by),
+            by: Some(resolver),
+            answered_by: client,
         },
         other => other,
     }
@@ -3336,7 +3344,13 @@ pub fn content_block(b: &InputBlock) -> Value {
         InputBlock::Unknown(_) => json!({ "type": "text", "text": "Unsupported input" }),
     }
 }
-fn answered(body: Item, answer: Value, by: Option<Resolver>) -> Item {
+fn answered(body: Item, answer: Value, by: Answerer) -> Item {
+    let (by, answered_by) = match by {
+        Answerer::Resolver(Resolver::Cancelled | Resolver::Face { .. }) => (None, None),
+        Answerer::Resolver(by) => (Some(by), None),
+        Answerer::Client(client) => (None, Some(client)),
+        Answerer::Unknown(_) => (None, None),
+    };
     match body {
         Item::Question {
             message, schema, ..
@@ -3345,6 +3359,7 @@ fn answered(body: Item, answer: Value, by: Option<Resolver>) -> Item {
             schema,
             answer: Some(answer),
             by,
+            answered_by,
         },
         other => other,
     }

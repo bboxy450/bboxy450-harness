@@ -1,5 +1,16 @@
 {
   "$defs": {
+    "Answerer": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Client"
+        },
+        {
+          "$ref": "#/$defs/Resolver"
+        },
+        true
+      ]
+    },
     "ApprovalDecision": {
       "anyOf": [
         {
@@ -234,6 +245,22 @@
           "type": "string"
         }
       },
+      "type": "object"
+    },
+    "Client": {
+      "description": "Identity attached by an answering face. Bboxy Term supplies its admitted client.",
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "key"
+      ],
       "type": "object"
     },
     "Cost": {
@@ -1353,6 +1380,16 @@
         },
         {
           "properties": {
+            "answered_by": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Client"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "by": {
               "anyOf": [
                 {
@@ -1399,6 +1436,16 @@
           "properties": {
             "answer": {
               "default": null
+            },
+            "answered_by": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Client"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "by": {
               "anyOf": [
@@ -1896,6 +1943,48 @@
       "anyOf": [
         {
           "properties": {
+            "kind": {
+              "const": "question",
+              "type": "string"
+            },
+            "message": {
+              "default": "",
+              "type": "string"
+            },
+            "schema": {
+              "default": null
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "approval",
+              "type": "string"
+            },
+            "message": {
+              "default": "",
+              "type": "string"
+            },
+            "options": {
+              "default": [],
+              "items": {
+                "$ref": "#/$defs/ApprovalDecisionKind"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
             "call_id": {
               "type": "string"
             },
@@ -2239,6 +2328,16 @@
             "approval": {
               "$ref": "#/$defs/ItemId"
             },
+            "client": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Client"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "decision": {
               "$ref": "#/$defs/ApprovalDecision"
             },
@@ -2259,6 +2358,16 @@
           "properties": {
             "answer": {
               "default": null
+            },
+            "client": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Client"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "question": {
               "$ref": "#/$defs/ItemId",
@@ -2912,6 +3021,22 @@
           "properties": {
             "reason": {
               "const": "already_resolved",
+              "type": "string"
+            }
+          },
+          "required": [
+            "reason"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "by": {
+              "$ref": "#/$defs/Answerer",
+              "default": null
+            },
+            "reason": {
+              "const": "already_answered",
               "type": "string"
             }
           },

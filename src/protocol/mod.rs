@@ -311,6 +311,8 @@ pub enum Op {
     ResolveApproval {
         approval: ItemId,
         decision: ApprovalDecision,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        client: Option<Client>,
     },
     /// The human's reply to a `Question` item, as an ACP elicitation response.
     AnswerQuestion {
@@ -319,6 +321,8 @@ pub enum Op {
         question: ItemId,
         #[serde(default)]
         answer: Value,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        client: Option<Client>,
     },
     /// Whether a configured decision model may answer this session's questions
     /// for the operator. On when a session starts.
@@ -646,6 +650,8 @@ pub enum Item {
         options: Vec<ApprovalDecisionKind>,
         decision: Option<ApprovalDecision>,
         by: Option<Resolver>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        answered_by: Option<Client>,
     },
     /// The agent asks the human (ACP form elicitation). `schema` is the
     /// agent's requested JSON Schema, kept as sent; `answer` is the ACP reply
@@ -660,6 +666,8 @@ pub enum Item {
         /// Set when automation answered; a human's answer leaves it out.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         by: Option<Resolver>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        answered_by: Option<Client>,
     },
     Image {
         mime: String,
@@ -806,6 +814,18 @@ pub enum Item {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ItemHead {
+    Question {
+        #[serde(default)]
+        message: String,
+        #[serde(default)]
+        schema: Value,
+    },
+    Approval {
+        #[serde(default)]
+        message: String,
+        #[serde(default)]
+        options: Vec<ApprovalDecisionKind>,
+    },
     ToolCall {
         call_id: String,
         name: String,
@@ -1096,6 +1116,49 @@ pub enum ApprovalDecisionKind {
     #[serde(untagged)]
     Unknown(Value),
 }
+/// Identity attached by an answering face. Bboxy Term supplies its admitted client.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct Client {
+    pub name: String,
+    pub key: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum Answerer {
+    Client(Client),
+    Resolver(Resolver),
+    Unknown(Value),
+}
+
+fn unknown_answerer() -> Answerer {
+    Answerer::Unknown(Value::Null)
+}
+
+impl From<Resolver> for Answerer {
+    fn from(resolver: Resolver) -> Self {
+        Self::Resolver(resolver)
+    }
+}
+
+impl Answerer {
+    pub(crate) fn face(client: Option<Client>, face: &str) -> Self {
+        match client {
+            Some(client) => Self::Client(client),
+            None => Self::Resolver(Resolver::Face { name: face.into() }),
+        }
+    }
+
+    /// Keep the legacy approval resolver populated for old readers.
+    pub(crate) fn approval_fields(&self) -> (Resolver, Option<Client>) {
+        match self {
+            Self::Client(client) => (Resolver::Face { name: client.name.clone() }, Some(client.clone())),
+            Self::Resolver(resolver) => (resolver.clone(), None),
+            Self::Unknown(value) => (Resolver::Unknown(value.clone()), None),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "by", rename_all = "snake_case")]
 pub enum Resolver {
@@ -1162,6 +1225,10 @@ pub enum Rejection {
     NoSuchTurn,
     NoSuchApproval,
     AlreadyResolved,
+    AlreadyAnswered {
+        #[serde(default = "unknown_answerer")]
+        by: Answerer,
+    },
     NothingToCompact,
     InvalidInput {
         detail: String,
@@ -1287,6 +1354,14 @@ impl Item {
                 terminal: terminal.clone(),
                 command: command.clone(),
             }),
+            Self::Question { message, schema, .. } => Some(ItemHead::Question {
+                message: message.clone(),
+                schema: schema.clone(),
+            }),
+            Self::Approval { subject, options, .. } => Some(ItemHead::Approval {
+                message: subject.summary.clone(),
+                options: options.clone(),
+            }),
             _ => None,
         }
     }
@@ -1323,6 +1398,20 @@ impl Item {
             ) => {
                 terminal.clone_from(t);
                 command.clone_from(c);
+            }
+            (
+                Self::Question { message, schema, .. },
+                Some(ItemHead::Question { message: asked, schema: requested }),
+            ) => {
+                message.clone_from(asked);
+                schema.clone_from(requested);
+            }
+            (
+                Self::Approval { subject, options, .. },
+                Some(ItemHead::Approval { message, options: offered }),
+            ) => {
+                subject.summary.clone_from(message);
+                options.clone_from(offered);
             }
             _ => {}
         }
@@ -1385,12 +1474,14 @@ impl Item {
                     reason: Some("interrupted".into()),
                 }),
                 by: Some(Resolver::Cancelled),
+                answered_by: None,
             },
             ItemKind::Question => Self::Question {
                 message: String::new(),
                 schema: Value::Null,
                 answer: Some(serde_json::json!({"action": "cancel"})),
                 by: None,
+                answered_by: None,
             },
             ItemKind::Image => Self::Image {
                 mime: "application/octet-stream".into(),

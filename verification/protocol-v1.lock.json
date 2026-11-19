@@ -21,6 +21,15 @@
  "retired": [],
  "spec": ".bboxy/specs/log-ir-v1.md",
  "surface": {
+  "Answerer": {
+   "shape": "union",
+   "tag": "",
+   "variants": {
+    "<untagged:Client>": {},
+    "<untagged:Resolver>": {},
+    "unknown": {}
+   }
+  },
   "ApprovalDecision": {
    "shape": "union",
    "tag": "decision",
@@ -149,6 +158,19 @@
     },
     "url": {
      "required": false,
+     "type": "string"
+    }
+   },
+   "shape": "struct"
+  },
+  "Client": {
+   "fields": {
+    "key": {
+     "required": true,
+     "type": "string"
+    },
+    "name": {
+     "required": true,
      "type": "string"
     }
    },
@@ -661,6 +683,10 @@
      }
     },
     "approval": {
+     "answered_by": {
+      "required": false,
+      "type": "Client|null"
+     },
      "by": {
       "required": false,
       "type": "Resolver|null"
@@ -828,6 +854,10 @@
      "answer": {
       "required": false,
       "type": "any"
+     },
+     "answered_by": {
+      "required": false,
+      "type": "Client|null"
      },
      "by": {
       "required": false,
@@ -1051,6 +1081,26 @@
    "shape": "union",
    "tag": "kind",
    "variants": {
+    "approval": {
+     "message": {
+      "required": false,
+      "type": "string"
+     },
+     "options": {
+      "required": false,
+      "type": "[ApprovalDecisionKind]"
+     }
+    },
+    "question": {
+     "message": {
+      "required": false,
+      "type": "string"
+     },
+     "schema": {
+      "required": false,
+      "type": "any"
+     }
+    },
     "terminal": {
      "command": {
       "required": true,
@@ -1204,6 +1254,10 @@
       "required": false,
       "type": "any"
      },
+     "client": {
+      "required": false,
+      "type": "Client|null"
+     },
      "question": {
       "required": false,
       "type": "ItemId"
@@ -1227,6 +1281,10 @@
      "approval": {
       "required": true,
       "type": "ItemId"
+     },
+     "client": {
+      "required": false,
+      "type": "Client|null"
      },
      "decision": {
       "required": true,
@@ -1544,6 +1602,12 @@
    "shape": "union",
    "tag": "reason",
    "variants": {
+    "already_answered": {
+     "by": {
+      "required": false,
+      "type": "Answerer"
+     }
+    },
     "already_resolved": {},
     "coalesced": {
      "into": {

@@ -467,6 +467,7 @@ async fn a_face_approves_a_permission_and_unsupported_requests_get_32601() {
                 .send(support::op(
                     &f.gateway,
                     Op::ResolveApproval {
+                        client: None,
                         approval: *item,
                         decision: ApprovalDecision::Allow,
                     },
@@ -502,7 +503,7 @@ async fn a_face_answers_an_agents_question_and_the_agent_receives_it() {
         .send(support::prompt(&f.gateway, "set up storage"))
         .unwrap();
     let mut asked = None;
-    loop {
+    let (winner, later) = loop {
         let e = next(&mut sub).await;
         match &e.event {
             Event::ItemSnapshot {
@@ -528,25 +529,36 @@ async fn a_face_answers_an_agents_question_and_the_agent_receives_it() {
                 let unknown = f.gateway.send(support::op(
                     &f.gateway,
                     Op::AnswerQuestion {
+                        client: None,
                         question: *item,
                         answer: serde_json::json!({"action": "maybe"}),
                     },
                 ));
                 assert!(unknown.is_ok());
-                f.gateway
-                    .send(support::op(
-                        &f.gateway,
-                        Op::AnswerQuestion {
-                            question: *item,
-                            answer: serde_json::json!({"action": "accept", "content": {"question_0": "SQLite"}}),
-                        },
-                    ))
-                    .unwrap();
-                break;
+                let first = support::op(
+                    &f.gateway,
+                    Op::AnswerQuestion {
+                        question: *item,
+                        answer: serde_json::json!({"action": "accept", "content": {"question_0": "SQLite"}}),
+                        client: Some(Client { name: "Desktop".into(), key: "desktop-test".into() }),
+                    },
+                );
+                let later = support::op(
+                    &f.gateway,
+                    Op::AnswerQuestion {
+                        client: None,
+                        question: *item,
+                        answer: serde_json::json!({"action": "decline"}),
+                    },
+                );
+                assert!(!f.gateway.send(first.clone()).unwrap().duplicate);
+                assert!(f.gateway.send(first.clone()).unwrap().duplicate);
+                assert!(!f.gateway.send(later.clone()).unwrap().duplicate);
+                break (first.op_id, later.op_id);
             }
             _ => {}
         }
-    }
+    };
     until_end(&mut sub).await;
     let log = close(f).await;
     let items = completed(&log);
@@ -564,6 +576,16 @@ async fn a_face_answers_an_agents_question_and_the_agent_receives_it() {
             .any(|e| matches!(&e.event, Event::OpRejected { .. })),
         "an unknown action is refused"
     );
+    assert_eq!(log.iter().filter(|e| e.cause == Some(winner)).count(), 1);
+    let refusal = log.iter().find_map(|e| match &e.event {
+        Event::OpRejected { op, reason } if *op == later => Some(reason),
+        _ => None,
+    }).expect("a second answer must be refused");
+    let expected = Client { name: "Desktop".into(), key: "desktop-test".into() };
+    assert_eq!(refusal, &Rejection::AlreadyAnswered { by: Answerer::Client(expected.clone()) });
+    assert!(items.iter().any(|(_, body)| matches!(body, Item::Question {
+        answered_by: Some(by), by: None, ..
+    } if by == &expected)));
     assert_eq!(ended(&log), vec![StopReason::EndTurn]);
 }
 
@@ -654,6 +676,7 @@ async fn answer_as_face(f: &Fake, sub: &mut Subscription, value: &str) {
         {
             f.gateway
                 .send(support::op(&f.gateway, Op::AnswerQuestion {
+                    client: None,
                     question: item,
                     answer: serde_json::json!({"action": "accept", "content": {"question_0": value}}),
                 }))
@@ -756,6 +779,7 @@ async fn automation_leaves_the_question_to_the_human_when_the_model_disagrees_or
         assert_eq!(seen.lock().unwrap().len(), 2);
         // The question is still open: a face answers it now.
         f.gateway.send(support::op(&f.gateway, Op::AnswerQuestion {
+            client: None,
             question: question.expect("an open question"),
             answer: serde_json::json!({"action": "accept", "content": {"question_0": "Postgres"}}),
         })).unwrap();
@@ -807,6 +831,7 @@ async fn automation_failure_is_a_warning_and_the_question_waits() {
     }
     assert!(!seen.lock().unwrap().is_empty());
     f.gateway.send(support::op(&f.gateway, Op::AnswerQuestion {
+        client: None,
         question: question.expect("an open question"),
         answer: serde_json::json!({"action": "accept", "content": {"question_0": "Postgres"}}),
     })).unwrap();
@@ -1444,6 +1469,7 @@ async fn a_queued_user_turn_shortens_quiet_only_after_the_agent_tool_and_permiss
         .send(support::op(
             &f.gateway,
             Op::ResolveApproval {
+                client: None,
                 approval,
                 decision: ApprovalDecision::Allow,
             },

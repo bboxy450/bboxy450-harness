@@ -220,6 +220,7 @@ fn fixtures() -> Vec<(&'static str, Vec<Envelope>)> {
             },
             options: vec![ApprovalDecisionKind::Allow, ApprovalDecisionKind::Deny],
             decision: Some(ApprovalDecision::Allow),
+            answered_by: None,
             by: Some(Resolver::Rule {
                 id: "fixture-rule".into(),
             }),

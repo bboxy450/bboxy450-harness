@@ -129,7 +129,7 @@ pub struct SessionActor {
     queue: VecDeque<Queued>,
     running: Option<Running>,
     approvals: BTreeMap<ItemId, Pending>,
-    resolved: BTreeMap<ItemId, ()>,
+    resolved: BTreeMap<ItemId, Answerer>,
     interrupted: BTreeMap<TurnId, OpId>,
     stopping: Option<OpId>,
     internal: mpsc::Receiver<Internal>,
@@ -739,8 +739,8 @@ impl SessionActor {
                     self.reject(id, Rejection::NoSuchTurn).await?;
                 }
             }
-            Op::ResolveApproval { approval, decision } => {
-                if let Some(p) = self.approvals.remove(&approval) {
+            Op::ResolveApproval { approval, decision, client } => {
+                if let Some(mut p) = self.approvals.remove(&approval) {
                     if self
                         .running
                         .as_ref()
@@ -756,13 +756,17 @@ impl SessionActor {
                             None,
                         )
                         .await?;
-                        self.reject(id, Rejection::AlreadyResolved).await?;
+                        self.reject(id, Rejection::AlreadyAnswered { by: Resolver::Cancelled.into() }).await?;
                     } else {
+                        let (resolver, client) = Answerer::face(client, face).approval_fields();
+                        if let Item::Approval { answered_by, .. } = &mut p.body {
+                            *answered_by = client;
+                        }
                         self.resolve(
                             approval,
                             p,
                             decision,
-                            Resolver::Face { name: face.into() },
+                            resolver,
                             Some(id),
                         )
                         .await?;
@@ -770,8 +774,8 @@ impl SessionActor {
                 } else {
                     self.reject(
                         id,
-                        if self.resolved.contains_key(&approval) {
-                            Rejection::AlreadyResolved
+                        if let Some(by) = self.resolved.get(&approval) {
+                            Rejection::AlreadyAnswered { by: by.clone() }
                         } else {
                             Rejection::NoSuchApproval
                         },
@@ -985,7 +989,7 @@ impl SessionActor {
                             Item::Approval { subject, .. } => Some(subject.tool_call),
                             _ => None,
                         },
-                        head: None,
+                        head: body.head(),
                     },
                     None,
                 )
@@ -1293,12 +1297,16 @@ impl SessionActor {
             }
             _ => "cancelled".into(),
         };
+        let mut answerer = Answerer::Resolver(by.clone());
         if let Item::Approval {
-            decision: d, by: b, ..
+            decision: d, by: b, answered_by, ..
         } = &mut p.body
         {
             *d = Some(decision);
             *b = Some(by);
+            if let Some(client) = answered_by {
+                answerer = Answerer::Client(client.clone());
+            }
         }
         self.publish(
             Event::ItemCompleted {
@@ -1309,7 +1317,7 @@ impl SessionActor {
             cause,
         )
         .await?;
-        self.resolved.insert(item, ());
+        self.resolved.insert(item, answerer);
         let _ = p.reply.send(if allowed {
             Ok(Permit::approval(p.tool, p.generation))
         } else {
@@ -1916,6 +1924,7 @@ mod trial_launch_tests {
                 mode: TurnMode::Queue,
             },
             Op::ResolveApproval {
+                client: None,
                 approval: ItemId::new(),
                 decision: ApprovalDecision::AllowAlways,
             },

@@ -335,10 +335,12 @@ fn empty_body(kind: ItemKind, id: ItemId) -> Item {
             decision,
             by,
             options,
+            answered_by,
         } => {
             subject.summary = "Approval pending".into();
             *decision = None;
             *by = None;
+            *answered_by = None;
             // The ItemSnapshot supplies the actual subject and offered options.
             options.clear();
         }

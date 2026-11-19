@@ -316,6 +316,7 @@ fn state_reports_have_exact_transition_bytes() {
         },
         options: vec![ApprovalDecisionKind::Deny],
         decision: None,
+        answered_by: None,
         by: None,
     };
     assert_eq!(
@@ -650,6 +651,7 @@ async fn status_phases_report_immediately_and_agent_turns_keep_the_same_heartbea
             },
             options: vec![],
             decision: None,
+            answered_by: None,
             by: None,
         };
         let bytes = state
@@ -715,6 +717,7 @@ fn state_details_are_scrubbed_before_clipping_and_escape_encoding() {
             },
             options: vec![],
             decision: None,
+            answered_by: None,
             by: None,
         },
     });

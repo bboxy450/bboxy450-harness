@@ -2489,7 +2489,7 @@ impl HarnessView {
                     }),
                 };
                 self.notice = bridge
-                    .send(Op::AnswerQuestion { question, answer })
+                    .send(Op::AnswerQuestion { question, answer, client: None })
                     .err()
                     .map(|e| format!("Answer not admitted: {}", super::bridge::refusal_text(&e)));
             }
@@ -2554,7 +2554,7 @@ impl HarnessView {
                             });
                             self.composer.stored(&sent);
                             self.notice = bridge
-                                .send(Op::AnswerQuestion { question, answer })
+                                .send(Op::AnswerQuestion { question, answer, client: None })
                                 .err()
                                 .map(|e| {
                                     format!(
@@ -2707,7 +2707,7 @@ impl HarnessView {
                             self.invalidate();
                             return;
                         }
-                        Op::ResolveApproval { approval, decision }
+                        Op::ResolveApproval { approval, decision, client: None }
                     }
                     _ => unreachable!(),
                 };

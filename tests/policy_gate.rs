@@ -57,6 +57,7 @@ async fn first_resolution_wins_and_stale_is_rejected() {
     let first = support::op(
         &s.gateway,
         Op::ResolveApproval {
+            client: None,
             approval,
             decision: ApprovalDecision::Allow,
         },
@@ -65,13 +66,14 @@ async fn first_resolution_wins_and_stale_is_rejected() {
     let stale = support::op(
         &s.gateway,
         Op::ResolveApproval {
+            client: None,
             approval,
             decision: ApprovalDecision::AllowAlways,
         },
     );
     s.gateway.send(stale.clone()).unwrap();
     let events = support::end(&mut sub).await;
-    assert!(events.iter().any(|e|matches!(e.event,Event::OpRejected{op,reason:Rejection::AlreadyResolved} if op==stale.op_id)));
+    assert!(events.iter().any(|e|matches!(e.event,Event::OpRejected{op,reason:Rejection::AlreadyAnswered { .. }} if op==stale.op_id)));
     assert_eq!(
         std::fs::read_to_string(s.temp.path().join("input.txt")).unwrap(),
         "after\n"
@@ -181,6 +183,7 @@ async fn old_turn_approval_cannot_resolve_the_current_turn() {
     let stale = support::op(
         &s.gateway,
         Op::ResolveApproval {
+            client: None,
             approval: old,
             decision: ApprovalDecision::AllowAlways,
         },
@@ -198,7 +201,7 @@ async fn old_turn_approval_cannot_resolve_the_current_turn() {
         if let Event::OpRejected { op, reason } = e.event
             && op == stale.op_id
         {
-            assert!(matches!(reason, Rejection::AlreadyResolved));
+            assert!(matches!(reason, Rejection::AlreadyAnswered { .. }));
             break;
         }
     }
@@ -206,6 +209,7 @@ async fn old_turn_approval_cannot_resolve_the_current_turn() {
         .send(support::op(
             &s.gateway,
             Op::ResolveApproval {
+                client: None,
                 approval: current,
                 decision: ApprovalDecision::Deny { reason: None },
             },

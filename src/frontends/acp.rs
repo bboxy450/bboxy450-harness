@@ -648,6 +648,7 @@ impl Face {
                 let _ = self.send(
                     &session,
                     Op::ResolveApproval {
+                        client: None,
                         approval: permission.item,
                         decision,
                     },
@@ -704,6 +705,7 @@ impl Face {
         let _ = self.send(
             &session,
             Op::ResolveApproval {
+                client: None,
                 approval: permission.item,
                 decision,
             },

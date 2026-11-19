@@ -2045,6 +2045,7 @@ impl LineProjection {
             options,
             decision,
             by,
+            ..
         }) = self.items.get(&id).and_then(|e| e.body.clone())
         else {
             return String::new();

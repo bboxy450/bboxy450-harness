@@ -154,6 +154,8 @@ pub fn check_transcript(events: &[Envelope]) -> Result<(), LawViolation> {
                             (kind, head),
                             (ItemKind::ToolCall, Some(ItemHead::ToolCall { .. }))
                                 | (ItemKind::Terminal, Some(ItemHead::Terminal { .. }))
+                                | (ItemKind::Question, Some(ItemHead::Question { .. }))
+                                | (ItemKind::Approval, Some(ItemHead::Approval { .. }))
                         )
                         || (!matches!(kind, ItemKind::ToolCall | ItemKind::Terminal)
                             && head.is_none());
@@ -399,6 +401,7 @@ fn item_unknown(item: &Item) -> bool {
             options,
             decision,
             by,
+            ..
         } => {
             subject.effect.is_unknown()
                 || options.iter().any(ApprovalDecisionKind::is_unknown)

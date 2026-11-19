@@ -143,6 +143,7 @@ fn write_log(path: &Path, cwd: &Path, task: Option<&str>, turns: usize) -> Vec<u
                     },
                     options: vec![ApprovalDecisionKind::Deny],
                     decision: Some(ApprovalDecision::Deny { reason: None }),
+                    answered_by: None,
                     by: Some(Resolver::Unattended),
                 },
             },
