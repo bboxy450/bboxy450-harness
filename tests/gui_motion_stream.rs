@@ -454,22 +454,32 @@ async fn a_running_card_orbits_and_a_live_thought_sheens_until_they_finish() {
                 })
                 .unwrap()
         };
-        let dot = |frame: &Frame, k: usize| -> (f32, f32) {
-            let status = find(
-                frame.layout.as_ref().unwrap(),
-                &format!("tool/{tool}/status"),
-            )
-            .unwrap();
-            let mut ps = vec![];
-            paths(status, &mut ps);
-            let LayoutKind::Path { color, .. } = &ps[k].kind else {
-                unreachable!()
-            };
-            (ps[k].rect.y, color[3])
+        // d130544 and 4ff032c: the running status disc and the live thought's icon no longer
+        // bounce dots or spin; each pulses its opacity over BOUNCE_MS and carries an active rim.
+        let pulse = |frame: &Frame, key: &str| -> f32 {
+            filter_over(frame.layout.as_ref().unwrap(), key).unwrap_or(1.)
         };
+        let rimmed = |frame: &Frame, key: &str| -> bool {
+            let rect = find(frame.layout.as_ref().unwrap(), key).unwrap().rect;
+            frame.rims.iter().any(|s| {
+                s.rect == rect
+                    && matches!(
+                        s.material,
+                        bbt_render::chrome::materials::Material::Rim(r)
+                            if r.activity == bbt_render::chrome::materials::Activity::Active
+                    )
+            })
+        };
+        let status = format!("tool/{tool}/status");
+        let icon = format!("reasoning/{thought}/toggle/icon");
+        let expected = |phase: f32| 0.75 + 0.25 * (phase * std::f32::consts::TAU).cos();
         let head0 = first_arc(frame);
-        let (y0, a0) = dot(frame, 0);
-        assert!(near(a0, 0.5, 1e-3), "a dot rests at .5");
+        assert_eq!(pulse(frame, &status), 1., "the pulse starts at full ink");
+        assert!(rimmed(frame, &status), "the running disc wears a live rim");
+        assert!(
+            rimmed(frame, &icon),
+            "the live thought's icon wears a live rim"
+        );
         assert_eq!(
             view.anim.next_frame(),
             Some(0.),
@@ -487,33 +497,17 @@ async fn a_running_card_orbits_and_a_live_thought_sheens_until_they_finish() {
                 || (head0[1] - head1[1]).abs() > card.h * 0.5,
             "orbit moved: {head0:?} -> {head1:?} on {card:?}"
         );
-        // the first dot: phase .8 of its 1s bounce is rest; at 400ms it was up 3px at 1
-        let (y8, a8) = dot(frame, 0);
-        assert!(near(y8, y0, 1e-3) && near(a8, 0.5, 1e-3));
+        let a8 = pulse(frame, &status);
+        assert!(near(a8, expected(0.8), 1e-3), "pulse at phase .8: {a8}");
         view.anim.tick(1400.);
         let frame = view.render(&live, SIZE).unwrap();
-        let (y4, a4) = dot(frame, 0);
-        assert!(near(y4, y0 - 3., 1e-3), "dot up 3px at 40%: {y4} vs {y0}");
-        assert!(near(a4, 1., 1e-3));
-        // the think icon spins: its path differs from the settled glyph at this phase
-        let icon = find(
-            frame.layout.as_ref().unwrap(),
-            &format!("reasoning/{thought}/toggle/icon"),
-        )
-        .unwrap();
-        let mut ps = vec![];
-        paths(icon, &mut ps);
-        let spun = points(ps[0]);
-        let rest: Vec<[f32; 2]> =
-            bboxy450_harness::frontends::gui::face::icon_points("think", 14., 0.)
-                .iter()
-                .filter_map(|p| match p {
-                    bbt_ui_model::draw::PathCommand::Move(p)
-                    | bbt_ui_model::draw::PathCommand::Line(p) => Some(*p),
-                    _ => None,
-                })
-                .collect();
-        assert!(spun.iter().zip(&rest).any(|(a, b)| !near(a[0], b[0], 1e-3)));
+        let a4 = pulse(frame, &status);
+        assert!(near(a4, expected(0.4), 1e-3), "pulse at phase .4: {a4}");
+        let i4 = pulse(frame, &icon);
+        assert!(
+            near(i4, a4, 1e-3),
+            "the thought shares the tool pulse: {i4}"
+        );
         // both finish: no arcs, no sheen, no frame
         for id in [tool, thought] {
             let row = model.items.get_mut(&id).unwrap();
@@ -526,6 +520,8 @@ async fn a_running_card_orbits_and_a_live_thought_sheens_until_they_finish() {
         let frame = view.render(&done, SIZE).unwrap();
         assert_eq!(orbit_prims(frame), 0);
         assert_eq!(sheen_groups(frame), 0);
+        assert!(!rimmed(frame, &status), "a finished disc drops its rim");
+        assert_eq!(pulse(frame, &status), 1., "and its pulse");
         // the finished rows change height (status disc, "Thought for" label): that is the
         // 200ms height tween's frame, not a loop's. Past it, nothing asks for a frame.
         view.anim.tick(1750.);

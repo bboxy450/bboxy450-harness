@@ -348,7 +348,15 @@ async fn agent_turn_fixture_renders_in_the_rich_face_without_a_user_bubble() {
         .unwrap();
         let layout = frame.layout.as_ref().unwrap();
         let text = layout_text(layout);
-        for expected in ["agent continued", "woke", "Wake tool", "done", "Quiet"] {
+        // 0c5b221: an execute card's head is "Run command <command>", not the tool's name
+        for expected in [
+            "agent continued",
+            "woke",
+            "Run command",
+            "echo WOKE",
+            "done",
+            "Quiet",
+        ] {
             assert!(text.contains(expected), "missing {expected}: {text}");
         }
         let agent = state

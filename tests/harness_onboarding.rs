@@ -300,7 +300,6 @@ async fn onboarding_native_setup_cards_and_markdown_raster() {
             for width in [320u32, 800] {
                 let mut view = bboxy450_harness::frontends::gui::view::HarnessView::default();
                 view.set_theme(theme);
-                view.scroll.anchor(123., 1000.);
                 let base: bboxy450_harness::protocol::Envelope = serde_json::from_str(
                     include_str!("fixtures/protocol/all-items.jsonl")
                         .lines()
@@ -405,6 +404,14 @@ async fn onboarding_native_setup_cards_and_markdown_raster() {
                         _ => None,
                     })
                     .unwrap();
+                // fd11c3d: a session's first frame snaps the conversation to its tail, so a
+                // scroll set before that frame is discarded; set it while the conversation shows.
+                view.activate(Action::Setup(false), &bridge);
+                view.render(&state, [width as f32, 1000.]).unwrap();
+                assert!(view.scroll.following(), "the first frame followed the tail");
+                view.scroll.anchor(123., 1000.);
+                view.activate(Action::Setup(true), &bridge);
+                view.render(&state, [width as f32, 1000.]).unwrap();
                 view.activate(details.clone(), &bridge);
                 let expanded = view.render(&state, [width as f32, 1000.]).unwrap();
                 let text = layout_text(expanded.layout.as_ref().unwrap());

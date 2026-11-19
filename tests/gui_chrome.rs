@@ -304,15 +304,21 @@ async fn reflow_keeps_the_anchored_row() {
 
 /// The pill: `110%` centred 12 px under the feed's top, shown for 900 ms then gone; a
 /// settled clock paints the end states.
-#[test]
-fn zoom_pill_shows_the_percent_then_fades() {
+#[tokio::test]
+async fn zoom_pill_shows_the_percent_then_fades() {
     let bridge = Bridge::new(Arc::new(Wake));
-    let state = FrameState {
-        transcript: Arc::new(transcript(&[message(ItemId::new(), "A reply.")])),
+    let model = Arc::new(transcript(&[message(ItemId::new(), "A reply.")]));
+    let mut state = FrameState {
+        transcript: model.clone(),
         ready: true,
         replay: true,
         ..Default::default()
     };
+    // a832bd6: an unprepared feed shows the session loader, whose halo breathes on a loop
+    // and keeps the clock awake; prepare the reply so only the pill moves.
+    state.prepared = Some(Arc::new(
+        prepare(&mut Preparer::default(), model, SIZE[0]).await,
+    ));
     let mut view = HarnessView::default();
     view.anim = Clock::live(false);
     view.anim.tick(0.);

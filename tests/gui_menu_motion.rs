@@ -17,7 +17,7 @@ use bboxy450_harness::{
         bridge::{Bridge, FrameState, ProfileInfo},
         face,
         model::{Transcript, ViewItem},
-        view::{Action, Frame, HarnessView, MenuKey, Preparer, context},
+        view::{Action, Frame, HarnessView, MenuKey, Preparer, context, find},
     },
     protocol::*,
 };
@@ -421,11 +421,17 @@ async fn profile_switcher_drops_in_slides_its_selection_and_fades_out() {
     let mut flat = HarnessView::default();
     flat.render(&state, SIZE).unwrap();
     flat.toggle_profile_menu();
-    let (_, end) = overlay(flat.render(&state, SIZE).unwrap());
+    let frame = flat.render(&state, SIZE).unwrap();
+    // 4ff032c: the switcher hangs 6 px under the header's profile chip, not at a fixed 40
+    let chip = find(frame.layout.as_ref().unwrap(), "profile")
+        .expect("profile chip")
+        .rect;
+    let (_, end) = overlay(frame);
     let end_ring = settled(&end, 10.);
+    let top = chip.y + chip.h + 6.;
     assert!(
-        (40. ..=41.).contains(&end_ring.y),
-        "top 40, left 10: {end_ring:?}"
+        (top..=top + 1.).contains(&end_ring.y),
+        "top {top} (6 under the chip), left 10: {end_ring:?}"
     );
     let centre = [end_ring.x + end_ring.w / 2., end_ring.y + end_ring.h / 2.];
     let (group, prims) = overlay(at(&mut view, &state, 500.));

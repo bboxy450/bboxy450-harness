@@ -982,9 +982,10 @@ async fn terminal_body_has_no_command_or_exit_line_and_keeps_its_padding() {
             first.y,
             out.rect.y
         );
+        // 2889518: code panels keep 6 px top and bottom
         assert!(
-            (out.rect.bottom() - last.bottom() - 10.).abs() < 0.5,
-            "10 px under the last line: {} above {}",
+            (out.rect.bottom() - last.bottom() - 6.).abs() < 0.5,
+            "6 px under the last line: {} above {}",
             last.bottom(),
             out.rect.bottom()
         );
@@ -1398,10 +1399,55 @@ async fn v1_additions_have_quiet_notices_and_no_native_rows() {
         "Hook fixture-hook",
         "Developer instructions",
         "Audio:",
-        "Read reference",
-        "fixture-mcp",
     ] {
         assert!(text.contains(label), "missing {label}: {text}");
+    }
+    // d130544: a tool card's title · server caption is drawn only while the card is open;
+    // the finished read folds, so its caption shows once the card is opened.
+    assert!(
+        !text.contains("Read reference") && !text.contains("fixture-mcp"),
+        "a folded card hides its caption: {text}"
+    );
+    let read = state
+        .transcript
+        .items
+        .values()
+        .find(|r| matches!(&r.body, Item::ToolCall { title: Some(t), .. } if t == "Read reference"))
+        .expect("the fixture's read call")
+        .id;
+    let mut faces = bboxy450_harness::frontends::gui::rich::Faces::default();
+    faces.insert(
+        read,
+        bboxy450_harness::frontends::gui::rich::Face {
+            output_closed: true,
+            ..Default::default()
+        },
+    );
+    let faces = Arc::new(faces);
+    let mut open = FrameState {
+        transcript: state.transcript.clone(),
+        faces: faces.clone(),
+        ..state.clone()
+    };
+    let source = open.transcript.clone();
+    open.prepared = Some(Arc::new(
+        bboxy450_harness::runtime::blocking(move || {
+            Preparer::default().prepare_with_faces(source, 1120., &faces)
+        })
+        .await
+        .unwrap(),
+    ));
+    let mut opened = HarnessView::default();
+    let shown = bboxy450_harness::frontends::gui::view::layout_text(
+        opened
+            .render(&open, [1120., 14000.])
+            .unwrap()
+            .layout
+            .as_ref()
+            .unwrap(),
+    );
+    for label in ["Read reference", "fixture-mcp"] {
+        assert!(shown.contains(label), "missing {label}: {shown}");
     }
     assert!(!text.contains("opaque fixture"));
     assert!(!text.contains("unmapped") && !text.contains("NATIVE_GAP"));
@@ -1439,7 +1485,7 @@ fn hand_run(id: ItemId, lines: usize) -> bboxy450_harness::frontends::gui::model
 
 /// harness-spec.md "Tight transcript": the head carries no `auto` badge and no duration under
 /// 1s and pads 6/10; a finished, successful command folds unless its output is 6 lines or
-/// fewer, while a failed one stays open; the feed gap is 8.
+/// fewer, while a failed one stays open; the feed gap is 6.
 #[tokio::test]
 async fn tight_tool_heads_fold_rule_and_feed_gap() {
     use bboxy450_harness::frontends::gui::view::{find, layout_text};
@@ -1499,12 +1545,12 @@ async fn tight_tool_heads_fold_rule_and_feed_gap() {
         find(layout, &format!("term/{failed}")).is_some_and(|n| n.rect.h > 0.),
         "failed: open"
     );
-    // feed gap 8 between rows (4 + 4 around the row bodies)
+    // d130544: the compact feed gap is 6 between rows (3 + 3 around the row bodies)
     let a = find(layout, &format!("body/{short}")).unwrap().rect;
     let b = find(layout, &format!("body/{long}")).unwrap().rect;
     assert!(
-        (b.y - a.bottom() - 8.).abs() < 0.01,
-        "feed gap 8: {}",
+        (b.y - a.bottom() - 6.).abs() < 0.01,
+        "feed gap 6: {}",
         b.y - a.bottom()
     );
 }
@@ -2017,8 +2063,13 @@ fn gui_polish_loader_is_centered_and_pending_bubbles_are_scoped() {
                 let loader = find(layout, "session-loader").unwrap().rect;
                 let mark = find(layout, "session-loader/mark")
                     .expect("welcome portrait above loading label");
-                let label = find(layout, "session-loader/label").unwrap();
-                assert_eq!(layout_text(label), "Loading…");
+                // 20e52d0: "Loading…" became a checklist of steps under the mark
+                let label = find(layout, "session-loader/steps").expect("the loader's steps");
+                let steps = layout_text(label);
+                assert!(
+                    steps.starts_with("Connect") && steps.contains("History"),
+                    "{steps}"
+                );
                 assert!(
                     matches!(&mark.children[0].kind, bbt_ui::components::LayoutKind::Image { asset, .. } if asset == bboxy450_harness::frontends::gui::assets::MARK)
                 );
