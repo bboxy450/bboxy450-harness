@@ -131,6 +131,24 @@ async fn serve(stream: UnixStream, manager: Manager, name: String, cancel: Cance
         let writer = writer.clone();
         let capture = capture.clone();
         tasks.spawn(async move {
+            let method=request["method"].as_str().unwrap_or("").to_owned();
+            // Clients ask every server for its optional catalogues at startup.
+            // This relay serves tools only: the others are empty, and an unknown
+            // method is JSON-RPC "method not found". Neither is a relay failure.
+            let optional=match method.as_str() {
+                "prompts/list"=>Some(json!({"prompts":[]})),
+                "resources/list"=>Some(json!({"resources":[]})),
+                "resources/templates/list"=>Some(json!({"resourceTemplates":[]})),
+                _=>None,
+            };
+            if let Some(result)=optional {
+                if let Ok(mut bytes)=serde_json::to_vec(&json!({"jsonrpc":"2.0","id":id,"result":result})) {bytes.push(b'\n');let _=writer.lock().await.write_all(&bytes).await;}
+                return;
+            }
+            if !matches!(method.as_str(),"initialize"|"ping"|"tools/list"|"tools/call") {
+                if let Ok(mut bytes)=serde_json::to_vec(&json!({"jsonrpc":"2.0","id":id,"error":{"code":-32601,"message":"Method not found"}})) {bytes.push(b'\n');let _=writer.lock().await.write_all(&bytes).await;}
+                return;
+            }
             let result=match request["method"].as_str() {
                 Some("initialize")=>Ok(json!({"protocolVersion":request["params"]["protocolVersion"].as_str().unwrap_or("2025-11-25"),"capabilities":{"tools":{"listChanged":true}},"serverInfo":{"name":name,"version":env!("CARGO_PKG_VERSION")}})),
                 Some("ping")=>Ok(json!({})),
@@ -161,7 +179,10 @@ async fn serve(stream: UnixStream, manager: Manager, name: String, cancel: Cance
                 _=>Err(json!({"code":"method_not_found","message":"unsupported MCP relay method"})),
             };
             let reply=match result {Ok(value)=>json!({"jsonrpc":"2.0","id":id,"result":value}),Err(error)=>{
-                notice(&manager.notices,&cancel,Level::Warn,format!("mcp {name}: relay unavailable or request deadline exceeded")).await;
+                // Say what failed: the method and the manager's own code and message.
+                let code=error["code"].as_str().unwrap_or("relay_error");
+                let message=error["message"].as_str().unwrap_or("request failed");
+                notice(&manager.notices,&cancel,Level::Warn,format!("mcp {name}: {method} failed: {code}: {message}")).await;
                 json!({"jsonrpc":"2.0","id":id,"error":{"code":-32000,"message":"MCP relay request failed","data":error}})
             }};
             if let Ok(mut bytes)=serde_json::to_vec(&reply) {bytes.push(b'\n');let _=writer.lock().await.write_all(&bytes).await;}
@@ -327,6 +348,84 @@ for line in sys.stdin:
         assert_eq!(
             std::fs::read_to_string(dir.path().join("calls")).unwrap(),
             "echo\n"
+        );
+        drop(write);
+        drop(reader);
+        services.cancel_and_join().await.unwrap();
+    }
+
+    // Clients list prompts and resources at startup; the relay serves tools only.
+    // Those answers are empty lists and an unknown method is -32601, with no
+    // warning: three false "relay unavailable" notices appeared on every agent start.
+    #[tokio::test]
+    async fn optional_catalogues_and_unknown_methods_raise_no_relay_warning() {
+        let dir = tempfile::tempdir().unwrap();
+        let fixture = dir.path().join("server.py");
+        std::fs::write(&fixture, SERVER).unwrap();
+        let config = ServerConfig {
+            command: "python3".into(),
+            args: vec!["-u".into(), fixture.to_string_lossy().into()],
+            env: BTreeMap::new(),
+            timeout_s: 2,
+            trust_hints: false,
+        };
+        let (notices, mut output) = mpsc::channel(256);
+        let mut services = TaskGroup::new(CancellationToken::new());
+        let manager = Manager::start_in(
+            [(
+                "probe".into(),
+                SpawnConfig {
+                    config,
+                    origin: Origin::Profile,
+                },
+            )]
+            .into(),
+            Set::default(),
+            notices,
+            &mut services,
+            Some(dir.path().into()),
+        );
+        tokio::time::timeout(Duration::from_secs(8), async {
+            while manager.slots[0].ready.load().is_none() {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("initial fixture startup");
+        while output.try_recv().is_ok() {}
+        let relay = Relay::shared(manager.clone(), &mut services).await.unwrap();
+        let stream = UnixStream::connect(relay.directory.join("0"))
+            .await
+            .unwrap();
+        let (read_half, mut write) = stream.into_split();
+        let mut reader = BufReader::new(read_half);
+        request(&mut write, 1, "initialize").await;
+        assert!(reply(&mut reader, 1).await["error"].is_null());
+        for (id, method, key) in [
+            (2, "prompts/list", "prompts"),
+            (3, "resources/list", "resources"),
+            (4, "resources/templates/list", "resourceTemplates"),
+        ] {
+            request(&mut write, id, method).await;
+            let answer = reply(&mut reader, id).await;
+            assert_eq!(answer["result"][key], json!([]), "{method}: {answer}");
+        }
+        request(&mut write, 5, "completion/complete").await;
+        assert_eq!(reply(&mut reader, 5).await["error"]["code"], -32601);
+        request(&mut write, 6, "tools/list").await;
+        assert!(reply(&mut reader, 6).await["error"].is_null());
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let mut warned = vec![];
+        while let Ok(notice) = output.try_recv() {
+            if let crate::engine::Internal::ServiceNotice { text, .. } = notice {
+                warned.push(text);
+            }
+        }
+        assert!(
+            !warned
+                .iter()
+                .any(|n| n.contains("failed") || n.contains("relay")),
+            "no relay warning for optional methods: {warned:?}"
         );
         drop(write);
         drop(reader);
