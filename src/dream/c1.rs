@@ -6008,7 +6008,8 @@ mod tests {
         ready
             .recv_timeout(Duration::from_millis(250))
             .expect("test owner did not enter");
-        let until = Instant::now() + Duration::from_millis(100);
+        // Guard against a hung test, without imposing a scheduler latency bound.
+        let until = Instant::now() + Duration::from_secs(10);
         loop {
             if let Some(p) = lane.pop()
                 && p.phase == w::Phase::Paused
