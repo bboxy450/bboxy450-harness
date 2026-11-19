@@ -768,3 +768,90 @@ fn a_live_turn_shows_how_long_it_has_been_quiet() {
     assert_eq!(quiet_for(t - 42_000, t).as_deref(), Some("quiet 42s"));
     assert_eq!(quiet_for(t - 300_000, t).as_deref(), Some("quiet 5m"));
 }
+
+// Six panes in one process, as the window holds them: real Unix sockets,
+// streaming sessions, constant resizes, and detach/re-attach cycles (seat
+// switches). A pane must never stop at a turn its session finished.
+#[cfg(feature = "embedded")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn many_panes_under_resize_and_reattach_see_every_turn_end() {
+    use bboxy450_harness::gateway::unix::UnixServer;
+    const PANES: usize = 6;
+    const TURNS: usize = 12;
+    bbt_rt::register_ui_thread();
+    let own = tempfile::tempdir_in("/tmp").unwrap();
+    let mut sessions = vec![];
+    let mut servers = vec![];
+    let mut bridges = vec![];
+    for _ in 0..PANES {
+        let mut provider = bboxy450_harness::provider::ScriptedProvider::new(
+            (0..TURNS).map(|_| support::sse("text")).collect(),
+        );
+        provider.delay = Duration::from_millis(2);
+        let s = support::with_provider(Arc::new(provider), true).await;
+        let socket = own.path().join(format!("{}.sock", s.gateway.session()));
+        servers.push(
+            UnixServer::bind(socket.clone(), s.gateway.clone())
+                .await
+                .unwrap(),
+        );
+        let mut bridge = Bridge::new(Arc::new(Wake::default()));
+        bridge.connect(socket.clone(), None);
+        wait(&mut bridge, |b| b.state.ready).await;
+        for n in 0..TURNS {
+            bridge
+                .send(Op::UserTurn {
+                    blocks: vec![InputBlock::Text {
+                        text: format!("turn {n}"),
+                    }],
+                    mode: TurnMode::Queue,
+                })
+                .unwrap();
+        }
+        bridges.push((bridge, socket));
+        sessions.push(s);
+    }
+    let ended = |b: &Bridge| {
+        b.state
+            .transcript
+            .turns
+            .values()
+            .filter(|t| matches!(t, TurnState::Ended { .. }))
+            .count()
+    };
+    let started = std::time::Instant::now();
+    let mut pass = 0usize;
+    loop {
+        pass += 1;
+        for (i, (bridge, socket)) in bridges.iter_mut().enumerate() {
+            bridge.set_width(600.0 + (pass % 2) as f32);
+            bridge.drain(Duration::from_micros(300));
+            if pass % 40 == i * 6 % 40 {
+                let retained = bridge.retained();
+                let _ = bridge.detach();
+                let mut next = Bridge::new(Arc::new(Wake::default()));
+                next.reattach(socket.clone(), retained);
+                *bridge = next;
+            }
+        }
+        if bridges.iter().all(|(b, _)| ended(b) >= TURNS) {
+            break;
+        }
+        if started.elapsed() > Duration::from_secs(40) {
+            let state: Vec<_> = bridges
+                .iter()
+                .map(|(b, _)| (ended(b), b.state.transcript.cursor.0))
+                .collect();
+            panic!(
+                "a pane stopped short of its finished turns: (ended, cursor) per pane {state:?}"
+            );
+        }
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
+    for s in sessions {
+        support::close(s).await;
+    }
+    for server in servers {
+        server.close().await.unwrap();
+    }
+}
