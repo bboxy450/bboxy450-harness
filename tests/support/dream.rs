@@ -746,6 +746,8 @@ pub async fn process_poll_modes() {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join(".bboxy/runs")
         .join(format!("dream-wp7-poll-modes-{}.json", ulid::Ulid::new()));
+    // .bboxy/ is local state: absent in a fresh or submodule checkout.
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     use std::io::Write;
     let mut file = std::fs::OpenOptions::new()
         .write(true)

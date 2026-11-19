@@ -2619,6 +2619,8 @@ async fn trial_d0_twelve_log_replay_keeps_pins_cache_bytes_and_source_identity()
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join(".bboxy/runs")
         .join(format!("dream-wp7-d0-twelve-{}.json", ulid::Ulid::new()));
+    // .bboxy/ is local state: absent in a fresh or submodule checkout.
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     use std::io::Write;
     let mut file = std::fs::OpenOptions::new()
         .write(true)

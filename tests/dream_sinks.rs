@@ -679,6 +679,8 @@ fn lower_independent_syscall_digest_observer_rejects_clobber_aba_unsynced_and_wr
                 "dream-wp8-observer-{fault}-{}.json",
                 ulid::Ulid::new()
             ));
+        // .bboxy/ is local state: absent in a fresh or submodule checkout.
+        std::fs::create_dir_all(run.parent().unwrap()).unwrap();
         std::fs::write(run, serde_json::to_vec_pretty(&observation).unwrap()).unwrap();
         assert_eq!(
             observed_effects_match(&raw, &body),
