@@ -1324,7 +1324,8 @@ def write(key, value):
     "scratch": store["scratch"],
     "default": store.get("absent", 7),
     "missing": raised(KeyError, lambda: store["absent"]),
-    "bad_key": raised(ValueError, lambda: store.path("../escape")),
+    "path_key": os.path.dirname(store.path("../escape")) == os.path.dirname(store.path("rows")),
+    "bad_key": raised(ValueError, lambda: store.path("x" * 129)),
     "not_json": raised(TypeError, lambda: write("odd", {1, 2})),
     "too_large": raised(ValueError, lambda: write("big", "x" * (64 * 1024 * 1024))),
     "after_refusals": store.keys(),
@@ -1346,8 +1347,12 @@ def write(key, value):
         out["bad_key"]
             .as_str()
             .unwrap()
-            .contains("[A-Za-z0-9_.-]{1,64}"),
+            .contains("1 to 128 characters"),
         "{out}"
+    );
+    assert_eq!(
+        out["path_key"], true,
+        "a path-like key stays inside the store: {out}"
     );
     assert!(out["not_json"].as_str().unwrap().contains("set"), "{out}");
     let too_large = out["too_large"].as_str().unwrap();
@@ -1626,5 +1631,53 @@ missing = raised(lambda: den.check("specs"))
         value["calls"], 6,
         "each ran through the command path: {value}"
     );
+    rig.close().await;
+}
+
+// The failures agents hit most in real sessions (2026-11-18 logs), each the
+// runtime contradicting its own description: `tools.search` without `await`
+// returned a coroutine; `store` refused path keys and had no setdefault;
+// `commands.run` results had no `.code`/`.out`; a `bboxy.*` result could not be
+// passed to `asyncio.gather`; `fs` had no `read`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_runtime_reads_the_way_its_description_says() {
+    let rig = Rig::start().await;
+    let value = rig
+        .run(
+            r#"
+import asyncio
+found = tools.search('echo', limit=2)
+listed = tools.a.tools()
+described = tools.a.describe('echo')
+servers = tools.servers()
+store["specs/cloud-atc"] = {"rev": 1}
+store.setdefault("tasks/harmony-1", [])
+store.update({"plain": 2})
+popped = store.pop("plain")
+run = await commands.run(["/bin/sh", "-c", "echo hi; exit 3"])
+gathered = await asyncio.gather(tools.a.echo(op_id=1), tools.a.echo(op_id=2))
+fs.write("note.txt", "body")
+{"found": [[t.server, t.name] for t in found], "awaited": [t.name for t in await tools.search('echo', limit=1)],
+ "listed": len(listed) > 0, "described": described.signature.startswith("echo("),
+ "servers": len(servers) > 0,
+ "keys": store.keys(), "items": dict(store.items())["specs/cloud-atc"], "popped": popped,
+ "run": [run.code, run.ok, run.out, run.err],
+ "gathered": [g.arguments.op_id for g in gathered], "read": fs.read("note.txt")}
+"#,
+        )
+        .await;
+    assert_eq!(value["status"], "completed", "{value}");
+    let out = &value["emitted"][0];
+    assert_eq!(out["found"], json!([["a", "echo"], ["z", "echo"]]), "{out}");
+    assert_eq!(out["awaited"], json!(["echo"]));
+    assert_eq!(out["listed"], true);
+    assert_eq!(out["described"], true);
+    assert_eq!(out["servers"], true);
+    assert_eq!(out["keys"], json!(["specs/cloud-atc", "tasks/harmony-1"]));
+    assert_eq!(out["items"], json!({"rev": 1}));
+    assert_eq!(out["popped"], 2);
+    assert_eq!(out["run"], json!([3, false, "hi\n", ""]));
+    assert_eq!(out["gathered"], json!([1, 2]));
+    assert_eq!(out["read"], "body");
     rig.close().await;
 }

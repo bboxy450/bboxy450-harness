@@ -202,14 +202,15 @@ impl Service {
                     // `store.clear()`: nothing this run wrote remains.
                     None => record.stored.clear(),
                     Some(key) => {
-                        if !(1..=64).contains(&key.len())
-                            || !key
-                                .bytes()
-                                .all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
+                        // The worker's rule (`Store.path`): any 1..=128 characters;
+                        // the file name is percent-encoded there, so a path key
+                        // never leaves the store. This only lists what was written.
+                        if !(1..=128).contains(&key.chars().count())
+                            || key.chars().any(char::is_control)
                         {
                             return Err(fault(
                                 "invalid_arguments",
-                                "store key must match [A-Za-z0-9_.-]{1,64}",
+                                "store key must be 1 to 128 characters with no control characters",
                             ));
                         }
                         record.stored.retain(|stored| stored.key != key);

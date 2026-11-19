@@ -17,6 +17,7 @@ import shutil
 import socket
 import sys
 import tempfile
+import urllib.parse
 import traceback
 
 _launch = json.loads(sys.stdin.readline())
@@ -77,11 +78,13 @@ class _Ready:
 
 
 class Data(Object, _Ready):
-    pass
+    # asyncio.gather keys its arguments in a dict: a ready result passed to it
+    # must hash (by identity, as a coroutine does).
+    __hash__ = object.__hash__
 
 
 class Rows(list, _Ready):
-    pass
+    __hash__ = object.__hash__
 
 
 class Text(str, _Ready):
@@ -125,15 +128,16 @@ async def _rpc(method, arguments):
 class MCP:
     _catalogue = {}
 
-    async def servers(self):
-        return await _rpc("servers", {})
+    def servers(self):
+        """The MCP servers of this session. `await` is optional."""
+        return _ready(_rpc_sync("servers", {}))
 
-    async def _all(self, server):
+    def _all(self, server):
         """Every tool definition of one server, read once per run."""
         if server not in self._catalogue:
             found, cursor = [], None
             while True:
-                page = await self.tools(server, cursor)
+                page = self.tools(server, cursor)
                 found.extend(page["tools"])
                 cursor = page.get("next_cursor")
                 if not cursor:
@@ -141,26 +145,26 @@ class MCP:
             self._catalogue[server] = found
         return self._catalogue[server]
 
-    async def search(self, query, *, server=None, limit=8):
+    def search(self, query, *, server=None, limit=8):
         """Find tools by words in their name or description, best first.
 
         Each match is `{server, name, signature, description}`; call it as
         `await tools.<server>.<name>(...)`.
         """
         words = [word for word in query.lower().replace("_", " ").split() if word]
-        names = [server] if server else [item["name"] for item in await self.servers() if item.get("ready")]
+        names = [server] if server else [item["name"] for item in self.servers() if item.get("ready")]
         scored = []
         for name in names:
-            for tool in await self._all(name):
+            for tool in self._all(name):
                 title = tool["name"].lower().replace("_", " ")
                 text = f"{title} {tool.get('description', '').lower()}"
                 score = sum(3 * (word in title) + (word in text) for word in words)
                 if score:
                     scored.append((-score, name, tool["name"], tool))
         scored.sort(key=lambda row: row[:3])
-        return [Object({"server": name, "name": tool["name"], "signature": _signature(tool),
-                        "description": tool.get("description", "")})
-                for _, name, _, tool in scored[:limit]]
+        return Rows([Object({"server": name, "name": tool["name"], "signature": _signature(tool),
+                             "description": tool.get("description", "")})
+                     for _, name, _, tool in scored[:limit]])
 
     def __getattr__(self, server):
         """`tools.<server>` is that server's tools as functions."""
@@ -168,8 +172,9 @@ class MCP:
             raise AttributeError(server)
         return Server(server)
 
-    async def tools(self, server, cursor=None):
-        return await _rpc("tools", {"server": server, "cursor": cursor})
+    def tools(self, server, cursor=None):
+        """One page of a server's tool definitions. `await` is optional."""
+        return _ready(_rpc_sync("tools", {"server": server, "cursor": cursor}))
 
     async def call(self, server, tool, arguments, op_id=None, *, timeout_ms=None):
         return await asyncio.to_thread(self._call_sync, server, tool, arguments, op_id, timeout_ms)
@@ -222,19 +227,19 @@ class Server:
     def __repr__(self):
         return f"<mcp server {self._name}: await {self._name}.tools() lists its functions>"
 
-    async def tools(self):
-        """Every tool of this server as `{name, signature, description}`."""
-        return [Object({"name": tool["name"], "signature": _signature(tool),
-                        "description": tool.get("description", "")})
-                for tool in await mcp._all(self._name)]
+    def tools(self):
+        """Every tool of this server as `{name, signature, description}`. `await` is optional."""
+        return Rows([Object({"name": tool["name"], "signature": _signature(tool),
+                             "description": tool.get("description", "")})
+                     for tool in mcp._all(self._name)])
 
-    async def describe(self, tool):
-        """One tool's signature, description and exact input schema."""
-        for found in await mcp._all(self._name):
+    def describe(self, tool):
+        """One tool's signature, description and exact input schema. `await` is optional."""
+        for found in mcp._all(self._name):
             if found["name"] == tool:
-                return Object({"server": self._name, "name": tool, "signature": _signature(found),
-                               "description": found.get("description", ""),
-                               "input_schema": found.get("inputSchema")})
+                return Data({"server": self._name, "name": tool, "signature": _signature(found),
+                             "description": found.get("description", ""),
+                             "input_schema": found.get("inputSchema")})
         raise AttributeError(f"{self._name} has no tool {tool!r}; await {self._name}.tools() lists them")
 
     def __getattr__(self, tool):
@@ -289,6 +294,23 @@ class MCPResult(Object):
 
 
 class CommandResult(Object):
+    """What `commands.run` returns; reads like `sh`: `.code`, `.ok`, `.out`, `.err`."""
+    @property
+    def code(self):
+        return self["exit_code"]
+
+    @property
+    def ok(self):
+        return self["exit_code"] == 0
+
+    @property
+    def out(self):
+        return base64.b64decode(self["stdout_base64"]).decode(errors="replace")
+
+    @property
+    def err(self):
+        return base64.b64decode(self["stderr_base64"]).decode(errors="replace")
+
     @property
     def stdout_bytes(self):
         return base64.b64decode(self["stdout_base64"])
@@ -387,6 +409,15 @@ def sh(command, *, check=False, input=None, cwd=None, timeout_ms=None):
 
 class Files:
     """Small file helpers for the edits scripts do most."""
+    def read(self, path):
+        """A text file's contents."""
+        return Text(open(path, encoding="utf-8", errors="replace").read())
+
+    def write(self, path, text):
+        """Write a text file whole; returns the characters written."""
+        with open(path, "w", encoding="utf-8") as output:
+            return output.write(text)
+
     def lines(self, path, start=1, end=None):
         """Numbered lines `start..end` of a text file, as one string."""
         rows = open(path, encoding="utf-8", errors="replace").read().splitlines()
@@ -424,7 +455,8 @@ class Store:
         store["rows"] = bboxy.task_list()["items"]        # one call
         [row.title for row in store["rows"] if row.open]  # a later call
 
-    Keys match [A-Za-z0-9_.-]{1,64}; a value is JSON of at most 64 MiB. A key is
+    A key is any string of 1 to 128 characters (a path such as "specs/a" is fine;
+    it is stored percent-encoded); a value is JSON of at most 64 MiB. A key is
     read from its file each time it is used. The run's result lists what it wrote.
     """
     _KEY = re.compile(r"[A-Za-z0-9_.-]{1,64}")
@@ -435,9 +467,11 @@ class Store:
 
     def path(self, key):
         """The file that holds `key`, to hand to a command."""
-        if not isinstance(key, str) or not self._KEY.fullmatch(key):
-            raise ValueError(f"store key must match [A-Za-z0-9_.-]{{1,64}}, got {key!r}")
-        return os.path.join(self._directory, key + ".json")
+        if not isinstance(key, str) or not 1 <= len(key) <= 128 or any(c.isprintable() is False and c != " " for c in key):
+            raise ValueError(f"store key must be a string of 1 to 128 characters, got {key!r}")
+        # A plain key keeps its old file name; anything else is percent-encoded.
+        name = key if self._KEY.fullmatch(key) else urllib.parse.quote(key, safe="")
+        return os.path.join(self._directory, name + ".json")
 
     def __setitem__(self, key, value):
         path = self.path(key)
@@ -481,13 +515,38 @@ class Store:
             names = os.listdir(self._directory)
         except FileNotFoundError:
             return []
-        return sorted(name[:-5] for name in names if name.endswith(".json"))
+        return sorted(urllib.parse.unquote(name[:-5]) for name in names if name.endswith(".json"))
 
     def __iter__(self):
         return iter(self.keys())
 
     def __len__(self):
         return len(self.keys())
+
+    def setdefault(self, key, default=None):
+        if key not in self:
+            self[key] = default
+        return self[key]
+
+    def items(self):
+        return [(key, self[key]) for key in self.keys()]
+
+    def values(self):
+        return [self[key] for key in self.keys()]
+
+    def update(self, other=(), **values):
+        for key, value in dict(other, **values).items():
+            self[key] = value
+
+    def pop(self, key, *default):
+        try:
+            value = self[key]
+        except KeyError:
+            if default:
+                return default[0]
+            raise
+        del self[key]
+        return value
 
     def clear(self):
         for key in self.keys():
