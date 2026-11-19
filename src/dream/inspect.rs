@@ -31,7 +31,7 @@ pub struct Transcript {
 impl Transcript {
     /// One bounded owner entry for paced success/error settlement.
     pub(crate) fn drain_step(&mut self) -> bool {
-        if self.queued.pop_first().is_some()
+        self.queued.pop_first().is_some()
             || self.started.pop_first().is_some()
             || self.ended.pop_first().is_some()
             || self.open.pop_first().is_some()
@@ -39,10 +39,6 @@ impl Transcript {
             || self.calls.pop_first().is_some()
             || self.endings.pop().is_some()
             || self.open_turns.pop_first().is_some()
-        {
-            return true;
-        }
-        false
     }
     pub fn observe(&mut self, e: &Envelope) -> Result<(), laws::LawViolation> {
         let i = self.head as usize;

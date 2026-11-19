@@ -1039,10 +1039,7 @@ pub(crate) fn inspect_closed_budgeted(
             }
             return true;
         }
-        if clusters.pop_first().is_some() {
-            return true;
-        }
-        false
+        clusters.pop_first().is_some()
     });
     if result.is_ok() {
         result = cleanup;
