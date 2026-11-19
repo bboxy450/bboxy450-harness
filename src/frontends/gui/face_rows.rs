@@ -593,7 +593,11 @@ impl Preparer {
                     kids.push(
                         named(
                             format!("reasoning/{id}/body"),
-                            f::thought_body(doc.element.clone(), &ink),
+                            // `stream/{id}`: the chunk fade counts the thought's glyphs here too
+                            f::thought_body(
+                                named(format!("stream/{id}"), doc.element.clone()),
+                                &ink,
+                            ),
                         )
                         .into(),
                     );
