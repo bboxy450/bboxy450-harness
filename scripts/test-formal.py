@@ -13,8 +13,9 @@ import json
 from pathlib import Path
 import subprocess
 import tempfile
+import threading
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 spec=importlib.util.spec_from_file_location('formal',Path(__file__).with_name('formal.py'))
 formal=importlib.util.module_from_spec(spec)
 spec.loader.exec_module(formal)
@@ -139,5 +140,35 @@ checks=["make test-formal","make test"]
                 b=run.call_args.args[0][1]
                 self.assertTrue(a.startswith('-Djava.io.tmpdir='))
                 self.assertNotEqual(a,b)
+    def test_tlc_timeout_is_classified_and_retains_output(self):
+        with tempfile.TemporaryDirectory() as own:
+            root=Path(own)
+            timeout=subprocess.TimeoutExpired("java",300,output=b"partial output")
+            with patch.object(formal.subprocess,"run",side_effect=timeout) as run:
+                with self.assertRaises(formal.TlcTimeout):
+                    formal.tlc(Path("/java"),Path("/tlc.jar"),root,"Slow",True)
+                self.assertEqual(run.call_args.kwargs["timeout"],300)
+                self.assertEqual((root/"SlowGraph.log").read_bytes(),b"partial output")
+    def test_pooled_timeout_retries_serially_in_manifest_order(self):
+        rows=[["Slow"],["Fast"]]
+        caller=threading.current_thread()
+        calls=[]
+        def check_row(row):
+            pooled=threading.current_thread() is not caller
+            calls.append((row[0],pooled))
+            if pooled and row[0]=="Slow":
+                raise formal.TlcTimeout("shared load")
+            return {"name":row[0]}
+        with patch("builtins.print"):
+            self.assertEqual(formal.check_models(rows,check_row),[{"name":"Slow"},{"name":"Fast"}])
+        self.assertCountEqual(calls[:-1],[("Slow",True),("Fast",True)])
+        self.assertEqual(calls[-1],("Slow",False))
+    def test_serial_timeout_and_parallel_mismatch_fail(self):
+        for error, calls in ((formal.TlcTimeout("hang"),2),(ValueError("mismatch"),1)):
+            check_row=Mock(side_effect=error)
+            with self.subTest(error=error), patch("builtins.print"):
+                with self.assertRaisesRegex(type(error), str(error)):
+                    formal.check_models([["One"]],check_row)
+                self.assertEqual(check_row.call_count,calls)
     def test_source_snapshots(self):formal.source_pins()
 if __name__=='__main__':unittest.main()

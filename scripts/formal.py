@@ -232,6 +232,10 @@ def native_graph(root, name):
     return states, edges
 
 
+class TlcTimeout(ValueError):
+    """A TLC invocation exceeded its wall-clock limit."""
+
+
 def tlc(java, jar, root, name, graph):
     suffix = "Graph" if graph else ""
     # TLC unpacks standard modules into java.io.tmpdir. Each invocation owns
@@ -244,12 +248,15 @@ def tlc(java, jar, root, name, graph):
     if graph:
         command += ["-dump", "dot,actionlabels", f"{name}.dot"]
     command += [name]
+    # Hang guard on a shared machine; a timeout is still a failure, and an
+    # incomplete run never passes.
     try:
         result = subprocess.run(command, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                text=True, timeout=60)
+                                text=True, timeout=300)
     except subprocess.TimeoutExpired as error:
-        (root / f"{name}{suffix}.log").write_bytes(error.stdout or b"")
-        raise ValueError(f"TLC timed out: {name}; incomplete is not a pass") from error
+        output = error.stdout or b""
+        (root / f"{name}{suffix}.log").write_bytes(output if isinstance(output, bytes) else output.encode())
+        raise TlcTimeout(f"TLC timed out: {name}; incomplete is not a pass") from error
     (root / f"{name}{suffix}.log").write_text(result.stdout)
     return result
 
@@ -450,6 +457,29 @@ def archive_self_test():
     print("formal: archive self-test clone/fallback/hash-mismatch ok")
 
 
+# Adapted from bboxy450-term: https://github.com/bboxy450/bboxy450-term/blob/f31be0316dbd479ae0bef1a47accdc7920119fcc/scripts/formal.py
+def check_models(rows, check_row):
+    """Preserve manifest order and retry pooled timeouts after the pool closes."""
+    results = []
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        futures = [pool.submit(check_row, row) for row in rows]
+        try:
+            for future in futures:
+                try:
+                    results.append(future.result())
+                except TlcTimeout:
+                    results.append(None)
+        except BaseException:
+            pool.shutdown(wait=True, cancel_futures=True)
+            raise
+    for index, result in enumerate(results):
+        if result is None:
+            row = rows[index]
+            print(f"formal: {row[0]}: timed out in the pool; checking alone", flush=True)
+            results[index] = check_row(row)
+    return results
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--target", type=Path, required=True)
@@ -516,8 +546,7 @@ def main():
                                    "tla_sha256": hashlib.sha256((root / f"{name}.tla").read_bytes()).hexdigest()}
         print(f"formal: {name}: {actual}, {len(actual_states)} states, {len(actual_edges)} edges match", flush=True)
         return record
-    with ThreadPoolExecutor(max_workers=4) as pool:
-        evidence["models"] = list(pool.map(check_row, rows))
+    evidence["models"] = check_models(rows, check_row)
     (target / "evidence.json").write_text(json.dumps(evidence, indent=2) + '\n')
     archive = archive_evidence(target)
     print("formal: receipt " + json.dumps(evidence_receipt(archive, require_clean=False), sort_keys=True))
