@@ -913,7 +913,12 @@ async fn unavailable_slow_server_does_not_hang_delivery() {
     );
     let bytes =
         std::fs::read_to_string(f.config.sessions.join(format!("{}.jsonl", g.session()))).unwrap();
-    assert!(bytes.contains("relay unavailable or request deadline exceeded"));
+    // The notice names the server, the call and why it failed (0e63f05).
+    let notice = bytes
+        .lines()
+        .find(|l| l.contains("mcp slow: tools/call failed:"))
+        .unwrap_or_else(|| panic!("no failed-call notice for the slow server: {bytes}"));
+    assert!(notice.contains("deadline"), "{notice}");
     host.close_all().await;
 }
 
