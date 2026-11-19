@@ -715,7 +715,7 @@ impl Preparer {
                         let (fg, bg) = if on {
                             (ink.bg, ink.ask)
                         } else {
-                            (ink.fg, f::mix(ink.surface, ink.ask, 0.14))
+                            (ink.fg, f::mix(ink.ask, ink.surface, 0.14))
                         };
                         c::Element::Named {
                             name: key,
