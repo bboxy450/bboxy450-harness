@@ -190,6 +190,24 @@ def prompt(rid, text):
                 CANCELLED.append(True)
         chunk("agent_message_chunk", " (late update after cancel)")
         return "cancelled"
+    if SCENARIO == "silent":
+        # claude-agent-acp after an idle auto-compaction: the prompt is never
+        # answered and nothing more is sent, cancel included.
+        Path("agent-group.json").write_text(json.dumps({"leader": os.getpid(), "group": os.getpgrp()}))
+        while True:
+            m = read()
+            if m.get("method") == "session/cancel":
+                Path("cancel-seen").write_text("session/cancel")
+    if SCENARIO == "late-update":
+        # Claude's compaction: the call completes, then one more update for the
+        # same id carries its statistics.
+        update({"sessionUpdate": "tool_call", "toolCallId": "compact-1", "title": "Compact conversation",
+                "kind": "think", "status": "in_progress"})
+        update({"sessionUpdate": "tool_call_update", "toolCallId": "compact-1", "status": "completed"})
+        update({"sessionUpdate": "tool_call_update", "toolCallId": "compact-1",
+                "rawOutput": {"trigger": "idle", "preTokens": 353419, "postTokens": 14733, "durationMs": 65219}})
+        chunk("agent_message_chunk", "after compaction")
+        return "end_turn"
     if SCENARIO == "ignore-cancel":
         member = subprocess.Popen([sys.executable, "-I", "-c",
                                    "import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); "

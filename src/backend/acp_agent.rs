@@ -51,6 +51,20 @@ pub const CANCEL_GRACE: Duration = Duration::from_secs(5);
 /// ACP v1 has no unsolicited-turn end signal. Silence closes only an agent turn
 /// with no open tool or permission. Overrides are sampled once at actor load.
 pub const AGENT_TURN_QUIET: Duration = Duration::from_secs(30);
+/// A turn the operator started, silent this long with nothing open, has stalled.
+/// Codex never went 5 min silent with nothing open in 60 sessions of logs;
+/// claude-agent-acp hung for 12 h and 22 h (after an idle auto-compaction).
+pub const AGENT_STALL: Duration = Duration::from_secs(10 * 60);
+/// The same while a tool is open: the longest real call in those logs (a full
+/// test suite, a CI watch) ran 31 min; hung Terminal calls stayed open for hours.
+pub const AGENT_STALL_TOOL: Duration = Duration::from_secs(60 * 60);
+fn env_ms(name: &str, default: Duration) -> Duration {
+    std::env::var(name)
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .map(Duration::from_millis)
+        .unwrap_or(default)
+}
 fn agent_turn_quiet() -> Duration {
     std::env::var("BBOXY450_ACP_AGENT_TURN_QUIET_MS")
         .ok()
@@ -215,6 +229,10 @@ struct Running {
     permissions: BTreeMap<ItemId, Permission>,
     /// Open ACP form elicitations: the request id to answer and the item.
     questions: BTreeMap<ItemId, (Value, Item)>,
+    /// Tool call ids this turn already closed. A later update for one (Claude
+    /// sends compaction stats after its compaction call completed) must not
+    /// open a new card that nothing will ever close.
+    finished: std::collections::BTreeSet<String>,
 }
 
 pub struct AcpAgentActor {
@@ -241,6 +259,10 @@ pub struct AcpAgentActor {
     dream_owner: crate::dream::c1::DreamOwner,
     cancel_grace: Duration,
     agent_turn_quiet: Duration,
+    /// Silence after which an operator turn has stalled ([`AGENT_STALL`]).
+    stall: Duration,
+    /// The same while a tool call is open ([`AGENT_STALL_TOOL`]).
+    stall_tool: Duration,
     hide_idle: bool,
     launch_context: String,
     mcp_servers: Vec<Value>,
@@ -412,6 +434,8 @@ impl AcpAgentActor {
             dream_owner: launch.dream_owner,
             cancel_grace: cancel_grace(),
             agent_turn_quiet: agent_turn_quiet(),
+            stall: env_ms("BBOXY450_ACP_STALL_MS", AGENT_STALL),
+            stall_tool: env_ms("BBOXY450_ACP_STALL_TOOL_MS", AGENT_STALL_TOOL),
             hide_idle: std::env::var("BBOXY450_ACP_IDLE_CONTROL").as_deref() == Ok("hide"),
         };
         for text in notice
@@ -545,6 +569,7 @@ impl AcpAgentActor {
                 }
                 let cancel_at = self.running.as_ref().and_then(|r| r.cancel_at);
                 let quiet_at = self.running.as_ref().and_then(|r| r.quiet_at);
+                let stall_at = self.stall_at();
                 tokio::select! {biased;
                     Some(op) = self.control.recv() => { if self.op(op).await? { break; } }
                     Some(op) = self.work.recv() => { if self.op(op).await? { break; } }
@@ -556,6 +581,7 @@ impl AcpAgentActor {
                     Some(wire) = recv(&mut self.wire) => self.wire(wire).await?,
                     _ = sleep_until(cancel_at) => self.cancel_expired().await?,
                     _ = sleep_until(quiet_at) => self.quiet_expired().await?,
+                    _ = sleep_until(stall_at) => self.stall_expired().await?,
                     _ = tick.tick() => {
                         self.gateway.hub.flush_deltas();
                         self.expire_steering(Some(Instant::now())).await?;
@@ -994,6 +1020,7 @@ impl AcpAgentActor {
             plan: None,
             permissions: BTreeMap::new(),
             questions: BTreeMap::new(),
+            finished: Default::default(),
         });
         let non_text: Vec<Value> = blocks
             .iter()
@@ -1078,6 +1105,7 @@ impl AcpAgentActor {
             plan: None,
             permissions: BTreeMap::new(),
             questions: BTreeMap::new(),
+            finished: Default::default(),
         });
         self.publish(
             Event::Status {
@@ -1107,6 +1135,51 @@ impl AcpAgentActor {
             .min(u64::MAX as u128) as u64;
         self.end_turn(StopReason::Quiet { ms }, ItemStatus::Completed)
             .await
+    }
+    /// When the running operator turn counts as stalled: its prompt reached the
+    /// agent, nothing waits on the operator, no cancel is under way, and the
+    /// agent has sent nothing since `last_wire_at` for the stall window.
+    fn stall_at(&self) -> Option<Instant> {
+        let r = self.running.as_ref()?;
+        (r.prompt_sent
+            && r.quiet_at.is_none()
+            && r.cancel_at.is_none()
+            && r.permissions.is_empty()
+            && r.questions.is_empty())
+        .then(|| {
+            r.last_wire_at
+                + if r.tools.is_empty() {
+                    self.stall
+                } else {
+                    self.stall_tool
+                }
+        })
+    }
+    /// A stalled agent never answers its prompt, and every queued input waits
+    /// behind it: interrupt the turn (cancel, then kill if it does not stop) so
+    /// the seat moves on, and say why.
+    async fn stall_expired(&mut self) -> std::io::Result<()> {
+        let Some(at) = self.stall_at() else {
+            return Ok(());
+        };
+        if at > Instant::now() {
+            return Ok(());
+        }
+        let r = self.running.as_ref().expect("running turn");
+        let silent = r.last_wire_at.elapsed().as_secs() / 60;
+        let open: Vec<&str> = r.tools.values().map(|t| t.name.as_str()).collect();
+        let text = if open.is_empty() {
+            format!(
+                "The agent sent nothing for {silent} min; interrupting the turn so the seat can continue."
+            )
+        } else {
+            format!(
+                "The agent sent nothing for {silent} min while {} stayed open; interrupting the turn so the seat can continue.",
+                open.join(", ")
+            )
+        };
+        self.notice(Level::Warn, text).await?;
+        self.interrupt().await
     }
     async fn quiet_expired(&mut self) -> std::io::Result<()> {
         if self.agent_turn_ready() {
@@ -1631,11 +1704,12 @@ impl AcpAgentActor {
             Wire::Eof => self.agent_gone("ACP agent exited".into()).await,
             Wire::Bad(why) => self.agent_gone(format!("ACP agent sent {why}")).await,
             Wire::Message(m) => {
-                if let Some(r) = self.running.as_mut()
-                    && r.quiet_at.is_some()
-                {
+                if let Some(r) = self.running.as_mut() {
+                    // Any message from the agent is a sign of life for the stall watchdog.
                     r.last_wire_at = Instant::now();
-                    r.quiet_at = Some(r.last_wire_at + self.agent_turn_quiet);
+                    if r.quiet_at.is_some() {
+                        r.quiet_at = Some(r.last_wire_at + self.agent_turn_quiet);
+                    }
                 }
                 let method = m.get("method").and_then(Value::as_str).map(str::to_owned);
                 match (method, m.get("id").cloned()) {
@@ -2482,6 +2556,14 @@ impl AcpAgentActor {
                 self.chunk(thought, text).await
             }
             "tool_call" | "tool_call_update" => {
+                let call = u.get("toolCallId").and_then(Value::as_str).unwrap_or("");
+                if self.running.as_ref().is_some_and(|r| {
+                    !call.is_empty() && r.finished.contains(call) && !r.tools.contains_key(call)
+                }) {
+                    // A late update for a call this turn already closed: keep it
+                    // as a record, never reopen a card nothing will close.
+                    return self.native_update(&u).await;
+                }
                 self.flush_text().await?;
                 let item = self.tool_for(&u).await?;
                 self.publish(
@@ -2510,13 +2592,9 @@ impl AcpAgentActor {
                         self.settle_permission(i, None, Resolver::Cancelled, None)
                             .await?;
                     }
-                    let t = self
-                        .running
-                        .as_mut()
-                        .expect("running")
-                        .tools
-                        .remove(&id)
-                        .expect("tool");
+                    let r = self.running.as_mut().expect("running");
+                    r.finished.insert(id.clone());
+                    let t = r.tools.remove(&id).expect("tool");
                     let st = if status == "cancelled" || never_ran(&u) {
                         ItemStatus::Cancelled
                     } else if status == "failed" {

@@ -1727,3 +1727,145 @@ async fn unrestricted_legacy_profiles_auto_approve_without_a_face() {
             Item::ToolCall { output, .. } if matches!(&output[..], [OutputBlock::Text { text }] if text == "note.txt"))));
     }
 }
+
+/// Run `name` again in a subprocess with `env`: the stall windows are process
+/// globals and must not leak into the parallel runner.
+fn isolated(name: &str, env: &[(&str, &str)]) -> bool {
+    if std::env::var_os("BBOXY450_ACP_STALL_WITNESS").is_some() {
+        return false;
+    }
+    let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+    command
+        .args(["--exact", name, "--nocapture"])
+        .env("BBOXY450_ACP_STALL_WITNESS", "1");
+    for (key, value) in env {
+        command.env(key, value);
+    }
+    let output = command.output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    true
+}
+
+// State: an operator turn whose prompt reached the agent, the time since the
+// agent's last message, and what is open. Safety: a turn never waits forever on
+// a silent agent; it is interrupted with a warning that says why, the agent's
+// process group is killed when it ignores cancel, and the turn ends.
+// (claude-agent-acp hung 22 h after an idle auto-compaction; three queued
+// prompts waited behind it.) Without the watchdog this test times out.
+#[tokio::test]
+async fn a_silent_agent_is_interrupted_instead_of_holding_the_seat() {
+    if isolated(
+        "a_silent_agent_is_interrupted_instead_of_holding_the_seat",
+        &[
+            ("BBOXY450_ACP_STALL_MS", "300"),
+            ("BBOXY450_ACP_CANCEL_GRACE_MS", "50"),
+        ],
+    ) {
+        return;
+    }
+    let f = fake("silent", Unattended::Deny).await;
+    let mut sub = subscribe(&f.gateway, false);
+    f.gateway.send(support::prompt(&f.gateway, "work")).unwrap();
+    let mut warned = false;
+    let ended = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            match next(&mut sub).await.event {
+                Event::ItemCompleted {
+                    body: Item::Notice { level, text },
+                    ..
+                } if text.starts_with("The agent sent nothing") => {
+                    assert_eq!(level, Level::Warn);
+                    warned = true;
+                }
+                Event::TurnEnded { reason, .. } => return reason,
+                _ => {}
+            }
+        }
+    })
+    .await
+    .expect("the stalled turn must end");
+    assert!(warned, "the operator is told why");
+    assert_eq!(ended, StopReason::Interrupted);
+    assert!(
+        f.temp.path().join("cancel-seen").exists(),
+        "cancel was sent first"
+    );
+    close(f).await;
+}
+
+// The same with a tool open uses the longer window, and names the tool.
+#[tokio::test]
+async fn a_silent_agent_with_an_open_tool_is_interrupted_after_the_tool_window() {
+    if isolated(
+        "a_silent_agent_with_an_open_tool_is_interrupted_after_the_tool_window",
+        &[
+            ("BBOXY450_ACP_STALL_MS", "100"),
+            ("BBOXY450_ACP_STALL_TOOL_MS", "600"),
+            ("BBOXY450_ACP_CANCEL_GRACE_MS", "50"),
+        ],
+    ) {
+        return;
+    }
+    let f = fake("ignore-cancel", Unattended::Deny).await;
+    let mut sub = subscribe(&f.gateway, false);
+    let started = std::time::Instant::now();
+    f.gateway.send(support::prompt(&f.gateway, "work")).unwrap();
+    let text = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if let Event::ItemCompleted {
+                body: Item::Notice { text, .. },
+                ..
+            } = next(&mut sub).await.event
+                && text.starts_with("The agent sent nothing")
+            {
+                return text;
+            }
+        }
+    })
+    .await
+    .expect("the stalled turn must be interrupted");
+    assert!(text.contains("Still working"), "{text}");
+    assert!(
+        started.elapsed() >= Duration::from_millis(500),
+        "an open tool gets the longer window"
+    );
+    until_end(&mut sub).await;
+    close(f).await;
+}
+
+// A late update for a call the turn already closed must not open a new card
+// that nothing will close (the 22 h "tool" spinner after Claude's compaction).
+#[tokio::test]
+async fn a_late_update_for_a_closed_call_does_not_open_a_phantom_tool() {
+    let f = fake("late-update", Unattended::Deny).await;
+    let mut sub = subscribe(&f.gateway, false);
+    f.gateway
+        .send(support::prompt(&f.gateway, "compact"))
+        .unwrap();
+    until_end(&mut sub).await;
+    let log = close(f).await;
+    let started: Vec<_> = log
+        .iter()
+        .filter(|e| {
+            matches!(
+                &e.event,
+                Event::ItemStarted {
+                    kind: ItemKind::ToolCall,
+                    ..
+                }
+            )
+        })
+        .collect();
+    assert_eq!(started.len(), 1, "one card for compact-1: {started:?}");
+    assert!(
+        completed(&log)
+            .iter()
+            .all(|(status, _)| !matches!(status, ItemStatus::Interrupted)),
+        "nothing left open to interrupt"
+    );
+}
