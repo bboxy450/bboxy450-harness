@@ -1102,6 +1102,7 @@ async fn consume_from(
     let (outcomes, mut responses) = tokio::sync::mpsc::unbounded_channel();
     let mut dispatch_error = None;
     let mut last_connect: Option<tokio::time::Instant> = None;
+    let mut quiet_resubscribe = false;
     loop {
         if detached && mailbox.pending_turns.load().is_empty() {
             return;
@@ -1192,10 +1193,18 @@ async fn consume_from(
             &mut preparer,
         )
         .await;
+        let mut last_event = tokio::time::Instant::now();
         loop {
             if detached && mailbox.pending_turns.load().is_empty() {
                 return;
             }
+            // A live turn whose view has heard nothing for QUIET_RESUBSCRIBE
+            // resubscribes from its cursor over a new connection: a stalled
+            // relay path is replaced, and duplicates are dropped by sequence.
+            let live_turn = model
+                .turns
+                .values()
+                .any(|t| matches!(t, super::model::TurnState::Running));
             let event = tokio::select! {
                 biased;
                 _ = detach.cancelled(), if !detached => {
@@ -1232,11 +1241,20 @@ async fn consume_from(
                     }
                     continue;
                 }
+                // Events before re-preparation: a resize or a budget-limited
+                // preparation renotifies constantly, and under `biased` it starved
+                // the stream; the pane froze while the agent kept working. Every
+                // applied batch publishes a frame anyway, at the current width.
+                event = sub.recv() => event,
+                _ = tokio::time::sleep_until(last_event + QUIET_RESUBSCRIBE), if !detached && live_turn && matches!(source, Source::Unix { .. }) => {
+                    after = Some((model.epoch, model.cursor));
+                    quiet_resubscribe = true;
+                    break;
+                }
                 _ = mailbox.resized.notified(), if !detached => {
                     publish_frame(FrameState { transcript: Arc::new(model.clone()), gateway: Some(gateway.clone()), error: dispatch_error.clone(), ready: true, ..Default::default() }, &mailbox, &mut preparer).await;
                     continue;
                 }
-                event = sub.recv() => event,
             };
             let Some(event) = event else {
                 if matches!(source, Source::InProc(_)) {
@@ -1245,6 +1263,7 @@ async fn consume_from(
                 after = Some((model.epoch, model.cursor));
                 break;
             };
+            last_event = tokio::time::Instant::now();
             let mut effect = apply_event(&mut model, &event, &mut owned_turns, &mailbox);
             let start = Instant::now();
             let mut closed = false;
@@ -1296,6 +1315,13 @@ async fn consume_from(
         }
         // Lag/Reset reconnects and transport failure share the same cursor path.
         // Never spin on a malformed peer or move an intent to another session.
+        if matches!(source, Source::Unix { .. }) && std::mem::take(&mut quiet_resubscribe) {
+            // A quiet resubscribe is routine: no banner, no back-off.
+            drop(gateway);
+            mailbox.actor_intake.store(None);
+            drop(connection_guard);
+            continue;
+        }
         if matches!(source, Source::Unix { .. }) {
             if !detached {
                 publish_frame(
@@ -1319,6 +1345,8 @@ async fn consume_from(
         }
     }
 }
+/// How long a live turn's view may hear nothing before it resubscribes.
+const QUIET_RESUBSCRIBE: Duration = Duration::from_secs(30);
 fn client_error_text(error: &ClientError) -> String {
     match error {
         ClientError::Refused(error) => refusal_text(error).into(),

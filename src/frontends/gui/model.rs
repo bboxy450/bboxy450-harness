@@ -63,6 +63,9 @@ pub struct Transcript {
     pub unknown: u64,
     pub last_unknown_tag: Option<String>,
     pub duplicate_durable: u64,
+    /// Wall time (ms) of the newest event this view applied: what the header's
+    /// "quiet" reads, so a silent agent and a stalled view are both visible.
+    pub last_event_ms: u64,
 }
 impl Default for Transcript {
     fn default() -> Self {
@@ -83,6 +86,7 @@ impl Default for Transcript {
             unknown: 0,
             last_unknown_tag: None,
             duplicate_durable: 0,
+            last_event_ms: 0,
         }
     }
 }
@@ -122,6 +126,7 @@ impl Transcript {
             return Effect::None;
         }
         self.session = Some(e.session);
+        self.last_event_ms = self.last_event_ms.max(e.ts_ms);
         if let Event::Reset { epoch, .. } = e.event {
             if epoch < self.epoch {
                 return Effect::None;

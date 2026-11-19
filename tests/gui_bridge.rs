@@ -706,3 +706,65 @@ async fn gui_polish_identical_mid_turn_prompts_become_one_durable_row_each() {
     reattached.send(Op::Close).unwrap();
     session.task.await.unwrap().unwrap();
 }
+
+// A pane whose width keeps changing (or whose preparation keeps hitting its
+// budget) is renotified constantly. Under the event loop's `biased` order that
+// renotification won over the event stream: the pane froze on a running tool
+// while the agent kept working (seen live 2026-11-18). Events must still arrive.
+#[cfg(feature = "embedded")]
+#[tokio::test]
+async fn constant_resizes_do_not_starve_the_event_stream() {
+    let mut provider =
+        bboxy450_harness::provider::ScriptedProvider::new(vec![support::sse("text")]);
+    provider.delay = Duration::from_millis(5);
+    let s = support::with_provider(Arc::new(provider), true).await;
+    let mut bridge = Bridge::new(Arc::new(Wake::default()));
+    bridge.attach(s.gateway.clone());
+    wait(&mut bridge, |b| b.state.ready).await;
+    bridge
+        .send(Op::UserTurn {
+            blocks: vec![InputBlock::Text {
+                text: "hello".into(),
+            }],
+            mode: TurnMode::Queue,
+        })
+        .unwrap();
+    let mut width = 600.0_f32;
+    tokio::time::timeout(Duration::from_secs(8), async {
+        loop {
+            width = if width > 600.0 { 600.0 } else { 601.0 };
+            bridge.set_width(width);
+            bridge.drain(Duration::from_micros(300));
+            if bridge
+                .state
+                .transcript
+                .turns
+                .values()
+                .any(|t| matches!(t, TurnState::Ended { .. }))
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+    })
+    .await
+    .expect("the pane must see the turn end while it is being resized");
+    support::close(s).await;
+}
+
+// The header says how long a live turn has gone without an event, once that
+// matters, so a silent agent or a stalled view is visible instead of a spinner.
+#[cfg(feature = "embedded")]
+#[test]
+fn a_live_turn_shows_how_long_it_has_been_quiet() {
+    use bboxy450_harness::frontends::gui::view::quiet_for;
+    let t = 1_800_000_000_000_u64;
+    assert_eq!(quiet_for(0, t), None, "no event yet says nothing");
+    assert_eq!(
+        quiet_for(t - 5_000, t),
+        None,
+        "recent activity says nothing"
+    );
+    assert_eq!(quiet_for(t - 42_000, t).as_deref(), Some("quiet 42s"));
+    assert_eq!(quiet_for(t - 300_000, t).as_deref(), Some("quiet 5m"));
+}

@@ -1010,7 +1010,14 @@ impl HarnessView {
                         super::face::Tone::Idle,
                     )
                 } else {
-                    phase_now(model)
+                    let (text, tone) = phase_now(model);
+                    let quiet = (!state.replay && matches!(tone, super::face::Tone::Live))
+                        .then(|| quiet_for(model.last_event_ms, now_ms()))
+                        .flatten();
+                    match quiet {
+                        Some(quiet) => (format!("{text} · {quiet}"), tone),
+                        None => (text, tone),
+                    }
                 }
             });
         let (status, tone) = status;
@@ -3183,6 +3190,25 @@ pub fn kind_label(kind: ItemKind) -> &'static str {
         ItemKind::Recall => "Recall",
         ItemKind::Receipt => "Receipt",
         ItemKind::Unknown(_) => "Unknown item",
+    }
+}
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as u64)
+}
+/// How long a live turn has gone without an event, once that is long enough to
+/// matter: the agent may be working silently, or this view may have stopped
+/// receiving. Either way the operator sees it instead of a spinner that never moves.
+pub fn quiet_for(last_event_ms: u64, now_ms: u64) -> Option<String> {
+    if last_event_ms == 0 {
+        return None;
+    }
+    let secs = now_ms.saturating_sub(last_event_ms) / 1000;
+    match secs {
+        0..20 => None,
+        20..120 => Some(format!("quiet {secs}s")),
+        _ => Some(format!("quiet {}m", secs / 60)),
     }
 }
 /// The header's phase, from the transcript as the web reference reads it (harness.js
