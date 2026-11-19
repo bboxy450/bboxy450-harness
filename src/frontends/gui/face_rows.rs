@@ -377,7 +377,7 @@ impl Folds {
 }
 
 impl Preparer {
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)] // The face, transcript and measured geometry are independent inputs.
     pub(super) fn face_row(
         &mut self,
         model: &Transcript,
@@ -2072,10 +2072,6 @@ fn plain_box(
     )
 }
 
-#[allow(
-    clippy::too_many_arguments,
-    reason = "Source language and bounded command-panel geometry are independent presentation inputs"
-)]
 fn command_panels(
     documents: &mut super::super::rich::Documents,
     command: &str,

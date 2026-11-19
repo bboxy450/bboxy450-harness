@@ -1521,7 +1521,7 @@ pub fn schema_value() -> serde_json::Value {
     value
 }
 #[derive(JsonSchema)]
-#[allow(dead_code)]
+#[allow(dead_code)] // JsonSchema visits these fields to export protocol envelopes and operations.
 struct ProtocolSchema {
     envelope: Envelope,
     op: OpEnvelope,

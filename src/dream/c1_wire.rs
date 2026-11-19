@@ -479,7 +479,7 @@ impl From<False> for bool {
     }
 }
 #[derive(JsonSchema)]
-#[allow(dead_code)]
+#[allow(dead_code)] // The schema export reads these wire roots through JsonSchema.
 struct Authority {
     control: Control,
     reply: ControlReply,

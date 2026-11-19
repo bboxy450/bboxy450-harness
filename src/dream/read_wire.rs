@@ -504,7 +504,7 @@ pub fn validate_entry(e: &PreparedEntry) -> Result<(), Code> {
 }
 
 #[derive(JsonSchema)]
-#[allow(dead_code)]
+#[allow(dead_code)] // The schema export reads these wire roots through JsonSchema.
 struct Authority {
     input: Input,
     worker_in: WorkerIn,

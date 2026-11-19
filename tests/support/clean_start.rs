@@ -4,7 +4,7 @@
 // License: https://github.com/bboxy450/bboxy450-harness/blob/main/LICENSE
 // Credit copied/adapted/translated reuse accurately; independent inspiration credit requested.
 // Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
-#![allow(dead_code, clippy::disallowed_methods)]
+#![allow(dead_code, clippy::disallowed_methods)] // Shared standalone process fixture with different callers in each test binary.
 use std::{
     os::unix::fs::PermissionsExt,
     path::Path,

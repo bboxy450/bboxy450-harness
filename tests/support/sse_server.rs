@@ -18,7 +18,7 @@ use tokio::{
 pub struct Server {
     pub endpoint: String,
     pub attempts: Arc<AtomicUsize>,
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Provider-specific tests read captured request bodies only when relevant.
     pub requests: Arc<Mutex<Vec<Vec<u8>>>>,
     task: tokio::task::JoinHandle<()>,
 }

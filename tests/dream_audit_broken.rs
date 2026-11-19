@@ -18,7 +18,7 @@ use std::{
     path::PathBuf,
     process::{Command, Output},
 };
-#[allow(dead_code)]
+#[allow(dead_code)] // The shared repository fixture also serves the positive audit tests.
 #[path = "fixtures/dream/good/support.rs"]
 mod support;
 use support::{Repository, sign_record};
@@ -267,13 +267,10 @@ async fn matching_current_bytes_never_replace_missing_publication_history() {
     );
 }
 
-#[allow(dead_code)]
 #[path = "fixtures/dream/trust/fixture.rs"]
 mod fixture;
-#[allow(dead_code)]
 #[path = "fixtures/dream/good/receipt_support.rs"]
 mod r;
-#[allow(dead_code)]
 #[path = "fixtures/dream/good/audit_fixture.rs"]
 mod sufficient;
 

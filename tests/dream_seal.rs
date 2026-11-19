@@ -12,13 +12,11 @@ use bboxy450_harness::{
     protocol::*,
 };
 use serde_json::json;
-#[allow(dead_code)]
 #[path = "fixtures/dream/trust/fixture.rs"]
 mod fixture;
-#[allow(dead_code)]
 #[path = "fixtures/dream/good/receipt_support.rs"]
 mod r;
-#[allow(dead_code)]
+#[allow(dead_code)] // The shared repository fixture also serves the audit tests.
 #[path = "fixtures/dream/good/support.rs"]
 mod support;
 use r::*;
@@ -350,7 +348,7 @@ async fn real_delayed_child_is_unproven_and_broken_exception_exposes_aba() {
     }
 }
 
-#[allow(dead_code)]
+#[allow(dead_code)] // Use the shared audit history fixture without importing unrelated tests.
 #[path = "fixtures/dream/good/audit_fixture.rs"]
 mod sufficient;
 #[tokio::test]

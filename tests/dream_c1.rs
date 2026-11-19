@@ -1618,7 +1618,6 @@ impl HeldWorker {
         let (runner, worker_hash) = approved_runner();
         Self::spawn_on(path, nonce, context, probe, runner, worker_hash, "")
     }
-    #[allow(clippy::too_many_arguments)]
     fn spawn_on(
         path: &Path,
         nonce: &w::Ulid,

@@ -4,7 +4,7 @@
 // License: https://github.com/bboxy450/bboxy450-harness/blob/main/LICENSE
 // Credit copied/adapted/translated reuse accurately; independent inspiration credit requested.
 // Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
-#![allow(dead_code)]
+#![allow(dead_code)] // Each integration binary uses a separate subset of these helpers.
 use bboxy450_harness::{
     engine::{Config, SessionActor},
     gateway::{Gateway, InProc, Subscribe, Subscription},

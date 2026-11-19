@@ -3379,7 +3379,6 @@ fn reply(agent: &mut Agent, message: Value) -> std::io::Result<()> {
 fn trace(direction: &str, line: &str) {
     if let Some(path) = std::env::var_os("BBOXY450_ACP_TRACE") {
         use std::io::Write;
-        #[allow(clippy::disallowed_methods)]
         if let Ok(mut f) = std::fs::OpenOptions::new()
             .create(true)
             .append(true)

@@ -5,7 +5,7 @@
 // Credit copied/adapted/translated reuse accurately; independent inspiration credit requested.
 // Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
 #![cfg(feature = "standalone")]
-#![allow(clippy::disallowed_methods)]
+#![allow(clippy::disallowed_methods)] // Private standalone launcher and process fixtures.
 #[path = "support/clean_start.rs"]
 mod fixture;
 #[path = "support/onboarding_startup.rs"]

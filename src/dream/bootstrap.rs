@@ -66,7 +66,7 @@ pub struct Binding<'a> {
     worker_sha256: &'a super::c1_wire::Hex,
 }
 impl<'a> Binding<'a> {
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)] // All fields participate in the signed bootstrap binding.
     pub fn new(
         purpose: Purpose,
         probe: bool,
@@ -601,7 +601,7 @@ impl Gate {
         )
     }
     #[inline(never)]
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)] // Permit decoding checks the producer, owner, time and identity bindings together.
     fn read_permit(
         t: Token,
         purpose: Purpose,

@@ -14,7 +14,7 @@ use bboxy450_harness::{
 };
 use serde_json::{Value, json};
 use std::os::unix::fs::PermissionsExt;
-#[allow(dead_code)]
+#[allow(dead_code)] // The shared repository fixture also serves the audit tests.
 #[path = "fixtures/dream/good/support.rs"]
 mod support;
 use support::sign_record;
@@ -513,7 +513,7 @@ fn pinned_real_producer_record_is_a_byte_vector_only() {
     // This vector carries no local policy or producer-artifact approval.
 }
 
-#[allow(dead_code)]
+#[allow(dead_code)] // This binary uses only the receipt cases needed for trust transitions.
 #[path = "fixtures/dream/good/receipt_support.rs"]
 mod r;
 #[tokio::test]

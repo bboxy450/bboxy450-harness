@@ -5,7 +5,7 @@
 // Credit copied/adapted/translated reuse accurately; independent inspiration credit requested.
 // Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
 
-#![allow(dead_code)]
+#![allow(dead_code)] // This binary uses a subset of the shared Dream fixtures.
 use good as support;
 use trial_support::good;
 #[path = "fixtures/dream/trust/fixture.rs"]

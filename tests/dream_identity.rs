@@ -12,7 +12,6 @@ use bboxy450_harness::{
     redact::Set,
 };
 use serde_json::{Value, json};
-#[allow(dead_code)]
 #[path = "fixtures/dream/good/support.rs"]
 mod support;
 use bboxy450_harness::dream::entry::digest as entry_digest;
@@ -515,7 +514,7 @@ async fn resolver_cache_reuses_exact_arcs_preserves_options_and_retries_failures
     assert!(Arc::ptr_eq(&recovered, &left.record(&retry).await.unwrap()));
 }
 
-#[allow(dead_code)]
+#[allow(dead_code)] // The trust fixture is shared with other Dream integration binaries.
 #[path = "fixtures/dream/trust/fixture.rs"]
 mod trust_fixture;
 

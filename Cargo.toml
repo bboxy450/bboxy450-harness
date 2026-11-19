@@ -9,7 +9,7 @@ name = "bboxy450-harness"
 version = "0.2.0"
 edition = "2024"
 default-run = "bboxy450-harness"
-rust-version = "1.99"
+rust-version = "1.100"
 authors = ["Boxy <bboxy450@gmail.com>"]
 description = "A GUI-first coding-agent harness with one replayable protocol"
 repository = "https://github.com/bboxy450/bboxy450-harness"
@@ -67,7 +67,6 @@ im = "15"
 
 agent-client-protocol = {version = "=3.4.0", default-features = false, features = ["stdio"], optional = true}
 rmcp = {version = "=3.5.1", default-features = false, features = ["client", "server", "transport-child-process", "transport-io"]}
-process-wrap = {version = "10", features = ["tokio1"]}
 base64 = "0.22"
 
 [dev-dependencies]
