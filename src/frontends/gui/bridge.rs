@@ -1207,6 +1207,13 @@ async fn consume_from(
                 }
                 Some((session, epoch, op, result)) = responses.recv() => {
                     if session != gateway.session() || epoch != model.epoch {
+                        // Every outcome settles its prompt: one that answers an earlier
+                        // session or epoch must not leave the prompt at "Sending…".
+                        mailbox.prompt_status(op, match &result {
+                            Ok(_) => "Sent before the session changed · not in this view",
+                            Err(ClientError::Refused(_)) => "Rejected · message was not sent",
+                            Err(_) => "Outcome unknown · the session changed; no automatic resend",
+                        });
                         mailbox.pending(op, false);
                         continue;
                     }
