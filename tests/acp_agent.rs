@@ -1869,3 +1869,40 @@ async fn a_late_update_for_a_closed_call_does_not_open_a_phantom_tool() {
         "nothing left open to interrupt"
     );
 }
+
+// Spec AcpTurn ACPTURN_003: input sent while the turn runs but before the agent
+// session is negotiated reaches the running turn once steering is known; it is
+// not parked behind the whole turn (seen live: a Claude seat queued the
+// operator's message 2 s into a role-change turn).
+#[tokio::test]
+async fn input_sent_before_negotiation_reaches_the_running_turn() {
+    let f = fake("steering-slow", Unattended::Allow).await;
+    let mut sub = subscribe(&f.gateway, false);
+    f.gateway
+        .send(support::prompt(&f.gateway, "first"))
+        .unwrap();
+    // The turn is running; session/new answers only after 1 s.
+    loop {
+        if matches!(next(&mut sub).await.event, Event::TurnStarted { .. }) {
+            break;
+        }
+    }
+    let second = support::prompt(&f.gateway, "second");
+    let op = second.op_id;
+    f.gateway.send(second).unwrap();
+    let events = tokio::time::timeout(Duration::from_secs(10), until_end(&mut sub))
+        .await
+        .expect("the turn ends");
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e.event, Event::TurnQueued { .. })),
+        "the early input was parked behind the turn"
+    );
+    let log = close(f).await;
+    assert_eq!(ended(&log), vec![StopReason::EndTurn], "one turn, not two");
+    assert!(log.iter().any(|e| e.cause == Some(op) && matches!(&e.event, Event::ItemCompleted { body: Item::UserMessage { blocks }, .. } if matches!(&blocks[..], [InputBlock::Text { text }] if text == "second"))));
+    assert!(completed(&log).iter().any(
+        |(_, body)| matches!(body, Item::AgentMessage { markdown } if markdown.contains("STEERED"))
+    ));
+}

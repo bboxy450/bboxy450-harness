@@ -257,6 +257,9 @@ while True:
               "agentInfo": {"name": "claude" if SCENARIO in ("steering-claude", "unrestricted-claude") else "codex" if SCENARIO.startswith("steering-") else "fixture-agent", "version": "1.2.3"},
               "_meta": {"steering": {"supported": SCENARIO.startswith("steering-")}}}})
     elif method == "session/new":
+        if SCENARIO == "steering-slow":
+            # Negotiation takes a while: input sent meanwhile must reach this turn.
+            time.sleep(1.0)
         result = {"sessionId": SESSION}
         if SCENARIO == "unrestricted-claude":
             assert m["params"]["_meta"]["claudeCode"]["options"]["allowDangerouslySkipPermissions"] is True

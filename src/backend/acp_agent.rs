@@ -259,6 +259,10 @@ pub struct AcpAgentActor {
     dream_owner: crate::dream::c1::DreamOwner,
     cancel_grace: Duration,
     agent_turn_quiet: Duration,
+    /// Operator input that arrived while a turn ran but before its agent session
+    /// could take steering: released into the turn once the prompt is sent, or
+    /// queued if the agent cannot steer (spec AcpTurn, ACPTURN_003).
+    early: Vec<(Vec<InputBlock>, OpId)>,
     /// Silence after which an operator turn has stalled ([`AGENT_STALL`]).
     stall: Duration,
     /// The same while a tool call is open ([`AGENT_STALL_TOOL`]).
@@ -434,6 +438,7 @@ impl AcpAgentActor {
             dream_owner: launch.dream_owner,
             cancel_grace: cancel_grace(),
             agent_turn_quiet: agent_turn_quiet(),
+            early: Vec::new(),
             stall: env_ms("BBOXY450_ACP_STALL_MS", AGENT_STALL),
             stall_tool: env_ms("BBOXY450_ACP_STALL_TOOL_MS", AGENT_STALL_TOOL),
             hide_idle: std::env::var("BBOXY450_ACP_IDLE_CONTROL").as_deref() == Ok("hide"),
@@ -669,6 +674,7 @@ impl AcpAgentActor {
                             .filter(|c| matches!(c, Call::Steer { .. }))
                             .count()
                     })
+                    + self.early.len()
                     >= 64
                 {
                     self.reject(
@@ -684,6 +690,11 @@ impl AcpAgentActor {
                     })
                 {
                     self.steer(blocks, id).await?;
+                } else if self.steering_unknown() {
+                    // Not yet known whether this agent can take input mid-turn:
+                    // hold it until the prompt is sent instead of parking it
+                    // behind the whole turn.
+                    self.early.push((blocks, id));
                 } else {
                     self.queue_input(blocks, id).await?;
                 }
@@ -1407,7 +1418,35 @@ impl AcpAgentActor {
             )
             .is_ok()
         );
-        call(agent, Call::Prompt, "session/prompt", params)
+        call(agent, Call::Prompt, "session/prompt", params)?;
+        self.release_early().await
+    }
+    /// Whether the running turn's agent has yet to say if it can steer: no agent,
+    /// no session, or the prompt not yet sent.
+    fn steering_unknown(&self) -> bool {
+        self.running
+            .as_ref()
+            .is_some_and(|r| !r.prompt_sent && r.cancel_at.is_none())
+            && self
+                .agent
+                .as_ref()
+                .is_none_or(|a| a.session.is_none() || a.bootstrap_pending)
+    }
+    /// Input held while steering was unknown: into the running turn when the
+    /// agent steers, else queued as a normal prompt for when the turn ends.
+    async fn release_early(&mut self) -> std::io::Result<()> {
+        for (blocks, op) in std::mem::take(&mut self.early) {
+            let steerable = self.running.as_ref().is_some_and(|r| r.cancel_at.is_none())
+                && self.agent.as_ref().is_some_and(|a| {
+                    a.steering_supported && a.session.is_some() && !a.bootstrap_pending
+                });
+            if steerable {
+                self.steer(blocks, op).await?;
+            } else {
+                self.queue_input(blocks, op).await?;
+            }
+        }
+        Ok(())
     }
     async fn interrupt(&mut self) -> std::io::Result<()> {
         let Some(r) = self.running.as_mut() else {
@@ -1462,6 +1501,10 @@ impl AcpAgentActor {
     }
     /// Close every open item of the running turn (children before parents), then end it.
     async fn end_turn(&mut self, reason: StopReason, open: ItemStatus) -> std::io::Result<()> {
+        // Input still held when the turn ends becomes a normal prompt (ACPTURN_L2).
+        for (blocks, op) in std::mem::take(&mut self.early) {
+            self.queue_input(blocks, op).await?;
+        }
         let Some(mut r) = self.running.take() else {
             return Ok(());
         };
