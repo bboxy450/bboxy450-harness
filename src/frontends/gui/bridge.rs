@@ -65,20 +65,14 @@ impl PendingPrompt {
             })
     }
     fn confirmed_in(&self, state: &FrameState) -> bool {
-        if !self.confirmed(&state.transcript) {
-            return false;
-        }
+        let confirmed = self.confirmed(&state.transcript);
         #[cfg(feature = "embedded")]
-        {
-            state
+        let confirmed = confirmed
+            && state
                 .prepared
                 .as_ref()
-                .is_some_and(|rows| self.confirmed(&rows.source))
-        }
-        #[cfg(not(feature = "embedded"))]
-        {
-            true
-        }
+                .is_some_and(|rows| self.confirmed(&rows.source));
+        confirmed
     }
     fn observe(&mut self, event: &Envelope) -> bool {
         if event.session != self.session || event.epoch != self.epoch || event.seq.is_none() {
