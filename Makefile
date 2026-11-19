@@ -35,6 +35,7 @@ help:
 	  'make test-formal-parity         Native/Java TLC graph and verdict parity' \
 	  'make land                       Signed rebase, focused gates, source-bound evidence and main push' \
 	  'make test-python-execute         Real CPython, commands, current-context MCP and durable recovery' \
+	  'make test-python-signatures      Python MCP schema signature regressions; no Rust build' \
 	  'make fetch-dream-proof-tools    Authenticate seven fixed upstream source archives (HTTPS)' \
 	  'make build-dream-proof-tools    Private offline candidate build; refuses unsupported inputs' \
 	  'make test-dream-proof-tools     Private source/custody and canonical component checks' \
@@ -323,10 +324,13 @@ test-dream-c1: prepare-dream-c1-worker
 	cargo test --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --lib mcp::source_tests:: -- --test-threads=1
 	cargo test --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --features test-fixtures --test mcp_client -- --test-threads=1 --nocapture
 
-.PHONY: test-python-execute test-python-execute-boundaries check-python-execute
+.PHONY: test-python-execute test-python-execute-boundaries check-python-execute test-python-signatures
+test-python-signatures:
+	python3 -I scripts/test-python-signatures.py
+
 check-python-execute:
 	@set -eu; if [ -f ../../scripts/cache-env.sh ]; then . ../../scripts/cache-env.sh; fi; cargo check --offline --locked --jobs 2 -p bboxy450-harness --features acp-agent --lib --target-dir '$(TARGET_DIR)'
-test-python-execute:
+test-python-execute: test-python-signatures
 	@set -eu; if [ -f ../../scripts/cache-env.sh ]; then . ../../scripts/cache-env.sh; fi; cargo nextest run --offline --locked --jobs 2 -p bboxy450-harness --features acp-agent --lib --target-dir '$(TARGET_DIR)' -E 'test(python_execute::tests)'
 test-python-execute-boundaries: test-python-execute
 	@set -eu; if [ -f ../../scripts/cache-env.sh ]; then . ../../scripts/cache-env.sh; fi; cargo nextest run --offline --locked --jobs 2 -p bboxy450-harness --features acp-agent,test-fixtures --test mcp_client --test acp_launch_context --target-dir '$(TARGET_DIR)'

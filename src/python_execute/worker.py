@@ -202,8 +202,10 @@ def _signature(tool):
         kind = spec.get("type") if isinstance(spec, dict) else None
         if isinstance(spec, dict) and "enum" in spec:
             kind = " | ".join(json.dumps(choice) for choice in spec["enum"])
-        kind = {"string": "str", "integer": "int", "number": "float", "boolean": "bool",
-                "array": "list", "object": "dict"}.get(kind, kind or "any")
+        kinds = kind if isinstance(kind, list) else [kind]
+        kind = " | ".join({"string": "str", "integer": "int", "number": "float", "boolean": "bool",
+                           "array": "list", "object": "dict", "null": "None"}.get(item, item or "any")
+                          for item in kinds)
         fields.append(f"{name}: {kind}" if name in required else f"{name}: {kind} = ...")
     return f"{tool['name']}({', '.join(fields)})"
 
