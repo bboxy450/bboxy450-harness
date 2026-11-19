@@ -1242,7 +1242,7 @@ impl Preparer {
                     .map(crate::frontends::face_core::PythonCell::headline)
                     .filter(|line| !line.is_empty())
                     .or(cell.execution_id.as_deref())
-                    .unwrap_or("Python"),
+                    .unwrap_or(""),
                 80,
             );
         } else if let Some(command) = &original_command {
@@ -1337,15 +1337,16 @@ impl Preparer {
                 } else {
                     cell.status.clone()
                 };
-                let label = label.unwrap_or_else(|| {
-                    if cell.error.is_some() {
-                        "failed"
-                    } else {
-                        "pending"
-                    }
-                    .into()
-                });
-                let chip = f::python_status(&label, cell.exit_code, ink)
+                // In flight, Codex has sent neither the arguments nor a reply:
+                // the spinner says running, and no chip guesses a state.
+                let label = match label {
+                    Some(label) => Some(label),
+                    None if cell.error.is_some() => Some("failed".to_owned()),
+                    None if running => None,
+                    None => Some("pending".to_owned()),
+                };
+                let chip = label
+                    .and_then(|label| f::python_status(&label, cell.exit_code, ink))
                     .map(|chip| named(format!("python/{id}/status"), chip));
                 match (chip, badge) {
                     (Some(chip), Some(b)) => Some(f::hstack(vec![f::fixed(chip), f::fixed(b)], 6.)),

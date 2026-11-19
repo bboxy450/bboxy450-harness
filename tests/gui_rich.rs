@@ -2966,7 +2966,7 @@ async fn an_unpolled_python_run_stops_spinning_when_its_turn_ends() {
         locations: vec![],
         spill: None,
     };
-    for ended in [false, true] {
+    for (ended, in_flight) in [(false, false), (true, false), (false, true)] {
         let temp = tempfile::tempdir().unwrap();
         let base: Envelope = serde_json::from_str(
             include_str!("fixtures/protocol/all-items.jsonl")
@@ -3024,6 +3024,19 @@ async fn an_unpolled_python_run_stops_spinning_when_its_turn_ends() {
                 bboxy450_harness::frontends::gui::model::TurnState::Running,
             );
         }
+        if in_flight {
+            // Codex sends a call's arguments and reply only when it completes.
+            let row = source.items.get_mut(&item).unwrap();
+            row.completed = None;
+            row.status = None;
+            if let Item::ToolCall {
+                input_raw, output, ..
+            } = &mut row.body
+            {
+                input_raw.clear();
+                output.clear();
+            }
+        }
         let source = Arc::new(source);
         let layout = runtime::blocking(move || {
             let mut preparer = Preparer::default();
@@ -3045,7 +3058,16 @@ async fn an_unpolled_python_run_stops_spinning_when_its_turn_ends() {
         let chip = find(&layout, &format!("python/{item}/status"))
             .map(layout_text)
             .unwrap_or_default();
-        if ended {
+        let head = find(&layout, &format!("toolhead/{item}"))
+            .map(layout_text)
+            .unwrap_or_default();
+        if in_flight {
+            assert!(chip.is_empty(), "in flight, no guessed state: {chip:?}");
+            assert!(
+                head.contains("Run Python") && !head.contains("Python Python"),
+                "{head:?}"
+            );
+        } else if ended {
             assert!(chip.contains("not polled"), "ended turn: {chip:?}");
         } else {
             assert!(
