@@ -459,11 +459,17 @@ impl Documents {
             .get_or_insert_with(|| RustHighlighter::new(self.theme == ui::Theme::Light));
         let highlights = Highlights::prepare(&document, highlighter);
         let element = document.transcript_body_element(&highlights, ctx, metrics, 576.);
-        fn take(e: c::Element) -> Option<c::Element> {
+        // The code subtree is found by name, never by the shape around it:
+        // bbt-doc's frame (2026-11-16) wrapped framed code in `Layers` with no
+        // `block0` node, and the `expect` here panicked the pane's preparer on
+        // every Python source and shell command, freezing the view.
+        fn find(e: &c::Element, wanted: &str) -> Option<c::Element> {
             match e {
-                c::Element::Named { name, content } if name == "block0" => Some(*content),
-                c::Element::Named { content, .. } => take(*content),
-                c::Element::Box(b) => b.children.into_iter().find_map(|i| take(i.element)),
+                c::Element::Named { name, content } if name == wanted => Some((**content).clone()),
+                c::Element::Named { content, .. } => find(content, wanted),
+                c::Element::Box(b) => b.children.iter().find_map(|i| find(&i.element, wanted)),
+                c::Element::Layers { base, .. } => find(base, wanted),
+                c::Element::ScrollView(s) => find(&s.content, wanted),
                 _ => None,
             }
         }
@@ -483,7 +489,34 @@ impl Documents {
                 _ => {}
             }
         }
-        let mut code = take(element).expect("shared Markdown code block");
+        let mut code = match find(&element, "block0").or_else(|| {
+            find(&element, "block0/text").map(|text| c::Element::Named {
+                name: "block0/text".into(),
+                content: Box::new(text),
+            })
+        }) {
+            Some(code) => code,
+            None => {
+                bbt_rt::error_journal::report(bbt_rt::error_journal::Failure::new(
+                    "gui",
+                    "code_block_shape",
+                    format!(
+                        "the shared {language} code block had no block0 node; shown as plain text"
+                    ),
+                ));
+                let mut text = c::Text::new(
+                    source,
+                    ui::Text {
+                        mono: true,
+                        line_height: 1.6,
+                        ..Default::default()
+                    },
+                );
+                text.wrap = false;
+                text.preserve_whitespace = true;
+                c::Element::Text(text)
+            }
+        };
         unscroll(&mut code);
         super::view::flat(&mut code);
         bound_native_runs(&mut code);
@@ -1195,5 +1228,57 @@ mod quiet_code_tests {
             );
         })
         .await;
+    }
+}
+#[cfg(test)]
+mod code_element_tests {
+    use super::*;
+    fn has_text(e: &c::Element, want: &str) -> bool {
+        match e {
+            c::Element::Text(t) => t
+                .runs
+                .iter()
+                .map(|r| r.value.as_str())
+                .collect::<String>()
+                .contains(want),
+            c::Element::Named { content, .. } => has_text(content, want),
+            c::Element::Box(b) => b.children.iter().any(|i| has_text(&i.element, want)),
+            c::Element::Layers { base, .. } => has_text(base, want),
+            c::Element::ScrollView(s) => has_text(&s.content, want),
+            _ => false,
+        }
+    }
+    // Live 2026-11-18: every Python source and shell command panicked the
+    // pane's preparer ("shared Markdown code block") under the workspace
+    // bbt-doc, whose framed code has no `block0` node. Each language returns
+    // the literal code, whatever bbt-doc wraps it in.
+    #[test]
+    fn every_code_language_returns_its_literal_text() {
+        let metrics = super::super::view::Metrics::default();
+        for theme in [ui::Theme::Light, ui::Theme::Dark] {
+            let mut docs = Documents::default();
+            docs.set_theme(theme);
+            for (language, source) in [
+                (
+                    "python",
+                    "import asyncio\nprint(await tools.search('twig'))",
+                ),
+                ("sh", "cat .kb/AGENTS.md | head -40"),
+                ("json", "{\"ok\": true}"),
+                (
+                    "python",
+                    &"x = 1 # wide\n".repeat(3).replace('\n', &" ".repeat(300)),
+                ),
+            ] {
+                let e = docs.code_element_language(source, language, &metrics);
+                assert!(
+                    has_text(
+                        &e,
+                        source.split_whitespace().next().unwrap().trim_matches('"')
+                    ),
+                    "{language} lost its code: {e:?}"
+                );
+            }
+        }
     }
 }
