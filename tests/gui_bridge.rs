@@ -855,3 +855,55 @@ async fn many_panes_under_resize_and_reattach_see_every_turn_end() {
         server.close().await.unwrap();
     }
 }
+
+// Live 2026-11-18: a Codex pane stopped at seq 192 while its session reached
+// 2,700; the harness had no connection from the pane, the header showed no
+// error, and the 30 s resubscribe never fired: the view's event task had ended
+// (a panic, whose output went to the window's /dev/null stderr). A view whose
+// task ends without a detach re-attaches from its retained state and sees the
+// rest of the turn.
+#[cfg(all(feature = "embedded", feature = "test-fixtures"))]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_view_whose_event_task_dies_reattaches_and_sees_the_turn_end() {
+    use bboxy450_harness::gateway::unix::UnixServer;
+    let mut provider =
+        bboxy450_harness::provider::ScriptedProvider::new(vec![support::sse("text")]);
+    provider.delay = Duration::from_millis(5);
+    let s = support::with_provider(Arc::new(provider), true).await;
+    let own = tempfile::tempdir_in("/tmp").unwrap();
+    let socket = own.path().join(format!("{}.sock", s.gateway.session()));
+    let server = UnixServer::bind(socket.clone(), s.gateway.clone())
+        .await
+        .unwrap();
+    bbt_rt::register_ui_thread();
+    let mut bridge = Bridge::new(Arc::new(Wake::default()));
+    bridge.connect(socket.clone(), None);
+    wait(&mut bridge, |b| b.state.ready).await;
+    bridge
+        .send(Op::UserTurn {
+            blocks: vec![InputBlock::Text {
+                text: "hello".into(),
+            }],
+            mode: TurnMode::Queue,
+        })
+        .unwrap();
+    wait(&mut bridge, |b| {
+        b.state
+            .transcript
+            .turns
+            .values()
+            .any(|t| matches!(t, TurnState::Running))
+    })
+    .await;
+    bridge.abort_view_task();
+    wait(&mut bridge, |b| {
+        b.state
+            .transcript
+            .turns
+            .values()
+            .any(|t| matches!(t, TurnState::Ended { .. }))
+    })
+    .await;
+    support::close(s).await;
+    server.close().await.unwrap();
+}

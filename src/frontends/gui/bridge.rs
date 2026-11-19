@@ -380,6 +380,11 @@ pub struct Bridge {
     pub state: FrameState,
     detach: CancellationToken,
     worker: Option<tokio::task::JoinHandle<()>>,
+    /// The session socket this view reads, kept so a view whose task died can
+    /// re-attach from its retained state (`supervise`).
+    socket: Option<PathBuf>,
+    /// Re-attaches after an abnormal end, within the current minute.
+    restarts: (Option<std::time::Instant>, u32),
     /// Profile switches for the live session's host worker.
     switch: Option<tokio::sync::mpsc::UnboundedSender<String>>,
     setup: Option<Arc<crate::onboarding::Controller>>,
@@ -417,6 +422,8 @@ impl Bridge {
             state: FrameState::default(),
             detach: CancellationToken::new(),
             worker: None,
+            socket: None,
+            restarts: (None, 0),
             switch: None,
             setup: None,
             created_session: None,
@@ -717,6 +724,7 @@ impl Bridge {
     /// Reconnect a parked view: it shows what it had at once, then streams
     /// only the events after its cursor instead of replaying the whole log.
     pub fn reattach(&mut self, socket: PathBuf, retained: Retained) {
+        self.socket = Some(socket.clone());
         let profiles = machine_profiles(std::env::var_os("HOME"));
         self.created_session = None;
         self.attach_setup(profiles.clone());
@@ -743,6 +751,7 @@ impl Bridge {
         profiles: Option<PathBuf>,
     ) {
         self.created_session = None;
+        self.socket = Some(socket.clone());
         self.attach_setup(profiles.clone());
         let mailbox = self.mailbox.clone();
         let detach = self.detach.clone();
@@ -750,6 +759,75 @@ impl Bridge {
             load_catalogue(&mailbox, profiles).await;
             consume(Source::Unix { socket }, after, mailbox, detach).await;
         }));
+    }
+    /// A socket view's event task returns only when the view detaches. If it
+    /// ended otherwise (a panic unwinds it, closing its connection), the view
+    /// froze on its last frame while the agent kept working, with nothing said:
+    /// the window's stderr is /dev/null. Record why in the error journal and
+    /// re-attach from the retained state; three ends within a minute stop the
+    /// retries and show the reason instead.
+    fn supervise(&mut self) {
+        let Some(socket) = self.socket.clone() else {
+            return;
+        };
+        if self.detach.is_cancelled() || !self.worker.as_ref().is_some_and(|w| w.is_finished()) {
+            return;
+        }
+        let Some(worker) = self.worker.take() else {
+            return;
+        };
+        let why = match futures_util::FutureExt::now_or_never(worker) {
+            Some(Err(error)) if error.is_panic() => {
+                let payload = error.into_panic();
+                payload
+                    .downcast_ref::<&str>()
+                    .map(|s| (*s).to_owned())
+                    .or_else(|| payload.downcast_ref::<String>().cloned())
+                    .map_or_else(|| "panicked".to_owned(), |m| format!("panicked: {m}"))
+            }
+            Some(Err(error)) => format!("stopped: {error}"),
+            Some(Ok(())) => "returned".to_owned(),
+            None => return,
+        };
+        let now = std::time::Instant::now();
+        let (since, count) = self.restarts;
+        let count = if since.is_some_and(|t| now.duration_since(t) < Duration::from_secs(60)) {
+            count + 1
+        } else {
+            1
+        };
+        self.restarts = (since.filter(|_| count > 1).or(Some(now)), count);
+        let session = self
+            .state
+            .transcript
+            .session
+            .map_or_else(|| "?".to_owned(), |s| s.to_string());
+        let cursor = self.state.transcript.cursor.0;
+        bbt_rt::error_journal::report(bbt_rt::error_journal::Failure::new(
+            "gui",
+            "view_task_ended",
+            format!(
+                "the view of session {session} lost its event task at seq {cursor} ({why}); {}",
+                if count <= 3 {
+                    "re-attached"
+                } else {
+                    "stopped retrying"
+                }
+            ),
+        ));
+        if count > 3 {
+            self.state.error = Some(format!("View stopped: {why}. See ctl debug errors."));
+            return;
+        }
+        let retained = self.retained();
+        self.reattach(socket, retained);
+    }
+    /// Test hook: end the view's event task as a panic would.
+    #[cfg(feature = "test-fixtures")]
+    pub fn abort_view_task(&mut self) {
+        if let Some(worker) = &self.worker {
+            worker.abort();
+        }
     }
     /// A real frame drains under 0.3ms. complete_drain re-marks any remainder,
     /// including a publication racing the just-completed frame.
@@ -769,6 +847,7 @@ impl Bridge {
             State(FrameState),
             Notice,
         }
+        self.supervise();
         self.dirty.drain();
         let mailbox = &self.mailbox;
         let messages = &self.messages;
