@@ -3592,6 +3592,10 @@ impl PreparedRows {
             .filter_map(|id| self.rows.get(id).map(|row| &row.layout))
     }
 }
+/// Test fixture: the next preparation panics once, as a card's layout did live.
+#[cfg(feature = "test-fixtures")]
+pub static PANIC_NEXT_PREPARE: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 pub struct Preparer {
     theme: Theme,
     theme_revision: u64,
@@ -3767,6 +3771,10 @@ impl Preparer {
         width: f32,
         faces: &super::rich::Faces,
     ) -> Result<PreparedRows, String> {
+        #[cfg(feature = "test-fixtures")]
+        if PANIC_NEXT_PREPARE.swap(false, std::sync::atomic::Ordering::SeqCst) {
+            panic!("test fixture: a card panicked while laid out");
+        }
         let ctx = self.context();
         let model = &source;
         let width = width.max(240.);

@@ -1026,7 +1026,33 @@ async fn publish_frame(mut state: FrameState, mailbox: &Arc<Mailbox>, preparer: 
                 },
                 appearance >> 1,
             );
-            match owned.prepare_with_faces(source, width, &faces) {
+            // A card that panics while being laid out must not end the view's
+            // event stream (2026-11-18: one code card froze every pane that
+            // showed it). The frame shows the failure, the journal records it,
+            // and the next frame starts from a fresh preparer.
+            let attempt = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                owned.prepare_with_faces(source, width, &faces)
+            }));
+            let attempt = match attempt {
+                Ok(result) => result,
+                Err(panic) => {
+                    let why = panic
+                        .downcast_ref::<&str>()
+                        .map(|s| (*s).to_owned())
+                        .or_else(|| panic.downcast_ref::<String>().cloned())
+                        .unwrap_or_else(|| "non-string panic".into());
+                    bbt_rt::error_journal::report(bbt_rt::error_journal::Failure::new(
+                        "gui",
+                        "prepare_panicked",
+                        format!("laying out a frame panicked: {why}"),
+                    ));
+                    owned = super::view::Preparer::default();
+                    Err(format!(
+                        "A card failed to render: {why}. See ctl debug errors."
+                    ))
+                }
+            };
+            match attempt {
                 Ok(mut prepared) => {
                     if let Err(error) = owned.prepare_pending(&mut prepared, &prompts, &faces) {
                         state.error = Some(error);

@@ -907,3 +907,47 @@ async fn a_view_whose_event_task_dies_reattaches_and_sees_the_turn_end() {
     support::close(s).await;
     server.close().await.unwrap();
 }
+
+// Live 2026-11-18: one code card panicked the frame preparation, the panic
+// ended the view's event task, and the pane froze while its agent worked. A
+// panicking frame is contained: the header names it and the stream goes on.
+#[cfg(all(feature = "embedded", feature = "test-fixtures"))]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_frame_that_panics_does_not_end_the_view() {
+    use bboxy450_harness::frontends::gui::view::PANIC_NEXT_PREPARE;
+    use std::sync::atomic::Ordering;
+    let mut provider =
+        bboxy450_harness::provider::ScriptedProvider::new(vec![support::sse("text")]);
+    provider.delay = Duration::from_millis(5);
+    let s = support::with_provider(Arc::new(provider), true).await;
+    bbt_rt::register_ui_thread();
+    let mut bridge = Bridge::new(Arc::new(Wake::default()));
+    bridge.attach(s.gateway.clone());
+    wait(&mut bridge, |b| b.state.ready).await;
+    PANIC_NEXT_PREPARE.store(true, Ordering::SeqCst);
+    bridge
+        .send(Op::UserTurn {
+            blocks: vec![InputBlock::Text {
+                text: "hello".into(),
+            }],
+            mode: TurnMode::Queue,
+        })
+        .unwrap();
+    wait(&mut bridge, |b| {
+        b.state
+            .error
+            .as_deref()
+            .is_some_and(|e| e.contains("failed to render"))
+    })
+    .await;
+    wait(&mut bridge, |b| {
+        b.state
+            .transcript
+            .turns
+            .values()
+            .any(|t| matches!(t, TurnState::Ended { .. }))
+    })
+    .await;
+    assert!(!PANIC_NEXT_PREPARE.load(Ordering::SeqCst));
+    support::close(s).await;
+}
