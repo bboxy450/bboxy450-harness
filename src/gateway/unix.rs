@@ -472,7 +472,12 @@ impl UnixClient {
         // prevents a correlated admission response from completing.
         bbt_rt::handle().spawn(async move{let error=loop{let f=tokio::select!{_=cancel.cancelled()=>break ClientError::Disconnected,r=frame(&mut reader)=>r};let bytes=match f{Ok(Some(b))=>b,Ok(None)=>break ClientError::Disconnected,Err(_)=>break ClientError::Protocol("invalid or oversized frame".into())};let value:serde_json::Value=match serde_json::from_slice(&bytes){Ok(v)=>v,Err(_)=>break ClientError::Protocol("invalid JSON".into())};
    if value.get("ack").is_some()||value.get("refused").is_some(){let Some(shared)=weak.upgrade()else{break ClientError::Disconnected;};let op_id:OpId=match serde_json::from_value(value["op_id"].clone()){Ok(id)=>id,Err(_)=>break ClientError::Protocol("uncorrelated response".into())};let answer=if let Some(a)=value.get("ack"){serde_json::from_value(a.clone()).map_err(|_|ClientError::Protocol("invalid ack".into()))}else{match serde_json::from_value(value["refused"].clone()){Ok(r)=>Err(ClientError::Refused(r)),Err(_)=>Err(ClientError::Protocol("invalid refusal".into()))}};if let Some(waiters)=shared.pending.lock().unwrap().remove(&op_id){for waiter in waiters{let _=waiter.send(answer.clone());}}}
-   else{match std::str::from_utf8(&bytes).ok().and_then(|line| Envelope::from_line(line).ok()){Some(mut e)=>{e.project_into(&meta);sink.push(e)},None=>break ClientError::Protocol("invalid envelope".into())}}
+   else{match std::str::from_utf8(&bytes).ok().and_then(|line| Envelope::from_line(line).ok()){Some(mut e)=>{e.project_into(&meta);sink.push(e)},None=>{
+     // A frame the client cannot decode ends the connection; record which
+     // event kind and size, never its content, so a reconnect loop is visible.
+     let kind=serde_json::from_slice::<serde_json::Value>(&bytes).ok().and_then(|v|v.pointer("/event/type").and_then(|t|t.as_str()).map(str::to_owned)).unwrap_or_else(||"unparsed".into());
+     bbt_rt::error_journal::report(bbt_rt::error_journal::Failure::new("gateway","client_decode",format!("dropped the connection on an undecodable {kind} envelope ({} bytes)",bytes.len())));
+     break ClientError::Protocol("invalid envelope".into())}}}
   };sink.closed.store(true,Ordering::Release);sink.wake();if let Some(s)=weak.upgrade(){s.closed.store(true,Ordering::Release);for (_,waiters) in std::mem::take(&mut *s.pending.lock().unwrap()){for waiter in waiters{let _=waiter.send(Err(error.clone()));}}}});
         let subscription = Subscription {
             hello,

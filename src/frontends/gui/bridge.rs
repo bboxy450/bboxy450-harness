@@ -1103,6 +1103,9 @@ async fn consume_from(
     let mut dispatch_error = None;
     let mut last_connect: Option<tokio::time::Instant> = None;
     let mut quiet_resubscribe = false;
+    // Set when a quiet resubscribe fires: (cursor, wall ms, silent s). An event
+    // from before that moment arriving afterwards proves the old stream stalled.
+    let mut stall_probe: Option<(Seq, u64, u64)> = None;
     loop {
         if detached && mailbox.pending_turns.load().is_empty() {
             return;
@@ -1249,6 +1252,7 @@ async fn consume_from(
                 _ = tokio::time::sleep_until(last_event + QUIET_RESUBSCRIBE), if !detached && live_turn && matches!(source, Source::Unix { .. }) => {
                     after = Some((model.epoch, model.cursor));
                     quiet_resubscribe = true;
+                    stall_probe = Some((model.cursor, wall_ms(), last_event.elapsed().as_secs()));
                     break;
                 }
                 _ = mailbox.resized.notified(), if !detached => {
@@ -1264,6 +1268,27 @@ async fn consume_from(
                 break;
             };
             last_event = tokio::time::Instant::now();
+            if let Some((cursor, at, silent)) = stall_probe
+                && let Some(seq) = event.seq
+                && seq > cursor
+            {
+                stall_probe = None;
+                // Produced before the resubscribe yet never delivered: the old
+                // stream had stalled. Say so where `ctl debug errors` shows it.
+                if event.ts_ms < at {
+                    bbt_rt::error_journal::report(bbt_rt::error_journal::Failure::new(
+                        "gui",
+                        "pane_stream_stalled",
+                        format!(
+                            "session {} heard nothing for {silent}s at seq {}; resubscribing delivered seq {} from {} ms earlier",
+                            event.session,
+                            cursor.0,
+                            seq.0,
+                            at.saturating_sub(event.ts_ms)
+                        ),
+                    ));
+                }
+            }
             let mut effect = apply_event(&mut model, &event, &mut owned_turns, &mailbox);
             let start = Instant::now();
             let mut closed = false;
@@ -1344,6 +1369,11 @@ async fn consume_from(
             }
         }
     }
+}
+fn wall_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as u64)
 }
 /// How long a live turn's view may hear nothing before it resubscribes.
 const QUIET_RESUBSCRIBE: Duration = Duration::from_secs(30);

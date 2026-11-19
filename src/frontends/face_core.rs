@@ -1344,8 +1344,14 @@ mod real_session_smoke {
             let text = std::fs::read_to_string(path).unwrap_or_default();
             let mut provider = String::from("native");
             for line in text.lines() {
-                let Ok(e) = serde_json::from_str::<Envelope>(line) else {
-                    continue;
+                // The window's socket reader drops the connection on a line it
+                // cannot decode, so here an undecodable line is a failure too.
+                let e = match Envelope::from_line(line) {
+                    Ok(e) => e,
+                    Err(error) => {
+                        bad.push(format!("{}: undecodable envelope: {error}", path.display()));
+                        continue;
+                    }
                 };
                 let Event::ItemCompleted { body, status, .. } = &e.event else {
                     continue;
