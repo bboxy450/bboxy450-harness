@@ -366,6 +366,8 @@ pub fn turned(points: &[P], deg: f32, c: [f32; 2]) -> Vec<P> {
             P::Line(p) => P::Line(r(*p)),
             P::Cubic(ps) => P::Cubic(ps.map(r)),
             // Coordinate-free Close passes through; the standalone toolkit pin predates it.
+            // Once the standalone toolkit pin contains Close, replace this wildcard and
+            // allowance with an explicit Close arm.
             #[allow(unreachable_patterns, reason = "compatible with the older standalone path enum")]
             other => *other,
         })

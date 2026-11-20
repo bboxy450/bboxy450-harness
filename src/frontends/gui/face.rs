@@ -315,6 +315,8 @@ pub fn icon_points(name: &str, size: f32, deg: f32) -> Vec<P> {
             P::Line(p) => P::Line([p[0] * k, p[1] * k]),
             P::Cubic(ps) => P::Cubic(ps.map(|p| [p[0] * k, p[1] * k])),
             // Coordinate-free Close passes through; the standalone toolkit pin predates it.
+            // Once the standalone toolkit pin contains Close, replace this wildcard and
+            // allowance with an explicit Close arm.
             #[allow(unreachable_patterns, reason = "compatible with the older standalone path enum")]
             other => other,
         })
