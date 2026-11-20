@@ -314,6 +314,11 @@ pub fn icon_points(name: &str, size: f32, deg: f32) -> Vec<P> {
             P::Move(p) => P::Move([p[0] * k, p[1] * k]),
             P::Line(p) => P::Line([p[0] * k, p[1] * k]),
             P::Cubic(ps) => P::Cubic(ps.map(|p| [p[0] * k, p[1] * k])),
+            #[allow(
+                unreachable_patterns,
+                reason = "the published toolkit predates coordinate-free Close"
+            )]
+            other => other,
         })
         .collect()
 }

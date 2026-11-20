@@ -365,6 +365,11 @@ pub fn turned(points: &[P], deg: f32, c: [f32; 2]) -> Vec<P> {
             P::Move(p) => P::Move(r(*p)),
             P::Line(p) => P::Line(r(*p)),
             P::Cubic(ps) => P::Cubic(ps.map(r)),
+            #[allow(
+                unreachable_patterns,
+                reason = "the published toolkit predates coordinate-free Close"
+            )]
+            other => *other,
         })
         .collect()
 }
