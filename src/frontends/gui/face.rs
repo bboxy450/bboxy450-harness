@@ -314,6 +314,9 @@ pub fn icon_points(name: &str, size: f32, deg: f32) -> Vec<P> {
             P::Move(p) => P::Move([p[0] * k, p[1] * k]),
             P::Line(p) => P::Line([p[0] * k, p[1] * k]),
             P::Cubic(ps) => P::Cubic(ps.map(|p| [p[0] * k, p[1] * k])),
+            // Coordinate-free Close passes through; the standalone toolkit pin predates it.
+            #[allow(unreachable_patterns, reason = "compatible with the older standalone path enum")]
+            other => other,
         })
         .collect()
 }

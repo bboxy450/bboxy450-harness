@@ -365,6 +365,9 @@ pub fn turned(points: &[P], deg: f32, c: [f32; 2]) -> Vec<P> {
             P::Move(p) => P::Move(r(*p)),
             P::Line(p) => P::Line(r(*p)),
             P::Cubic(ps) => P::Cubic(ps.map(r)),
+            // Coordinate-free Close passes through; the standalone toolkit pin predates it.
+            #[allow(unreachable_patterns, reason = "compatible with the older standalone path enum")]
+            other => *other,
         })
         .collect()
 }
