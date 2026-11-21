@@ -746,7 +746,11 @@ def display(plot, inputs=(), update=None):
     helper = sys.modules.get(module.name)
     if helper is None:
         helper = importlib.util.module_from_spec(module)
-        module.loader.exec_module(helper)
+        # Load trusted bundle source without writing bytecode into signed app resources.
+        source = module.loader.get_source(module.name)
+        if source is None:
+            raise RuntimeError("chart exporter source is unavailable")
+        exec(compile(source, exporter["module"], "exec"), helper.__dict__)
         sys.modules[module.name] = helper
     svg, definition, snapshots = helper.prepare_plot(plot, exporter["fonts"])
     inputs = list(inputs)
