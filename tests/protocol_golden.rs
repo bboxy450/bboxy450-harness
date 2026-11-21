@@ -759,3 +759,17 @@ fn receipt_carrier_has_one_discriminator_and_defaults_without_aliasing_kind() {
         ItemKind::Receipt
     );
 }
+
+
+#[test]
+fn absent_interrupt_control_ids_never_target_a_turn() {
+    let missing = TurnId(ulid::Ulid::nil());
+    assert!(matches!(
+        serde_json::from_value::<Op>(serde_json::json!({"type":"continue"})).unwrap(),
+        Op::Continue { turn } if turn == missing
+    ));
+    assert!(matches!(
+        serde_json::from_value::<Event>(serde_json::json!({"type":"interrupt_dismissed"})).unwrap(),
+        Event::InterruptDismissed { turn } if turn == missing
+    ));
+}

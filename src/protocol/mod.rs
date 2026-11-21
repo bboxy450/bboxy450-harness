@@ -309,6 +309,7 @@ pub enum Op {
         turn: Option<TurnId>,
     },
     Continue {
+        #[serde(default = "missing_turn", skip_serializing_if = "is_missing_turn")]
         turn: TurnId,
     },
     ResolveApproval {
@@ -358,6 +359,12 @@ pub enum Op {
     Unknown(Value),
 }
 // Missing identity is a stable invalid sentinel, never a fresh child identity.
+fn missing_turn() -> TurnId {
+    TurnId(Ulid::nil())
+}
+fn is_missing_turn(turn: &TurnId) -> bool {
+    turn.0 == Ulid::nil()
+}
 fn missing_question() -> ItemId {
     ItemId(Ulid::nil())
 }
@@ -502,6 +509,7 @@ pub enum Event {
         body: Item,
     },
     InterruptDismissed {
+        #[serde(default = "missing_turn", skip_serializing_if = "is_missing_turn")]
         turn: TurnId,
     },
     TurnEnded {

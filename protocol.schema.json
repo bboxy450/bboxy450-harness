@@ -815,8 +815,7 @@
             }
           },
           "required": [
-            "type",
-            "turn"
+            "type"
           ],
           "type": "object"
         },
@@ -2373,8 +2372,7 @@
             }
           },
           "required": [
-            "type",
-            "turn"
+            "type"
           ],
           "type": "object"
         },
