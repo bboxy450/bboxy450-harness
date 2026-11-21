@@ -1717,3 +1717,36 @@ display(second.data)
     }
     rig.close().await;
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn artifact_display_retries_only_definite_nonadmission() {
+    let rig = Rig::start_managed(true).await;
+    let source = r#"
+attempts = []
+def occupied(**args):
+    attempts.append(args)
+    if len(attempts) == 1:
+        raise ToolError({"structuredContent":{"status":"rejected","error":{"code":"provider_busy"}}})
+    return "saved"
+saved = _write_artifact(occupied, content="same bytes")
+refusals = []
+for status, code in [("unknown", "provider_busy"), ("rejected", "artifact_conflict")]:
+    def failed(**args):
+        refusals.append(args)
+        raise ToolError({"structuredContent":{"status":status,"error":{"code":code}}})
+    try:
+        _write_artifact(failed, content="no redispatch")
+    except ToolError as error:
+        assert error.code == code
+emit({"saved":saved,"attempts":attempts,"refusals":refusals})
+"#;
+    let record = rig.run(source).await;
+    assert_eq!(record["status"], "completed", "{record}");
+    assert_eq!(
+        record["emitted"],
+        json!([{"saved":"saved",
+                "attempts":[{"content":"same bytes"},{"content":"same bytes"}],
+                "refusals":[{"content":"no redispatch"},{"content":"no redispatch"}]}])
+    );
+    rig.close().await;
+}

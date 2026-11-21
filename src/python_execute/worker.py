@@ -17,6 +17,7 @@ import shutil
 import socket
 import sys
 import tempfile
+import time
 import urllib.parse
 import traceback
 
@@ -703,12 +704,27 @@ def _stage_artifact(payload, store):
         return store(path)
 
 
+def _write_artifact(tool, **arguments):
+    # The root projector can briefly own publication between writes. Each
+    # retry has a fresh child receipt, only after an explicit non-admission.
+    delays = iter((0.02, 0.04, 0.08, 0.16, 0.32, 0.64))
+    while True:
+        try:
+            return tool(**arguments)
+        except ToolError as error:
+            delay = next(delays, None)
+            if (delay is None or error.code != "provider_busy" or error.unknown
+                    or error.result.get("structuredContent", {}).get("status") != "rejected"):
+                raise
+            time.sleep(delay)
+
+
 def _capture_json(media_type, data):
     payload = json.dumps(data, ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode()
     if len(payload) <= 262144:
-        return bboxy.artifact_store(media_type=media_type, content=data)
-    return _stage_artifact(payload,
-                           lambda path: bboxy.artifact_store(media_type=media_type, source_path=path))
+        return _write_artifact(bboxy.artifact_store, media_type=media_type, content=data)
+    return _stage_artifact(payload, lambda path: _write_artifact(
+        bboxy.artifact_store, media_type=media_type, source_path=path))
 
 
 def display(plot, inputs=(), update=None):
@@ -749,11 +765,12 @@ def display(plot, inputs=(), update=None):
     definition = _capture_json(definition_type, definition)
     declared.append(_artifact_pin(definition))
     if expected is None:
-        write = lambda path: bboxy.artifact_store(media_type="image/svg+xml", source_path=path,
-                                                  inputs=declared)
+        write = lambda path: _write_artifact(
+            bboxy.artifact_store, media_type="image/svg+xml", source_path=path, inputs=declared)
     else:
-        write = lambda path: bboxy.artifact_update(id=expected["id"], expected_revision=expected["revision"],
-                                                  source_path=path, inputs=declared)
+        write = lambda path: _write_artifact(
+            bboxy.artifact_update, id=expected["id"], expected_revision=expected["revision"],
+            source_path=path, inputs=declared)
     return _display_reference(_stage_artifact(svg, write))
 
 
