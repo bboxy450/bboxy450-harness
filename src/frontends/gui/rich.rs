@@ -336,9 +336,32 @@ impl Face {
         }
     }
 }
+type Image = Arc<bbt_render::chrome::icons::Image>;
+type LoadImages = dyn Fn(&mut Markdown) -> Vec<Image> + Send + Sync;
+
+/// Host-owned resolution. Replacing the handle invalidates unchanged Markdown.
+/// Standalone surfaces never install a loader.
+pub struct ImagePreparation(Box<LoadImages>);
+
+impl ImagePreparation {
+    pub fn new(load: impl Fn(&mut Markdown) -> Vec<Image> + Send + Sync + 'static) -> Arc<Self> {
+        Arc::new(Self(Box::new(load)))
+    }
+
+    pub(super) fn same(a: &Option<Arc<Self>>, b: &Option<Arc<Self>>) -> bool {
+        match (a, b) {
+            (None, None) => true,
+            (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+            _ => false,
+        }
+    }
+}
+
 #[derive(Default)]
 struct Document {
     stream: StreamingMarkdown,
+    prepared_images: Option<Markdown>,
+    images: Vec<Image>,
     blocks: Vec<Prepared>,
     width: f32,
     /// The text zoom the blocks were laid out at; another zoom relays them out.
@@ -362,6 +385,7 @@ struct Prepared {
 pub struct Documents {
     theme: ui::Theme,
     docs: HashMap<ItemId, Document>,
+    image_preparation: Option<Arc<ImagePreparation>>,
     highlighter: Option<RustHighlighter>,
     pub parsed_bytes: usize,
     pub received_bytes: usize,
@@ -416,6 +440,35 @@ impl Body {
     }
 }
 impl Documents {
+    pub(super) fn set_image_preparation(
+        &mut self,
+        preparation: Option<Arc<ImagePreparation>>,
+    ) -> bool {
+        if ImagePreparation::same(&self.image_preparation, &preparation) {
+            return false;
+        }
+        self.image_preparation = preparation;
+        for doc in self.docs.values_mut() {
+            if doc.prepared_images.take().is_some() {
+                doc.blocks.clear();
+                doc.images.clear();
+            }
+        }
+        true
+    }
+
+    pub(super) fn reset_session(&mut self) {
+        *self = Self {
+            theme: self.theme,
+            image_preparation: self.image_preparation.take(),
+            ..Default::default()
+        };
+    }
+
+    pub(super) fn images(&self) -> impl Iterator<Item = &Image> {
+        self.docs.values().flat_map(|doc| &doc.images)
+    }
+
     pub fn set_theme(&mut self, theme: ui::Theme) -> bool {
         if self.theme == theme {
             return false;
@@ -590,10 +643,22 @@ impl Documents {
         if let Some(start) = changed {
             doc.blocks.retain(|b| b.source.end <= start);
         }
+        if let Some(preparation) = &self.image_preparation
+            && (parse || doc.prepared_images.is_none())
+            && doc.stream.document().source.contains("![")
+        {
+            let mut markdown = doc.stream.document().clone();
+            doc.images = (preparation.0)(&mut markdown);
+            doc.prepared_images = Some(markdown);
+        }
+        let markdown = doc
+            .prepared_images
+            .as_ref()
+            .unwrap_or_else(|| doc.stream.document());
         let highlighter = self
             .highlighter
             .get_or_insert_with(|| RustHighlighter::new(self.theme == ui::Theme::Light));
-        for block in &doc.stream.document().blocks[doc.blocks.len()..] {
+        for block in &markdown.blocks[doc.blocks.len()..] {
             let fragment = Markdown {
                 blocks: vec![block.clone()],
                 ..Default::default()
@@ -985,6 +1050,65 @@ fn chips_and_bullets(
 #[cfg(test)]
 mod tests {
     use super::tool_markdown;
+
+    #[tokio::test]
+    async fn image_preparation_replaces_the_layout_for_unchanged_text() {
+        use super::{Documents, ImagePreparation};
+        use crate::protocol::ItemId;
+        use bbt_doc::{BlockKind, Inline, markdown::ImageAsset};
+        use bbt_ui::components::{Layout, LayoutKind};
+        use std::sync::Arc;
+
+        fn has_image(layout: &Layout, name: &str) -> bool {
+            matches!(&layout.kind, LayoutKind::Image { asset, .. } if asset == name)
+                || layout.children.iter().any(|child| has_image(child, name))
+        }
+
+        crate::runtime::blocking(|| {
+            let mut docs = Documents::default();
+            let metrics = super::super::view::Metrics::default();
+            let id = ItemId::new();
+            let text = "Before ![sample](images/probe.png) after.";
+            for name in ["image/a", "image/b", "image/a"] {
+                let prepare = ImagePreparation::new(move |markdown| {
+                    let BlockKind::Paragraph(inlines) = &mut markdown.blocks[0].kind else {
+                        panic!("fixture needs a paragraph");
+                    };
+                    let asset = inlines
+                        .iter_mut()
+                        .find_map(|inline| match inline {
+                            Inline::Image { asset, .. } => Some(asset),
+                            _ => None,
+                        })
+                        .expect("fixture needs an image");
+                    *asset = Some(ImageAsset {
+                        key: name.into(),
+                        width: 20,
+                        height: 12,
+                    });
+                    vec![Arc::new(bbt_render::chrome::icons::Image {
+                        name: name.into(),
+                        width: 20,
+                        height: 12,
+                        rgba: vec![255; 20 * 12 * 4],
+                    })]
+                });
+                assert!(docs.set_image_preparation(Some(prepare)));
+                let body = docs.prepare(id, text, true, 480., 1., &metrics).unwrap();
+                assert!(body.blocks.iter().any(|layout| has_image(layout, name)));
+                assert_eq!(docs.images().count(), 1);
+            }
+            assert!(docs.set_image_preparation(None));
+            let body = docs.prepare(id, text, true, 480., 1., &metrics).unwrap();
+            assert!(
+                body.blocks
+                    .iter()
+                    .all(|layout| !has_image(layout, "image/a"))
+            );
+            assert_eq!(docs.images().count(), 0);
+        })
+        .await;
+    }
 
     #[test]
     fn tool_markdown_detection_accepts_structure_and_markdown_reads() {

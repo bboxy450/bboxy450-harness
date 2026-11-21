@@ -154,6 +154,8 @@ pub struct FrameState {
     pub prepared: Option<Arc<super::view::PreparedRows>>,
     #[cfg(feature = "embedded")]
     pub faces: Arc<super::rich::Faces>,
+    #[cfg(feature = "embedded")]
+    pub image_preparation: Option<Arc<super::rich::ImagePreparation>>,
 }
 
 /// Local admission is synchronous. A Unix dispatch is explicitly pending until
@@ -301,6 +303,8 @@ struct Mailbox {
     profile_error: arc_swap::ArcSwapOption<String>,
     #[cfg(feature = "embedded")]
     faces: arc_swap::ArcSwap<super::rich::Faces>,
+    #[cfg(feature = "embedded")]
+    image_preparation: arc_swap::ArcSwapOption<super::rich::ImagePreparation>,
 }
 impl Mailbox {
     fn pending(&self, op: OpId, insert: bool) {
@@ -410,6 +414,8 @@ impl Bridge {
                 profile_error: arc_swap::ArcSwapOption::empty(),
                 #[cfg(feature = "embedded")]
                 faces: arc_swap::ArcSwap::from_pointee(Default::default()),
+                #[cfg(feature = "embedded")]
+                image_preparation: arc_swap::ArcSwapOption::empty(),
             }),
             messages,
             dirty,
@@ -454,6 +460,15 @@ impl Bridge {
             }
         }));
     }
+    /// Install or replace the host resolver and schedule preparation off-thread.
+    #[cfg(feature = "embedded")]
+    pub fn set_image_preparation(&self, preparation: Option<Arc<super::rich::ImagePreparation>>) {
+        let previous = self.mailbox.image_preparation.swap(preparation.clone());
+        if !super::rich::ImagePreparation::same(&previous, &preparation) {
+            self.mailbox.resized.notify_one();
+        }
+    }
+
     /// Resizing schedules preparation; the previous solved rows remain visible.
     pub fn set_width(&self, width: f32) {
         if width.is_finite() {
@@ -866,6 +881,10 @@ impl Bridge {
         );
         self.messages.complete_drain();
         self.mailbox.latest.complete_drain();
+        #[cfg(feature = "embedded")]
+        {
+            state.image_preparation = mailbox.image_preparation.load_full();
+        }
         state.created_here =
             self.created_session.is_some() && self.created_session == state.transcript.session;
         // Retire on the UI owner's consumed projection, after worker preparation.
@@ -1008,7 +1027,9 @@ async fn publish_frame(mut state: FrameState, mailbox: &Arc<Mailbox>, preparer: 
         let zoom = mailbox.zoom.load(Ordering::Acquire);
         let appearance = mailbox.appearance.load(Ordering::Acquire);
         let publisher = mailbox.clone();
+        let image_preparation = mailbox.image_preparation.load_full();
         *preparer = crate::runtime::blocking(move || {
+            owned.set_image_preparation(image_preparation);
             owned.set_zoom(super::zoom::Zoom::from_percent(
                 i32::try_from(zoom).unwrap_or(i32::from(super::zoom::DEFAULT)),
             ));

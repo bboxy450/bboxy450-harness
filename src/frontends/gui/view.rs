@@ -24,7 +24,7 @@ use bbt_ui::{
 };
 use bbt_ui_model::{
     Density, Theme,
-    draw::{Color, DrawList, TextStyle, TypeScale},
+    draw::{Color, DrawList, Prim, TextStyle, TypeScale},
     layout::{Axis, Rect, TextMeasure, TextStyle as MeasureStyle},
 };
 use std::{
@@ -241,6 +241,7 @@ type CacheKey = (
     f32,
     bool,
     Option<Arc<PreparedRows>>,
+    Option<Arc<super::rich::ImagePreparation>>,
 );
 pub struct CachedRow {
     width: f32,
@@ -606,6 +607,31 @@ impl HarnessView {
             && self.composer.view.text.is_empty()
             && self.composer.view.attach.is_empty()
     }
+    /// Only images referenced by this frame are sent to the host texture atlas.
+    pub fn transcript_images(&self) -> Vec<Arc<bbt_render::chrome::icons::Image>> {
+        fn collect<'a>(primitives: &'a [Prim], names: &mut std::collections::BTreeSet<&'a str>) {
+            for primitive in primitives {
+                match primitive {
+                    Prim::Image { image, .. } => {
+                        names.insert(image.as_ref());
+                    }
+                    Prim::Group { primitives, .. } => collect(primitives, names),
+                    _ => {}
+                }
+            }
+        }
+        let Some(prepared) = &self.retained_prepared else {
+            return Vec::new();
+        };
+        let mut names = std::collections::BTreeSet::new();
+        collect(&self.frame.list.primitives, &mut names);
+        collect(&self.frame.over.primitives, &mut names);
+        names
+            .into_iter()
+            .filter_map(|key| prepared.images.get(key).cloned())
+            .collect()
+    }
+
     pub fn invalidate(&mut self) {
         self.cached = None;
     }
@@ -941,11 +967,13 @@ impl HarnessView {
         // a hover change rebuilds too: the menu row's fill starts its fade
         if !self.anim.in_motion()
             && !self.menus.dirty
-            && self
-                .cached
-                .as_ref()
-                .is_some_and(|(model, text, s, o, ready, prepared)| {
+            && self.cached.as_ref().is_some_and(
+                |(model, text, s, o, ready, prepared, image_preparation)| {
                     Arc::ptr_eq(model, &state.transcript)
+                        && super::rich::ImagePreparation::same(
+                            image_preparation,
+                            &state.image_preparation,
+                        )
                         && text == &draft
                         && s == &size
                         && *o == offset_key
@@ -955,7 +983,8 @@ impl HarnessView {
                             (None, None) => true,
                             _ => false,
                         }
-                })
+                },
+            )
         {
             return Ok(&self.frame);
         }
@@ -975,6 +1004,10 @@ impl HarnessView {
                 && p.source.session == model.session
                 && p.source.epoch == model.epoch
                 && p.source.cursor <= model.cursor
+                && super::rich::ImagePreparation::same(
+                    &p.image_preparation,
+                    &state.image_preparation,
+                )
         };
         let prepared = state
             .prepared
@@ -1699,6 +1732,7 @@ impl HarnessView {
             offset_key,
             state.ready,
             state.prepared.clone(),
+            state.image_preparation.clone(),
         ));
         Ok(&self.frame)
     }
@@ -2489,7 +2523,11 @@ impl HarnessView {
                     }),
                 };
                 self.notice = bridge
-                    .send(Op::AnswerQuestion { question, answer, client: None })
+                    .send(Op::AnswerQuestion {
+                        question,
+                        answer,
+                        client: None,
+                    })
                     .err()
                     .map(|e| format!("Answer not admitted: {}", super::bridge::refusal_text(&e)));
             }
@@ -2554,7 +2592,11 @@ impl HarnessView {
                             });
                             self.composer.stored(&sent);
                             self.notice = bridge
-                                .send(Op::AnswerQuestion { question, answer, client: None })
+                                .send(Op::AnswerQuestion {
+                                    question,
+                                    answer,
+                                    client: None,
+                                })
                                 .err()
                                 .map(|e| {
                                     format!(
@@ -2707,7 +2749,11 @@ impl HarnessView {
                             self.invalidate();
                             return;
                         }
-                        Op::ResolveApproval { approval, decision, client: None }
+                        Op::ResolveApproval {
+                            approval,
+                            decision,
+                            client: None,
+                        }
                     }
                     _ => unreachable!(),
                 };
@@ -3562,8 +3608,12 @@ pub fn translate(node: &mut c::Layout, dx: f32, dy: f32) {
     }
 }
 
+type TranscriptImages = Arc<HashMap<String, Arc<bbt_render::chrome::icons::Image>>>;
+
 /// Immutable worker-prepared transcript. The frame only positions visible rows.
 pub struct PreparedRows {
+    pub(super) image_preparation: Option<Arc<super::rich::ImagePreparation>>,
+    images: TranscriptImages,
     pub theme: Theme,
     pub theme_revision: u64,
     pub source: Arc<Transcript>,
@@ -3607,6 +3657,8 @@ pub struct Preparer {
     /// Tool outputs read back from their blob; `None` when the blob could not be read.
     tool_blobs: std::collections::HashMap<ItemId, Option<Vec<OutputBlock>>>,
     documents: super::rich::Documents,
+    image_preparation: Option<Arc<super::rich::ImagePreparation>>,
+    images: TranscriptImages,
     /// Global text zoom for the rows it prepares; rows at another zoom are rebuilt.
     zoom: Zoom,
     /// A cold preparation builds the newest rows first and stops after this
@@ -3630,6 +3682,8 @@ impl Default for Preparer {
             terminal_outputs: Default::default(),
             tool_blobs: Default::default(),
             documents: Default::default(),
+            image_preparation: None,
+            images: Default::default(),
             zoom: Default::default(),
             budget: PREPARE_BUDGET,
         }
@@ -3691,6 +3745,7 @@ impl Preparer {
             }
             prepared.pending.insert(prompt.op, Arc::new(layout));
         }
+        prepared.images = self.retain_images();
         Ok(())
     }
     pub fn context(&self) -> ui::Context {
@@ -3721,9 +3776,31 @@ impl Preparer {
         self.theme = prepared.theme;
         self.theme_revision = prepared.theme_revision;
         self.documents.set_theme(prepared.theme);
+        self.set_image_preparation(prepared.image_preparation.clone());
+        self.images = prepared.images.clone();
         self.rows = prepared.rows.clone();
         self.scope = Some((prepared.source.session, prepared.source.epoch));
     }
+    pub(super) fn set_image_preparation(
+        &mut self,
+        preparation: Option<Arc<super::rich::ImagePreparation>>,
+    ) {
+        if self.documents.set_image_preparation(preparation.clone()) {
+            self.image_preparation = preparation;
+            self.rows.clear();
+            self.images = Default::default();
+        }
+    }
+
+    fn retain_images(&mut self) -> TranscriptImages {
+        for image in self.documents.images() {
+            if !self.images.contains_key(&image.name) {
+                Arc::make_mut(&mut self.images).insert(image.name.clone(), image.clone());
+            }
+        }
+        self.images.clone()
+    }
+
     /// Blob loading is completed before preparation, on the background path.
     pub fn has_terminal_output(&self, id: &ItemId) -> bool {
         self.terminal_outputs.contains_key(id)
@@ -3756,8 +3833,8 @@ impl Preparer {
             self.rows.clear();
             self.terminal_outputs.clear();
             self.tool_blobs.clear();
-            self.documents = Default::default();
-            self.documents.set_theme(self.theme);
+            self.documents.reset_session();
+            self.images = Default::default();
         }
         self.scope = Some(scope);
     }
@@ -3853,6 +3930,8 @@ impl Preparer {
             total_height += height;
         }
         Ok(PreparedRows {
+            image_preparation: self.image_preparation.clone(),
+            images: self.retain_images(),
             theme: self.theme,
             theme_revision: self.theme_revision,
             source,
@@ -4546,6 +4625,34 @@ mod progressive_prepare_tests {
         *p = next;
         prepared
     }
+    #[tokio::test]
+    async fn image_preparation_rejects_a_late_frame_after_root_replacement() {
+        use super::super::rich::ImagePreparation;
+        let transcript = Arc::new(transcript(1));
+        let mut preparer = Preparer::default();
+        let first = ImagePreparation::new(|_| Vec::new());
+        preparer.set_image_preparation(Some(first.clone()));
+        let old = Arc::new(run(&mut preparer, transcript.clone()).await);
+        let mut state = FrameState {
+            transcript,
+            prepared: Some(old.clone()),
+            image_preparation: Some(first),
+            ready: true,
+            ..Default::default()
+        };
+        crate::runtime::blocking(move || {
+            let mut view = HarnessView::default();
+            view.render(&state, [900., 640.]).unwrap();
+            assert!(view.retained_prepared.as_ref().is_some_and(|p| Arc::ptr_eq(p, &old)));
+
+            // The raw prepared pointer and transcript stayed exactly equal,
+            // so ignoring image ownership in either cache admits stale rows.
+            state.image_preparation = Some(ImagePreparation::new(|_| Vec::new()));
+            view.render(&state, [900., 640.]).unwrap();
+            assert!(view.retained_prepared.is_none());
+        }).await;
+    }
+
     // State: a cold preparer and a long transcript. Safety: the first run
     // builds at least PREPARE_FIRST_ROWS newest rows and reports incomplete;
     // the view already has the tail; further runs finish without rebuilding;
