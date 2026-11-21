@@ -1244,8 +1244,8 @@ name = "HarnessInterruptRecovery"
 title = "A failed turn owns one recoverable deadline, even across face changes and failed respawn."
 models = ["HarnessInterruptRecovery", "BrokenHarnessInterruptDuplicate", "BrokenHarnessInterruptNoRearm"]
 controls = [{name="BrokenHarnessInterruptDuplicate", expected="safety"}, {name="BrokenHarnessInterruptNoRearm", expected="liveness"}]
-sources = ["src/protocol/mod.rs", "src/backend/acp_agent.rs", "src/engine/mod.rs", "tests/formal/models.rs"]
-implementation_tests = ["tests/acp_agent.rs", "tests/fixtures/acp-agent/fake_agent.py"]
+sources = ["src/interrupt.rs", "src/protocol/mod.rs", "src/backend/acp_agent.rs", "src/engine/mod.rs", "src/store.rs", "src/frontends/gui/model.rs", "tests/formal/models.rs"]
+implementation_tests = ["tests/acp_agent.rs", "tests/fixtures/acp-agent/fake_agent.py", "tests/store_recovery.rs"]
 assumptions = "One actor; up to eight distinct failed turn identities, six failed resumes per chain, saturated back-off, one face restart bit and A-B-A face selection. Weak fairness of the ready deadline and successful resume; a permanently broken agent cannot receive a prompt. Wire and restart events can stutter, actual elapsed time and process I/O remain implementation-only. No Rust refinement proof."
 property = "At most one automatic Continue per interrupt, none after cancel or replacement. Failed resume re-arms. Under the bounded failures and weak fairness, a pending interrupt eventually sends Continue or is dismissed."
 checks = ["make test-formal", "make test"]

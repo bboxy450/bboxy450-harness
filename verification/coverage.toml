@@ -456,6 +456,7 @@ sources = [
     "src/protocol/laws.rs",
     "src/protocol/usage.rs",
     "src/protocol/agent_config.rs",
+    "src/interrupt.rs",
     "src/protocol/mod.rs",
     "src/provider/mod.rs",
     "src/provider/http.rs",
