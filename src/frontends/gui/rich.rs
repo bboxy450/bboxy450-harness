@@ -1120,7 +1120,7 @@ mod tests {
         use std::sync::Arc;
 
         fn has_image(layout: &Layout, name: &str) -> bool {
-            matches!(&layout.kind, LayoutKind::Image { asset, .. } if asset == name)
+            matches!(&layout.kind, LayoutKind::Image { asset, .. } if AsRef::<str>::as_ref(asset) == name)
                 || layout.children.iter().any(|child| has_image(child, name))
         }
 
