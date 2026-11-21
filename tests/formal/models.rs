@@ -7024,8 +7024,184 @@ mod dream_c1;
 mod dream_proof_tools;
 #[path = "dream_read.rs"]
 mod dream_read;
+// The actor owns the retry. Faces and wire replies carry the failed turn's
+// identity, including after selecting A, then B, then A again.
+fn interrupt_recovery(control: u8) -> Model {
+    let phase = 0;
+    let generation = 1;
+    let attempt = 2;
+    let sent = 3;
+    let cancelled = 4;
+    let resume_failures = 5;
+    let face = 6;
+    let view = 7;
+    let due = 8;
+    let presented_generation = 9;
+    let running = 0;
+    let pending = 1;
+    let resuming = 2;
+    let stopped = 3;
+    let stranded = 4;
+    let mut m = base(
+        match control {
+            1 => "InterruptDuplicate",
+            2 => "InterruptNoRearm",
+            _ => "InterruptRecovery",
+        },
+        control != 0,
+        &[
+            ("phase", 4, running),
+            ("generation", 8, 0),
+            ("attempt", 6, 0),
+            ("sent", 2, 0),
+            ("cancelled", 1, 0),
+            ("resume_failures", 6, 0),
+            ("face", 2, 0),
+            ("view", 1, 0),
+            ("due", 1, 0),
+            ("presented_generation", 8, 0),
+        ],
+    );
+    let pend = eq(phase, pending);
+    let resume = eq(phase, resuming);
+    let new_interrupt = [
+        (phase, Int(pending)),
+        (generation, Var(generation).plus(Int(1))),
+        (
+            attempt,
+            Var(attempt)
+                .lt(Int(6))
+                .ite(Var(attempt).plus(Int(1)), Int(6)),
+        ),
+        (sent, Int(0)),
+        (cancelled, Int(0)),
+        (due, Int(0)),
+    ];
+    act(
+        &mut m,
+        "Interrupt",
+        all([eq(phase, running), Var(generation).lt(Int(8))]),
+        &new_interrupt,
+    );
+    let tick = m.actions.len();
+    act(
+        &mut m,
+        "DeadlineReached",
+        pend.clone().and(eq(due, 0)),
+        &[(due, Int(1))],
+    );
+    let timer = m.actions.len();
+    act(
+        &mut m,
+        "TimerClaimsDueInterrupt",
+        pend.clone().and(eq(due, 1)),
+        &[(phase, Int(resuming))],
+    );
+    act(
+        &mut m,
+        "FaceDisplaysCurrentInterrupt",
+        pend.clone(),
+        &[(presented_generation, Var(generation))],
+    );
+    act(
+        &mut m,
+        "ContinueNow",
+        pend.clone()
+            .and(Var(presented_generation).eq(Var(generation))),
+        &[(phase, Int(resuming))],
+    );
+    let finished = m.actions.len();
+    act(
+        &mut m,
+        "ResumeAndSend",
+        resume.clone(),
+        &[(phase, Int(running)), (sent, Var(sent).plus(Int(1)))],
+    );
+    let mut failed = new_interrupt.to_vec();
+    failed.push((resume_failures, Var(resume_failures).plus(Int(1))));
+    if control == 2 {
+        failed[0].1 = Int(stranded);
+    }
+    act(
+        &mut m,
+        "ResumeFailsAndRearms",
+        all([
+            resume.clone(),
+            Var(resume_failures).lt(Int(6)),
+            Var(generation).lt(Int(8)),
+        ]),
+        &failed,
+    );
+    for (name, next) in [("Cancel", stopped), ("EditAndSend", running)] {
+        act(
+            &mut m,
+            name,
+            pend.clone(),
+            &[(phase, Int(next)), (cancelled, Int(1))],
+        );
+    }
+    act(
+        &mut m,
+        "EndTurn",
+        all([eq(phase, running), Int(0).lt(Var(attempt))]),
+        &[(attempt, Int(0)), (resume_failures, Int(0))],
+    );
+    act(
+        &mut m,
+        "GuiRestarts",
+        Bool(true),
+        &[(view, eq(view, 0).ite(Int(1), Int(0)))],
+    );
+    act(
+        &mut m,
+        "SelectOtherSeat",
+        Var(face).lt(Int(2)),
+        &[(face, Var(face).plus(Int(1)))],
+    );
+    act(
+        &mut m,
+        "LateReplyOrStaleContinue",
+        Var(presented_generation).lt(Var(generation)),
+        &[],
+    );
+    if control == 1 {
+        act(
+            &mut m,
+            "DuplicateTimerSends",
+            all([eq(phase, running), eq(sent, 1)]),
+            &[(sent, Int(2))],
+        );
+    }
+    safe(&mut m, "AtMostOneContinue", Var(sent).le(Int(1)));
+    safe(
+        &mut m,
+        "NoContinueAfterDismissal",
+        eq(cancelled, 0).or(eq(sent, 0)),
+    );
+    safe(
+        &mut m,
+        "PendingHasBackoff",
+        pend.clone().negate().or(Int(0).lt(Var(attempt))),
+    );
+    if control != 1 {
+        m.weak_fair.push(vec![tick]);
+        m.weak_fair.push(vec![timer]);
+        progress(
+            &mut m,
+            "UncancelledEventuallySends",
+            pend.or(resume).or(eq(phase, stranded)),
+            eq(sent, 1).or(eq(cancelled, 1)),
+            vec![finished],
+        );
+    }
+    m
+}
+
 pub fn corpus() -> Vec<(Model, &'static str)> {
     let mut out = vec![
+        (interrupt_recovery(0), "pass"),
+        (interrupt_recovery(1), "safety"),
+        (interrupt_recovery(2), "liveness"),
         (dream_c1::bootstrap_entry(0), "pass"),
         (dream_c1::bootstrap_entry(1), "safety"),
         (dream_c1::bootstrap_entry(2), "safety"),

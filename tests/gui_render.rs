@@ -504,6 +504,7 @@ async fn completion_surface_occludes_acp_error_notice_and_red_turn_receipt() {
             reason: StopReason::Error {
                 class: ErrorClass::Config,
                 message: "agent exited".into(),
+                interrupt: None,
             },
             usage: None,
         },
@@ -1581,6 +1582,7 @@ async fn tight_receipt_is_a_rule_and_one_line() {
             StopReason::Error {
                 class: ErrorClass::Transient,
                 message: "socket closed".into(),
+                interrupt: None,
             },
             400,
             vec![

@@ -828,7 +828,7 @@ async fn bounded_startup_and_nonlaunch_environment() {
         before.elapsed() < Duration::from_secs(10),
         "unbounded ACP startup"
     );
-    assert!(events.iter().any(|e| matches!(&e.event,Event::TurnEnded{reason:StopReason::Error{message,..},..} if message.contains("startup deadline"))));
+    assert!(events.iter().any(|e| matches!(&e.event,Event::TurnEnded{reason:StopReason::Error{message,interrupt:Some(_),..},..} if message.contains("startup deadline"))));
     host.close_all().await;
 }
 
@@ -860,7 +860,10 @@ async fn child_restart_bootstraps_without_an_added_turn() {
     assert!(first.iter().any(|e| matches!(
         e.event,
         Event::TurnEnded {
-            reason: StopReason::Error { .. },
+            reason: StopReason::Error {
+                interrupt: Some(_),
+                ..
+            },
             ..
         }
     )));

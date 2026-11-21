@@ -1238,3 +1238,14 @@ implementation_tests = ["src/mcp/relay.rs"]
 assumptions = "Two nonreused server births, optional readiness/observation/capture, atomic completed observation and completed first-page list. Observe abstracts an uncancelled watcher iteration with an available downstream writer and a successful notification write; busy writers and coalesced transient upstream states may suppress optional notices. No fairness or liveness claim. Actual stdio/Unix IO, backoff, schema bytes, pinned pagination and generation-fenced calls remain implementation witnesses."
 property = "MCP-RELAY-001: every changed completed observation, including unavailable-to-ready, issues a catalogue notification. MCP-RELAY-002: a completed first-page list uses the current birth. Separate controls forget the observed unavailable state and retain the first capture across re-list. The real stdio restart witness checks both notifications, refuses a stale call before listing without sending it, and admits exactly one future call after listing. Existing HarnessMcpServer models generation-fenced results."
 checks = ["make test-formal", "make test"]
+
+[[contract]]
+name = "HarnessInterruptRecovery"
+title = "A failed turn owns one recoverable deadline, even across face changes and failed respawn."
+models = ["HarnessInterruptRecovery", "BrokenHarnessInterruptDuplicate", "BrokenHarnessInterruptNoRearm"]
+controls = [{name="BrokenHarnessInterruptDuplicate", expected="safety"}, {name="BrokenHarnessInterruptNoRearm", expected="liveness"}]
+sources = ["src/protocol/mod.rs", "src/backend/acp_agent.rs", "src/engine/mod.rs", "tests/formal/models.rs"]
+implementation_tests = ["tests/acp_agent.rs", "tests/fixtures/acp-agent/fake_agent.py"]
+assumptions = "One actor; up to eight distinct failed turn identities, six failed resumes per chain, saturated back-off, one face restart bit and A-B-A face selection. Weak fairness of the ready deadline and successful resume; a permanently broken agent cannot receive a prompt. Wire and restart events can stutter, actual elapsed time and process I/O remain implementation-only. No Rust refinement proof."
+property = "At most one automatic Continue per interrupt, none after cancel or replacement. Failed resume re-arms. Under the bounded failures and weak fairness, a pending interrupt eventually sends Continue or is dismissed."
+checks = ["make test-formal", "make test"]

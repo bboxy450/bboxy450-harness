@@ -58,6 +58,7 @@ pub struct Transcript {
     pub order: Vector<ItemId>,
     pub turns: OrdMap<TurnId, TurnState>,
     pub turn_origins: OrdMap<TurnId, TurnOrigin>,
+    pub pending_interrupt: Option<TurnId>,
     pub phase: Phase,
     pub closed: bool,
     pub unknown: u64,
@@ -81,6 +82,7 @@ impl Default for Transcript {
             order: Vector::new(),
             turns: OrdMap::new(),
             turn_origins: OrdMap::new(),
+            pending_interrupt: None,
             phase: Phase::Idle,
             closed: false,
             unknown: 0,
@@ -158,6 +160,7 @@ impl Transcript {
                 self.turns.insert(*turn, TurnState::Queued);
             }
             Event::TurnStarted { turn, origin, .. } => {
+                self.pending_interrupt = None;
                 self.turns.insert(*turn, TurnState::Running);
                 self.turn_origins
                     .insert(*turn, origin.clone().unwrap_or(TurnOrigin::User));
@@ -167,6 +170,20 @@ impl Transcript {
                 reason,
                 usage,
             } => {
+                if matches!(
+                    reason,
+                    StopReason::Error {
+                        interrupt: Some(_),
+                        ..
+                    }
+                ) && self
+                    .meta
+                    .as_ref()
+                    .and_then(|m| m.fork)
+                    .is_none_or(|(_, cut)| e.at > cut)
+                {
+                    self.pending_interrupt = Some(*turn);
+                }
                 self.turns.insert(
                     *turn,
                     TurnState::Ended {
@@ -174,6 +191,11 @@ impl Transcript {
                         usage: usage.clone().map(Box::new),
                     },
                 );
+            }
+            Event::InterruptDismissed { turn } => {
+                if self.pending_interrupt == Some(*turn) {
+                    self.pending_interrupt = None;
+                }
             }
             Event::ItemStarted {
                 turn,
@@ -254,6 +276,7 @@ impl Transcript {
                 };
             }
             Event::SessionClosed => {
+                self.pending_interrupt = None;
                 self.closed = true;
                 self.phase = Phase::Closed;
             }

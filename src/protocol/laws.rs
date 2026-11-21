@@ -108,6 +108,7 @@ pub fn check_transcript(events: &[Envelope]) -> Result<(), LawViolation> {
                     reason,
                     StopReason::Error {
                         class: ErrorClass::Cancelled,
+                        interrupt: None,
                         ..
                     }
                 ) {

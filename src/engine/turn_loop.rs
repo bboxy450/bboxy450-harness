@@ -157,6 +157,7 @@ impl TurnRunner {
                     Ok(Control::Stop(StopReason::Error {
                         class: ErrorClass::Transient,
                         message: "turn timeout".into(),
+                        interrupt: None,
                     }))
                 },
                 { self.message(event).await },
@@ -173,16 +174,19 @@ impl TurnRunner {
             Ok(Err(message)) => StopReason::Error {
                 class: ErrorClass::Internal,
                 message,
+                interrupt: None,
             },
             Err(_) => StopReason::Error {
                 class: ErrorClass::Internal,
                 message: "turn task panicked".into(),
+                interrupt: None,
             },
         };
         if self.group.cancel_and_join().await.is_err() {
             reason = StopReason::Error {
                 class: ErrorClass::Internal,
                 message: "child task panicked".into(),
+                interrupt: None,
             };
         }
         if self.ctx.cancel.is_cancelled() {
@@ -281,6 +285,7 @@ impl TurnRunner {
                 reason = StopReason::Error {
                     class: ErrorClass::Internal,
                     message: message.into(),
+                    interrupt: None,
                 };
                 None
             }
@@ -618,6 +623,7 @@ impl TurnRunner {
                     StopReason::Error {
                         class: error.class,
                         message: error.message,
+                        interrupt: None,
                     }
                 }));
             }
@@ -639,6 +645,7 @@ impl TurnRunner {
                         Finish::ContentFilter => StopReason::Error {
                             class: ErrorClass::BadRequest,
                             message: "content filtered".into(),
+                            interrupt: None,
                         },
                         Finish::ToolCalls => unreachable!(),
                     }));

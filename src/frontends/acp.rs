@@ -772,7 +772,13 @@ impl Face {
                 let id = session.pending.lock().unwrap().turns.remove(turn);
                 if let Some(id) = id {
                     match reason {
-                        StopReason::Error {class,message}=>self.error(id,-32603,message,Some(json!({"class":class,"message":message}))).await,
+                        StopReason::Error {class,message,interrupt}=> {
+                            let mut data = json!({"class":class,"message":message});
+                            if let Some(recovery) = interrupt {
+                                data["interrupt"] = json!(recovery);
+                            }
+                            self.error(id,-32603,message,Some(data)).await
+                        },
                         _=>self.response(id,json!({"stopReason":match reason {StopReason::EndTurn=>"end_turn",StopReason::MaxTokens=>"max_tokens",StopReason::MaxRounds=>"max_turn_requests",_=>"cancelled"}})).await,
                     }
                 }

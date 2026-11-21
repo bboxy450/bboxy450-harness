@@ -282,6 +282,7 @@ async fn oversized_open_turn_sends_once_and_unknown_window_warns_once() {
         events.last().unwrap().event,
         Event::TurnEnded {
             reason: StopReason::Error {
+                interrupt: Some(_),
                 class: ErrorClass::BadRequest,
                 ..
             },

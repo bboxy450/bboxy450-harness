@@ -29,8 +29,8 @@ pub(super) struct Folds {
     asking: HashMap<ItemId, ItemId>,
     /// the last visible row of each turn carries the turn's receipt once it ends
     last: HashMap<ItemId, TurnId>,
-    /// First visible item of each agent turn carries its origin heading.
-    pub agent_heads: std::collections::HashSet<ItemId>,
+    /// First visible item of a non-user turn carries its origin heading.
+    origin_heads: HashMap<ItemId, &'static str>,
     /// runaway loop: the repeated reply that opens the card -> everything folded after it
     loops: HashMap<ItemId, Vec<ItemId>>,
     /// turn -> replies folded into its loop (the receipt says so)
@@ -282,9 +282,13 @@ impl Folds {
                 && !f.parent.contains_key(id)
                 && drawn(model, id)
                 && seen.insert(t)
-                && model.turn_origins.get(&t) == Some(&TurnOrigin::Agent)
+                && let Some(label) = match model.turn_origins.get(&t) {
+                    Some(TurnOrigin::Agent) => Some("agent continued"),
+                    Some(TurnOrigin::Automatic) => Some("automatic continuation"),
+                    _ => None,
+                }
             {
-                f.agent_heads.insert(*id);
+                f.origin_heads.insert(*id, label);
             }
         }
         seen.clear();
@@ -353,9 +357,9 @@ impl Folds {
         // rows without folded children or a receipt carry no signature (0)
         let mut any = false;
         let mut h = std::collections::hash_map::DefaultHasher::new();
-        if self.agent_heads.contains(id) {
+        if let Some(label) = self.origin_heads.get(id) {
             any = true;
-            "agent continued".hash(&mut h);
+            label.hash(&mut h);
         }
         if self.tail == Some(*id) {
             any = true;
@@ -368,6 +372,7 @@ impl Folds {
         if let Some(t) = self.last.get(id) {
             any = true;
             format!("{:?}", model.turns.get(t)).hash(&mut h);
+            (model.pending_interrupt == Some(*t)).hash(&mut h);
         }
         // A Python run reported `running` settles to "not polled" when its turn ends.
         if let Some(row) = model.items.get(id)
@@ -1065,11 +1070,12 @@ impl Preparer {
             None => body,
         };
         let mut content: Vec<c::Item> = vec![];
-        if folds.agent_heads.contains(&id) {
-            content.push(f::notice("agent continued", &Level::Info, &ink).into());
+        if let Some(label) = folds.origin_heads.get(&id) {
+            content.push(f::notice(label, &Level::Info, &ink).into());
         }
         content.push(body.into());
         if let Some(turn) = folds.last.get(&id)
+            && model.pending_interrupt != Some(*turn)
             && let Some(TurnState::Ended { reason, usage }) = model.turns.get(turn)
         {
             let items: Vec<&ViewItem> = model
@@ -1088,8 +1094,22 @@ impl Preparer {
                         f::Receipt {
                             ok: matches!(reason, StopReason::EndTurn | StopReason::Quiet { .. }),
                             soft: matches!(reason, StopReason::Interrupted | StopReason::Cancelled),
+                            legacy_actions: matches!(
+                                reason,
+                                StopReason::Error {
+                                    interrupt: None,
+                                    ..
+                                } | StopReason::MaxTokens
+                                    | StopReason::MaxRounds
+                                    | StopReason::Unknown(_)
+                            ),
                             reason: stop_title(reason).into(),
                             why: match reason {
+                                StopReason::Error {
+                                    message,
+                                    interrupt: Some(cause),
+                                    ..
+                                } => Some(format!("{} · {message}", cause.cause)),
                                 StopReason::Error { message, .. } => Some(message.clone()),
                                 _ => None,
                             },
@@ -1710,7 +1730,10 @@ fn stop_title(reason: &StopReason) -> &'static str {
         StopReason::EndTurn => "Done",
         StopReason::Quiet { .. } => "Quiet",
         StopReason::Cancelled => "Cancelled",
-        StopReason::Interrupted => "Interrupted",
+        StopReason::Error {
+            interrupt: Some(_), ..
+        }
+        | StopReason::Interrupted => "Interrupted",
         StopReason::MaxTokens => "Hit the output limit",
         StopReason::MaxRounds => "Stopped at the round limit",
         StopReason::Error { class, .. } => match class {

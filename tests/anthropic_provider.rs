@@ -979,12 +979,17 @@ async fn truncated_or_refused_calls_remain_paired_without_execution() {
         let events = support::end(&mut sub).await;
         assert!(events.iter().any(|e| match &e.event {
             Event::TurnEnded {
-                reason: StopReason::MaxTokens,
+                reason:
+                    StopReason::Error {
+                        interrupt: Some(Interrupt { cause, .. }),
+                        ..
+                    },
                 ..
-            } => name == "length-tool",
+            } if cause == "context.max_tokens" => name == "length-tool",
             Event::TurnEnded {
                 reason:
                     StopReason::Error {
+                        interrupt: Some(_),
                         class: ErrorClass::BadRequest,
                         ..
                     },

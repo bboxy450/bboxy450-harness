@@ -564,7 +564,7 @@ impl Gateway for InProc {
                 switches
             } else if matches!(
                 op.op,
-                Op::Interrupt { .. } | Op::ResolveApproval { .. } | Op::Close
+                Op::Interrupt { .. } | Op::Continue { .. } | Op::ResolveApproval { .. } | Op::Close
             ) {
                 &self.control
             } else {

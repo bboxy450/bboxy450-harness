@@ -128,6 +128,7 @@ pub struct SessionActor {
     generation: Arc<AtomicU64>,
     queue: VecDeque<Queued>,
     running: Option<Running>,
+    recovery: crate::interrupt::Recovery,
     approvals: BTreeMap<ItemId, Pending>,
     resolved: BTreeMap<ItemId, Answerer>,
     interrupted: BTreeMap<TurnId, OpId>,
@@ -425,6 +426,7 @@ impl SessionActor {
         gateway.set_unattended(config.policy.on_unattended);
         let actor = Self {
             recall: None,
+            recovery: crate::interrupt::Recovery::replay(&store.events),
             store,
             gateway: gateway.clone(),
             work,
@@ -515,11 +517,16 @@ impl SessionActor {
        while let Some(work)=self.queue.pop_front(){match work {Queued::Turn(turn,_,_)=>self.publish(Event::TurnEnded{turn,reason:StopReason::Cancelled,usage:None},Some(op)).await?,Queued::Compact(id)=>self.reject(id,Rejection::NothingToCompact).await?}}
        self.publish(Event::SessionClosed,Some(op)).await?;break;
      }
-     if let Some(work)=self.queue.pop_front(){match work{Queued::Turn(turn,blocks,cause)=>self.start(turn,blocks,cause).await?,Queued::Compact(id)=>{self.compact(id).await?;continue;}}}
+     if let Some(work)=self.queue.pop_front(){match work{Queued::Turn(turn,blocks,cause)=>self.start(turn,blocks,cause,TurnOrigin::User).await?,Queued::Compact(id)=>{self.compact(id).await?;continue;}}}
     }
+    let retry_at = self.recovery.deadline().filter(|_| self.running.is_none() && self.profile_pending.is_none() && !self.tools.is_trial());
     tokio::select! {biased;
      Some(op)=self.control.recv()=>self.op(op).await?,
      Some(op)=self.work.recv(),if self.stopping.is_none()&&self.profile_pending.is_none()&&work_batch<8=>{work_batch+=1;self.op(op).await?;},
+     _=async { match retry_at {
+         Some(at) => tokio::time::sleep_until(at).await,
+         None => std::future::pending().await,
+     }} => self.continue_turn(None, None).await?,
      Some(message)=self.internal.recv()=>{work_batch=0;self.internal(message).await?;},
      Some(result)=self.tasks.join_next(),if !self.tasks.is_empty()=> {if let Err(e)=result {self.crashed(&format!("runner failed: {}",if e.is_panic(){"panic"}else{"cancelled"})).await?;}},
      _=tick.tick()=>{work_batch=0;self.gateway.hub.flush_deltas();self.services.reap().await;},
@@ -547,12 +554,40 @@ impl SessionActor {
         self.gateway.mark_closed();
         result
     }
+    async fn continue_turn(
+        &mut self,
+        target: Option<TurnId>,
+        op: Option<OpId>,
+    ) -> std::io::Result<()> {
+        if self.running.is_some()
+            || self.profile_pending.is_some()
+            || self.recovery.take(target).is_none()
+        {
+            return match op {
+                Some(id) => self.reject(id, Rejection::NoSuchTurn).await,
+                None => Ok(()),
+            };
+        }
+        let turn = TurnId::new();
+        let origin = if op.is_some() {
+            TurnOrigin::User
+        } else {
+            TurnOrigin::Automatic
+        };
+        let cause = op.unwrap_or_else(OpId::new);
+        self.publish(Event::TurnQueued { turn }, Some(cause))
+            .await?;
+        self.start(turn, crate::interrupt::continue_prompt(), cause, origin)
+            .await
+    }
     async fn start(
         &mut self,
         turn: TurnId,
         blocks: Vec<InputBlock>,
         initial_cause: OpId,
+        origin: TurnOrigin,
     ) -> std::io::Result<()> {
+        self.recovery.take(None);
         let generation = self.generation.fetch_add(1, Ordering::AcqRel) + 1;
         let cancel = CancellationToken::new();
         let (steer, rx) = mpsc::channel(64);
@@ -560,7 +595,7 @@ impl SessionActor {
             Event::TurnStarted {
                 turn,
                 model: Some(self.config.model.clone()),
-                origin: Some(TurnOrigin::User),
+                origin: Some(origin),
             },
             None,
         )
@@ -623,7 +658,7 @@ impl SessionActor {
         let id = env.op_id;
         if self.tools.is_trial()
             && match &env.op {
-                Op::SetProfile { .. } | Op::Compact => true,
+                Op::SetProfile { .. } | Op::Compact | Op::Continue { .. } => true,
                 Op::ResolveApproval {
                     decision: ApprovalDecision::AllowAlways,
                     ..
@@ -708,6 +743,11 @@ impl SessionActor {
             }
             Op::Interrupt { turn } => {
                 let target = turn.or_else(|| self.running.as_ref().map(|r| r.turn));
+                if let Some(turn) = self.recovery.take(target) {
+                    return self
+                        .publish(Event::InterruptDismissed { turn }, Some(id))
+                        .await;
+                }
                 let Some(target) = target else {
                     return self.reject(id, Rejection::NoSuchTurn).await;
                 };
@@ -739,7 +779,12 @@ impl SessionActor {
                     self.reject(id, Rejection::NoSuchTurn).await?;
                 }
             }
-            Op::ResolveApproval { approval, decision, client } => {
+            Op::Continue { turn } => self.continue_turn(Some(turn), Some(id)).await?,
+            Op::ResolveApproval {
+                approval,
+                decision,
+                client,
+            } => {
                 if let Some(mut p) = self.approvals.remove(&approval) {
                     if self
                         .running
@@ -927,6 +972,8 @@ impl SessionActor {
                     if r.cancel.is_cancelled() {
                         reason = StopReason::Cancelled;
                         cause = r.cause;
+                    } else if !self.tools.is_trial() {
+                        reason = self.recovery.classify_end(turn, reason);
                     }
                     self.cancel_approvals(turn).await?;
                     self.publish(
@@ -1376,13 +1423,20 @@ impl SessionActor {
                 )
                 .await?;
             }
+            let reason = StopReason::Error {
+                class: ErrorClass::Internal,
+                message: message.into(),
+                interrupt: None,
+            };
+            let reason = if self.tools.is_trial() {
+                reason
+            } else {
+                self.recovery.classify_end(r.turn, reason)
+            };
             self.publish(
                 Event::TurnEnded {
                     turn: r.turn,
-                    reason: StopReason::Error {
-                        class: ErrorClass::Internal,
-                        message: message.into(),
-                    },
+                    reason,
                     usage: None,
                 },
                 None,

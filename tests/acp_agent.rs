@@ -930,7 +930,7 @@ async fn an_agent_crash_ends_the_turn_with_its_stderr_and_the_next_turn_restarts
     let log = close(f).await;
     let reasons = ended(&log);
     assert_eq!(reasons.len(), 2);
-    assert!(reasons.iter().all(|r| matches!(r, StopReason::Error { class: ErrorClass::MidStream, message } if message.contains("fake agent: boom"))), "{reasons:?}");
+    assert!(reasons.iter().all(|r| matches!(r, StopReason::Error { class: ErrorClass::MidStream, interrupt: Some(Interrupt { cause, .. }), message } if cause == "agent.exited" && message.contains("fake agent: boom"))), "{reasons:?}");
     // the partial message is kept, closed with the turn
     assert!(
         completed(&log).iter().any(
@@ -955,7 +955,7 @@ async fn an_unknown_update_is_native_and_a_malformed_line_ends_the_turn() {
     until_end(&mut sub).await;
     let log = close(f).await;
     assert!(
-        matches!(&ended(&log)[..], [StopReason::Error { message, .. }] if message.contains("malformed JSON-RPC"))
+        matches!(&ended(&log)[..], [StopReason::Error { interrupt: Some(Interrupt { cause, .. }), message, .. }] if cause == "agent.protocol" && message.contains("malformed JSON-RPC"))
     );
 }
 
@@ -1797,26 +1797,10 @@ async fn a_silent_agent_is_interrupted_instead_of_holding_the_seat() {
     let f = fake("silent", Unattended::Deny).await;
     let mut sub = subscribe(&f.gateway, false);
     f.gateway.send(support::prompt(&f.gateway, "work")).unwrap();
-    let mut warned = false;
-    let ended = tokio::time::timeout(Duration::from_secs(10), async {
-        loop {
-            match next(&mut sub).await.event {
-                Event::ItemCompleted {
-                    body: Item::Notice { level, text },
-                    ..
-                } if text.starts_with("The agent sent nothing") => {
-                    assert_eq!(level, Level::Warn);
-                    warned = true;
-                }
-                Event::TurnEnded { reason, .. } => return reason,
-                _ => {}
-            }
-        }
-    })
-    .await
-    .expect("the stalled turn must end");
-    assert!(warned, "the operator is told why");
-    assert_eq!(ended, StopReason::Interrupted);
+    let batch = until_end(&mut sub).await;
+    assert!(matches!(&batch.last().unwrap().event, Event::TurnEnded {
+        reason: StopReason::Error { interrupt: Some(Interrupt { cause, .. }), message, .. }, ..
+    } if cause == "tool.timeout" && message.starts_with("The agent sent nothing")));
     assert!(
         f.temp.path().join("cancel-seen").exists(),
         "cancel was sent first"
@@ -1841,26 +1825,14 @@ async fn a_silent_agent_with_an_open_tool_is_interrupted_after_the_tool_window()
     let mut sub = subscribe(&f.gateway, false);
     let started = std::time::Instant::now();
     f.gateway.send(support::prompt(&f.gateway, "work")).unwrap();
-    let text = tokio::time::timeout(Duration::from_secs(10), async {
-        loop {
-            if let Event::ItemCompleted {
-                body: Item::Notice { text, .. },
-                ..
-            } = next(&mut sub).await.event
-                && text.starts_with("The agent sent nothing")
-            {
-                return text;
-            }
-        }
-    })
-    .await
-    .expect("the stalled turn must be interrupted");
-    assert!(text.contains("Still working"), "{text}");
+    let batch = until_end(&mut sub).await;
+    assert!(matches!(&batch.last().unwrap().event, Event::TurnEnded {
+        reason: StopReason::Error { interrupt: Some(Interrupt { cause, .. }), message, .. }, ..
+    } if cause == "tool.timeout" && message.contains("Still working")));
     assert!(
         started.elapsed() >= Duration::from_millis(500),
         "an open tool gets the longer window"
     );
-    until_end(&mut sub).await;
     close(f).await;
 }
 
@@ -1931,4 +1903,205 @@ async fn input_sent_before_negotiation_reaches_the_running_turn() {
     assert!(completed(&log).iter().any(
         |(_, body)| matches!(body, Item::AgentMessage { markdown } if markdown.contains("STEERED"))
     ));
+}
+
+#[cfg(debug_assertions)]
+#[tokio::test]
+async fn interrupt_deadlines_retry_real_prompts_and_rearm() {
+    if isolated(
+        "interrupt_deadlines_retry_real_prompts_and_rearm",
+        &[("BBOXY450_INTERRUPT_MINUTE_MS", "30")],
+    ) {
+        return;
+    }
+    for (scenario, expected, class) in [
+        ("retry-capacity", "provider.capacity", ErrorClass::Transient),
+        ("retry-rate", "provider.rate_limit", ErrorClass::RateLimited),
+        ("retry-hook", "hook.failed", ErrorClass::Internal),
+        ("retry-auth", "provider.auth", ErrorClass::Auth),
+        ("retry-unknown", "unknown", ErrorClass::BadRequest),
+        ("retry-exited", "agent.exited", ErrorClass::MidStream),
+    ] {
+        let f = fake(scenario, Unattended::Deny).await;
+        let mut sub = subscribe(&f.gateway, false);
+        f.gateway
+            .send(support::prompt(&f.gateway, "original work"))
+            .unwrap();
+        let failed_attempts = if scenario == "retry-unknown" { 7 } else { 1 };
+        let mut deadline = 0;
+        for attempt in 1..=failed_attempts {
+            let batch = until_end(&mut sub).await;
+            let event = batch.last().unwrap();
+            assert!(
+                matches!(&event.event, Event::TurnEnded {
+                    reason: StopReason::Error { interrupt: Some(Interrupt { cause, attempt: n, deadline_ms }), class: actual, .. }, ..
+                } if cause == expected && actual == &class && *n == attempt && {
+                    deadline = *deadline_ms;
+                    true
+                }),
+                "{scenario}: {:?}",
+                event.event
+            );
+            if attempt > 1 {
+                assert!(batch.iter().any(|e| matches!(
+                    e.event,
+                    Event::TurnStarted {
+                        origin: Some(TurnOrigin::Automatic),
+                        ..
+                    }
+                )));
+            }
+            let wait = [1, 3, 6, 10, 15, 30, 30][attempt as usize - 1] * 30;
+            assert!((wait - 15..=wait + 15).contains(&deadline.saturating_sub(event.ts_ms)));
+        }
+        let batch = until_end(&mut sub).await;
+        let automatic = batch
+            .iter()
+            .find(|e| {
+                matches!(
+                    e.event,
+                    Event::TurnStarted {
+                        origin: Some(TurnOrigin::Automatic),
+                        ..
+                    }
+                )
+            })
+            .unwrap();
+        assert!(automatic.ts_ms + 10 >= deadline);
+        assert!(matches!(
+            batch.last().unwrap().event,
+            Event::TurnEnded {
+                reason: StopReason::EndTurn,
+                ..
+            }
+        ));
+        let prompts = std::fs::read_to_string(f.temp.path().join("retry-prompts")).unwrap();
+        assert_eq!(prompts.lines().next(), Some("original work"));
+        assert_eq!(
+            prompts.lines().skip(1).collect::<Vec<_>>(),
+            vec!["Continue"; failed_attempts as usize]
+        );
+        if scenario == "retry-capacity" {
+            f.gateway
+                .send(support::prompt(&f.gateway, "original work"))
+                .unwrap();
+            assert!(matches!(
+                until_end(&mut sub).await.last().unwrap().event,
+                Event::TurnEnded {
+                    reason: StopReason::Error {
+                        interrupt: Some(Interrupt { attempt: 1, .. }),
+                        ..
+                    },
+                    ..
+                }
+            ));
+        }
+        let log = close(f).await;
+        if scenario == "retry-exited" {
+            assert!(completed(&log).iter().any(|(status, body)| matches!(
+                (status, body), (ItemStatus::Failed { .. }, Item::ToolCall { call_id, .. }) if call_id == "recover-tool"
+            )));
+        }
+    }
+}
+
+#[cfg(debug_assertions)]
+#[tokio::test]
+async fn cancelled_or_replaced_interrupts_cannot_send_a_late_continue() {
+    if isolated(
+        "cancelled_or_replaced_interrupts_cannot_send_a_late_continue",
+        &[("BBOXY450_INTERRUPT_MINUTE_MS", "500")],
+    ) {
+        return;
+    }
+    let f = fake("retry-capacity", Unattended::Deny).await;
+    let mut sub = subscribe(&f.gateway, false);
+    f.gateway
+        .send(support::prompt(&f.gateway, "original work"))
+        .unwrap();
+    let ended = until_end(&mut sub).await;
+    let Event::TurnEnded { turn, .. } = ended.last().unwrap().event else {
+        panic!("missing failed turn")
+    };
+    f.gateway
+        .send(support::op(&f.gateway, Op::Interrupt { turn: Some(turn) }))
+        .unwrap();
+    loop {
+        if matches!(next(&mut sub).await.event, Event::InterruptDismissed { turn: dismissed } if dismissed == turn)
+        {
+            break;
+        }
+    }
+    f.gateway
+        .send(support::op(&f.gateway, Op::Continue { turn }))
+        .unwrap();
+    f.gateway
+        .send(support::prompt(&f.gateway, "original work"))
+        .unwrap();
+    until_end(&mut sub).await;
+    f.gateway
+        .send(support::op(&f.gateway, Op::Continue { turn }))
+        .unwrap();
+    f.gateway
+        .send(support::prompt(&f.gateway, "my replacement"))
+        .unwrap();
+    until_end(&mut sub).await;
+    tokio::time::sleep(Duration::from_millis(1_600)).await;
+    let prompts = std::fs::read_to_string(f.temp.path().join("retry-prompts")).unwrap();
+    assert_eq!(
+        prompts.lines().collect::<Vec<_>>(),
+        ["original work", "original work", "my replacement"]
+    );
+    let log = close(f).await;
+    assert_eq!(
+        log.iter()
+            .filter(|e| matches!(
+                e.event,
+                Event::OpRejected {
+                    reason: Rejection::NoSuchTurn,
+                    ..
+                }
+            ))
+            .count(),
+        2
+    );
+}
+
+#[cfg(debug_assertions)]
+#[tokio::test]
+async fn a_failed_resume_rearms_before_the_agent_receives_continue() {
+    if isolated(
+        "a_failed_resume_rearms_before_the_agent_receives_continue",
+        &[("BBOXY450_INTERRUPT_MINUTE_MS", "60")],
+    ) {
+        return;
+    }
+    let f = fake("retry-resume", Unattended::Deny).await;
+    let mut sub = subscribe(&f.gateway, false);
+    f.gateway
+        .send(support::prompt(&f.gateway, "original work"))
+        .unwrap();
+    for (cause, attempt) in [("agent.exited", 1), ("provider.auth", 2)] {
+        assert!(
+            matches!(&until_end(&mut sub).await.last().unwrap().event, Event::TurnEnded {
+            reason: StopReason::Error { interrupt: Some(Interrupt { cause: actual, attempt: n, .. }), .. }, ..
+        } if cause == actual && attempt == *n)
+        );
+    }
+    assert!(matches!(
+        until_end(&mut sub).await.last().unwrap().event,
+        Event::TurnEnded {
+            reason: StopReason::EndTurn,
+            ..
+        }
+    ));
+    assert_eq!(
+        std::fs::read_to_string(f.temp.path().join("retry-spawns")).unwrap(),
+        "spawn\nspawn\nspawn\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(f.temp.path().join("retry-prompts")).unwrap(),
+        "original work\nContinue\n"
+    );
+    close(f).await;
 }

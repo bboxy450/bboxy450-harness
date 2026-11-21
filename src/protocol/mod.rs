@@ -308,6 +308,9 @@ pub enum Op {
     Interrupt {
         turn: Option<TurnId>,
     },
+    Continue {
+        turn: TurnId,
+    },
     ResolveApproval {
         approval: ItemId,
         decision: ApprovalDecision,
@@ -498,6 +501,9 @@ pub enum Event {
         status: ItemStatus,
         body: Item,
     },
+    InterruptDismissed {
+        turn: TurnId,
+    },
     TurnEnded {
         turn: TurnId,
         reason: StopReason,
@@ -561,15 +567,24 @@ pub enum StopReason {
     Error {
         class: ErrorClass,
         message: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        interrupt: Option<Interrupt>,
     },
     #[serde(untagged)]
     Unknown(Value),
+}
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct Interrupt {
+    pub cause: String,
+    pub attempt: u64,
+    pub deadline_ms: u64,
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum TurnOrigin {
     User,
     Agent,
+    Automatic,
     #[serde(untagged)]
     Unknown(Value),
 }
@@ -1269,6 +1284,7 @@ impl Event {
                 | Self::ItemStarted { .. }
                 | Self::ItemCompleted { .. }
                 | Self::TurnEnded { .. }
+                | Self::InterruptDismissed { .. }
                 | Self::OpRejected { .. }
                 | Self::SessionClosed
         )
@@ -1723,7 +1739,7 @@ impl StopReason {
     pub fn reader_label(&self) -> String {
         match self {
             Self::Unknown(raw) => format!("Unknown({})", unknown_tag(raw)),
-            Self::Error { class, message } => format!(
+            Self::Error { class, message, .. } => format!(
                 "Error {{ class: {}, message: {:?} }}",
                 class.reader_label(),
                 message

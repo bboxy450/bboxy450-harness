@@ -698,6 +698,7 @@ pub async fn run(
             StopReason::Error {
                 class: ErrorClass::Malformed,
                 message: "D1 response rejected; no proposal authority".into(),
+                interrupt: None,
             }
         };
         // A failed append may leave partial/unproven IR. Never recover or reopen it here.

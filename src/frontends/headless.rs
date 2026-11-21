@@ -645,17 +645,29 @@ async fn run_cli(
     }
     // Set when a seat lost its terminal: the session stays open for a resume.
     let mut detached = false;
+    let mut pending_interrupt = None;
+    let mut countdown = tokio::time::interval(std::time::Duration::from_secs(1));
+    countdown.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     'events: loop {
         let heartbeat = state.heartbeat_deadline();
         tokio::select! {biased;
          // A seat that loses its terminal (signal, hangup, supervisor restart) leaves
          // its session open so the next launch resumes it; only a deliberate end closes.
          _=stop.cancelled(),if !stopping=>{if seat{detached=true;break 'events;}let _=gateway.send(op(session,Op::Close));stopping=true;},
-         _=tokio::signal::ctrl_c()=>{input_filter.interrupt();if running{let _=gateway.send(op(session,Op::Interrupt{turn:None}));}},
+         _=tokio::signal::ctrl_c()=>{input_filter.interrupt();if running||pending_interrupt.is_some(){let _=gateway.send(op(session,Op::Interrupt{turn:pending_interrupt.map(|(turn, _)| turn)}));}},
          _=tokio::time::sleep_until(heartbeat.unwrap_or_else(tokio::time::Instant::now)),if report_state&&heartbeat.is_some()=>{
           if let Some(bytes)=state.heartbeat()
               && (stdout.write_all(&bytes).await.is_err()||stdout.flush().await.is_err())
           {stop_cli(&stop);if seat{detached=true;}else{let _=gateway.send(op(session,Op::Close));}break 'events;}
+         },
+         _=countdown.tick(),if report_state&&pending_interrupt.is_some()=>{
+          if let Some((_, deadline)) = pending_interrupt
+              && input_filter.is_empty()
+              && let Some(prompt) = line_projection.refresh_countdown(
+                  crate::interrupt::seconds_remaining(deadline, crate::store::now_ms())
+              )
+              && (stdout.write_all(prompt.as_bytes()).await.is_err()||stdout.flush().await.is_err())
+          {stop_cli(&stop);detached=true;break 'events;}
          },
          Some(request)=switches.recv(),if !stopping=>{
             // Admission was fenced against the gateway that received the op.
@@ -673,6 +685,7 @@ async fn run_cli(
                     if let Some(path) = &socket_path { alias = Some(super::seat::bind_alias(path, gateway.clone()).await?); }
                     subscription = gateway.subscribe(Subscribe { session, after: Some((hello.epoch, hello.head)), ephemeral: seat && !json }).map_err(|_| "subscribe refused")?;
                     running = false;
+                    pending_interrupt = None;
                     if report_state {
                         state = super::seat::StateReporter::new(config.redactor.clone());
                         for event in &gateway.hub.projection().log { state.apply(&event.event); }
@@ -728,6 +741,10 @@ async fn run_cli(
                         }
                     }
                 } else {
+                    if command == "continue" && let Some((turn, _)) = pending_interrupt {
+                        let _ = gateway.send(op(session, Op::Continue { turn }));
+                        continue;
+                    }
                     let (request,mut reply)=seat_command(command,&profiles_root);
                     if let Some(request)=request&&gateway.send(op(session,request)).is_err(){reply="refused\n".into();}
                     reply
@@ -735,7 +752,23 @@ async fn run_cli(
                 if stdout.write_all(reply.as_bytes()).await.is_err()||stdout.flush().await.is_err(){stop_cli(&stop);if seat{detached=true;}else{let _=gateway.send(op(session,Op::Close));}break 'events;}
             }else if !text.is_empty(){let _=gateway.send(op(session,Op::UserTurn{blocks:vec![InputBlock::Text{text}],mode:TurnMode::Queue}));}}
          },
-         event=subscription.recv()=>{let Some(event)=event else{break;};match &event.event{Event::TurnStarted{..}=>running=true,Event::TurnEnded{reason,..}=>{running=false;failed|=matches!(reason,StopReason::Error{..});if !seat&&!stopping{let _=gateway.send(op(session,Op::Close));stopping=true;}},_=>{}}
+         event=subscription.recv()=>{
+          let Some(event)=event else{break;};
+          match &event.event {
+              Event::TurnStarted{..} => {running=true;pending_interrupt=None;}
+              Event::TurnEnded{turn,reason,..} => {
+                  running=false;
+                  if let StopReason::Error { interrupt: Some(Interrupt { deadline_ms, .. }), .. } = reason
+                      && gateway.hello().meta.fork.is_none_or(|(_, cut)| event.at > cut)
+                  {
+                      pending_interrupt=Some((*turn, *deadline_ms));
+                  }
+                  failed|=matches!(reason,StopReason::Error{..});
+                  if !seat&&!stopping{let _=gateway.send(op(session,Op::Close));stopping=true;}
+              }
+              Event::InterruptDismissed {turn} if pending_interrupt.is_some_and(|(failed, _)| failed == *turn) => pending_interrupt=None,
+              _=>{}
+          }
           let bytes=if json {event.wire_bytes().map_err(|_|"event serialization failed")?}else{line_projection.render(&event)};
           if stdout.write_all(&bytes).await.is_err()||stdout.flush().await.is_err(){stop_cli(&stop);if seat{detached=true;}else{let _=gateway.send(op(session,Op::Close));}break 'events;}
           if report_state && let Some(bytes) = state.apply(&event.event)
@@ -1233,7 +1266,12 @@ fn seat_command(command: &str, root: &std::path::Path) -> (Option<Op>, String) {
             };
             (None, reply)
         }
-        _ => (None, "commands: /profiles · /profile NAME · /help\n".into()),
+        (Some("interrupt"), None) => (Some(Op::Interrupt { turn: None }), String::new()),
+        (Some("continue"), None) => (None, "No pending continuation.\n".into()),
+        _ => (
+            None,
+            "commands: /profiles · /profile NAME · /continue · /interrupt · /help\n".into(),
+        ),
     }
 }
 

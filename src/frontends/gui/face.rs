@@ -1202,6 +1202,7 @@ pub struct Receipt {
     pub why: Option<String>,
     /// replies folded into the turn's loop card
     pub folded: usize,
+    pub legacy_actions: bool,
     /// names the Retry / Switch profile buttons `{key}/retry`, `{key}/switch` (error stops)
     pub key: String,
 }
@@ -1285,7 +1286,7 @@ pub fn receipt(r: Receipt, ink: &Ink) -> c::Element {
         t.runs[0].style.line_height = 1.4;
         rows.push(c::Element::Text(t).into());
     }
-    if !r.ok && !r.soft {
+    if r.legacy_actions {
         // .hx-eact: Retry (bad fill, white) and Switch profile (card-hi)
         let button =
             |label: &str, glyph: Option<&str>, fill_c: Rgba, fg: Rgba, edge: Option<Rgba>| {
@@ -1353,6 +1354,49 @@ pub fn receipt(r: Receipt, ink: &Ink) -> c::Element {
         0.,
     )
 }
+pub fn interrupt_block(
+    cause: &str,
+    message: &str,
+    attempt: u64,
+    seconds: u64,
+    ink: &Ink,
+) -> c::Element {
+    let button = |id, label, fg, bg| fixed(named(id, pill(label, fg, bg, 12.)));
+    named(
+        "interrupt-recovery",
+        frame(
+            Frame {
+                fill: alpha(ink.bad, 0.09),
+                border: Some(alpha(ink.bad, 0.32)),
+                radius: [8.; 4],
+                padding: [9., 12., 9., 12.],
+                gap: 6.,
+                ..Default::default()
+            },
+            vec![
+                line(format!("Interrupted · {cause}"), 12., 650, ink.bad, false).into(),
+                c::Element::Text(text(message, 12.5, 400, ink.fg, false)).into(),
+                line(
+                    format!("Attempt {attempt} · continuing in {seconds}s"),
+                    12.,
+                    500,
+                    ink.fg,
+                    false,
+                )
+                .into(),
+                hstack(
+                    vec![
+                        button("recovery/continue", "Continue now", ink.surface, ink.bad),
+                        button("recovery/cancel", "Cancel", ink.fg, alpha(ink.fg, 0.07)),
+                    ],
+                    6.,
+                )
+                .into(),
+            ],
+        ),
+    )
+}
+
 /// The 9 px stop square of a soft receipt or a stopped tool, in an 11 px icon slot.
 /// One butt-capped stroke as wide as the square: filled paths paint offset in this renderer.
 pub fn stop_glyph(color: Rgba) -> c::Element {

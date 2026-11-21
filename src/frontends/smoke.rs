@@ -287,7 +287,7 @@ async fn acp_turn(
                 let response:Value=serde_json::from_str(&line)?;
                 if response["method"]=="session/request_permission" {send(&mut write,json!({"jsonrpc":"2.0","id":response["id"],"result":{"outcome":{"outcome":"selected","optionId":"deny"}}})).await?;}
                 if response["id"]==3 {
-                    let reason=if response.get("error").is_some(){StopReason::Error {class:serde_json::from_value(response["error"]["data"]["class"].clone()).unwrap_or(ErrorClass::Internal),message:"ACP live request failed".into()}}else{match response["result"]["stopReason"].as_str(){Some("end_turn")=>StopReason::EndTurn,Some("max_tokens")=>StopReason::MaxTokens,Some("max_turn_requests")=>StopReason::MaxRounds,_=>StopReason::Cancelled}};
+                    let reason=if response.get("error").is_some(){StopReason::Error {class:serde_json::from_value(response["error"]["data"]["class"].clone()).unwrap_or(ErrorClass::Internal),message:"ACP live request failed".into(),interrupt:None}}else{match response["result"]["stopReason"].as_str(){Some("end_turn")=>StopReason::EndTurn,Some("max_tokens")=>StopReason::MaxTokens,Some("max_turn_requests")=>StopReason::MaxRounds,_=>StopReason::Cancelled}};
                     return Ok::<_,Box<dyn std::error::Error>>(Some(reason));
                 }
             }

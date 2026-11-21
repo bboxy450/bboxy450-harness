@@ -514,6 +514,7 @@ fn composer_rim_reads_the_session() {
             Some(StopReason::Error {
                 class: ErrorClass::Transient,
                 message: "dropped".into(),
+                interrupt: None,
             }),
         )
         .activity,
@@ -525,6 +526,7 @@ fn composer_rim_reads_the_session() {
             Some(StopReason::Error {
                 class: ErrorClass::Transient,
                 message: "dropped".into(),
+                interrupt: None,
             }),
         )
         .activity,

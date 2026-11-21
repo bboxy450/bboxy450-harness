@@ -278,3 +278,56 @@ fn killed_harness_recovers_the_original_tool_identity() {
     );
     check_transcript(&store.events).unwrap();
 }
+
+#[tokio::test]
+async fn reopening_an_unended_turn_records_one_durable_interrupt() {
+    let temp = tempfile::tempdir().unwrap();
+    let meta = support::meta(temp.path().into());
+    let turn = TurnId::new();
+    let root = temp.path().to_path_buf();
+    let mut store = Store::open(root.clone(), meta.clone(), None, Set::default())
+        .await
+        .unwrap();
+    store
+        .append(Event::TurnQueued { turn }, None)
+        .await
+        .unwrap();
+    store
+        .append(
+            Event::TurnStarted {
+                turn,
+                model: None,
+                origin: None,
+            },
+            None,
+        )
+        .await
+        .unwrap();
+    drop(store);
+    let before = bboxy450_harness::store::now_ms();
+    for _ in 0..2 {
+        let store = Store::open(root.clone(), meta.clone(), None, Set::default())
+            .await
+            .unwrap();
+        let endings: Vec<_> = store
+            .events
+            .iter()
+            .filter_map(|e| match &e.event {
+                Event::TurnEnded {
+                    turn: ended,
+                    reason:
+                        StopReason::Error {
+                            interrupt: Some(interrupt),
+                            ..
+                        },
+                    ..
+                } if *ended == turn => Some(interrupt),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(endings.len(), 1);
+        assert_eq!(endings[0].cause, "harness.exited");
+        assert_eq!(endings[0].attempt, 1);
+        assert!(endings[0].deadline_ms >= before + 60_000);
+    }
+}

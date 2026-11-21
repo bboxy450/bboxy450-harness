@@ -203,6 +203,7 @@ impl StateReporter {
                 self.turns.insert(*turn);
                 self.error = None;
             }
+            Event::InterruptDismissed { .. } => self.error = None,
             Event::TurnEnded { turn, reason, .. } => {
                 self.turns.remove(turn);
                 self.activities.retain(|a| a.turn != Some(*turn));
@@ -463,6 +464,9 @@ pub struct InputFilter {
     probe: usize,
 }
 impl InputFilter {
+    pub(crate) fn is_empty(&self) -> bool {
+        self.line.is_empty() && self.probe == 0
+    }
     pub fn interrupt(&mut self) {
         self.line.clear();
         self.probe = 0;
@@ -1415,13 +1419,21 @@ impl LineProjection {
             Event::TurnStarted { turn, origin, .. } => {
                 self.running = true;
                 self.turns.entry(*turn).or_default().t0 = Some(ts);
-                if origin.as_ref() == Some(&TurnOrigin::Agent) {
+                if matches!(origin, Some(TurnOrigin::Agent | TurnOrigin::Automatic)) {
                     let pen = self.pen();
                     self.block(
                         &mut out,
                         Family::User,
                         false,
-                        pen.row(&[sp("  agent continued").fg(DIM)], None),
+                        pen.row(
+                            &[sp(if origin.as_ref() == Some(&TurnOrigin::Automatic) {
+                                "  automatic continuation"
+                            } else {
+                                "  agent continued"
+                            })
+                            .fg(DIM)],
+                            None,
+                        ),
                     );
                 }
             }
@@ -1550,6 +1562,10 @@ impl LineProjection {
                 self.block(&mut out, Family::Receipt, false, row);
                 self.prompt(&mut out);
             }
+            Event::InterruptDismissed { .. } => {
+                self.notice_line(&mut out, "Automatic continuation cancelled", &Level::Info);
+                self.prompt(&mut out);
+            }
             Event::OpRejected { reason, .. } => {
                 let pen = self.pen();
                 let l = vec![
@@ -1585,6 +1601,16 @@ impl LineProjection {
             self.prompt(&mut out);
         }
         out.into_bytes()
+    }
+
+    /// Repaint only the empty interactive prompt, never add countdowns to scrollback.
+    pub(crate) fn refresh_countdown(&mut self, seconds: u64) -> Option<String> {
+        if !self.at_prompt {
+            return None;
+        }
+        let mut out = format!("\r\x1b[2K{seconds}s · ");
+        self.prompt(&mut out);
+        Some(out)
     }
 
     fn prompt(&mut self, out: &mut String) {
@@ -2879,9 +2905,28 @@ fn receipt(pen: &Pen, t: &TurnStat, ts: u64, reason: &StopReason, usage: Option<
         StopReason::Quiet { .. } => (true, false, "Quiet"),
         StopReason::Cancelled => (false, true, "Cancelled"),
         StopReason::Interrupted => (false, true, "Interrupted"),
+        StopReason::Error {
+            message: raw,
+            interrupt:
+                Some(Interrupt {
+                    cause,
+                    attempt,
+                    deadline_ms,
+                }),
+            ..
+        } => {
+            let seconds = crate::interrupt::seconds_remaining(*deadline_ms, ts);
+            message = Some(format!(
+                "{cause} · {raw}
+Attempt {attempt} · continuing in {seconds}s · /continue or /interrupt"
+            ));
+            (false, false, "Interrupted")
+        }
         StopReason::MaxTokens => (false, false, "Hit the output limit"),
         StopReason::MaxRounds => (false, false, "Stopped at the round limit"),
-        StopReason::Error { class, message: m } => {
+        StopReason::Error {
+            class, message: m, ..
+        } => {
             message = Some(m.clone()).filter(|m| !m.trim().is_empty());
             (
                 false,

@@ -806,6 +806,22 @@
         },
         {
           "properties": {
+            "turn": {
+              "$ref": "#/$defs/TurnId"
+            },
+            "type": {
+              "const": "interrupt_dismissed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "turn"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
             "reason": {
               "$ref": "#/$defs/StopReason"
             },
@@ -1142,6 +1158,29 @@
         },
         true
       ]
+    },
+    "Interrupt": {
+      "properties": {
+        "attempt": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cause": {
+          "type": "string"
+        },
+        "deadline_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "cause",
+        "attempt",
+        "deadline_ms"
+      ],
+      "type": "object"
     },
     "Item": {
       "anyOf": [
@@ -2325,6 +2364,22 @@
         },
         {
           "properties": {
+            "turn": {
+              "$ref": "#/$defs/TurnId"
+            },
+            "type": {
+              "const": "continue",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "turn"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
             "approval": {
               "$ref": "#/$defs/ItemId"
             },
@@ -3429,6 +3484,16 @@
             "class": {
               "$ref": "#/$defs/ErrorClass"
             },
+            "interrupt": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Interrupt"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "message": {
               "type": "string"
             },
@@ -3659,6 +3724,18 @@
           "properties": {
             "kind": {
               "const": "agent",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "automatic",
               "type": "string"
             }
           },

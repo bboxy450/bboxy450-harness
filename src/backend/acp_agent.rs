@@ -23,6 +23,7 @@ use super::acp_permissions;
 use crate::{
     engine::{Config, Internal, LaunchOptions, task_group::TaskGroup},
     gateway::{Admitted, Hub, InProc},
+    interrupt::{Recovery, classify, continue_prompt},
     process::OwnedChild,
     protocol::*,
     provider::profile::{AgentSpec, Unattended},
@@ -222,6 +223,7 @@ struct Running {
     quiet_at: Option<Instant>,
     last_wire_at: Instant,
     interrupted: bool,
+    failure: Option<(&'static str, ErrorClass, String)>,
     message: Option<(ItemId, String)>,
     thought: Option<(ItemId, String)>,
     tools: BTreeMap<String, Tool>,
@@ -248,6 +250,7 @@ pub struct AcpAgentActor {
     agent: Option<Agent>,
     wire: Option<mpsc::UnboundedReceiver<Wire>>,
     queue: VecDeque<(TurnId, Vec<InputBlock>, OpId)>,
+    recovery: Recovery,
     running: Option<Running>,
     resolved: HashMap<ItemId, Answerer>,
     projected_ext: BTreeMap<String, Value>,
@@ -418,6 +421,7 @@ impl AcpAgentActor {
             abstained: 0,
             decided,
             last_request: String::new(),
+            recovery: Recovery::replay(&store.events),
             store,
             gateway: gateway.clone(),
             work,
@@ -564,7 +568,7 @@ impl AcpAgentActor {
                 if self.running.is_none()
                     && let Some((turn, blocks, cause)) = self.queue.pop_front()
                 {
-                    self.start(turn, blocks, cause).await?;
+                    self.start(turn, blocks, cause, TurnOrigin::User).await?;
                 }
                 // A waiting user prompt shortens the quiet wait, but cannot
                 // overtake a tool or a permission owned by the agent turn.
@@ -575,6 +579,7 @@ impl AcpAgentActor {
                 let cancel_at = self.running.as_ref().and_then(|r| r.cancel_at);
                 let quiet_at = self.running.as_ref().and_then(|r| r.quiet_at);
                 let stall_at = self.stall_at();
+                let retry_at = self.recovery.deadline().filter(|_| self.running.is_none());
                 tokio::select! {biased;
                     Some(op) = self.control.recv() => { if self.op(op).await? { break; } }
                     Some(op) = self.work.recv() => { if self.op(op).await? { break; } }
@@ -583,6 +588,7 @@ impl AcpAgentActor {
                         Internal::Decided { item, outcome } => self.decided(item, outcome).await?,
                         _ => {}
                     },
+                    _ = sleep_until(retry_at) => self.continue_turn(None, None).await?,
                     Some(wire) = recv(&mut self.wire) => self.wire(wire).await?,
                     _ = sleep_until(cancel_at) => self.cancel_expired().await?,
                     _ = sleep_until(quiet_at) => self.quiet_expired().await?,
@@ -701,9 +707,17 @@ impl AcpAgentActor {
             }
             Op::Interrupt { turn } => {
                 let target = turn.or_else(|| self.running.as_ref().map(|r| r.turn));
+                if let Some(turn) = self.recovery.take(target) {
+                    self.publish(Event::InterruptDismissed { turn }, Some(id))
+                        .await?;
+                    return Ok(false);
+                }
                 if let Some(t) = target
                     && self.running.as_ref().is_some_and(|r| r.turn == t)
                 {
+                    if let Some(r) = self.running.as_mut() {
+                        r.failure = None;
+                    }
                     self.interrupt().await?;
                 } else if let Some(pos) =
                     target.and_then(|t| self.queue.iter().position(|q| q.0 == t))
@@ -731,8 +745,14 @@ impl AcpAgentActor {
                     self.reject(id, Rejection::NoSuchTurn).await?;
                 }
             }
-            Op::ResolveApproval { approval, decision, client } => {
-                self.resolve_by_face(id, approval, decision, Answerer::face(client, face)).await?;
+            Op::Continue { turn } => self.continue_turn(Some(turn), Some(id)).await?,
+            Op::ResolveApproval {
+                approval,
+                decision,
+                client,
+            } => {
+                self.resolve_by_face(id, approval, decision, Answerer::face(client, face))
+                    .await?;
             }
             Op::AnswerQuestion { question, answer, client } => {
                 let open = self
@@ -1000,17 +1020,42 @@ impl AcpAgentActor {
     }
 
     // ---------- turns ----------
+    async fn continue_turn(
+        &mut self,
+        target: Option<TurnId>,
+        op: Option<OpId>,
+    ) -> std::io::Result<()> {
+        if self.running.is_some() || self.recovery.take(target).is_none() {
+            return match op {
+                Some(id) => self.reject(id, Rejection::NoSuchTurn).await,
+                None => Ok(()),
+            };
+        }
+        let turn = TurnId::new();
+        let origin = if op.is_some() {
+            TurnOrigin::User
+        } else {
+            TurnOrigin::Automatic
+        };
+        let cause = op.unwrap_or_else(OpId::new);
+        self.publish(Event::TurnQueued { turn }, Some(cause))
+            .await?;
+        self.start(turn, continue_prompt(), cause, origin).await
+    }
+
     async fn start(
         &mut self,
         turn: TurnId,
         blocks: Vec<InputBlock>,
         cause: OpId,
+        origin: TurnOrigin,
     ) -> std::io::Result<()> {
+        self.recovery.take(None);
         self.publish(
             Event::TurnStarted {
                 turn,
                 model: self.model.clone(),
-                origin: Some(TurnOrigin::User),
+                origin: Some(origin),
             },
             None,
         )
@@ -1024,6 +1069,7 @@ impl AcpAgentActor {
             quiet_at: None,
             last_wire_at: Instant::now(),
             interrupted: false,
+            failure: None,
             message: None,
             thought: None,
             tools: BTreeMap::new(),
@@ -1055,19 +1101,7 @@ impl AcpAgentActor {
         if self.agent.is_none() {
             if let Err(error) = self.spawn().await {
                 let message = format!("ACP agent could not start: {error}");
-                self.notice(Level::Error, message.clone()).await?;
-                return self
-                    .end_turn(
-                        StopReason::Error {
-                            class: ErrorClass::Config,
-                            message,
-                        },
-                        ItemStatus::Failed {
-                            code: None,
-                            reason: "agent unavailable".into(),
-                        },
-                    )
-                    .await;
+                return self.fail("agent.config", ErrorClass::Config, message).await;
             }
             if let Some(text) = &self.handoff {
                 let turns =
@@ -1083,6 +1117,10 @@ impl AcpAgentActor {
         }
         Ok(())
     }
+    fn can_start_agent_turn(&self) -> bool {
+        !self.hide_idle && self.recovery.deadline().is_none()
+    }
+
     async fn start_agent_turn(&mut self) -> std::io::Result<()> {
         let turn = TurnId::new();
         self.publish(
@@ -1109,6 +1147,7 @@ impl AcpAgentActor {
             quiet_at: Some(now + self.agent_turn_quiet),
             last_wire_at: now,
             interrupted: false,
+            failure: None,
             message: None,
             thought: None,
             tools: BTreeMap::new(),
@@ -1188,7 +1227,8 @@ impl AcpAgentActor {
                 open.join(", ")
             )
         };
-        self.notice(Level::Warn, text).await?;
+        self.running.as_mut().expect("stalled turn").failure =
+            Some(("tool.timeout", ErrorClass::Tool, text));
         self.interrupt().await
     }
     async fn quiet_expired(&mut self) -> std::io::Result<()> {
@@ -1331,12 +1371,12 @@ impl AcpAgentActor {
                 )
                 .await?;
             }
-            self.notice(Level::Error, message.clone()).await?;
             return self
                 .end_turn(
                     StopReason::Error {
                         class: ErrorClass::Config,
                         message,
+                        interrupt: None,
                     },
                     ItemStatus::Failed {
                         code: None,
@@ -1417,7 +1457,11 @@ impl AcpAgentActor {
             )
             .is_ok()
         );
-        call(agent, Call::Prompt, "session/prompt", params)?;
+        if call(agent, Call::Prompt, "session/prompt", params).is_err() {
+            return self
+                .agent_gone("ACP agent prompt transport closed".into())
+                .await;
+        }
         self.release_early().await
     }
     /// Whether the running turn's agent has yet to say if it can steer: no agent,
@@ -1472,8 +1516,13 @@ impl AcpAgentActor {
                 .await?;
         }
         for item in asked {
-            self.settle_question(item, json!({"action": "cancel"}), Resolver::Cancelled.into(), None)
-                .await?;
+            self.settle_question(
+                item,
+                json!({"action": "cancel"}),
+                Resolver::Cancelled.into(),
+                None,
+            )
+            .await?;
         }
         Ok(())
     }
@@ -1498,6 +1547,28 @@ impl AcpAgentActor {
         self.end_turn(StopReason::Interrupted, ItemStatus::Interrupted)
             .await
     }
+    async fn fail(
+        &mut self,
+        cause: &'static str,
+        class: ErrorClass,
+        message: String,
+    ) -> std::io::Result<()> {
+        let Some(running) = self.running.as_mut() else {
+            return Ok(());
+        };
+        if !running.interrupted {
+            running.failure = Some((cause, class, message));
+        }
+        self.end_turn(
+            StopReason::Interrupted,
+            ItemStatus::Failed {
+                code: None,
+                reason: "agent error".into(),
+            },
+        )
+        .await
+    }
+
     /// Close every open item of the running turn (children before parents), then end it.
     async fn end_turn(&mut self, reason: StopReason, open: ItemStatus) -> std::io::Result<()> {
         // Input still held when the turn ends becomes a normal prompt (ACPTURN_L2).
@@ -1544,6 +1615,20 @@ impl AcpAgentActor {
             self.complete(item, ItemStatus::Completed, Item::Plan { entries })
                 .await?;
         }
+        let reason = if let Some((cause, class, message)) = r.failure {
+            self.recovery.failed(r.turn, cause, class, message)
+        } else if r.interrupted {
+            StopReason::Interrupted
+        } else {
+            self.recovery.classify_end(r.turn, reason)
+        };
+        let failed = matches!(
+            reason,
+            StopReason::Error {
+                interrupt: Some(_),
+                ..
+            }
+        );
         self.publish(
             Event::TurnEnded {
                 turn: r.turn,
@@ -1553,6 +1638,9 @@ impl AcpAgentActor {
             r.cause,
         )
         .await?;
+        if failed && self.agent.is_none() {
+            self.handoff = handoff(&self.store.events);
+        }
         self.publish(Event::Status { phase: Phase::Idle }, None)
             .await
     }
@@ -1723,19 +1811,10 @@ impl AcpAgentActor {
             format!("{why}; stderr: {tail}")
         };
         if self.running.is_some() {
-            self.notice(Level::Error, message.clone()).await?;
-            self.end_turn(
-                StopReason::Error {
-                    class: ErrorClass::MidStream,
-                    message,
-                },
-                ItemStatus::Failed {
-                    code: None,
-                    reason: "agent exited".into(),
-                },
-            )
-            .await
+            let (cause, class) = classify(None, None, None, &message, ErrorClass::MidStream);
+            self.fail(cause, class, message).await
         } else {
+            self.handoff = handoff(&self.store.events);
             self.notice(Level::Warn, message).await
         }
     }
@@ -1863,13 +1942,28 @@ impl AcpAgentActor {
             return self.publish_controls(Some(op)).await;
         }
         if let Some(error) = m.get("error") {
-            let code = error.get("code").and_then(Value::as_i64).unwrap_or(0);
+            let code = error.get("code").and_then(Value::as_i64);
+            let provider = [
+                "/data/error/code",
+                "/data/code",
+                "/data/error/type",
+                "/data/type",
+            ]
+            .into_iter()
+            .find_map(|path| error.pointer(path).and_then(Value::as_str));
             let text = error
                 .get("message")
                 .and_then(Value::as_str)
-                .unwrap_or("error")
-                .to_owned();
-            let hint = if code == -32000 || text.to_lowercase().contains("auth") {
+                .unwrap_or("error");
+            let detail = ["/data/error/message", "/data/message", "/data/details"]
+                .into_iter()
+                .find_map(|path| error.pointer(path).and_then(Value::as_str));
+            let text = match detail.filter(|detail| !text.contains(detail)) {
+                Some(detail) => format!("{text} · {detail}"),
+                None => text.to_owned(),
+            };
+            let (cause, class) = classify(None, provider, code, &text, ErrorClass::BadRequest);
+            let hint = if class == ErrorClass::Auth {
                 " · authenticate the agent in a terminal (API key, console login, Bedrock or Vertex)"
             } else {
                 ""
@@ -1892,25 +1986,11 @@ impl AcpAgentActor {
                 | Call::SetPermissions { .. }
                     if self.running.is_some() =>
                 {
-                    self.notice(Level::Error, message.clone()).await?;
                     if !matches!(call_kind, Call::Prompt) {
                         self.kill();
+                        self.publish_controls(None).await?;
                     }
-                    self.end_turn(
-                        StopReason::Error {
-                            class: if hint.is_empty() {
-                                ErrorClass::BadRequest
-                            } else {
-                                ErrorClass::Auth
-                            },
-                            message,
-                        },
-                        ItemStatus::Failed {
-                            code: None,
-                            reason: "agent error".into(),
-                        },
-                    )
-                    .await
+                    self.fail(cause, class, message).await
                 }
                 _ => self.notice(Level::Warn, message).await,
             };
@@ -2075,21 +2155,31 @@ impl AcpAgentActor {
                 let stop = result
                     .get("stopReason")
                     .and_then(Value::as_str)
-                    .unwrap_or("end_turn");
+                    .unwrap_or("missing stopReason");
                 let interrupted = self.running.as_ref().is_some_and(|r| r.interrupted);
+                if stop == "cancelled" && !interrupted {
+                    return self
+                        .fail(
+                            "agent.cancelled",
+                            ErrorClass::Cancelled,
+                            "The agent cancelled the prompt".into(),
+                        )
+                        .await;
+                }
                 let reason = match stop {
                     "end_turn" => StopReason::EndTurn,
                     "max_tokens" => StopReason::MaxTokens,
                     "max_turn_requests" => StopReason::MaxRounds,
-                    "cancelled" if interrupted => StopReason::Interrupted,
-                    "cancelled" => StopReason::Cancelled,
+                    "cancelled" => StopReason::Interrupted,
                     "refusal" => StopReason::Error {
                         class: ErrorClass::BadRequest,
                         message: "the agent refused this prompt".into(),
+                        interrupt: None,
                     },
                     other => StopReason::Error {
                         class: ErrorClass::Malformed,
                         message: format!("unknown stop reason {other}"),
+                        interrupt: None,
                     },
                 };
                 let open = if interrupted {
@@ -2118,7 +2208,7 @@ impl AcpAgentActor {
             }
             return Ok(());
         }
-        if self.running.is_none() && !self.hide_idle {
+        if self.running.is_none() && self.can_start_agent_turn() {
             self.start_agent_turn().await?;
         }
         if self.running.as_ref().is_none_or(|r| r.cancel_at.is_some()) {
@@ -2216,7 +2306,8 @@ impl AcpAgentActor {
                     Some(ApprovalDecision::Allow),
                     Resolver::Rule {
                         id: "profile-yolo".into(),
-                    }.into(),
+                    }
+                    .into(),
                     None,
                 )
                 .await;
@@ -2266,7 +2357,7 @@ impl AcpAgentActor {
     /// session waits on it like an approval (Phase::Approval); full access never
     /// answers one, because only the human can.
     async fn question(&mut self, id: Value, params: Value) -> std::io::Result<()> {
-        if self.running.is_none() && !self.hide_idle {
+        if self.running.is_none() && self.can_start_agent_turn() {
             self.start_agent_turn().await?;
         }
         if self.running.as_ref().is_none_or(|r| r.cancel_at.is_some()) {
@@ -2576,7 +2667,7 @@ impl AcpAgentActor {
             return Ok(());
         }
         if self.running.is_none() {
-            if !self.hide_idle
+            if self.can_start_agent_turn()
                 && matches!(
                     kind.as_str(),
                     "agent_message_chunk"

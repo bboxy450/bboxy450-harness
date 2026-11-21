@@ -155,6 +155,8 @@ pub enum Action {
     Send,
     RemoveAttachment(usize),
     Interrupt,
+    Continue(TurnId),
+    CancelRecovery(TurnId),
     Stop,
     StopAt(Epoch),
     Approval(ItemId, ApprovalDecision),
@@ -964,6 +966,35 @@ impl HarnessView {
             self.setup_details,
             state.created_here
         );
+        let model = &state.transcript;
+        let display_now = if state.replay {
+            model.last_event_ms
+        } else {
+            now_ms()
+        };
+        let interrupt = model
+            .pending_interrupt
+            .and_then(|turn| match model.turns.get(&turn) {
+                Some(TurnState::Ended {
+                    reason:
+                        StopReason::Error {
+                            message,
+                            interrupt:
+                                Some(Interrupt {
+                                    cause,
+                                    attempt,
+                                    deadline_ms,
+                                }),
+                            ..
+                        },
+                    ..
+                }) => Some((turn, cause, message, *attempt, *deadline_ms)),
+                _ => None,
+            });
+        let seconds = interrupt.map(|(_, _, _, _, deadline)| {
+            crate::interrupt::seconds_remaining(deadline, display_now)
+        });
+        let draft = format!("{draft}{seconds:?}");
         // a hover change rebuilds too: the menu row's fill starts its fade
         if !self.anim.in_motion()
             && !self.menus.dirty
@@ -990,7 +1021,6 @@ impl HarnessView {
         }
         let timer = std::time::Instant::now();
         let ctx = self.context();
-        let model = &state.transcript;
         let now = self.anim.now();
         self.motion.begin_frame(state, now);
         let width = size[0].max(240.);
@@ -1104,7 +1134,7 @@ impl HarnessView {
             state.ready,
             model.profile,
             model.meta.as_ref().map(|m| &m.cwd)
-        ) + &format!("{:?}", self.config_open);
+        ) + &format!("{:?}{interrupt:?}{seconds:?}", self.config_open);
         // While the clock moves something the controls are rebuilt every frame (the composer
         // reads its tweens as it is built); at rest they are reused by key.
         let reuse = !self.anim.in_motion()
@@ -1236,7 +1266,31 @@ impl HarnessView {
                 .max(40.);
             // the standalone window's own title bar (chrome.rs) above the face
             let bar_h = if self.chrome { chrome::TITLE_BAR_H } else { 0. };
-            let rows_h = (size[1] - composer_h - header_h - bar_h).max(1.);
+            let recovery =
+                interrupt
+                    .zip(seconds)
+                    .map(|((_, cause, message, attempt, _), seconds)| {
+                        let mut block =
+                            super::face::interrupt_block(cause, message, attempt, seconds, &ink);
+                        super::face::zoom_text(&mut block, zoom);
+                        super::face::frame(
+                            super::face::Frame {
+                                padding: [4., 14., 4., 14.],
+                                ..Default::default()
+                            },
+                            vec![block.into()],
+                        )
+                    });
+            let recovery_h = recovery
+                .as_ref()
+                .map(|block| {
+                    block
+                        .layout(Rect::new(0., 0., width, 0.), ctx, &self.metrics)
+                        .map(|l| l.rect.h)
+                })
+                .transpose()?
+                .unwrap_or(0.);
+            let rows_h = (size[1] - composer_h - header_h - bar_h - recovery_h).max(1.);
             let (transcript, content_h, enters) =
                 self.transcript(state, prepared, rows_h, width, first_frame, &ink)?;
             let offset = self.scroll_offset(content_h, rows_h, first_frame);
@@ -1274,8 +1328,14 @@ impl HarnessView {
                     element: rows,
                     extent: c::Extent::Fixed(rows_h),
                 },
-                composer.into(),
             ]);
+            if let Some(block) = recovery {
+                children.push(c::Item {
+                    element: block,
+                    extent: c::Extent::Fixed(recovery_h),
+                });
+            }
+            children.push(composer.into());
             let root = column(children, Some(size[1]));
 
             let mut layout = root.layout(Rect::new(0., 0., width, size[1]), ctx, &self.metrics)?;
@@ -1683,6 +1743,20 @@ impl HarnessView {
         ] {
             if let Some(node) = index.get(key) {
                 frame.actions.push((node.rect, action));
+            }
+        }
+        if let Some((turn, _, _, _, deadline)) = interrupt.filter(|_| !state.replay) {
+            for (key, action) in [
+                ("recovery/continue", Action::Continue(turn)),
+                ("recovery/cancel", Action::CancelRecovery(turn)),
+            ] {
+                if let Some(node) = index.get(key) {
+                    frame.actions.push((node.rect, action));
+                }
+            }
+            let ms = deadline.saturating_sub(display_now);
+            if ms > 0 {
+                self.anim.wake_in(((ms - 1) % 1000 + 1) as f32);
             }
         }
         for prompt in state.pending_prompts.values() {
@@ -2386,6 +2460,10 @@ impl HarnessView {
             self.invalidate();
             return true;
         }
+        if let Some(turn) = bridge.state.transcript.pending_interrupt {
+            self.activate(Action::CancelRecovery(turn), bridge);
+            return true;
+        }
         false
     }
     /// `/profile NAME` and the switcher: continue this conversation on NAME.
@@ -2703,6 +2781,8 @@ impl HarnessView {
             action => {
                 let op = match action {
                     Action::Interrupt => Op::Interrupt { turn: None },
+                    Action::Continue(turn) => Op::Continue { turn },
+                    Action::CancelRecovery(turn) => Op::Interrupt { turn: Some(turn) },
                     Action::Stop => Op::Close,
                     Action::StopAt(birth) => {
                         if bridge.state.transcript.epoch != birth {
@@ -4650,7 +4730,8 @@ mod progressive_prepare_tests {
             state.image_preparation = Some(ImagePreparation::new(|_| Vec::new()));
             view.render(&state, [900., 640.]).unwrap();
             assert!(view.retained_prepared.is_none());
-        }).await;
+        })
+        .await;
     }
 
     // State: a cold preparer and a long transcript. Safety: the first run

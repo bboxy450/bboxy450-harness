@@ -49,6 +49,7 @@ async fn malformed_stream_has_one_ending() {
         t.last().unwrap().event,
         Event::TurnEnded {
             reason: StopReason::Error {
+                interrupt: Some(_),
                 class: ErrorClass::Malformed,
                 ..
             },

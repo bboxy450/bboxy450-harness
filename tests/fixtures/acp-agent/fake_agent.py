@@ -251,6 +251,12 @@ while True:
     m = read()
     method, rid = m.get("method"), m.get("id")
     if method == "initialize":
+        if SCENARIO == "retry-resume":
+            with Path("retry-spawns").open("a") as visits:
+                visits.write("spawn\n")
+            if len(Path("retry-spawns").read_text().splitlines()) == 2:
+                send({"jsonrpc":"2.0", "id":rid, "error":{"code":-32000,"message":"Authentication required"}})
+                continue
         if SCENARIO == "question":
             assert m["params"]["clientCapabilities"]["elicitation"]["form"] == {}
         send({"jsonrpc": "2.0", "id": rid, "result": {"protocolVersion": 1, "agentCapabilities": {}, "authMethods": [],
@@ -288,6 +294,33 @@ while True:
     elif method == "session/prompt":
         text = " ".join(b.get("text", "") for b in m["params"]["prompt"])
         if SCENARIO.startswith("steering-"): text = m["params"]["prompt"][-1].get("text", "")
+        if SCENARIO.startswith("retry-"):
+            last = m["params"]["prompt"][-1].get("text", "")
+            with Path("retry-prompts").open("a") as visits:
+                visits.write(last + "\n")
+            count = len(Path("retry-prompts").read_text().splitlines())
+            case = SCENARIO.removeprefix("retry-")
+            if case in ("exited", "resume") and count == 1:
+                update({"sessionUpdate": "tool_call", "toolCallId": "recover-tool", "title": "Open tool", "kind": "execute", "status": "in_progress"})
+                print("fake agent exited while a tool was open", file=sys.stderr, flush=True)
+                sys.exit(9)
+            if case in ("exited", "resume") and count == 2:
+                assert "original work" in text, "new agent lost the existing transcript handoff"
+            errors = {
+                "capacity": (-32603, "Internal error", {"details": "Selected model is at capacity"}),
+                "rate": (429, "Selected model is at capacity", {}),
+                "hook": (503, "Hook failed", {"code": "hook_failed"}),
+                "auth": (-32000, "Authentication required", {}),
+                "unknown": (-32603, "Redacted unfamiliar failure", {}),
+            }
+            if case in errors and (last == "original work" or (case == "unknown" and count <= 7)):
+                code, message, data = errors[case]
+                send({"jsonrpc": "2.0", "id": rid, "error": {"code": code, "message": message, "data": data}})
+                # Repeated old prompt replies never claim the failed turn again.
+                send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+                continue
+            send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+            continue
         stop = prompt(rid, text)
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": stop}})
         if SCENARIO.startswith("wake") and not WOKE:

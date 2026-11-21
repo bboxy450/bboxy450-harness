@@ -355,7 +355,8 @@ fn state_reports_have_exact_transition_bytes() {
                 turn,
                 reason: StopReason::Error {
                     class: ErrorClass::Config,
-                    message: "bad".into()
+                    message: "bad".into(),
+                    interrupt: None,
                 },
                 usage: None
             })
@@ -451,6 +452,7 @@ async fn state_heartbeat_uses_two_seconds_of_fake_time_only_while_a_turn_is_open
             reason: StopReason::Error {
                 class: ErrorClass::Config,
                 message: "failed".into(),
+                interrupt: None,
             },
             usage: None,
         })
@@ -740,6 +742,7 @@ fn state_details_are_scrubbed_before_clipping_and_escape_encoding() {
             reason: StopReason::Error {
                 class: ErrorClass::Config,
                 message: format!("SECRET-SENTINEL {}", "🦊".repeat(1000)),
+                interrupt: None,
             },
             usage: None,
         })

@@ -43,6 +43,9 @@ Native text-entry dispatch witnesses and their broken controls follow this polic
 
 ## Lineage and credits
 
+- The interrupt cause catalogue, recovery timer, face controls and their formal
+  and process witnesses are project-owned contributions under this policy.
+
 - ACP full-access defaults, per-adapter launch settings and confirmation before
   prompting in `src/backend/acp_permissions.rs` and their private process
   witnesses are project-owned under the policy above. Adapter command/API facts

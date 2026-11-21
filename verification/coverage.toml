@@ -8,6 +8,9 @@
 name = "bboxy450-harness"
 status = "contract-model"
 models = [
+    "HarnessInterruptRecovery",
+    "BrokenHarnessInterruptDuplicate",
+    "BrokenHarnessInterruptNoRearm",
     "HarnessDreamReadObserveOrTerminal",
     "BrokenHarnessDreamReadObserveOrTerminalBypassSite",
     "BrokenHarnessDreamReadVerifierEventsIgnoreChildExit",

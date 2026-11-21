@@ -502,6 +502,11 @@ impl Store {
         if matches!(
             e.event,
             Event::TurnEnded { .. }
+                | Event::InterruptDismissed { .. }
+                | Event::TurnStarted {
+                    origin: Some(TurnOrigin::Automatic),
+                    ..
+                }
                 | Event::SessionClosed
                 | Event::ItemStarted {
                     kind: ItemKind::Approval | ItemKind::Question,
@@ -524,13 +529,19 @@ impl Store {
         let prior_epoch = self.events.last().unwrap().epoch;
         let mut open = BTreeMap::new();
         let mut turns = BTreeSet::new();
+        let mut started = BTreeSet::new();
         for e in &self.events {
             match &e.event {
                 Event::TurnQueued { turn } => {
                     turns.insert(*turn);
                 }
+                Event::TurnStarted { turn, .. } => {
+                    turns.insert(*turn);
+                    started.insert(*turn);
+                }
                 Event::TurnEnded { turn, .. } => {
                     turns.remove(turn);
+                    started.remove(turn);
                 }
                 Event::ItemStarted {
                     item,
@@ -565,11 +576,22 @@ impl Store {
             )
             .await?;
         }
+        let mut recovery = crate::interrupt::Recovery::replay(&self.events);
         for turn in turns {
+            let reason = if started.contains(&turn) {
+                recovery.failed(
+                    turn,
+                    "harness.exited",
+                    ErrorClass::Internal,
+                    "The harness exited before the turn ended".into(),
+                )
+            } else {
+                StopReason::Interrupted
+            };
             self.append(
                 Event::TurnEnded {
                     turn,
-                    reason: StopReason::Interrupted,
+                    reason,
                     usage: None,
                 },
                 None,
