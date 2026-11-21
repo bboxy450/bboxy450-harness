@@ -321,6 +321,34 @@ impl Folds {
         }
         Some(cell)
     }
+    fn python_displayed(
+        &self,
+        model: &Transcript,
+        parent: &ViewItem,
+        execution: &str,
+    ) -> Vec<String> {
+        std::iter::once(parent)
+            .chain(
+                self.kids
+                    .get(&parent.id)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|id| model.items.get(id)),
+            )
+            .filter_map(|item| match &item.body {
+                Item::ToolCall {
+                    raw_output, output, ..
+                } if python_cell(item).is_some() => Some(super::super::rich::python_displayed(
+                    execution,
+                    raw_output.as_ref(),
+                    output,
+                )),
+                _ => None,
+            })
+            // Each receipt retains the full append-only list, including polls.
+            .max_by_key(Vec::len)
+            .unwrap_or_default()
+    }
     pub fn deps(&self, model: &Transcript, id: &ItemId, p: &Preparer) -> u64 {
         // rows without folded children or a receipt carry no signature (0)
         let mut any = false;
@@ -1465,6 +1493,24 @@ impl Preparer {
                     ink,
                     &self.metrics,
                 )?);
+                if let Some(execution) = cell.execution_id.as_deref() {
+                    let displayed = folds.python_displayed(model, row, execution);
+                    if !displayed.is_empty() {
+                        let doc = self.documents.prepare(
+                            id,
+                            &displayed.join("\n\n"),
+                            true,
+                            content_width - 48.,
+                            self.zoom.scale(),
+                            &self.metrics,
+                        )?;
+                        inside.push(
+                            doc.inset(id, content_width - 48., &self.metrics, ctx)?
+                                .into(),
+                        );
+                        rich = Some(doc);
+                    }
+                }
             } else if d.kind == "execute" {
                 // a finished run without output says so in the terminal's own voice
                 let out = out_text

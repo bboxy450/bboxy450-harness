@@ -8,6 +8,30 @@
 use super::*;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+// One live broker dispatch, separate from the worker's callback token.
+#[derive(Serialize)]
+pub(super) struct ArtifactCall {
+    operation: Ulid,
+    tool: String,
+    arguments_digest: String,
+    context_digest: String,
+}
+
+struct ArtifactDispatch<'a> {
+    run: &'a Run,
+    nonce: Ulid,
+}
+
+impl Drop for ArtifactDispatch<'_> {
+    fn drop(&mut self) {
+        self.run
+            .artifact_calls
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&self.nonce);
+    }
+}
+
 pub fn catalogue() -> Vec<Value> {
     let id = json!({"type":"string","pattern":"^[0-7][0-9A-HJKMNP-TV-Z]{25}$"});
     [
@@ -82,6 +106,7 @@ impl Service {
                         }
                     },
                     Some("python/callback")=>service.callback(request["params"].clone()).await,
+                    Some("python/artifact_source")=>service.artifact_source(&request["params"]).await,
                     _=>Err(fault("method_not_found","unknown runtime protocol method")),
                 };
                 let reply=match result {Ok(value)=>json!({"jsonrpc":"2.0","id":request_id,"result":value}),Err(error)=>json!({"jsonrpc":"2.0","id":request_id,"error":{"code":-32000,"message":"Python runtime callback failed","data":error}})};
@@ -98,6 +123,42 @@ impl Service {
         drop(writer);
         let _ = output.await;
     }
+    async fn artifact_source(&self, params: &Value) -> Result<Value, Value> {
+        let execution = id(params, "execution_id")?;
+        let nonce = id(params, "nonce")?;
+        let run = self
+            .0
+            .runs
+            .lock()
+            .await
+            .get(&execution)
+            .cloned()
+            .ok_or_else(|| {
+                fault(
+                    "execution_source_unavailable",
+                    "execution source is no longer live",
+                )
+            })?;
+        let bound = run
+            .artifact_calls
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&nonce)
+            .is_some_and(|call| {
+                params["operation"] == json!(call.operation)
+                    && params["tool"].as_str() == Some(&call.tool)
+                    && params["arguments_digest"].as_str() == Some(&call.arguments_digest)
+                    && params["context_digest"].as_str() == Some(&call.context_digest)
+            });
+        if !bound || run.cancel.is_cancelled() {
+            return Err(fault(
+                "execution_source_unavailable",
+                "no matching broker dispatch",
+            ));
+        }
+        Ok(json!({"execution_id": execution, "source": run.source.as_ref()}))
+    }
+
     async fn callback(&self, params: Value) -> Result<Value, Value> {
         let execution = id(&params, "execution_id")?;
         let run = self
@@ -188,6 +249,35 @@ impl Service {
                 self.save_record(&record)
                     .await
                     .map_err(|_| fault("execution_storage", "cannot persist emitted result"))?;
+                Ok(Value::Null)
+            }
+            Some("display") => {
+                let reference = args["reference"]
+                    .as_str()
+                    .filter(|r| display_reference(r))
+                    .ok_or_else(|| {
+                        fault(
+                            "invalid_arguments",
+                            "display requires a stored image reference",
+                        )
+                    })?;
+                let mut record = run.record.lock().await;
+                if record.status != "running" || run.cancel.is_cancelled() {
+                    return Err(fault(
+                        "execution_retired",
+                        "terminal executions do not admit new display rows",
+                    ));
+                }
+                if record.displayed.len() >= 256 {
+                    return Err(fault(
+                        "output_limit",
+                        "display budget is 256 image rows per execution",
+                    ));
+                }
+                record.displayed.push(reference.to_owned());
+                self.save_record(&record).await.map_err(|_| {
+                    fault("execution_storage", "cannot persist displayed reference")
+                })?;
                 Ok(Value::Null)
             }
             Some("stored") => {
@@ -389,7 +479,7 @@ impl Service {
                 // Persist the child identity first, then re-admit. Native
                 // dispatch also carries the capture into the owner turn that
                 // selects its real provider port; a preflight alone is racy.
-                let expected = self.check_context(&run).await;
+                let mut expected = self.check_context(&run).await;
                 let mut result = if let Err(error) = &expected {
                     Err(error.clone())
                 } else if kind == "call" {
@@ -399,6 +489,32 @@ impl Service {
                     let tool = args["tool"]
                         .as_str()
                         .ok_or_else(|| fault("invalid_arguments", "tool name required"))?;
+                    let _artifact_dispatch = if matches!(tool, "artifact_store" | "artifact_update")
+                        && let Ok(context) = &mut expected
+                        && context["guard_version"] == 1
+                    {
+                        let nonce = Ulid::new();
+                        let mut arguments = self.0.redactor.value(args["arguments"].clone());
+                        let arguments = arguments.as_object_mut().expect("validated arguments");
+                        arguments.remove("intent");
+                        arguments.remove("op_id");
+                        let call = ArtifactCall {
+                            operation,
+                            tool: tool.into(),
+                            arguments_digest: digest(&arguments),
+                            context_digest: digest(context),
+                        };
+                        run.artifact_calls
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .insert(nonce, call);
+                        context["artifact_source"] = json!({
+                            "endpoint": self.0.endpoint.socket(), "execution_id": execution, "nonce": nonce,
+                        });
+                        Some(ArtifactDispatch { run: &run, nonce })
+                    } else {
+                        None
+                    };
                     self.0
                         .mcp
                         .guarded_call_with_timeout(

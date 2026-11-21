@@ -147,6 +147,8 @@ struct Record {
     omitted_bytes: u64,
     #[serde(default)]
     emitted: Vec<Value>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    displayed: Vec<String>,
     #[serde(default)]
     children: Vec<Child>,
     /// `store` keys this run wrote: the model sees what is kept, not the data.
@@ -159,6 +161,8 @@ struct Record {
     duration_ms: Option<u64>,
 }
 struct Run {
+    source: Arc<str>,
+    artifact_calls: std::sync::Mutex<BTreeMap<Ulid, server::ArtifactCall>>,
     record: Mutex<Record>,
     cancel: CancellationToken,
     capture: std::sync::Mutex<Capture>,
@@ -212,9 +216,44 @@ fn digest(value: &impl Serialize) -> String {
 pub(crate) fn fault(code: &str, message: &str) -> Value {
     json!({"error":{"code":code,"message":message},"hints":[{"reason":"Read execution state and nested receipts before retrying any effect.","method":"tools/call","params":{"name":"python_execute_orient","arguments":{}}}]})
 }
+pub(crate) fn display_reference(reference: &str) -> bool {
+    let Some(address) = reference
+        .strip_prefix("![[artifact:")
+        .and_then(|r| r.strip_suffix("]]"))
+    else {
+        return false;
+    };
+    let id_only = |text: &str| {
+        text.parse::<Ulid>()
+            .is_ok_and(|id| id != Ulid::nil() && text == id.to_string())
+    };
+    if let Some((id, revision)) = address.split_once(':') {
+        id_only(id)
+            && revision
+                .parse::<u64>()
+                .is_ok_and(|n| n != 0 && revision == n.to_string())
+    } else {
+        id_only(address)
+    }
+}
+
 fn envelope(value: Value) -> Value {
     let failed = value.get("error").is_some_and(|v| !v.is_null());
-    json!({"content":[{"type":"text","text":value.to_string()}],"structuredContent":value,"isError":failed})
+    let mut response = json!({"content":[{"type":"text","text":value.to_string()}],"structuredContent":value,"isError":failed});
+    if let Some(images) = response["structuredContent"]["displayed"].as_array() {
+        let text = images
+            .iter()
+            .filter_map(Value::as_str)
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        if !text.is_empty() {
+            response["content"]
+                .as_array_mut()
+                .expect("MCP content")
+                .push(json!({"type":"text","text":text}));
+        }
+    }
+    response
 }
 fn id(value: &Value, key: &str) -> Result<Ulid, Value> {
     value[key]
@@ -341,6 +380,7 @@ impl Service {
                         output_bytes: 0,
                         omitted_bytes: 0,
                         emitted: vec![],
+                        displayed: vec![],
                         children: vec![],
                         stored: vec![],
                         edits: vec![],
@@ -444,7 +484,7 @@ impl Service {
         Ok(stable)
     }
     async fn execute(&self, args: Value, context: Value) -> Result<Value, Value> {
-        let source = args["source"]
+        let source: Arc<str> = args["source"]
             .as_str()
             .filter(|s| !s.is_empty() && s.len() <= SOURCE)
             .ok_or_else(|| {
@@ -453,7 +493,7 @@ impl Service {
                     "source must contain 1..1048576 UTF-8 bytes",
                 )
             })?
-            .to_owned();
+            .into();
         let timeout = args["timeout_ms"].as_u64().unwrap_or(DEFAULT_TIMEOUT);
         if !(10..=TIMEOUT).contains(&timeout) {
             return Err(fault(
@@ -467,7 +507,7 @@ impl Service {
             Ulid::new()
         };
         let request_digest = digest(
-            &json!({"source":source,"inputs":args.get("inputs").cloned().unwrap_or_else(||json!({})),"timeout_ms":timeout,"context":context}),
+            &json!({"source":source.as_ref(),"inputs":args.get("inputs").cloned().unwrap_or_else(||json!({})),"timeout_ms":timeout,"context":context}),
         );
         if let Ok(old) = self.get_record(execution).await {
             if old.request_digest != request_digest {
@@ -485,10 +525,12 @@ impl Service {
             )
         })?;
         let run = Arc::new(Run {
+            source: source.clone(),
+            artifact_calls: std::sync::Mutex::new(BTreeMap::new()),
             record: Mutex::new(Record {
                 execution_id: execution,
                 request_digest,
-                source_digest: digest(&source),
+                source_digest: digest(&source.as_ref()),
                 status: "starting".into(),
                 cwd: self.0.cwd.clone(),
                 context: context.clone(),
@@ -500,6 +542,7 @@ impl Service {
                 output_bytes: 0,
                 omitted_bytes: 0,
                 emitted: vec![],
+                displayed: vec![],
                 children: vec![],
                 stored: vec![],
                 edits: vec![],
@@ -583,7 +626,6 @@ impl Service {
             let result = service
                 .drive(
                     &current,
-                    source,
                     args.get("inputs").cloned().unwrap_or_else(|| json!({})),
                     timeout,
                 )
@@ -631,11 +673,14 @@ impl Service {
             return json!({"execution_id":record.execution_id,"status":record.status,"cwd":record.cwd,
             "context":record.context,"pid":record.pid,"exit_code":record.exit_code,"signal":record.signal,
             "output":record.output.get(offset..end).unwrap_or_default(),"next_cursor":(end<record.output.len() || running).then(||end.to_string()),
-            "omitted_bytes":record.omitted_bytes,"emitted":record.emitted,"stored":record.stored,"edits":record.edits,"duration_ms":record.duration_ms,"children":record.children.iter().map(|c|json!({"id":c.id,"sequence":c.sequence,"kind":c.kind,"label":c.label,"server":c.server,"tool":c.tool,"arguments_digest":c.arguments_digest,"server_generation":c.server_generation,"schema_digest":c.schema_digest,"status":c.status,"result_cursor":format!("child:{}:0",c.sequence)})).collect::<Vec<_>>(),
+            "omitted_bytes":record.omitted_bytes,"emitted":record.emitted,"displayed":record.displayed,"stored":record.stored,"edits":record.edits,"duration_ms":record.duration_ms,"children":record.children.iter().map(|c|json!({"id":c.id,"sequence":c.sequence,"kind":c.kind,"label":c.label,"server":c.server,"tool":c.tool,"arguments_digest":c.arguments_digest,"server_generation":c.server_generation,"schema_digest":c.schema_digest,"status":c.status,"result_cursor":format!("child:{}:0",c.sequence)})).collect::<Vec<_>>(),
             "error":record.error.as_ref().map(|failure|failure.get("error").unwrap_or(failure)),
             "failure":record.error,"hints":record.error.as_ref().and_then(|failure|failure.get("hints")).cloned().unwrap_or_else(||json!([])),"retry_script":false});
         }
         let mut lean = json!({"execution_id":record.execution_id,"status":record.status});
+        if !record.displayed.is_empty() {
+            lean["displayed"] = json!(record.displayed);
+        }
         match record.emitted.as_slice() {
             [] => {}
             [one] => lean["result"] = one.clone(),
@@ -1052,13 +1097,7 @@ impl Service {
         }
         Ok(self.view(&record, offset, args["detail"] == true))
     }
-    async fn drive(
-        &self,
-        run: &Arc<Run>,
-        source: String,
-        inputs: Value,
-        timeout: u64,
-    ) -> Result<(), Value> {
+    async fn drive(&self, run: &Arc<Run>, inputs: Value, timeout: u64) -> Result<(), Value> {
         // Unrelated slow or invalid MCP servers must not delay local Python.
         // Already-ready generations were pinned at admission; a still-starting
         // server is pinned on first discovery/call without retrying old bindings.
@@ -1084,7 +1123,7 @@ impl Service {
                 "Python 3 is not available in the harness PATH",
             )
         })?;
-        let launch = json!({"socket":self.0.endpoint.socket(),"execution_id":run.record.lock().await.execution_id,"callback_token":run.token,"source":source,"inputs":inputs,"context":context,"state":self.0.root.join("state")});
+        let launch = json!({"socket":self.0.endpoint.socket(),"execution_id":run.record.lock().await.execution_id,"callback_token":run.token,"source":run.source.as_ref(),"inputs":inputs,"context":context,"state":self.0.root.join("state")});
         let mut command = tokio::process::Command::new(program);
         command.args(["-I", "-u", "-c", include_str!("worker.py")]);
         let output = self

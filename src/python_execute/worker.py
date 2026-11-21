@@ -668,6 +668,95 @@ def emit(value):
     _rpc_sync("emit", {"value": value})
 
 
+class _Displayed(Data):
+    """The result of an image already sent to the transcript."""
+
+
+def _artifact_pin(value):
+    if not isinstance(value, dict):
+        return None
+    identity, revision = value.get("id"), value.get("revision")
+    if (isinstance(identity, str) and re.fullmatch(r"[0-7][0-9A-HJKMNP-TV-Z]{25}", identity)
+            and type(revision) is int and 0 < revision < 2**64):
+        return {"id": identity, "revision": revision}
+    return None
+
+
+def _display_reference(saved):
+    if _artifact_pin(saved) is None or saved.get("media_type") not in ("image/svg+xml", "image/png"):
+        raise ValueError("display requires stored image metadata")
+    reference = saved.get("reference")
+    if reference not in (f"![[artifact:{saved['id']}]]",
+                         f"![[artifact:{saved['id']}:{saved['revision']}]]"):
+        raise ValueError("invalid stored image reference")
+    _rpc_sync("display", {"reference": reference})
+    return _Displayed(saved)
+
+
+def _stage_artifact(payload, store):
+    if len(payload) > 16 * 1024 * 1024:
+        raise ValueError("export exceeds the staged artifact limit")
+    with tempfile.TemporaryDirectory(prefix=".bboxy-display-", dir=execution["chart_export"]["staging"]) as directory:
+        path = os.path.join(directory, "payload")
+        with open(path, "xb") as file:
+            file.write(payload)
+        return store(path)
+
+
+def _capture_json(media_type, data):
+    payload = json.dumps(data, ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode()
+    if len(payload) <= 262144:
+        return bboxy.artifact_store(media_type=media_type, content=data)
+    return _stage_artifact(payload,
+                           lambda path: bboxy.artifact_store(media_type=media_type, source_path=path))
+
+
+def display(plot, inputs=(), update=None):
+    """Send a retained image to the transcript. Update a saved SVG with its expected revision."""
+    if isinstance(plot, dict) and _artifact_pin(plot) is not None:
+        if inputs or update is not None:
+            raise ValueError("displaying a saved image does not take inputs or an update")
+        return _display_reference(plot)
+    expected = None if update is None else _artifact_pin(update)
+    if update is not None and (expected is None or update.get("media_type") != "image/svg+xml"):
+        raise ValueError("update requires the saved metadata of an SVG")
+    exporter = execution.get("chart_export")
+    if exporter is None:
+        raise RuntimeError("chart export is unavailable in this Python host")
+    import importlib.util
+    module = importlib.util.spec_from_file_location("_bboxy_chart_export", exporter["module"])
+    if module is None or module.loader is None:
+        raise RuntimeError("chart exporter module is unavailable")
+    helper = sys.modules.get(module.name)
+    if helper is None:
+        helper = importlib.util.module_from_spec(module)
+        module.loader.exec_module(helper)
+        sys.modules[module.name] = helper
+    svg, definition, snapshots = helper.prepare_plot(plot, exporter["fonts"])
+    inputs = list(inputs)
+    if len(inputs) + len(snapshots) >= 32:
+        raise ValueError("chart capture exceeds its 32 total input pins")
+    declared = []
+    for data in [*snapshots, *inputs]:
+        pin = _artifact_pin(data)
+        if pin is None:
+            if hasattr(data, "to_dict"):
+                data = data.to_dict(orient="records")
+            pin = _artifact_pin(_capture_json("application/json", data))
+        declared.append(pin)
+    definition_type = ("application/json" if definition["export"].get("backend") == "matplotlib"
+                       else "application/vnd.vegalite.v5+json")
+    definition = _capture_json(definition_type, definition)
+    declared.append(_artifact_pin(definition))
+    if expected is None:
+        write = lambda path: bboxy.artifact_store(media_type="image/svg+xml", source_path=path,
+                                                  inputs=declared)
+    else:
+        write = lambda path: bboxy.artifact_update(id=expected["id"], expected_revision=expected["revision"],
+                                                  source_path=path, inputs=declared)
+    return _display_reference(_stage_artifact(svg, write))
+
+
 mcp = MCP()
 tools = mcp
 # The host's own tools are plain functions: `await bboxy.orient()`.
@@ -699,8 +788,9 @@ async def _main():
     result = eval(compile(tree, _NAME, "exec", flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT), globals(), globals())
     if inspect.isawaitable(result):
         await result
-    if isinstance(last, ast.Expr) and globals().get("_") is not None:
-        emit(globals()["_"])
+    final = globals().get("_")
+    if isinstance(last, ast.Expr) and final is not None and not isinstance(final, _Displayed):
+        emit(final)
 
 
 def _report(error):

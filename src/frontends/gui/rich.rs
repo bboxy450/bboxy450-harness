@@ -211,6 +211,66 @@ pub fn bound_native_runs(element: &mut c::Element) {
     }
 }
 
+/// Read the typed display results of an actual Python tool reply. The runtime
+/// keeps stdout and ordinary emitted values separate. Never search either for embeds.
+pub(super) fn python_displayed(
+    execution: &str,
+    raw: Option<&serde_json::Value>,
+    output: &[crate::protocol::OutputBlock],
+) -> Vec<String> {
+    use serde_json::Value;
+    fn read(execution: &str, value: &Value, depth: u8) -> Option<Vec<String>> {
+        if depth == 0 {
+            return None;
+        }
+        if value["execution_id"].as_str() == Some(execution) {
+            return Some(
+                value["displayed"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .take(256)
+                    .filter_map(Value::as_str)
+                    .filter(|value| crate::python_execute::display_reference(value))
+                    .map(str::to_owned)
+                    .collect(),
+            );
+        }
+        let inner = crate::frontends::face_core::codex_outcome(value)
+            .and_then(Result::ok)
+            .or_else(|| value.get("structuredContent"))
+            .or_else(|| {
+                value.get("result").filter(|inner| {
+                    inner.get("content").is_some() || inner.get("structuredContent").is_some()
+                })
+            });
+        inner
+            .and_then(|v| read(execution, v, depth - 1))
+            .or_else(|| {
+                value["content"].as_array()?.iter().find_map(|v| {
+                    let raw: Value = serde_json::from_str(v["text"].as_str()?).ok()?;
+                    read(execution, &raw, depth - 1)
+                })
+            })
+    }
+
+    raw.and_then(|value| read(execution, value, 6))
+        .or_else(|| {
+            output.iter().find_map(|block| {
+                use crate::protocol::OutputBlock;
+                match block {
+                    OutputBlock::Json { value } => read(execution, value, 6),
+                    OutputBlock::Text { text } | OutputBlock::Error { text } => {
+                        let value: Value = serde_json::from_str(text).ok()?;
+                        read(execution, &value, 6)
+                    }
+                    _ => None,
+                }
+            })
+        })
+        .unwrap_or_default()
+}
+
 /// Structured prose and valid JSON use the shared document worker.
 pub(super) fn tool_markdown(kind: &str, path: &str, failed: bool, text: &str) -> Option<String> {
     if json_output(text) {
@@ -1081,11 +1141,12 @@ mod tests {
                             _ => None,
                         })
                         .expect("fixture needs an image");
-                    *asset = Some(ImageAsset {
-                        key: name.into(),
-                        width: 20,
-                        height: 12,
-                    });
+                    *asset = Some(
+                        serde_json::from_value::<ImageAsset>(serde_json::json!({
+                            "key": name, "width": 20, "height": 12,
+                        }))
+                        .expect("bitmap metadata"),
+                    );
                     vec![Arc::new(bbt_render::chrome::icons::Image {
                         name: name.into(),
                         width: 20,
@@ -1405,4 +1466,20 @@ mod code_element_tests {
             }
         }
     }
+}
+
+// keeps: specs/python-charts — stdout and emitted JSON remain literal.
+#[cfg(test)]
+#[test]
+fn python_artifact_rows_ignore_stdout_and_nested_json() {
+    use serde_json::json;
+    let execution = "0000000000000000000000000B";
+    let image = "![[artifact:0000000000000000000000000A:2]]";
+    let record = json!({"execution_id":execution,"status":"completed",
+        "output":image,"result":{"displayed":[image]}});
+    assert!(python_displayed(execution, Some(&record), &[]).is_empty());
+    let part = json!({"result":{"structuredContent":{
+        "execution_id":execution,"displayed":[image,"ordinary text", "![bad]"]}}});
+    assert_eq!(python_displayed(execution, Some(&part), &[]), vec![image]);
+    assert!(python_displayed("other", Some(&part), &[]).is_empty());
 }

@@ -5,8 +5,10 @@
 # Credit copied/adapted/translated reuse accurately; independent inspiration credit requested.
 # Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
 """Real stdio MCP test peer; never uses a model, network or operator account."""
+import hashlib
 import json
 import os
+import socket
 import sys
 from pathlib import Path
 
@@ -15,7 +17,7 @@ root = Path(sys.argv[2])
 names = ["echo", "fail", "write", "crash", "change", "change_silent"]
 names += [f"tool_{i:03}" for i in range(180)]
 if tag == "native":
-    names = ["python_execution_context"]
+    names = ["python_execution_context", "artifact_store", "artifact_update"]
 generation = 0
 aba_phase = None
 for line in sys.stdin:
@@ -101,6 +103,39 @@ for line in sys.stdin:
             result = {"content": [{"type": "text", "text": "context"}],
                       "structuredContent": {"context": context, "fixture_pid": os.getpid()}, "isError": False,
                       "_meta": {"bboxy450/guard_transport_version": transport_version}}
+            print(json.dumps({"jsonrpc": "2.0", "id": request["id"], "result": result}), flush=True)
+            continue
+        if name in ("artifact_store", "artifact_update"):
+            meta = request["params"]["_meta"]
+            context = dict(meta["bboxy450/python_context"])
+            offer = context.pop("artifact_source")
+            canonical = lambda value: hashlib.sha256(json.dumps(
+                value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+            bound = {"execution_id": offer["execution_id"], "nonce": offer["nonce"],
+                     "operation": meta["bboxy450/op_id"], "tool": name,
+                     "arguments_digest": canonical({k: v for k, v in args.items()
+                                                    if k not in ("op_id", "intent")}),
+                     "context_digest": canonical(context)}
+
+            def source_offer(query):
+                wire = {"jsonrpc": "2.0", "id": 1, "method": "python/artifact_source", "params": query}
+                with socket.socket(socket.AF_UNIX) as connection:
+                    connection.settimeout(2)
+                    connection.connect(offer["endpoint"])
+                    connection.sendall(json.dumps(wire).encode() + b"\n")
+                    with connection.makefile("rb") as reply:
+                        return json.loads(reply.readline())
+
+            denied = source_offer({**bound, "arguments_digest": "0" * 64})
+            assert denied["error"]["data"]["error"]["code"] == "execution_source_unavailable", denied
+            trusted = source_offer(bound)["result"]
+            (root / f"{name}.source.json").write_text(json.dumps(trusted, ensure_ascii=False))
+            identity = "0000000000000000000000000A"
+            revision = 1 if name == "artifact_store" else 2
+            structured = {"id": identity, "revision": revision, "media_type": "image/svg+xml",
+                          "reference": f"![[artifact:{identity}]]"}
+            result = {"content": [{"type": "text", "text": json.dumps(structured)}],
+                      "structuredContent": structured, "isError": False}
             print(json.dumps({"jsonrpc": "2.0", "id": request["id"], "result": result}), flush=True)
             continue
         if name == "crash":

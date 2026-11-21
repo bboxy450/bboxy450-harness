@@ -1681,3 +1681,39 @@ fs.write("note.txt", "body")
     assert_eq!(out["read"], "body");
     rig.close().await;
 }
+
+// keeps: specs/python-charts — nested writes bind exact admitted source, and
+// an ordinary stdout line is independent of the typed display result.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn artifact_broker_binds_proxy_calls_and_round_trips_typed_display() {
+    let rig = Rig::start_managed(true).await;
+    let source = r#"
+first = tools.native.artifact_store(content="α")
+second = await mcp.call("native", "artifact_update", {"id": first.id, "expected_revision": 1, "content": "β"})
+print(first.reference)
+display(second.data)
+"#;
+    let record = rig.run(source).await;
+    assert_eq!(record["status"], "completed", "{record}");
+    assert_eq!(
+        record["displayed"],
+        json!(["![[artifact:0000000000000000000000000A]]"])
+    );
+    assert_eq!(record["emitted"], json!([]));
+    let printed = record["output"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|chunk| chunk["text"].as_str())
+        .collect::<String>();
+    assert_eq!(printed, "![[artifact:0000000000000000000000000A]]\n");
+    for name in ["artifact_store", "artifact_update"] {
+        let bytes = tokio::fs::read(rig._dir.path().join(format!("{name}.source.json")))
+            .await
+            .unwrap();
+        let retained: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(retained["execution_id"], record["execution_id"]);
+        assert_eq!(retained["source"], source);
+    }
+    rig.close().await;
+}
