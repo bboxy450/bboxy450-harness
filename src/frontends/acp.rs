@@ -769,19 +769,35 @@ impl Face {
                 }
             }
             Event::TurnEnded { turn, reason, .. } => {
-                let id = session.pending.lock().unwrap().turns.remove(turn);
-                if let Some(id) = id {
-                    match reason {
-                        StopReason::Error {class,message,interrupt}=> {
-                            let mut data = json!({"class":class,"message":message});
-                            if let Some(recovery) = interrupt {
-                                data["interrupt"] = json!(recovery);
+                let Some(id) = session.pending.lock().unwrap().turns.remove(turn) else {
+                    return;
+                };
+                let stop_reason = match reason {
+                    StopReason::EndTurn => "end_turn",
+                    StopReason::MaxTokens => "max_tokens",
+                    StopReason::MaxRounds => "max_turn_requests",
+                    StopReason::Error {
+                        class,
+                        message,
+                        interrupt,
+                    } => {
+                        // Recovery records limit endings as interrupts. ACP still uses stopReason.
+                        match interrupt.as_ref().map(|state| state.cause.as_str()) {
+                            Some("context.max_tokens") => "max_tokens",
+                            Some("turn.max_rounds") => "max_turn_requests",
+                            _ => {
+                                let mut data = json!({"class": class, "message": message});
+                                if let Some(recovery) = interrupt {
+                                    data["interrupt"] = json!(recovery);
+                                }
+                                self.error(id, -32603, message, Some(data)).await;
+                                return;
                             }
-                            self.error(id,-32603,message,Some(data)).await
-                        },
-                        _=>self.response(id,json!({"stopReason":match reason {StopReason::EndTurn=>"end_turn",StopReason::MaxTokens=>"max_tokens",StopReason::MaxRounds=>"max_turn_requests",_=>"cancelled"}})).await,
+                        }
                     }
-                }
+                    _ => "cancelled",
+                };
+                self.response(id, json!({"stopReason": stop_reason})).await;
             }
             _ => {}
         }

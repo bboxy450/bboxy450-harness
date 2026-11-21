@@ -263,14 +263,16 @@ async fn deferred_profile_forwards_images_and_preserves_the_actual_agent_guard()
 #[tokio::test]
 async fn max_tokens_max_rounds_and_error_replies_match_the_ending() {
     let length = json!({"choices":[{"delta":{"content":"limited"},"finish_reason":"length"}]});
-    for (expected, rounds, max_rounds) in [
+    for (expected, recovery_cause, rounds, max_rounds) in [
         (
             "max_tokens",
+            Some("context.max_tokens"),
             vec![format!("data: {length}\n\ndata: [DONE]\n\n").into_bytes()],
             8,
         ),
         (
             "max_turn_requests",
+            Some("turn.max_rounds"),
             vec![support::tool_sse(
                 "limit",
                 "read",
@@ -278,7 +280,7 @@ async fn max_tokens_max_rounds_and_error_replies_match_the_ending() {
             )],
             1,
         ),
-        ("error", vec![], 8),
+        ("error", None, vec![], 8),
     ] {
         let temp = tempfile::tempdir().unwrap();
         std::fs::write(temp.path().join("input.txt"), "small").unwrap();
@@ -315,7 +317,23 @@ async fn max_tokens_max_rounds_and_error_replies_match_the_ending() {
         }
         let config = c.config.clone();
         c.close().await;
-        bboxy450_harness::protocol::laws::check_authored(&session_log(&config, &sid)).unwrap();
+        let log = session_log(&config, &sid);
+        bboxy450_harness::protocol::laws::check_authored(&log).unwrap();
+        if let Some(expected_cause) = recovery_cause {
+            assert!(
+                log.iter().any(|entry| matches!(
+                    &entry.event,
+                    Event::TurnEnded {
+                        reason: StopReason::Error {
+                            interrupt: Some(Interrupt { cause, .. }),
+                            ..
+                        },
+                        ..
+                    } if cause == expected_cause
+                )),
+                "missing recorded interrupt {expected_cause}"
+            );
+        }
     }
 }
 #[tokio::test]
