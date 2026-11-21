@@ -302,6 +302,7 @@ impl StateReporter {
                 phase: Phase::Tool { item },
             } if !self.turns.is_empty() => force |= self.set_phase("Tool", Some(*item)),
             Event::SessionClosed => {
+                self.error = None;
                 self.turns.clear();
                 self.permissions.clear();
                 self.activities.clear();

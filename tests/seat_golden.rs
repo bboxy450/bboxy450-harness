@@ -751,6 +751,8 @@ fn state_details_are_scrubbed_before_clipping_and_escape_encoding() {
     let detail = report_field(&bytes, "msg").unwrap();
     assert!(detail.starts_with("<redacted>"));
     assert!(detail.len() <= 256);
+    let bytes = state.apply(&Event::SessionClosed).unwrap();
+    assert!(bytes.starts_with(b"\x1b]7501;state=idle"));
 }
 
 #[tokio::test(start_paused = true)]
