@@ -1037,7 +1037,7 @@ impl AcpAgentActor {
         } else {
             TurnOrigin::Automatic
         };
-        let cause = op.unwrap_or_else(OpId::new);
+        let cause = op.unwrap_or_default();
         self.publish(Event::TurnQueued { turn }, Some(cause))
             .await?;
         self.start(turn, continue_prompt(), cause, origin).await
