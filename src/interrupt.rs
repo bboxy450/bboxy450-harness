@@ -41,6 +41,16 @@ const CAUSES: &[Cause] = &[
         ["rate limit", "too many requests", "usage limit"]
     ),
     cause!(
+        "provider.quota",
+        RateLimited,
+        [],
+        [],
+        [
+            "you've hit your 5-hour limit",
+            "you've reached your fable limit"
+        ]
+    ),
+    cause!(
         "provider.overloaded",
         Transient,
         ["overloaded_error", "overloaded"],
@@ -315,4 +325,32 @@ pub(crate) fn continue_prompt() -> Vec<InputBlock> {
 
 pub(crate) fn seconds_remaining(deadline_ms: u64, now_ms: u64) -> u64 {
     deadline_ms.saturating_sub(now_ms).div_ceil(1000)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn classifies_provider_usage_quota() {
+        for message in [
+            "Internal error: You've hit your 5-hour limit · resets [redacted]",
+            "Internal error: You've reached your Fable limit. Switch to another model, or manage usage credits at [redacted] to continue.",
+        ] {
+            assert_eq!(
+                classify(None, None, Some(-32603), message, ErrorClass::BadRequest),
+                ("provider.quota", ErrorClass::RateLimited)
+            );
+        }
+        assert_eq!(
+            classify(
+                None,
+                None,
+                Some(-32603),
+                "Internal error",
+                ErrorClass::BadRequest
+            ),
+            ("unknown", ErrorClass::BadRequest)
+        );
+    }
 }
