@@ -1195,18 +1195,22 @@ mod tests {
                     })]
                 });
                 assert!(docs.set_image_preparation(Some(prepare)));
+                docs.begin_row();
                 let body = docs.prepare(id, text, true, 480., 1., &metrics).unwrap();
                 assert!(body.blocks.iter().any(|layout| has_image(layout, name)));
-                assert_eq!(docs.images().count(), 1);
+                let images = docs.finish_row(true);
+                assert_eq!(images.len(), 1);
+                assert_eq!(images[0].name, name);
             }
             assert!(docs.set_image_preparation(None));
+            docs.begin_row();
             let body = docs.prepare(id, text, true, 480., 1., &metrics).unwrap();
             assert!(
                 body.blocks
                     .iter()
                     .all(|layout| !has_image(layout, "image/a"))
             );
-            assert_eq!(docs.images().count(), 0);
+            assert!(docs.finish_row(true).is_empty());
         })
         .await;
     }
