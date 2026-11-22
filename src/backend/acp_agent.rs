@@ -398,10 +398,8 @@ impl AcpAgentActor {
         );
         crate::python_execute::Service::start(
             endpoint,
-            config
-                .sessions
-                .join(config.meta.session.to_string())
-                .join("python"),
+            config.sessions.clone(),
+            config.meta.session,
             config.meta.cwd.clone(),
             manager.clone(),
             config.redactor.clone(),

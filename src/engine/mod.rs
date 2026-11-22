@@ -396,10 +396,8 @@ impl SessionActor {
         if let Some(endpoint) = python_endpoint {
             crate::python_execute::Service::start(
                 endpoint,
-                config
-                    .sessions
-                    .join(config.meta.session.to_string())
-                    .join("python"),
+                config.sessions.clone(),
+                config.meta.session,
                 config.meta.cwd.clone(),
                 mcp.clone(),
                 config.redactor.clone(),

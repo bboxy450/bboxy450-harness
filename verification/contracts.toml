@@ -851,10 +851,21 @@ models = ["HarnessPythonExecution", "BrokenHarnessPythonExecutionReplay", "Broke
 controls = [{name="BrokenHarnessPythonExecutionReplay", expected="safety"}, {name="BrokenHarnessPythonExecutionStale", expected="safety"}, {name="BrokenHarnessPythonExecutionCustody", expected="safety"}, {name="BrokenHarnessPythonExecutionCancel", expected="safety"}, {name="BrokenHarnessPythonExecutionAdmission", expected="safety"}, {name="BrokenHarnessPythonExecutionRetarget", expected="safety"}]
 sources = ["src/python_execute/mod.rs", "src/python_execute/process.rs", "src/python_execute/server.rs", "src/mcp/python_broker.rs", "src/mcp/relay.rs", "tests/formal/python_execution.rs"]
 implementation_tests = ["src/python_execute/tests.rs", "src/python_execute/fixture.py", "tests/acp_launch_context.rs"]
-assumptions = "One execution and nested effect, a complete-admission publication, three monotonic authority epochs including A-B-A, one cancellation and one retained child identity before PID reuse. Atomic steps abstract file fsync/hard-link/rename and current admission. Weak fairness of completion/deadline settlement; external systems can remain unavailable. Source bytes, Python/OS safety, arbitrary filesystem/network/subprocess side effects, actual process-group signaling, memory and pipe behavior are implementation-only. The session `store` (one atomically renamed JSON file per key, last writer wins between concurrent runs, listed per run as observation only) is implementation-only. External MCP effects are not exactly-once and an unknown effect is never automatically replayed."
+assumptions = "One execution and nested effect, a complete-admission publication, three monotonic authority epochs including A-B-A, one cancellation and one retained child identity before PID reuse. Atomic steps abstract file fsync/hard-link/rename and current admission. Weak fairness of completion/deadline settlement; external systems can remain unavailable. Source bytes, Python/OS safety, arbitrary filesystem/network/subprocess side effects, actual process-group signaling, memory and pipe behavior are implementation-only. Session scratch is covered separately by HarnessPythonStoreRetention. External MCP effects are not exactly-once and an unknown effect is never automatically replayed."
 property = "Complete admission precedes execution; duplicates and interrupted replies cannot redispatch the recorded effect; stale epoch results are not current; cancellation and terminal retirement admit no new effect, including delayed callback frames; an old process receipt cannot kill a reused identity. Recorded external outcomes survive outer output loss."
 checks = ["make test-formal", "make test"]
 additional_checks = ["make test-python-execute"]
+
+[[contract]]
+name = "HarnessPythonStoreRetention"
+title = "Session scratch budget, interrupted writes and inactive retention"
+models = ["HarnessPythonStoreRetention", "BrokenHarnessPythonStoreBudget", "BrokenHarnessPythonStoreLiveReap"]
+controls = [{name="BrokenHarnessPythonStoreBudget", expected="safety"}, {name="BrokenHarnessPythonStoreLiveReap", expected="safety"}]
+sources = ["src/python_execute/worker.py", "src/python_execute/mod.rs", "src/store.rs", "tests/formal/python_execution.rs"]
+implementation_tests = ["src/python_execute/tests.rs", "src/store.rs"]
+assumptions = "Two one-byte keys compete for a one-byte budget in one session. The state-directory lock abstracts the check and rename, the log lease abstracts session ownership, and one expiry bit abstracts the age of both log and scratch. An interrupted write can leave a temporary file. Weak fairness of a successful opportunistic maintenance pass is assumed while scratch is expired and inactive. Real file sizes, OS clocks, directory scans, advisory locking, IO faults, earlier over-budget stores and same-UID direct mutation are implementation-only."
+property = "Published JSON stays within budget, age-based cleanup does not reap live sessions, and startup leaves no abandoned temporary write. Expired inactive scratch is eventually cleared if maintenance continues."
+checks = ["make test-formal", "make test"]
 
 [[contract]]
 name = "HarnessPythonControlCapacity"

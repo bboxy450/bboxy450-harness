@@ -19,7 +19,9 @@ impl Rig {
         Self::start_managed(false).await
     }
     async fn start_managed(managed: bool) -> Self {
-        let dir = tempfile::tempdir().unwrap();
+        Self::start_in(tempfile::tempdir().unwrap(), SessionId::new(), managed).await
+    }
+    async fn start_in(dir: tempfile::TempDir, session: SessionId, managed: bool) -> Self {
         let cwd = dir.path().join("source");
         tokio::fs::create_dir(&cwd).await.unwrap();
         let python = process::resolve("python3")
@@ -73,7 +75,8 @@ impl Rig {
         );
         let service = Service::start(
             endpoint,
-            dir.path().join("executions"),
+            dir.path().join("sessions"),
+            session,
             cwd,
             manager.clone(),
             Set::default(),
@@ -1299,7 +1302,7 @@ async fn store_keeps_values_between_executions_and_lists_what_a_run_wrote() {
         .await;
     assert_eq!(first["status"], "completed", "{first}");
     assert_eq!(first["emitted"], json!([]), "the data did not come back");
-    let file = rig._dir.path().join("executions/state/rows.json");
+    let file = rig.service.0.root.join("state/rows.json");
     let bytes = tokio::fs::metadata(&file).await.unwrap().len();
     assert_eq!(
         first["stored"],
@@ -1367,6 +1370,72 @@ def write(key, value):
     assert_eq!(third["emitted"][0], json!([[], 0]), "{third}");
     assert_eq!(third["stored"], json!([]));
     assert!(!file.exists());
+    rig.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn store_startup_removes_temporary_files_and_preserves_values() {
+    let dir = tempfile::tempdir().unwrap();
+    let session = SessionId::new();
+    let state = dir
+        .path()
+        .join("sessions")
+        .join(session.to_string())
+        .join("python/state");
+    std::fs::create_dir_all(&state).unwrap();
+    std::fs::write(state.join("kept.json"), b"1").unwrap();
+    std::fs::write(state.join("interrupted.tmp"), b"partial").unwrap();
+
+    let rig = Rig::start_in(dir, session, false).await;
+    let read = rig.run("store['kept']").await;
+    assert_eq!(read["emitted"], json!([1]));
+    assert!(!state.join("interrupted.tmp").exists());
+    rig.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn store_budget_counts_existing_files_and_serializes_publishers() {
+    let rig = Rig::start().await;
+    let state = rig.service.0.root.join("state");
+    std::fs::create_dir_all(&state).unwrap();
+    // Sparse legacy files exercise the production limit without writing hundreds
+    // of MiB. Leave exactly one byte for a concurrent publisher to claim.
+    for (index, bytes) in [64 << 20, 64 << 20, 64 << 20, (64 << 20) - 1]
+        .into_iter()
+        .enumerate()
+    {
+        std::fs::File::create(state.join(format!("legacy{index}.json")))
+            .unwrap()
+            .set_len(bytes)
+            .unwrap();
+    }
+
+    let (a, b) = tokio::join!(rig.run("store['a'] = 1"), rig.run("store['b'] = 2"));
+    let (winner, refused) = if a["status"] == "completed" {
+        (a, b)
+    } else {
+        (b, a)
+    };
+    assert_eq!(winner["status"], "completed", "{winner}");
+    assert_eq!(refused["status"], "failed", "{refused}");
+    assert!(
+        refused["output"]
+            .to_string()
+            .contains("session budget is 268435456 bytes"),
+        "{refused}"
+    );
+    let key = winner["stored"][0]["key"].as_str().unwrap();
+    let original = state.join(format!("{key}.json"));
+    let value = std::fs::read(&original).unwrap();
+
+    let oversized = rig.run(&format!("store['{key}'] = 99")).await;
+    assert_eq!(oversized["status"], "failed", "{oversized}");
+    assert_eq!(std::fs::read(original).unwrap(), value);
+    let result = rig
+        .run(&format!("store['{key}'] = 3\nstore['{key}']"))
+        .await;
+    assert_eq!(result["emitted"], json!([3]));
+    assert_eq!(std::fs::read_dir(state).unwrap().count(), 5);
     rig.close().await;
 }
 

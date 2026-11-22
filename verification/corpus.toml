@@ -1328,6 +1328,21 @@ expected = "safety"
 frontend = "project"
 
 [[model]]
+name = "HarnessPythonStoreRetention"
+expected = "pass"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessPythonStoreBudget"
+expected = "safety"
+frontend = "project"
+
+[[model]]
+name = "BrokenHarnessPythonStoreLiveReap"
+expected = "safety"
+frontend = "project"
+
+[[model]]
 name = "HarnessPythonControlCapacity"
 expected = "pass"
 frontend = "project"

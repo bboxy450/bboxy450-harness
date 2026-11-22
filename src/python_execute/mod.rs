@@ -17,6 +17,7 @@ mod tests;
 use crate::{
     engine::task_group::TaskGroup,
     mcp::{Capture, Manager},
+    protocol::SessionId,
     redact::Set,
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
@@ -280,12 +281,14 @@ impl Service {
     }
     pub(crate) async fn start(
         mut endpoint: Endpoint,
-        root: PathBuf,
+        sessions: PathBuf,
+        session: SessionId,
         cwd: PathBuf,
         mcp: Manager,
         redactor: Set,
         services: &mut TaskGroup,
     ) -> io::Result<Self> {
+        let root = sessions.join(session.to_string()).join("python");
         tokio::fs::create_dir_all(&root).await?;
         tokio::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).await?;
         let listener = endpoint
@@ -306,6 +309,11 @@ impl Service {
             executions: Mutex::new(vec![]),
         }));
         service.recover().await?;
+        let cancel = service.0.cancel.clone();
+        services.spawn(async move {
+            crate::runtime::blocking(move || crate::store::reap_python_stores(&sessions, &cancel))
+                .await;
+        });
         let s = service.clone();
         services.spawn(async move {
             let mut tasks = tokio::task::JoinSet::new();
@@ -338,6 +346,9 @@ impl Service {
         Ok(service)
     }
     async fn recover(&self) -> io::Result<()> {
+        let root = self.0.root.clone();
+        let _ =
+            crate::runtime::blocking(move || crate::store::clean_python_store(&root, None)).await;
         let mut dir = tokio::fs::read_dir(&self.0.root).await?;
         while let Some(entry) = dir.next_entry().await? {
             let path = entry.path();
@@ -998,7 +1009,7 @@ impl Service {
             "bindings":{
                 "tools as functions":["bboxy.<tool>(key=value, ...)  # the host's tools; returns the tool's data, raises ToolError","tools.<server>.<tool>(...)  # any MCP server","tools.search('words')  # find a tool: [{server, name, signature, description}]","bboxy.tools() / bboxy.describe('knowledge_write')  # signatures and the exact input schema","_timeout_ms= and _op_id= bound and name one call; every other keyword reaches the tool","await is optional on all of the above"],
                 "result":["a final bare expression is the result","emit(value)  # more results; a value too large to return is spilled to a file as {spilled, bytes, head}","print(...) is kept as output","what comes back: {execution_id, status, result, output, error, stored, duration_ms, calls, steps, edits}; steps is [line, status] per call (the first 24), edits is {path, line, removed, added} per fs.replace: the card shows them, so return only what you need to read; result is the one emitted value, or the list when there are several; python_execution_get(detail=true) has the full record (context, receipts, pid, output chunks)"],
-                "state between calls":["store['rows'] = value  # kept for the session as one JSON file per key; keep large data in `store` and return only what you need","store['rows'], 'rows' in store, del store['rows'], store.keys(), store.clear()","store.path('rows')  # the file, to hand to a command","the result lists `stored: [{key, bytes}]` for what this run wrote"],
+                "state between calls":["store['rows'] = value  # session scratch, one JSON file per key, up to 64 MiB per value and 256 MiB total; excess writes are refused","store['rows'], 'rows' in store, del store['rows'], store.keys(), store.clear()","store.path('rows')  # the file, to hand to a command","the result lists `stored: [{key, bytes}]` for what this run wrote",format!("Session startup removes stale temporary writes and reaps inactive sessions' scratch once both the session log and scratch have gone {} days without a change.", crate::store::PYTHON_STORE_RETENTION_DAYS)],
                 "shell and files":["sh('git status --porcelain').out  # .out .err .code .ok .json(); check=True raises","fs.replace(path, old, new, count=1)  # refuses and says what it found unless old occurs exactly count times","fs.lines(path, start, end)  # numbered lines","commands.run([executable, *args], input=None, json_input=value, cwd=None, check=False)  # exact argv, async"],
                 "formal loop":["den.check(path)  # {sound, records, diagnostics: [{path, code, line, message, repair}]} from bboxy450-den; an unsound spec is a value, a missing checker raises","den.lean(path, out=None)  # {sound, out, files, lines}","den.replay(spec, *traces)  # {conforms, lines}","den.render(path, out)  # {sound, files, lines}"],
                 "raw MCP":["await mcp.servers()","await mcp.tools(server, cursor=None)","await mcp.call(server, tool, arguments, op_id=None, timeout_ms=25000)  # the full envelope; .data is what the tool returned; use with asyncio.gather for overlapping calls"],

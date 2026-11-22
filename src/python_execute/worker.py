@@ -8,6 +8,7 @@
 import ast
 import asyncio
 import base64
+import fcntl
 import inspect
 import json
 import linecache
@@ -459,11 +460,12 @@ class Store:
         [row.title for row in store["rows"] if row.open]  # a later call
 
     A key is any string of 1 to 128 characters (a path such as "specs/a" is fine;
-    it is stored percent-encoded); a value is JSON of at most 64 MiB. A key is
-    read from its file each time it is used. The run's result lists what it wrote.
+    it is stored percent-encoded). Values are JSON with byte limits per value
+    and per session. The run's result lists what it wrote.
     """
     _KEY = re.compile(r"[A-Za-z0-9_.-]{1,64}")
     _LIMIT = 64 * 1024 * 1024
+    _SESSION_LIMIT = 256 * 1024 * 1024
 
     def __init__(self, directory):
         self._directory = directory
@@ -483,11 +485,38 @@ class Store:
             raise ValueError(f"store[{key!r}] is {len(data)} bytes as JSON; one value holds at most "
                              f"{self._LIMIT} (64 MiB). Split it across keys or write a file")
         os.makedirs(self._directory, mode=0o700, exist_ok=True)
-        # Readers see the old value or the new one, never a partial file.
-        handle, temporary = tempfile.mkstemp(dir=self._directory, suffix=".tmp")
-        with os.fdopen(handle, "wb") as output:
-            output.write(data)
-        os.replace(temporary, path)
+        directory = os.open(self._directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            # All workers of this session share the directory inode. Hold the
+            # lock from accounting through publication so writers cannot both
+            # spend the same remaining bytes.
+            fcntl.flock(directory, fcntl.LOCK_EX)
+            name = os.path.basename(path)
+            total = len(data)
+            with os.scandir(directory) as entries:
+                for entry in entries:
+                    if entry.name == name or not entry.name.endswith(".json"):
+                        continue
+                    try:
+                        if entry.is_file(follow_symlinks=False):
+                            total += entry.stat(follow_symlinks=False).st_size
+                    except FileNotFoundError:
+                        # A concurrent delete or clear only frees space.
+                        pass
+            if total > self._SESSION_LIMIT:
+                raise ValueError(f"store[{key!r}] would use {total} bytes of session store; "
+                                 f"session budget is {self._SESSION_LIMIT} bytes. "
+                                 "Delete keys or write a file")
+            handle, temporary = tempfile.mkstemp(dir=self._directory, suffix=".tmp")
+            try:
+                with os.fdopen(handle, "wb") as output:
+                    output.write(data)
+                os.replace(temporary, path)
+            except BaseException:
+                os.unlink(temporary)
+                raise
+        finally:
+            os.close(directory)
         _rpc_sync("stored", {"key": key, "bytes": len(data)})
 
     def __getitem__(self, key):

@@ -15,6 +15,7 @@ use std::{
     io::{self, Write},
     os::{fd::AsRawFd, unix::fs::OpenOptionsExt},
     path::{Path, PathBuf},
+    time::{Duration, SystemTime},
 };
 #[derive(Clone, Debug)]
 pub struct Blobs {
@@ -247,6 +248,8 @@ impl Store {
         let r = redactor.clone();
         let fork_root = root.clone();
         let fork_meta = redactor.sanitize(&meta).map_err(io::Error::other)?;
+        let reap_expired_scratch =
+            initial.is_none() && matches!(frontier, fork::Frontier::Quiescent);
         let (file, events, created_fork, queued_fork, epoch) =
             blocking(move || -> io::Result<_> {
                 std::fs::create_dir_all(path.parent().unwrap())?;
@@ -285,6 +288,10 @@ impl Store {
                 // The log itself remains the lease; guard it before any read/error.
                 let mut f = WriterLease::acquire(f)
                     .map_err(|_| io::Error::other("session already has a writer"))?;
+                // Check the old log timestamp before recovery appends to it.
+                if reap_expired_scratch && let Some(cutoff) = python_store_cutoff() {
+                    let _ = reap_python_store(&f, &fork_root.join(session.to_string()), cutoff);
+                }
                 use std::io::Read;
                 let mut bytes = vec![];
                 f.read_to_end(&mut bytes)?;
@@ -610,6 +617,94 @@ impl Store {
         self.sync().await
     }
 }
+pub(crate) const PYTHON_STORE_RETENTION_DAYS: u64 = 30;
+
+fn python_store_cutoff() -> Option<SystemTime> {
+    SystemTime::now().checked_sub(Duration::from_secs(PYTHON_STORE_RETENTION_DAYS * 86400))
+}
+
+fn reap_python_store(log: &File, session: &Path, cutoff: SystemTime) -> io::Result<()> {
+    if log.metadata()?.modified()? > cutoff || !std::fs::symlink_metadata(session)?.is_dir() {
+        return Ok(());
+    }
+    clean_python_store(&session.join("python"), Some(cutoff))
+}
+
+// Reuse the log's session writer lease so cleanup cannot cross a live session
+// or its resume. The state directory lease also fences a worker mid-write.
+pub(crate) fn reap_python_stores(root: &Path, cancel: &tokio_util::sync::CancellationToken) {
+    let (Some(cutoff), Ok(sessions)) = (python_store_cutoff(), std::fs::read_dir(root)) else {
+        return;
+    };
+    for entry in sessions.flatten() {
+        if cancel.is_cancelled() {
+            break;
+        }
+        let name = entry.file_name();
+        let Some(id) = name.to_str().and_then(|name| {
+            name.parse::<ulid::Ulid>()
+                .ok()
+                .filter(|id| id.to_string() == name)
+        }) else {
+            continue;
+        };
+        if !entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+            continue;
+        }
+        let Ok(log) = OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+            .open(log_path(root, SessionId(id)))
+        else {
+            continue;
+        };
+        if log
+            .metadata()
+            .is_ok_and(|meta| meta.is_file() && meta.modified().is_ok_and(|time| time <= cutoff))
+            && let Ok(log) = WriterLease::acquire(log)
+        {
+            let _ = reap_python_store(&log, &entry.path(), cutoff);
+        }
+    }
+}
+
+pub(crate) fn clean_python_store(
+    python: &Path,
+    expired_before: Option<SystemTime>,
+) -> io::Result<()> {
+    if !std::fs::symlink_metadata(python)?.is_dir() {
+        return Ok(());
+    }
+    let state = python.join("state");
+    let directory = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
+        .open(&state)?;
+    let directory = WriterLease::acquire(directory)?;
+    if let Some(cutoff) = expired_before
+        && directory.metadata()?.modified()? > cutoff
+    {
+        return Ok(());
+    }
+    // Keep the directory inode for advisory locking. Only store files belong
+    // to this cleanup. Execution records and unrelated files have other owners.
+    for entry in std::fs::read_dir(state)? {
+        let entry = entry?;
+        let path = entry.path();
+        let suffix = path.extension().and_then(|ext| ext.to_str());
+        if (suffix == Some("tmp") || (expired_before.is_some() && suffix == Some("json")))
+            && !entry.file_type()?.is_dir()
+        {
+            match std::fs::remove_file(path) {
+                Ok(()) => {}
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error),
+            }
+        }
+    }
+    Ok(())
+}
+
 pub fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -648,6 +743,88 @@ impl Blobs {
             Ok(BlobRef { sha256, len, mime })
         })
         .await
+    }
+}
+
+#[cfg(test)]
+mod python_store_retention_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn store_reaps_only_inactive_expired_session_scratch() {
+        fn age(path: &Path) {
+            File::open(path)
+                .unwrap()
+                .set_modified(python_store_cutoff().unwrap() - Duration::from_secs(60))
+                .unwrap();
+        }
+
+        let root = tempfile::tempdir().unwrap();
+        let make_session = || {
+            let session = SessionId::new();
+            let log = log_path(root.path(), session);
+            let python = root.path().join(session.to_string()).join("python");
+            let state = python.join("state");
+            std::fs::create_dir_all(&state).unwrap();
+            std::fs::write(&log, b"").unwrap();
+            std::fs::write(python.join("receipt.json"), b"{}").unwrap();
+            std::fs::write(state.join("kept.json"), b"1").unwrap();
+            std::fs::write(state.join("interrupted.tmp"), b"partial").unwrap();
+            (session, log, state)
+        };
+        let (expired, expired_log, expired_state) = make_session();
+        let (_, live_log, live_state) = make_session();
+        let (_, recent_log, recent_state) = make_session();
+        let (_, recent_write_log, recent_write_state) = make_session();
+        let (resumed, resumed_log, resumed_state) = make_session();
+        for path in [
+            &expired_log,
+            &expired_state,
+            &live_log,
+            &live_state,
+            &recent_state,
+            &recent_write_log,
+            &resumed_log,
+            &resumed_state,
+        ] {
+            age(path);
+        }
+        let live = WriterLease::acquire(File::open(&live_log).unwrap()).unwrap();
+        let cancel = tokio_util::sync::CancellationToken::new();
+
+        let meta = SessionMeta {
+            vcs: None,
+            dream: None,
+            source: None,
+            session: resumed,
+            cwd: root.path().into(),
+            profile: None,
+            fork: None,
+            protocol: PROTOCOL,
+            harness: "test".into(),
+            created_ms: 0,
+        };
+        let _resumed = Store::open(root.path().into(), meta, None, Set::default())
+            .await
+            .unwrap();
+        assert!(!resumed_state.join("kept.json").exists());
+
+        reap_python_stores(root.path(), &cancel);
+        assert_eq!(std::fs::read_dir(expired_state).unwrap().count(), 0);
+        assert!(log_path(root.path(), expired).is_file());
+        assert!(
+            root.path()
+                .join(expired.to_string())
+                .join("python/receipt.json")
+                .is_file()
+        );
+        for state in [&live_state, &recent_state, &recent_write_state] {
+            assert_eq!(std::fs::read(state.join("kept.json")).unwrap(), b"1");
+        }
+        assert!(recent_log.is_file());
+        drop(live);
+        reap_python_stores(root.path(), &cancel);
+        assert_eq!(std::fs::read_dir(live_state).unwrap().count(), 0);
     }
 }
 

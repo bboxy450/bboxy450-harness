@@ -469,3 +469,87 @@ pub(super) fn catalogue(control: u8) -> Model {
     );
     m
 }
+
+/// A writer lease fences reaping; the state directory lease makes the budget
+/// check and rename one action. Two one-byte keys and a one-byte budget suffice.
+pub(super) fn store_retention(control: u8) -> Model {
+    let suffix = [
+        "PythonStoreRetention",
+        "PythonStoreBudget",
+        "PythonStoreLiveReap",
+    ][control as usize];
+    let mut m = base::<6>(
+        suffix,
+        control != 0,
+        &[
+            ("key_a", 1, 0),
+            ("key_b", 1, 0),
+            ("session_live", 1, 1),
+            ("expired", 1, 0),
+            ("stale_temporary", 1, 0),
+            ("reaped_live", 1, 0),
+        ],
+    );
+    for (name, key, other) in [("PublishA", 0, 1), ("PublishB", 1, 0)] {
+        act(
+            &mut m,
+            name,
+            all([
+                eq(2, 1),
+                if control == 1 {
+                    Bool(true)
+                } else {
+                    eq(other, 0)
+                },
+            ]),
+            &[(key, Int(1)), (3, Int(0))],
+        );
+    }
+    act(&mut m, "DeleteA", eq(2, 1), &[(0, Int(0)), (3, Int(0))]);
+    act(&mut m, "DeleteB", eq(2, 1), &[(1, Int(0)), (3, Int(0))]);
+    act(&mut m, "Expire", Bool(true), &[(3, Int(1))]);
+    act(&mut m, "Close", eq(2, 1), &[(2, Int(0))]);
+    act(
+        &mut m,
+        "CrashMidWrite",
+        eq(2, 1),
+        &[(2, Int(0)), (3, Int(0)), (4, Int(1))],
+    );
+    act(
+        &mut m,
+        "Resume",
+        all([eq(2, 0), eq(3, 0)]),
+        &[(2, Int(1)), (4, Int(0))],
+    );
+    let reap = m.actions.len();
+    act(
+        &mut m,
+        "ReapExpired",
+        all([eq(3, 1), if control == 2 { Bool(true) } else { eq(2, 0) }]),
+        &[(0, Int(0)), (1, Int(0)), (4, Int(0)), (5, Var(2))],
+    );
+    act(
+        &mut m,
+        "ResumeExpired",
+        all([eq(2, 0), eq(3, 1)]),
+        &[
+            (0, Int(0)),
+            (1, Int(0)),
+            (2, Int(1)),
+            (3, Int(0)),
+            (4, Int(0)),
+        ],
+    );
+    let empty = all([eq(0, 0), eq(1, 0), eq(4, 0)]);
+    safe(&mut m, "AggregateBudget", Var(0).plus(Var(1)).le(Int(1)));
+    safe(&mut m, "LiveScratchSurvivesReaping", eq(5, 0));
+    safe(&mut m, "LiveSessionHasRecovered", eq(2, 0).or(eq(4, 0)));
+    progress(
+        &mut m,
+        "IdleExpiredScratchCleared",
+        all([eq(2, 0), eq(3, 1)]),
+        empty,
+        vec![reap],
+    );
+    m
+}

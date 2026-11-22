@@ -43,6 +43,9 @@ Native text-entry dispatch witnesses and their broken controls follow this polic
 
 ## Lineage and credits
 
+- The Python session scratch budget, retention and their executable witnesses
+  are project-owned contributions under this policy.
+
 - The interrupt cause catalogue, recovery timer, face controls and their formal
   and process witnesses are project-owned contributions under this policy.
 
