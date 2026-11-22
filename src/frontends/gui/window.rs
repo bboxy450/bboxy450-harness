@@ -307,10 +307,12 @@ impl App {
                 renderer.add_image(&image).map_err(|e| e.to_string())?;
             }
         }
-        let frame = self.view.render(
+        self.view.render(
             &self.bridge.state,
             [config.width as f32 / scale, config.height as f32 / scale],
         )?;
+        self.view.request_visible_rows(&self.bridge);
+        let frame = &self.view.frame;
         let renderer = self.renderer.as_mut().unwrap();
         let surface = self.surface.as_ref().unwrap();
         // A hidden NSWindow is always occluded on macOS. Validate the real window,

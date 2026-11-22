@@ -286,6 +286,14 @@ impl Source {
         }
     }
 }
+#[cfg(feature = "embedded")]
+#[derive(Default)]
+struct VisibleRows {
+    session: Option<SessionId>,
+    epoch: Epoch,
+    rows: Vec<super::view::RowRequest>,
+    scroll: super::view::MarkdownScroll,
+}
 struct Mailbox {
     actor_intake: arc_swap::ArcSwapOption<ActorIntake>,
     latest: Latest<FrameState>,
@@ -308,6 +316,8 @@ struct Mailbox {
     faces: arc_swap::ArcSwap<super::rich::Faces>,
     #[cfg(feature = "embedded")]
     image_preparation: arc_swap::ArcSwapOption<super::rich::ImagePreparation>,
+    #[cfg(feature = "embedded")]
+    visible_rows: arc_swap::ArcSwap<VisibleRows>,
 }
 impl Mailbox {
     fn pending(&self, op: OpId, insert: bool) {
@@ -419,6 +429,8 @@ impl Bridge {
                 faces: arc_swap::ArcSwap::from_pointee(Default::default()),
                 #[cfg(feature = "embedded")]
                 image_preparation: arc_swap::ArcSwapOption::empty(),
+                #[cfg(feature = "embedded")]
+                visible_rows: Default::default(),
             }),
             messages,
             dirty,
@@ -470,6 +482,30 @@ impl Bridge {
         if !super::rich::ImagePreparation::same(&previous, &preparation) {
             self.mailbox.resized.notify_one();
         }
+    }
+
+    #[cfg(feature = "embedded")]
+    pub(super) fn set_visible_rows(
+        &self,
+        source: &Transcript,
+        rows: &[super::view::RowRequest],
+        scroll: &super::view::MarkdownScroll,
+    ) {
+        let previous = self.mailbox.visible_rows.load();
+        if previous.session == source.session
+            && previous.epoch == source.epoch
+            && previous.rows == rows
+            && previous.scroll == *scroll
+        {
+            return;
+        }
+        self.mailbox.visible_rows.store(Arc::new(VisibleRows {
+            session: source.session,
+            epoch: source.epoch,
+            rows: rows.to_vec(),
+            scroll: scroll.clone(),
+        }));
+        self.mailbox.resized.notify_one();
     }
 
     /// Resizing schedules preparation; the previous solved rows remain visible.
@@ -1031,6 +1067,7 @@ async fn publish_frame(mut state: FrameState, mailbox: &Arc<Mailbox>, preparer: 
         let appearance = mailbox.appearance.load(Ordering::Acquire);
         let publisher = mailbox.clone();
         let image_preparation = mailbox.image_preparation.load_full();
+        let visible = mailbox.visible_rows.load_full();
         *preparer = crate::runtime::blocking(move || {
             owned.set_image_preparation(image_preparation);
             owned.set_zoom(super::zoom::Zoom::from_percent(
@@ -1049,7 +1086,11 @@ async fn publish_frame(mut state: FrameState, mailbox: &Arc<Mailbox>, preparer: 
             // showed it). The frame shows the failure, the journal records it,
             // and the next frame starts from a fresh preparer.
             let attempt = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                owned.prepare_with_faces(source, width, &faces)
+                if (visible.session, visible.epoch) == (source.session, source.epoch) {
+                    owned.prepare_requested(source, width, &faces, &visible.rows, &visible.scroll)
+                } else {
+                    owned.prepare_with_faces(source, width, &faces)
+                }
             }));
             let attempt = match attempt {
                 Ok(result) => result,

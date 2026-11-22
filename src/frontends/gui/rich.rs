@@ -445,6 +445,7 @@ struct Prepared {
 pub struct Documents {
     theme: ui::Theme,
     docs: HashMap<ItemId, Document>,
+    row_docs: Option<std::collections::HashSet<ItemId>>,
     image_preparation: Option<Arc<ImagePreparation>>,
     highlighter: Option<RustHighlighter>,
     pub parsed_bytes: usize,
@@ -525,8 +526,44 @@ impl Documents {
         };
     }
 
-    pub(super) fn images(&self) -> impl Iterator<Item = &Image> {
-        self.docs.values().flat_map(|doc| &doc.images)
+    pub(super) fn begin_row(&mut self) {
+        self.row_docs = Some(Default::default());
+    }
+
+    pub(super) fn finish_row(&mut self, complete: bool) -> Vec<Image> {
+        let mut images = Vec::new();
+        for id in self.row_docs.take().unwrap_or_default() {
+            if let Some(doc) = self.docs.get_mut(&id) {
+                if complete {
+                    // The solved row owns these layouts and rasters. Keep the
+                    // parsed source so a disclosure can rebuild without parsing.
+                    doc.blocks = Vec::new();
+                    doc.prepared_images = None;
+                    images.append(&mut doc.images);
+                } else {
+                    images.extend(doc.images.iter().cloned());
+                }
+            }
+        }
+        images
+    }
+
+    pub(super) fn forget(&mut self, id: ItemId) {
+        self.docs.remove(&id);
+    }
+
+    pub(super) fn working_layout_bytes(&self) -> usize {
+        self.docs
+            .values()
+            .flat_map(|doc| &doc.blocks)
+            .map(|block| super::view::layout_bytes(&block.layout))
+            .sum()
+    }
+
+    pub(super) fn clear_working_layouts(&mut self) {
+        for doc in self.docs.values_mut() {
+            doc.blocks = Vec::new();
+        }
     }
 
     pub fn set_theme(&mut self, theme: ui::Theme) -> bool {
@@ -670,6 +707,9 @@ impl Documents {
         reasoning: bool,
     ) -> Result<Body, String> {
         let ctx = self.context();
+        if let Some(used) = &mut self.row_docs {
+            used.insert(id);
+        }
         let doc = self.docs.entry(id).or_default();
         if !text.starts_with(&doc.stream.document().source) {
             *doc = Document::default();

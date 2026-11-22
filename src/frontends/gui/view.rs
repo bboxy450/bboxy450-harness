@@ -245,14 +245,81 @@ type CacheKey = (
     Option<Arc<PreparedRows>>,
     Option<Arc<super::rich::ImagePreparation>>,
 );
+#[derive(Clone)]
 pub struct CachedRow {
     width: f32,
-    /// The text zoom the row was laid out at, percent.
     zoom: u8,
     completed: Option<Seq>,
     deps: u64,
     face: super::rich::Face,
+    height: f32,
+    index: usize,
+    painted: u64,
+    solved: Option<Arc<SolvedRow>>,
+}
+
+struct SolvedRow {
     layout: c::Layout,
+    images: Vec<Arc<bbt_render::chrome::icons::Image>>,
+    bytes: usize,
+    /// Only giant rows use a viewport slice. Preserve their exact spacer height.
+    window: Option<([i32; 2], MarkdownScroll)>,
+}
+
+impl CachedRow {
+    fn layout(&self) -> Option<&c::Layout> {
+        self.solved.as_ref().map(|row| &row.layout)
+    }
+}
+
+pub(super) type MarkdownScroll = HashMap<String, [f32; 2]>;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RowRequest {
+    id: ItemId,
+    // Round to larger bands so small wheel movements reuse the same giant-row slice.
+    window: [i32; 2],
+}
+
+fn primitive_bytes(prim: &Prim) -> usize {
+    match prim {
+        Prim::Path { points, .. } | Prim::PathShadow { points, .. } => {
+            std::mem::size_of_val(points.as_ref())
+        }
+        Prim::Group { primitives, .. } => {
+            primitives.capacity() * std::mem::size_of::<Prim>()
+                + primitives.iter().map(primitive_bytes).sum::<usize>()
+        }
+        Prim::Text { text, .. } | Prim::TextShadow { text, .. } => text.len(),
+        Prim::Icon { icon, .. } => icon.len(),
+        Prim::Image { image, .. } => image.as_ref().len(),
+        _ => 0,
+    }
+}
+
+pub(super) fn layout_bytes(layout: &c::Layout) -> usize {
+    use c::LayoutKind;
+    let payload = match &layout.kind {
+        LayoutKind::Named(name) | LayoutKind::Icon { name, .. } => name.capacity(),
+        LayoutKind::Box { style, .. } => std::mem::size_of_val(style.as_ref()),
+        LayoutKind::Atom(draw) => {
+            draw.primitives.capacity() * std::mem::size_of::<Prim>()
+                + draw.primitives.iter().map(primitive_bytes).sum::<usize>()
+        }
+        LayoutKind::Text { runs, .. } => {
+            runs.capacity() * std::mem::size_of::<c::PositionedRun>()
+                + runs.iter().map(|run| run.text.capacity()).sum::<usize>()
+        }
+        LayoutKind::Path { points, .. } => std::mem::size_of_val(points.as_ref()),
+        LayoutKind::Rects { rects, .. } => std::mem::size_of_val(rects.as_ref()),
+        LayoutKind::Image { asset, .. } => asset.as_ref().len(),
+        _ => 0,
+    };
+    // Charge unused child vector capacity as well as every owned subtree.
+    std::mem::size_of::<c::Layout>()
+        + payload
+        + (layout.children.capacity() - layout.children.len()) * std::mem::size_of::<c::Layout>()
+        + layout.children.iter().map(layout_bytes).sum::<usize>()
 }
 struct Controls {
     key: String,
@@ -288,11 +355,12 @@ pub struct HarnessView {
     /// Stay at the latest prepared tail through initial replay/reconnection.
     tail_pending: bool,
     /// View-local offsets into worker-prepared Markdown tool panels.
-    markdown_scroll: HashMap<String, [f32; 2]>,
+    markdown_scroll: MarkdownScroll,
     metrics: Metrics,
     cached: Option<CacheKey>,
     controls: Option<Controls>,
     retained_prepared: Option<Arc<PreparedRows>>,
+    visible_rows: Vec<RowRequest>,
     pub frame: Frame,
     pub notice: Option<String>,
     /// The window holds keyboard focus: the composer draws its focus ring and caret.
@@ -428,6 +496,7 @@ impl Default for HarnessView {
             cached: None,
             controls: None,
             retained_prepared: None,
+            visible_rows: Vec::new(),
             frame: Frame::default(),
             notice: None,
             focused: false,
@@ -634,6 +703,13 @@ impl HarnessView {
             .collect()
     }
 
+    /// Request any evicted rows the last frame needs through the existing preparation worker.
+    pub fn request_visible_rows(&self, bridge: &super::bridge::Bridge) {
+        if let Some(prepared) = &self.retained_prepared {
+            bridge.set_visible_rows(&prepared.source, &self.visible_rows, &self.markdown_scroll);
+        }
+    }
+
     pub fn invalidate(&mut self) {
         self.cached = None;
     }
@@ -723,7 +799,7 @@ impl HarnessView {
                 if self.anchor.is_some_and(|(a, _)| a == *id) {
                     anchor_top = Some(total);
                 }
-                let h0 = row.layout.rect.h;
+                let h0 = row.height;
                 if h0 == 0. {
                     continue;
                 }
@@ -1352,6 +1428,7 @@ impl HarnessView {
         let solved = timer.elapsed();
         // the orbit arcs and the sheen, painted over the rows inside the viewport
         let mut overlays: Option<(Rect, Vec<bbt_ui_model::draw::Prim>)> = None;
+        self.visible_rows.clear();
         if let Some(prepared) = prepared {
             let viewport = find(&layout, "transcript")
                 .and_then(|n| n.children.first())
@@ -1375,14 +1452,15 @@ impl HarnessView {
                 viewport,
                 &enters,
                 markdown_scroll,
+                &mut self.visible_rows,
                 &mut |id| {
                     if !animating || !motion.streaming(state, &id) {
                         return Box::new(stream_motion::Plain);
                     }
-                    let Some(row) = prepared.rows.get(&id) else {
+                    let Some(layout) = prepared.rows.get(&id).and_then(|row| row.layout()) else {
                         return Box::new(stream_motion::Plain);
                     };
-                    let Some(text) = stream_motion::stream_glyphs(&row.layout) else {
+                    let Some(text) = stream_motion::stream_glyphs(layout) else {
                         return Box::new(stream_motion::Plain);
                     };
                     let chunks: Vec<(usize, f32)> = motion
@@ -3483,6 +3561,7 @@ fn restore_rows<'a>(
     viewport: Rect,
     enters: &HashMap<ItemId, f32>,
     markdown_scroll: &HashMap<String, [f32; 2]>,
+    visible: &mut Vec<RowRequest>,
     runs: &mut dyn FnMut(ItemId) -> Box<dyn stream_motion::Runs + 'a>,
 ) {
     if let c::LayoutKind::Named(name) = &node.kind
@@ -3490,27 +3569,34 @@ fn restore_rows<'a>(
             .strip_prefix("cached/")
             .and_then(|s| s.parse().ok())
             .map(ItemId)
-        && let Some(row) = rows.get(&id)
     {
         let slot = node.rect;
+        let overlap = intersection(slot, viewport);
+        if overlap.w > 0. && overlap.h > 0. {
+            visible.push(RowRequest {
+                id,
+                window: [
+                    ((overlap.y - slot.y) / 256.).floor() as i32,
+                    ((overlap.bottom() - slot.y) / 256.).ceil() as i32,
+                ],
+            });
+        }
+        let Some(row) = rows.get(&id).and_then(|row| row.layout()) else {
+            return;
+        };
         let t = enters.get(&id).copied().unwrap_or(1.);
-        let dx = slot.x - row.layout.rect.x;
-        let dy = slot.y - row.layout.rect.y + 6. * (1. - t);
+        let dx = slot.x - row.rect.x;
+        let dy = slot.y - row.rect.y + 6. * (1. - t);
         let mut visitor = runs(id);
-        if let Some(mut solved) = visible_layout(
-            &row.layout,
-            dx,
-            dy,
-            viewport,
-            markdown_scroll,
-            visitor.as_mut(),
-        ) {
-            if row.layout.rect.h > slot.h + 0.5 {
+        if let Some(mut solved) =
+            visible_layout(row, dx, dy, viewport, markdown_scroll, visitor.as_mut())
+        {
+            if row.rect.h > slot.h + 0.5 {
                 solved = c::Layout {
                     rect: slot,
                     baseline: solved.baseline,
                     kind: c::LayoutKind::ScrollView {
-                        content: [slot.w, row.layout.rect.h],
+                        content: [slot.w, row.rect.h],
                         offset: [0., 0.],
                     },
                     children: vec![solved],
@@ -3532,7 +3618,15 @@ fn restore_rows<'a>(
         return;
     }
     for child in &mut node.children {
-        restore_rows(child, rows, viewport, enters, markdown_scroll, runs);
+        restore_rows(
+            child,
+            rows,
+            viewport,
+            enters,
+            markdown_scroll,
+            visible,
+            runs,
+        );
     }
 }
 // Keep only glyphs/blocks intersecting the viewport. A giant paragraph remains
@@ -3644,6 +3738,14 @@ fn visible_layout(
         children,
     })
 }
+fn layout_has_image(layout: &c::Layout, name: &str) -> bool {
+    matches!(&layout.kind, c::LayoutKind::Image { asset, .. } if AsRef::<str>::as_ref(asset) == name)
+        || layout
+            .children
+            .iter()
+            .any(|child| layout_has_image(child, name))
+}
+
 fn restore_pending(
     node: &mut c::Layout,
     rows: &HashMap<OpId, Arc<c::Layout>>,
@@ -3707,6 +3809,8 @@ pub struct PreparedRows {
     /// prepares again at once and the face shows the tail meanwhile.
     pub complete: bool,
     pub(crate) pending: HashMap<OpId, Arc<c::Layout>>,
+    /// Bytes charged to cached rows, active prepared blocks, and pending layouts.
+    pub retained_layout_bytes: usize,
     pub layout_builds: usize,
     pub parsed_markdown_bytes: usize,
     pub received_markdown_bytes: usize,
@@ -3719,7 +3823,7 @@ impl PreparedRows {
         self.source
             .order
             .iter()
-            .filter_map(|id| self.rows.get(id).map(|row| &row.layout))
+            .filter_map(|id| self.rows.get(id).and_then(|row| row.layout()))
     }
 }
 /// Test fixture: the next preparation panics once, as a card's layout did live.
@@ -3738,7 +3842,8 @@ pub struct Preparer {
     tool_blobs: std::collections::HashMap<ItemId, Option<Vec<OutputBlock>>>,
     documents: super::rich::Documents,
     image_preparation: Option<Arc<super::rich::ImagePreparation>>,
-    images: TranscriptImages,
+    paint_clock: u64,
+    layout_budget: usize,
     /// Global text zoom for the rows it prepares; rows at another zoom are rebuilt.
     zoom: Zoom,
     /// A cold preparation builds the newest rows first and stops after this
@@ -3748,6 +3853,8 @@ pub struct Preparer {
 }
 /// Rows a cold preparation always builds before its budget may stop it.
 pub const PREPARE_FIRST_ROWS: usize = 200;
+/// Per-pane solved layout cache. Four panes have a 64 MiB combined allowance.
+pub const PREPARED_LAYOUT_BYTES: usize = 16 * 1024 * 1024;
 /// How long a cold preparation runs before publishing what it has.
 pub const PREPARE_BUDGET: std::time::Duration = std::time::Duration::from_millis(150);
 impl Default for Preparer {
@@ -3763,7 +3870,8 @@ impl Default for Preparer {
             tool_blobs: Default::default(),
             documents: Default::default(),
             image_preparation: None,
-            images: Default::default(),
+            paint_clock: 0,
+            layout_budget: PREPARED_LAYOUT_BYTES,
             zoom: Default::default(),
             budget: PREPARE_BUDGET,
         }
@@ -3790,42 +3898,66 @@ impl Preparer {
         for prompt in prompts.values().filter(|p| {
             Some(p.session) == prepared.source.session && p.epoch == prepared.source.epoch
         }) {
-            let doc = self.documents.prepare(
-                ItemId(prompt.op.0),
-                &prompt.text,
-                true,
-                (width - 26.).max(1.),
-                self.zoom.scale(),
-                &self.metrics,
-            )?;
-            let id = ItemId(prompt.op.0);
-            let source = faces.get(&id).is_some_and(|f| f.source);
-            let (content, toggle) =
-                super::face::prompt_content(doc.element.clone(), id, source, &prompt.text, &ink);
-            let bubble = super::face::prompt_bubble(
-                content,
-                &format!("YOU · {}", prompt.status),
-                Some(toggle),
-                true,
-                &ink,
-            );
-            let mut element = super::face::frame(
-                super::face::Frame {
-                    padding: [4., gutter + 4., 18., gutter + 4.],
-                    ..Default::default()
-                },
-                vec![bubble.into()],
-            );
-            flat(&mut element);
-            super::face::zoom_text(&mut element, self.zoom.scale());
-            let mut layout =
-                element.layout(Rect::new(0., 0., prepared.width, 0.), ctx, &self.metrics)?;
-            if !source {
-                super::rich::restore(&mut layout, &doc.blocks);
+            self.documents.begin_row();
+            let result = (|| {
+                let doc = self.documents.prepare(
+                    ItemId(prompt.op.0),
+                    &prompt.text,
+                    true,
+                    (width - 26.).max(1.),
+                    self.zoom.scale(),
+                    &self.metrics,
+                )?;
+                let id = ItemId(prompt.op.0);
+                let source = faces.get(&id).is_some_and(|f| f.source);
+                let (content, toggle) = super::face::prompt_content(
+                    doc.element.clone(),
+                    id,
+                    source,
+                    &prompt.text,
+                    &ink,
+                );
+                let bubble = super::face::prompt_bubble(
+                    content,
+                    &format!("YOU · {}", prompt.status),
+                    Some(toggle),
+                    true,
+                    &ink,
+                );
+                let mut element = super::face::frame(
+                    super::face::Frame {
+                        padding: [4., gutter + 4., 18., gutter + 4.],
+                        ..Default::default()
+                    },
+                    vec![bubble.into()],
+                );
+                flat(&mut element);
+                super::face::zoom_text(&mut element, self.zoom.scale());
+                let mut layout =
+                    element.layout(Rect::new(0., 0., prepared.width, 0.), ctx, &self.metrics)?;
+                if !source {
+                    super::rich::restore(&mut layout, &doc.blocks);
+                }
+                Ok::<_, String>(layout)
+            })();
+            let images = self.documents.finish_row(true);
+            self.documents.forget(ItemId(prompt.op.0));
+            let layout = result?;
+            let bytes = layout_bytes(&layout)
+                + images
+                    .iter()
+                    .map(|image| image.rgba.capacity())
+                    .sum::<usize>();
+            if prepared.retained_layout_bytes + bytes <= self.layout_budget {
+                prepared.retained_layout_bytes += bytes;
+                prepared.pending.insert(prompt.op, Arc::new(layout));
+                for image in images {
+                    Arc::make_mut(&mut prepared.images)
+                        .entry(image.name.clone())
+                        .or_insert(image);
+                }
             }
-            prepared.pending.insert(prompt.op, Arc::new(layout));
         }
-        prepared.images = self.retain_images();
         Ok(())
     }
     pub fn context(&self) -> ui::Context {
@@ -3857,8 +3989,8 @@ impl Preparer {
         self.theme_revision = prepared.theme_revision;
         self.documents.set_theme(prepared.theme);
         self.set_image_preparation(prepared.image_preparation.clone());
-        self.images = prepared.images.clone();
         self.rows = prepared.rows.clone();
+        self.paint_clock = self.rows.values().map(|row| row.painted).max().unwrap_or(0);
         self.scope = Some((prepared.source.session, prepared.source.epoch));
     }
     pub(super) fn set_image_preparation(
@@ -3868,17 +4000,7 @@ impl Preparer {
         if self.documents.set_image_preparation(preparation.clone()) {
             self.image_preparation = preparation;
             self.rows.clear();
-            self.images = Default::default();
         }
-    }
-
-    fn retain_images(&mut self) -> TranscriptImages {
-        for image in self.documents.images() {
-            if !self.images.contains_key(&image.name) {
-                Arc::make_mut(&mut self.images).insert(image.name.clone(), image.clone());
-            }
-        }
-        self.images.clone()
     }
 
     /// Blob loading is completed before preparation, on the background path.
@@ -3914,7 +4036,6 @@ impl Preparer {
             self.terminal_outputs.clear();
             self.tool_blobs.clear();
             self.documents.reset_session();
-            self.images = Default::default();
         }
         self.scope = Some(scope);
     }
@@ -3928,6 +4049,17 @@ impl Preparer {
         width: f32,
         faces: &super::rich::Faces,
     ) -> Result<PreparedRows, String> {
+        self.prepare_requested(source, width, faces, &[], &Default::default())
+    }
+
+    pub(super) fn prepare_requested(
+        &mut self,
+        source: Arc<Transcript>,
+        width: f32,
+        faces: &super::rich::Faces,
+        requests: &[RowRequest],
+        scroll: &MarkdownScroll,
+    ) -> Result<PreparedRows, String> {
         #[cfg(feature = "test-fixtures")]
         if PANIC_NEXT_PREPARE.swap(false, std::sync::atomic::Ordering::SeqCst) {
             panic!("test fixture: a card panicked while laid out");
@@ -3939,79 +4071,181 @@ impl Preparer {
         let scale = zoom.scale();
         let gutter = ctx.density.tokens().gap as f32;
         self.scope(model);
-        let mut total_height = 0.;
         bbt_rt::assert_not_ui_thread();
         let folds = Folds::of(model, faces);
         let started = std::time::Instant::now();
         let mut built = 0;
         let mut complete = true;
-        // Newest first: what the face shows is the tail, so a cold start
-        // publishes it within the budget and owes the rest to the next call.
+        self.paint_clock += 1;
+        let windows: HashMap<_, _> = requests.iter().map(|row| (row.id, row.window)).collect();
+        let rank = |id, row: &CachedRow| (windows.contains_key(&id), row.painted, row.index, id);
+        let mut eviction = std::collections::BTreeSet::new();
+        let mut bytes = 0;
+        for request in requests {
+            if let Some(row) = self.rows.get_mut(&request.id) {
+                Arc::make_mut(row).painted = self.paint_clock;
+            }
+        }
+        for (&id, row) in &self.rows {
+            if let Some(solved) = &row.solved {
+                bytes += solved.bytes;
+                eviction.insert(rank(id, row));
+            }
+        }
+        // Use the existing cold-tail order; a height-only entry is revisited only
+        // when the viewport needs it or its layout inputs have changed.
         for (index, id) in model.order.iter().enumerate().rev() {
             let row = &model.items[id];
-            let face = faces.get(id).cloned().unwrap_or_default();
             if folds.parent.contains_key(id) {
-                // shown inside its tool card; that card's signature tracks it
-                self.rows.remove(id);
+                if let Some(old) = self.rows.remove(id)
+                    && let Some(solved) = &old.solved
+                {
+                    bytes -= solved.bytes;
+                    eviction.remove(&rank(*id, &old));
+                }
                 continue;
             }
-            if row.completed.is_some()
-                && let Some(cached) = self.rows.get(id)
-                && cached.width == width
-                && cached.zoom == zoom.percent()
-                && cached.completed == row.completed
-                && cached.deps == folds.deps(model, id, self)
-                && cached.face == face
-            {
-                let h = cached.layout.rect.h;
-                total_height += h;
-                continue;
+            let face = faces.get(id).cloned().unwrap_or_default();
+            let window = windows.get(id).copied();
+            let deps = folds.deps(model, id, self);
+            if let Some(cached) = self.rows.get(id) {
+                if row.completed.is_some()
+                    && cached.width == width
+                    && cached.zoom == zoom.percent()
+                    && cached.completed == row.completed
+                    && cached.deps == deps
+                    && cached.face == face
+                    && (window.is_none()
+                        || cached.solved.as_ref().is_some_and(|layout| {
+                            layout.window.as_ref().is_none_or(|(band, offsets)| {
+                                Some(*band) == window && offsets == scroll
+                            })
+                        }))
+                {
+                    continue;
+                }
+                if let Some(solved) = &cached.solved {
+                    bytes -= solved.bytes;
+                    eviction.remove(&rank(*id, cached));
+                }
             }
-            if built >= PREPARE_FIRST_ROWS && started.elapsed() > self.budget {
+            if window.is_none() && built >= PREPARE_FIRST_ROWS && started.elapsed() > self.budget {
+                if let Some(cached) = self.rows.get(id).and_then(|row| row.solved.as_ref()) {
+                    bytes += cached.bytes;
+                    eviction.insert(rank(*id, &self.rows[id]));
+                }
                 complete = false;
                 continue;
             }
             built += 1;
-            let deps = folds.deps(model, id, self);
-            // Transcript rows fill their pane with 14 px side padding; the composer
-            // keeps its independent reading-width cap.
             let gutter = (14_f32 - 4.).max(gutter);
             let content_width = width - 2. * gutter - 8.;
-            let (element, rich) = self.face_row(
-                model,
-                row,
-                &face,
-                &folds,
-                index,
-                width,
-                gutter,
-                content_width,
-            )?;
-            let mut element = named(format!("item/{id}"), element);
-            flat(&mut element);
-            super::face::zoom_text(&mut element, scale);
-            let mut layout = element.layout(Rect::new(0., 0., width, 0.), ctx, &self.metrics)?;
-            if let Some(rich) = &rich {
-                super::rich::restore(&mut layout, &rich.blocks);
-            }
-            let height = layout.rect.h;
-            self.rows.insert(
-                *id,
-                Arc::new(CachedRow {
+            self.documents.begin_row();
+            let result = (|| {
+                let (element, rich) = self.face_row(
+                    model,
+                    row,
+                    &face,
+                    &folds,
+                    index,
                     width,
-                    zoom: zoom.percent(),
-                    completed: row.completed,
-                    deps,
-                    face,
+                    gutter,
+                    content_width,
+                )?;
+                let mut element = named(format!("item/{id}"), element);
+                flat(&mut element);
+                super::face::zoom_text(&mut element, scale);
+                let mut layout =
+                    element.layout(Rect::new(0., 0., width, 0.), ctx, &self.metrics)?;
+                if let Some(rich) = &rich {
+                    super::rich::restore(&mut layout, &rich.blocks);
+                }
+                Ok::<_, String>(layout)
+            })();
+            let mut images = self
+                .documents
+                .finish_row(row.completed.is_some() || result.is_err());
+            let mut layout = result?;
+            let height = layout.rect.h;
+            let image_bytes = |images: &[Arc<bbt_render::chrome::icons::Image>]| {
+                images.iter().map(|img| img.rgba.capacity()).sum::<usize>()
+            };
+            let mut charge = layout_bytes(&layout) + image_bytes(&images);
+            let share = self.layout_budget / requests.len().max(1);
+            let mut extent = None;
+            if let Some([lo, hi]) = window
+                && charge > share
+            {
+                // Prepare only this visible band when an entire giant row
+                // would displace the viewport. The next band is solved on demand.
+                let clip = Rect::new(0., lo as f32 * 256., width, (hi - lo) as f32 * 256.);
+                if let Some(slice) =
+                    visible_layout(&layout, 0., 0., clip, scroll, &mut stream_motion::Plain)
+                {
+                    layout = slice;
+                    images.retain(|image| layout_has_image(&layout, &image.name));
+                    charge = layout_bytes(&layout) + image_bytes(&images);
+                    extent = Some(([lo, hi], scroll.clone()));
+                }
+            }
+            let painted = self.rows.get(id).map_or(0, |previous| previous.painted);
+            let solved = (charge <= self.layout_budget).then(|| {
+                Arc::new(SolvedRow {
                     layout,
-                }),
-            );
+                    images,
+                    bytes: charge,
+                    window: extent,
+                })
+            });
+            let cached = CachedRow {
+                width,
+                zoom: zoom.percent(),
+                completed: row.completed,
+                deps,
+                face,
+                height,
+                index,
+                painted: if window.is_some() {
+                    self.paint_clock
+                } else {
+                    painted
+                },
+                solved,
+            };
+            if let Some(solved) = &cached.solved {
+                bytes += solved.bytes;
+                eviction.insert(rank(*id, &cached));
+            }
+            self.rows.insert(*id, Arc::new(cached));
             self.layout_builds += 1;
-            total_height += height;
+            while bytes > self.layout_budget {
+                let (_, _, _, oldest) = eviction.pop_first().expect("charged solved row");
+                let cache = Arc::make_mut(self.rows.get_mut(&oldest).unwrap());
+                bytes -= cache.solved.take().unwrap().bytes;
+                self.documents.forget(oldest);
+            }
         }
+        if bytes + self.documents.working_layout_bytes() > self.layout_budget {
+            self.documents.clear_working_layouts();
+        }
+        let mut images: HashMap<_, _> = HashMap::new();
+        for row in self.rows.values().filter_map(|row| row.solved.as_ref()) {
+            for image in &row.images {
+                images
+                    .entry(image.name.clone())
+                    .or_insert_with(|| image.clone());
+            }
+        }
+        let total_height = model
+            .order
+            .iter()
+            .rev()
+            .filter_map(|id| self.rows.get(id))
+            .map(|row| row.height)
+            .sum();
         Ok(PreparedRows {
             image_preparation: self.image_preparation.clone(),
-            images: self.retain_images(),
+            images: Arc::new(images),
             theme: self.theme,
             theme_revision: self.theme_revision,
             source,
@@ -4021,6 +4255,7 @@ impl Preparer {
             height: total_height,
             complete,
             pending: HashMap::new(),
+            retained_layout_bytes: bytes + self.documents.working_layout_bytes(),
             layout_builds: self.layout_builds,
             parsed_markdown_bytes: self.documents.parsed_bytes,
             received_markdown_bytes: self.documents.received_bytes,
@@ -4284,13 +4519,13 @@ mod onboarding_markdown_tests {
                     model.apply(&serde_json::from_str::<Envelope>(line).unwrap());
                 }
                 let prepared = Preparer::default().prepare(Arc::new(model), width).unwrap();
-                for row in prepared.rows.values() {
+                for row in prepared.rows.values().filter_map(|row| row.layout()) {
                     assert!(
-                        row.layout.rect.x <= 14.,
+                        row.rect.x <= 14.,
                         "centred row in {width}px pane: {:?}",
-                        row.layout.rect
+                        row.rect
                     );
-                    assert!(row.layout.rect.right() >= width - 14.);
+                    assert!(row.rect.right() >= width - 14.);
                 }
                 let bubble = super::super::face::prompt_bubble(
                     named("copy", label("short")),
@@ -4344,7 +4579,7 @@ mod onboarding_markdown_tests {
                 texts(child, out);
             }
         }
-        texts(&prepared.rows[&id].layout, &mut runs);
+        texts(prepared.rows[&id].layout().unwrap(), &mut runs);
         let all = runs.join(" ");
         for want in [
             "Which",
@@ -4426,7 +4661,7 @@ mod onboarding_markdown_tests {
                 texts(child, out);
             }
         }
-        texts(&prepared.rows[&strip].layout, &mut runs);
+        texts(prepared.rows[&strip].layout().unwrap(), &mut runs);
         assert_eq!(runs, ["mcp", "bboxy_python", "bboxy", "\u{21bb}2"]);
     }
     #[test]
@@ -4609,7 +4844,7 @@ mod onboarding_markdown_tests {
                     let mut p = Preparer::default(); p.set_theme(theme);
                     let mut prepared = p.prepare(Arc::new(model.clone()), width).unwrap();
                     p.prepare_pending(&mut prepared, &prompts, &Default::default()).unwrap();
-                    let row = &prepared.rows[&id].layout;
+                    let row = prepared.rows[&id].layout().unwrap();
                     let pending = &prepared.pending[&prompt.op];
                     fn text(n: &c::Layout) -> String {
                         let mut s = String::new();
@@ -4643,7 +4878,7 @@ mod onboarding_markdown_tests {
                     }
                     let faces=im::ordmap! {id => super::super::rich::Face {source:true,..Default::default()}};
                     let source=p.prepare_with_faces(Arc::new(model.clone()),width,&faces).unwrap();
-                    assert!(layout_text(&source.rows[&id].layout).contains("**bold**"),"selectable original source stays available");
+                    assert!(layout_text(source.rows[&id].layout().unwrap()).contains("**bold**"),"selectable original source stays available");
                     let mut prepared=p.prepare(Arc::new(model.clone()),width).unwrap();
                     let empty = im::OrdMap::new(); p.prepare_pending(&mut prepared, &empty, &Default::default()).unwrap();
                     assert!(prepared.rows.contains_key(&id));
@@ -4705,6 +4940,70 @@ mod progressive_prepare_tests {
         *p = next;
         prepared
     }
+    #[tokio::test]
+    async fn memory_budget_preserves_scroll_height_and_rebuilds_evicted_rows() {
+        crate::runtime::blocking(|| {
+            let source = Arc::new(transcript(32));
+            let control = Preparer::default().prepare(source.clone(), 900.).unwrap();
+            let oldest = *source.order.front().unwrap();
+            let budget = control
+                .rows
+                .values()
+                .filter_map(|row| row.solved.as_ref())
+                .map(|row| row.bytes)
+                .max()
+                .unwrap()
+                * 12;
+            let mut preparer = Preparer {
+                layout_budget: budget,
+                ..Default::default()
+            };
+            let prepared = preparer.prepare(source.clone(), 900.).unwrap();
+            assert_eq!(prepared.height, control.height);
+            assert!(
+                prepared.rows[&oldest].layout().is_none(),
+                "the fixture must evict the old row"
+            );
+            let mut state = FrameState {
+                transcript: source.clone(),
+                prepared: Some(Arc::new(prepared)),
+                ready: true,
+                ..Default::default()
+            };
+            let mut view = HarnessView::default();
+            view.render(&state, [900., 400.]).unwrap();
+            let max = view.frame.max_scroll;
+            view.scroll.anchor(0., max);
+            view.invalidate();
+            view.render(&state, [900., 400.]).unwrap();
+            assert!(view.visible_rows.iter().any(|row| row.id == oldest));
+            // This is the same request the bridge forwards after paint.
+            let prepared = preparer
+                .prepare_requested(
+                    source.clone(),
+                    900.,
+                    &Default::default(),
+                    &view.visible_rows,
+                    &view.markdown_scroll,
+                )
+                .unwrap();
+            let solved = prepared.rows[&oldest].layout().unwrap();
+            assert_eq!(
+                layout_text(solved),
+                layout_text(control.rows[&oldest].layout().unwrap())
+            );
+            assert_eq!(solved.rect, control.rows[&oldest].layout().unwrap().rect);
+            assert_eq!(prepared.height, control.height);
+            assert!(prepared.retained_layout_bytes <= budget);
+            state.prepared = Some(Arc::new(prepared));
+            let frame = view.render(&state, [900., 400.]).unwrap();
+            assert!(frame.item_text(oldest).unwrap().contains("row 0"));
+            assert_eq!(frame.scroll, 0.);
+            assert_eq!(preparer.documents.working_layout_bytes(), 0);
+        })
+        .await;
+    }
+
     #[tokio::test]
     async fn image_preparation_rejects_a_late_frame_after_root_replacement() {
         use super::super::rich::ImagePreparation;
