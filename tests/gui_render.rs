@@ -2073,7 +2073,7 @@ fn gui_polish_loader_is_centered_and_pending_bubbles_are_scoped() {
                     "{steps}"
                 );
                 assert!(
-                    matches!(&mark.children[0].kind, bbt_ui::components::LayoutKind::Image { asset, .. } if asset == bboxy450_harness::frontends::gui::assets::MARK)
+                    matches!(&mark.children[0].kind, bbt_ui::components::LayoutKind::Image { asset, .. } if AsRef::<str>::as_ref(asset) == bboxy450_harness::frontends::gui::assets::MARK)
                 );
                 assert!(mark.rect.bottom() < label.rect.y);
                 assert!(
