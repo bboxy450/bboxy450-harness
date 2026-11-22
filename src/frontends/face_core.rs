@@ -489,6 +489,8 @@ fn call_args(input_raw: &str) -> serde_json::Value {
     }
     v
 }
+const MISSING_TOOL_RESULT: &str = "(the agent did not report a result)";
+
 pub fn python_cell(
     name: &str,
     input_raw: &str,
@@ -525,14 +527,25 @@ pub fn python_cell(
         {
             return result(inner);
         }
-        if let Some(text) = value.as_str()
-            && let Ok(value) = serde_json::from_str::<Value>(text)
-        {
-            return result(&value);
+        if let Some(text) = value.as_str() {
+            let text = text.trim();
+            if let Ok(value) = serde_json::from_str::<Value>(text) {
+                return result(&value);
+            }
+            if text == MISSING_TOOL_RESULT {
+                return Some(serde_json::json!({"status": "cancelled"}));
+            }
+            // A client task ID cannot be polled with python_execution_get.
+            if text.starts_with("MCP tool \"")
+                && text.contains("\" was moved to the background as task ")
+                && text.contains("it was not interrupted and keeps running")
+            {
+                return Some(serde_json::json!({"status": "running"}));
+            }
         }
         value
-            .get("content")
-            .and_then(Value::as_array)
+            .as_array()
+            .or_else(|| value.get("content").and_then(Value::as_array))
             .and_then(|content| {
                 content
                     .iter()
@@ -565,6 +578,10 @@ pub fn python_cell(
         Value::String(text) => vec![serde_json::json!({"text":text})],
         other => other.as_array().cloned().unwrap_or_default(),
     };
+    let handle = value["execution_id"].as_str().filter(|id| !id.is_empty());
+    let status = value["status"]
+        .as_str()
+        .or_else(|| (handle.is_some() && value["error"].is_null()).then_some("running"));
     Some(PythonCell {
         stderr: chunks
             .iter()
@@ -573,11 +590,10 @@ pub fn python_cell(
             .map(|(i, _)| offset + i)
             .collect(),
         source: args["source"].as_str().map(str::to_owned),
-        execution_id: value["execution_id"]
-            .as_str()
+        execution_id: handle
             .or_else(|| args["execution_id"].as_str())
             .map(str::to_owned),
-        status: value["status"].as_str().map(str::to_owned),
+        status: status.map(str::to_owned),
         exit_code: value["exit_code"].as_i64(),
         emitted: value
             .get("emitted")
@@ -883,7 +899,7 @@ pub fn describe<'a>(
 /// Keep replay compatibility while never treating those sentinels as content.
 pub fn placeholder_output(output: &[OutputBlock]) -> bool {
     output.is_empty() || output.iter().all(|block| matches!(block,
-        OutputBlock::Text { text } if matches!(text.trim(), "" | "(no output)" | "(the agent did not report a result)")))
+        OutputBlock::Text { text } if matches!(text.trim(), "" | "(no output)" | MISSING_TOOL_RESULT)))
 }
 /// Render MCP's text/structured results without exposing binary payloads or
 /// transport configuration. The upstream redactor still owns secret values.
@@ -1254,6 +1270,23 @@ mod codex_outcome_tests {
         );
     }
     #[test]
+    fn python_cell_keeps_a_bare_handle_running_until_polled() {
+        let execute = "mcp.bboxy.python_execute";
+        let get = "mcp.bboxy.python_execution_get";
+        let input = r#"{"execution_id":"fixture-run"}"#;
+        let handle = reply(json!({"execution_id":"fixture-run"}));
+        let mut card = python_cell(execute, "{}", &handle, None).unwrap();
+        assert_eq!(card.status.as_deref(), Some("running"));
+        assert_eq!(card.execution_id.as_deref(), Some("fixture-run"));
+        let outcome = reply(json!({"status":"failed","error":"fixture failure"}));
+        card.merge(python_cell(get, input, &outcome, None).unwrap());
+        assert_eq!(card.status.as_deref(), Some("failed"));
+        assert_eq!(card.error.as_deref(), Some("fixture failure"));
+        card.merge(python_cell(execute, "{}", &handle, None).unwrap());
+        assert_eq!(card.status.as_deref(), Some("failed"));
+    }
+
+    #[test]
     fn a_blob_backed_output_reads_back_whole_in_all_three_stored_forms() {
         let blob = BlobRef {
             sha256: "a".repeat(64),
@@ -1326,6 +1359,40 @@ mod codex_outcome_tests {
 mod real_session_smoke {
     use super::*;
     use crate::protocol::{Envelope, Event, Item, ItemStatus};
+    #[test]
+    fn python_cell_replays_redacted_session_replies() {
+        // Adapted from bboxy450-harness ACP envelopes with fixture values.
+        // https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
+        let mut lines = include_str!("fixtures/python-card-status.jsonl").lines();
+        for expected in ["cancelled", "running"] {
+            let envelope = Envelope::from_line(lines.next().unwrap()).unwrap();
+            let Event::ItemCompleted {
+                body:
+                    Item::ToolCall {
+                        name,
+                        input_raw,
+                        output,
+                        raw_output,
+                        ..
+                    },
+                ..
+            } = envelope.event
+            else {
+                panic!("expected a completed tool call envelope");
+            };
+            let cell = python_cell(&name, &input_raw, &output, None).unwrap();
+            assert_eq!(cell.status.as_deref(), Some(expected));
+            assert_eq!(cell.source.as_deref(), Some("emit(1)"));
+            assert_eq!(cell.execution_id, None);
+            if let Some(raw) = raw_output {
+                let cell = python_cell(&name, &input_raw, &[], Some(&raw)).unwrap();
+                assert_eq!(cell.status.as_deref(), Some(expected));
+                assert_eq!(cell.execution_id, None);
+            }
+        }
+        assert!(lines.next().is_none());
+    }
+
     #[test]
     fn real_sessions_render_without_envelope_leaks() {
         let Some(dir) = std::env::var_os("BBOXY_SMOKE_SESSIONS") else {

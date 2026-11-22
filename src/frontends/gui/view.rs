@@ -312,7 +312,7 @@ pub(super) fn layout_bytes(layout: &c::Layout) -> usize {
         }
         LayoutKind::Path { points, .. } => std::mem::size_of_val(points.as_ref()),
         LayoutKind::Rects { rects, .. } => std::mem::size_of_val(rects.as_ref()),
-        LayoutKind::Image { asset, .. } => asset.as_ref().len(),
+        LayoutKind::Image { asset, .. } => asset.len(),
         _ => 0,
     };
     // Charge unused child vector capacity as well as every owned subtree.

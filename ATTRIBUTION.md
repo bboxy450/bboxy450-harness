@@ -77,6 +77,11 @@ Native text-entry dispatch witnesses and their broken controls follow this polic
   https://github.com/agentclientprotocol/agent-client-protocol/blob/main/docs/protocol/v1/session-config-options.mdx.
 
 
+- `src/frontends/fixtures/python-card-status.jsonl` is **adapted from**
+  bboxy450-harness ACP session envelopes
+  (https://github.com/bboxy450/bboxy450-harness). It keeps the two reply shapes
+  with synthetic identifiers and source under the policy above.
+
 - MCP result presentation, local causal pending-prompt bubbles, shared welcome-loader
   portrait and their focused native/formal witnesses in `src/frontends/gui/`,
   `src/frontends/face_core.rs`, `src/backend/acp_agent.rs`, `tests/` and
