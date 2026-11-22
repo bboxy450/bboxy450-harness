@@ -979,8 +979,30 @@ impl Service {
         .map_err(|e| json!({"error":e,"hints":fault("context_unavailable","Read the preserved current-admission error before retrying") ["hints"]}))?;
         self.normalize_context(current.unwrap_or_else(|| json!({"managed":false,"cwd":self.0.cwd})))
     }
+    async fn interpreter(context: &Value) -> (Option<PathBuf>, Option<&'static str>) {
+        let reason = if !context["chart_export"].is_object() {
+            "the native chart exporter is unavailable for this host"
+        } else {
+            if let Some(home) = std::env::var_os("HOME") {
+                let path = PathBuf::from(home)
+                    .join("Library/Application Support/bboxy450-term/chart-runtime");
+                // Pin the installed version directory for this execution.
+                // Keep the virtualenv's Python symlink itself intact.
+                if path.is_absolute()
+                    && let Ok(version) = tokio::fs::canonicalize(path).await
+                    && let Some(executable) = version.join("bin/python").to_str()
+                    && let Some(program) = process::resolve(executable).await
+                {
+                    return (Some(program), None);
+                }
+            }
+            "the chart Python environment is missing; install bboxy450-term with make install"
+        };
+        (process::resolve("python3").await, Some(reason))
+    }
+
     async fn orientation(&self, context: Value) -> Value {
-        let interpreter = process::resolve("python3").await;
+        let (interpreter, chart_export_unavailable) = Self::interpreter(&context).await;
         let version = if let Some(path) = &interpreter {
             crate::process::run(
                 crate::process::Request {
@@ -1004,7 +1026,7 @@ impl Service {
         };
         let local = context["target"]["kind"] == "local";
         json!({"ready":version.is_some()&&local,"interpreter":interpreter,"version":version,"runtime":"owned CPython process; standard library and top-level await; ordinary host execution authority",
-            "cwd":context["cwd"],"context":context,"mcp_servers":self.0.mcp.servers(),"limits":{"source_bytes":SOURCE,"timeout_ms":TIMEOUT,"default_timeout_ms":DEFAULT_TIMEOUT,"wait_ms":MAX_WAIT_MS,"default_wait_ms":DEFAULT_WAIT_MS,"nested_call_timeout_ms":crate::mcp::NESTED_CALL_TIMEOUT_MS,"retained_output_bytes":OUTPUT,"callback_frame_bytes":FRAME,"nested_calls":CALLS,"active_executions":4,"active_callbacks_per_execution":CALLBACKS_PER_RUN,"connections":256},
+            "cwd":context["cwd"],"context":context,"chart_export_unavailable":chart_export_unavailable,"mcp_servers":self.0.mcp.servers(),"limits":{"source_bytes":SOURCE,"timeout_ms":TIMEOUT,"default_timeout_ms":DEFAULT_TIMEOUT,"wait_ms":MAX_WAIT_MS,"default_wait_ms":DEFAULT_WAIT_MS,"nested_call_timeout_ms":crate::mcp::NESTED_CALL_TIMEOUT_MS,"retained_output_bytes":OUTPUT,"callback_frame_bytes":FRAME,"nested_calls":CALLS,"active_executions":4,"active_callbacks_per_execution":CALLBACKS_PER_RUN,"connections":256},
             "policy":"Original MCP server authorization and credentials apply; parent Codex/Claude hooks are not automatically invoked per nested call. Python and subprocess use normal harness host authority, with durable nested receipts.",
             "bindings":{
                 "tools as functions":["bboxy.<tool>(key=value, ...)  # the host's tools; returns the tool's data, raises ToolError","tools.<server>.<tool>(...)  # any MCP server","tools.search('words')  # find a tool: [{server, name, signature, description}]","bboxy.tools() / bboxy.describe('knowledge_write')  # signatures and the exact input schema","_timeout_ms= and _op_id= bound and name one call; every other keyword reaches the tool","await is optional on all of the above"],
@@ -1128,13 +1150,14 @@ impl Service {
                 "cannot persist context before starting Python",
             )
         })?;
-        let program = process::resolve("python3").await.ok_or_else(|| {
+        let (program, chart_export_unavailable) = Self::interpreter(&context).await;
+        let program = program.ok_or_else(|| {
             fault(
                 "python_unavailable",
                 "Python 3 is not available in the harness PATH",
             )
         })?;
-        let launch = json!({"socket":self.0.endpoint.socket(),"execution_id":run.record.lock().await.execution_id,"callback_token":run.token,"source":run.source.as_ref(),"inputs":inputs,"context":context,"state":self.0.root.join("state")});
+        let launch = json!({"socket":self.0.endpoint.socket(),"execution_id":run.record.lock().await.execution_id,"callback_token":run.token,"source":run.source.as_ref(),"inputs":inputs,"context":context,"chart_export_unavailable":chart_export_unavailable,"state":self.0.root.join("state")});
         let mut command = tokio::process::Command::new(program);
         command.args(["-I", "-u", "-c", include_str!("worker.py")]);
         let output = self

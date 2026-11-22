@@ -712,14 +712,12 @@ def _artifact_pin(value):
     return None
 
 
-def _display_reference(saved):
+def _display_reference(saved, *, pinned=False):
     if _artifact_pin(saved) is None or saved.get("media_type") not in ("image/svg+xml", "image/png"):
-        raise ValueError("display requires stored image metadata")
-    reference = saved.get("reference")
-    if reference not in (f"![[artifact:{saved['id']}]]",
-                         f"![[artifact:{saved['id']}:{saved['revision']}]]"):
-        raise ValueError("invalid stored image reference")
-    _rpc_sync("display", {"reference": reference})
+        raise ValueError("display requires a stored SVG or PNG image")
+    live = f"![[artifact:{saved['id']}]]"
+    snapshot = f"![[artifact:{saved['id']}:{saved['revision']}]]"
+    _rpc_sync("display", {"reference": snapshot if pinned or saved.get("reference") == snapshot else live})
     return _Displayed(saved)
 
 
@@ -758,16 +756,20 @@ def _capture_json(media_type, data):
 
 def display(plot, inputs=(), update=None):
     """Send a retained image to the transcript. Update a saved SVG with its expected revision."""
-    if isinstance(plot, dict) and _artifact_pin(plot) is not None:
+    pin = _artifact_pin(plot)
+    if pin is not None:
         if inputs or update is not None:
             raise ValueError("displaying a saved image does not take inputs or an update")
+        if "reference" not in plot:
+            return _display_reference(bboxy.artifact_read(**pin), pinned=True)
         return _display_reference(plot)
     expected = None if update is None else _artifact_pin(update)
     if update is not None and (expected is None or update.get("media_type") != "image/svg+xml"):
         raise ValueError("update requires the saved metadata of an SVG")
-    exporter = execution.get("chart_export")
-    if exporter is None:
-        raise RuntimeError("chart export is unavailable in this Python host")
+    reason = _launch.get("chart_export_unavailable")
+    if reason:
+        raise RuntimeError(f"chart export is unavailable: {reason}")
+    exporter = execution["chart_export"]
     import importlib.util
     module = importlib.util.spec_from_file_location("_bboxy_chart_export", exporter["module"])
     if module is None or module.loader is None:

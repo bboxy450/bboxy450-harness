@@ -66,13 +66,16 @@ impl Rig {
         let (tx, mut rx) = tokio::sync::mpsc::channel(256);
         let stop = services.cancel.clone();
         services.spawn(async move{loop{tokio::select!{biased;_=stop.cancelled()=>break,r=rx.recv()=>{if r.is_none(){break;}}}}});
-        let manager = Manager::start_in(
+        let mut manager = Manager::start_in(
             servers,
             Set::default(),
             tx,
             &mut services,
             Some(cwd.clone()),
         );
+        // The fixture's launcher selection owns admission. A parent seat's
+        // environment cannot turn the fixture's standalone runs into managed ones.
+        manager.use_fixture_context();
         let service = Service::start(
             endpoint,
             dir.path().join("sessions"),
@@ -158,6 +161,23 @@ impl Rig {
     async fn close(mut self) {
         self.services.cancel_and_join().await.unwrap();
     }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn unavailable_chart_runtime_keeps_plain_python_ready() {
+    let rig = Rig::start().await;
+    let orientation = rig.call("python_execute_orient", json!({})).await;
+    assert_eq!(orientation["ready"], true, "{orientation}");
+    let reason = orientation["chart_export_unavailable"].as_str().unwrap();
+    let result = rig
+        .run("try:\n    display({})\nexcept RuntimeError as error:\n    emit(str(error))")
+        .await;
+    assert_eq!(result["status"], "completed", "{result}");
+    assert_eq!(
+        result["emitted"],
+        json!([format!("chart export is unavailable: {reason}")])
+    );
+    rig.close().await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

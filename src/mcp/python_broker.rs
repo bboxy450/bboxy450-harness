@@ -508,6 +508,7 @@ impl Manager {
                     notices: self.notices.clone(),
                     root: self.root.clone(),
                     redactor: self.redactor.clone(),
+                    requires_native_context: self.requires_native_context,
                 };
                 let reply = context_client
                     .raw_call(
@@ -547,7 +548,7 @@ impl Manager {
                 false,
             ));
         }
-        if std::env::var_os("BBOXY_SEAT_ID").is_some() {
+        if self.requires_native_context {
             Err(failure(
                 "native_context_unavailable",
                 "admitted bboxy execution context is unavailable; update/reconnect the native MCP server",

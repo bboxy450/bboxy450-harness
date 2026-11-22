@@ -298,6 +298,7 @@ pub struct Manager {
     notices: mpsc::Sender<Internal>,
     root: CancellationToken,
     redactor: Set,
+    requires_native_context: bool,
 }
 impl Manager {
     /// Session-private runtime server; keep it on the same real MCP client path.
@@ -379,7 +380,12 @@ impl Manager {
             notices: output,
             root,
             redactor,
+            requires_native_context: std::env::var_os("BBOXY_SEAT_ID").is_some(),
         }
+    }
+    #[cfg(test)]
+    pub(crate) fn use_fixture_context(&mut self) {
+        self.requires_native_context = false;
     }
     /// No await: the tool definitions and generation bindings are fixed at TurnStarted.
     pub(crate) fn snapshot(&self) -> (Vec<Definition>, BTreeMap<String, Binding>, Vec<String>) {

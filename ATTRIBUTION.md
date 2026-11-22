@@ -9,6 +9,9 @@ License: https://github.com/bboxy450/bboxy450-harness/blob/main/LICENSE
 
 **Slop respectfully. Keep the credit attached.**
 
+Chart interpreter selection and artifact-pin display are project-owned contributions.
+Their source headers carry this policy and origin with extracts.
+
 ## Terms
 
 Project-owned contributions are under the Respectful Slop License 1.0-Draft
