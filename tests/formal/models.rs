@@ -7037,6 +7037,7 @@ fn interrupt_recovery(control: u8) -> Model {
     let view = 7;
     let due = 8;
     let presented_generation = 9;
+    let lost_agent = 10;
     let running = 0;
     let pending = 1;
     let resuming = 2;
@@ -7046,6 +7047,7 @@ fn interrupt_recovery(control: u8) -> Model {
         match control {
             1 => "InterruptDuplicate",
             2 => "InterruptNoRearm",
+            3 => "InterruptNoReload",
             _ => "InterruptRecovery",
         },
         control != 0,
@@ -7060,6 +7062,7 @@ fn interrupt_recovery(control: u8) -> Model {
             ("view", 1, 0),
             ("due", 1, 0),
             ("presented_generation", 8, 0),
+            ("lostAgent", 1, 0),
         ],
     );
     let pend = eq(phase, pending);
@@ -7110,11 +7113,24 @@ fn interrupt_recovery(control: u8) -> Model {
             .and(Var(presented_generation).eq(Var(generation))),
         &[(phase, Int(resuming))],
     );
+    act(
+        &mut m,
+        "AgentExitsAfterCancelling",
+        pend.clone().and(eq(lost_agent, 0)),
+        &[(lost_agent, Int(1))],
+    );
+    let reload = m.actions.len();
+    act(
+        &mut m,
+        "ReloadSameSession",
+        all([resume.clone(), eq(lost_agent, 1), Bool(control != 3)]),
+        &[(lost_agent, Int(0))],
+    );
     let finished = m.actions.len();
     act(
         &mut m,
         "ResumeAndSend",
-        resume.clone(),
+        resume.clone().and(eq(lost_agent, 0)),
         &[(phase, Int(running)), (sent, Var(sent).plus(Int(1)))],
     );
     let mut failed = new_interrupt.to_vec();
@@ -7137,7 +7153,11 @@ fn interrupt_recovery(control: u8) -> Model {
             &mut m,
             name,
             pend.clone(),
-            &[(phase, Int(next)), (cancelled, Int(1))],
+            &[
+                (phase, Int(next)),
+                (cancelled, Int(1)),
+                (lost_agent, Int(0)),
+            ],
         );
     }
     act(
@@ -7186,6 +7206,7 @@ fn interrupt_recovery(control: u8) -> Model {
     if control != 1 {
         m.weak_fair.push(vec![tick]);
         m.weak_fair.push(vec![timer]);
+        m.weak_fair.push(vec![reload]);
         progress(
             &mut m,
             "UncancelledEventuallySends",
@@ -7202,6 +7223,7 @@ pub fn corpus() -> Vec<(Model, &'static str)> {
         (interrupt_recovery(0), "pass"),
         (interrupt_recovery(1), "safety"),
         (interrupt_recovery(2), "liveness"),
+        (interrupt_recovery(3), "liveness"),
         (dream_c1::bootstrap_entry(0), "pass"),
         (dream_c1::bootstrap_entry(1), "safety"),
         (dream_c1::bootstrap_entry(2), "safety"),

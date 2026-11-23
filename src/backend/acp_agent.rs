@@ -156,6 +156,7 @@ enum Wire {
 enum Call {
     Initialize,
     NewSession,
+    LoadSession,
     SetPermissions {
         session_result: Value,
     },
@@ -190,6 +191,7 @@ struct Agent {
     /// the agent takes launcher instructions as a session system prompt (ACP `systemPrompt`)
     system_prompt: bool,
     images_supported: bool,
+    load_supported: bool,
     steering_supported: bool,
     startup_deadline: Option<Instant>,
     next_id: u64,
@@ -248,6 +250,8 @@ pub struct AcpAgentActor {
     /// The profile's model, chosen through the agent's `model` config option when offered.
     model: Option<String>,
     agent: Option<Agent>,
+    /// The ACP session to load after losing an agent during interrupt recovery.
+    reload_session: Option<String>,
     wire: Option<mpsc::UnboundedReceiver<Wire>>,
     queue: VecDeque<(TurnId, Vec<InputBlock>, OpId)>,
     recovery: Recovery,
@@ -429,6 +433,7 @@ impl AcpAgentActor {
             yolo,
             model,
             agent: None,
+            reload_session: None,
             wire: None,
             queue: VecDeque::new(),
             running: None,
@@ -829,19 +834,28 @@ impl AcpAgentActor {
     }
 
     async fn session_ready(&mut self, result: Value) -> std::io::Result<()> {
-        let Some(session) = result.get("sessionId").and_then(Value::as_str) else {
+        let reloaded = self.reload_session.is_some();
+        let Some(session) = self.reload_session.take().or_else(|| {
+            result
+                .get("sessionId")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        }) else {
             return self
                 .agent_gone("ACP agent returned no sessionId".into())
                 .await;
         };
-        let session = session.to_owned();
-        self.agent.as_mut().expect("agent").session = Some(session.clone());
-        self.agent.as_mut().expect("agent").model = model_option(&result)
-            .and_then(|option| option.get("currentValue"))
-            .and_then(Value::as_str)
-            .map(str::to_owned);
         {
-            let a = self.agent.as_mut().unwrap();
+            let a = self.agent.as_mut().expect("agent");
+            a.session = Some(session.clone());
+            a.model = model_option(&result)
+                .and_then(|option| option.get("currentValue"))
+                .and_then(Value::as_str)
+                .map(str::to_owned);
+            if reloaded {
+                a.startup_deadline = None;
+                a.bootstrap_pending = false;
+            }
             a.controls.replace(&result);
             a.controls.status = "Confirmed by agent".into();
             a.model = a
@@ -853,7 +867,7 @@ impl AcpAgentActor {
                 .or_else(|| a.model.clone());
         }
         self.publish_controls(None).await?;
-        if let Some(wanted) = self.model.clone() {
+        if !reloaded && let Some(wanted) = self.model.clone() {
             match pick_model(&result, &wanted) {
                 ModelChoice::Current => {}
                 ModelChoice::Set(value) => {
@@ -1636,7 +1650,7 @@ impl AcpAgentActor {
             r.cause,
         )
         .await?;
-        if failed && self.agent.is_none() {
+        if failed && self.agent.is_none() && self.reload_session.is_none() {
             self.handoff = handoff(&self.store.events);
         }
         self.publish(Event::Status { phase: Phase::Idle }, None)
@@ -1755,6 +1769,7 @@ impl AcpAgentActor {
             bootstrap_pending: true,
             system_prompt: false,
             images_supported: false,
+            load_supported: false,
             steering_supported: false,
             startup_deadline: Some(
                 Instant::now()
@@ -1812,7 +1827,9 @@ impl AcpAgentActor {
             let (cause, class) = classify(None, None, None, &message, ErrorClass::MidStream);
             self.fail(cause, class, message).await
         } else {
-            self.handoff = handoff(&self.store.events);
+            if self.reload_session.is_none() {
+                self.handoff = handoff(&self.store.events);
+            }
             self.notice(Level::Warn, message).await
         }
     }
@@ -1820,7 +1837,16 @@ impl AcpAgentActor {
     // ---------- the wire ----------
     async fn wire(&mut self, wire: Wire) -> std::io::Result<()> {
         match wire {
-            Wire::Eof => self.agent_gone("ACP agent exited".into()).await,
+            Wire::Eof => {
+                if (self.recovery.deadline().is_some()
+                    || self.running.as_ref().is_some_and(|r| !r.interrupted))
+                    && let Some(agent) = self.agent.as_ref().filter(|a| a.load_supported)
+                    && let Some(session) = &agent.session
+                {
+                    self.reload_session = Some(session.clone());
+                }
+                self.agent_gone("ACP agent exited".into()).await
+            }
             Wire::Bad(why) => self.agent_gone(format!("ACP agent sent {why}")).await,
             Wire::Message(m) => {
                 if let Some(r) = self.running.as_mut() {
@@ -1838,8 +1864,16 @@ impl AcpAgentActor {
                     }
                     (Some(method), None) => {
                         if method == "session/update" {
-                            if m.pointer("/params/sessionId").and_then(Value::as_str)
-                                != self.agent.as_ref().and_then(|a| a.session.as_deref())
+                            // A load replays history before its reply. Our log already
+                            // owns those events, so accept updates only after the reply.
+                            if !self
+                                .agent
+                                .as_ref()
+                                .and_then(|a| a.session.as_deref())
+                                .is_some_and(|session| {
+                                    m.pointer("/params/sessionId").and_then(Value::as_str)
+                                        == Some(session)
+                                })
                             {
                                 return Ok(());
                             }
@@ -1981,6 +2015,7 @@ impl AcpAgentActor {
                 Call::Prompt
                 | Call::Initialize
                 | Call::NewSession
+                | Call::LoadSession
                 | Call::SetPermissions { .. }
                     if self.running.is_some() =>
                 {
@@ -2006,6 +2041,10 @@ impl AcpAgentActor {
                 let agent = self.agent.as_mut().expect("agent");
                 agent.steering_supported = result
                     .pointer("/_meta/steering/supported")
+                    .and_then(Value::as_bool)
+                    == Some(true);
+                agent.load_supported = result
+                    .pointer("/agentCapabilities/loadSession")
                     .and_then(Value::as_bool)
                     == Some(true);
                 agent.images_supported = result
@@ -2037,6 +2076,15 @@ impl AcpAgentActor {
                     params["systemPrompt"] = json!({"mode": "append", "content": [
                         {"type": "text", "text": self.config.redactor.scrub(&self.launch_context)}
                     ]});
+                }
+                if let Some(session) = &self.reload_session {
+                    if !agent.load_supported {
+                        return self
+                            .agent_gone("ACP agent no longer supports session/load".into())
+                            .await;
+                    }
+                    params["sessionId"] = json!(session);
+                    return call(agent, Call::LoadSession, "session/load", params);
                 }
                 call(agent, Call::NewSession, "session/new", params)?;
                 if fallback {
@@ -2094,6 +2142,15 @@ impl AcpAgentActor {
                         params,
                     );
                 }
+                self.session_ready(result).await
+            }
+            Call::LoadSession => {
+                if !result.is_object() {
+                    return self
+                        .agent_gone("ACP agent sent an invalid session/load response".into())
+                        .await;
+                }
+                self.handoff = None;
                 self.session_ready(result).await
             }
             Call::SetPermissions { session_result } => self.session_ready(session_result).await,
@@ -3279,6 +3336,7 @@ fn call_name(c: &Call) -> &'static str {
     match c {
         Call::Initialize => "initialize",
         Call::NewSession => "session/new",
+        Call::LoadSession => "session/load",
         Call::SetPermissions { .. } => "unrestricted permissions",
         Call::SetModel { .. } => "the model choice",
         Call::Prompt => "the prompt",

@@ -2637,3 +2637,8 @@ frontend = "project"
 name = "BrokenHarnessInterruptNoRearm"
 expected = "liveness"
 frontend = "project"
+
+[[model]]
+name = "BrokenHarnessInterruptNoReload"
+expected = "liveness"
+frontend = "project"

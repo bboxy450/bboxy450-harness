@@ -2007,6 +2007,78 @@ async fn interrupt_deadlines_retry_real_prompts_and_rearm() {
 
 #[cfg(debug_assertions)]
 #[tokio::test]
+async fn agent_cancel_then_exit_loads_the_same_session_and_continues() {
+    if isolated(
+        "agent_cancel_then_exit_loads_the_same_session_and_continues",
+        &[("BBOXY450_INTERRUPT_MINUTE_MS", "150")],
+    ) {
+        return;
+    }
+    let f = fake("retry-cancelled-exit", Unattended::Deny).await;
+    let mut sub = subscribe(&f.gateway, false);
+    f.gateway
+        .send(support::prompt(&f.gateway, "original work"))
+        .unwrap();
+
+    let failed = until_end(&mut sub).await;
+    assert!(matches!(
+        &failed.last().unwrap().event,
+        Event::TurnEnded {
+            reason: StopReason::Error {
+                class: ErrorClass::Cancelled,
+                interrupt: Some(Interrupt { cause, attempt: 1, .. }),
+                ..
+            },
+            ..
+        } if cause == "agent.cancelled"
+    ));
+    let resumed = until_end(&mut sub).await;
+    assert!(
+        matches!(
+            &resumed.last().unwrap().event,
+            Event::TurnEnded {
+                reason: StopReason::EndTurn,
+                ..
+            }
+        ),
+        "{resumed:?}"
+    );
+    assert!(resumed.iter().any(|e| matches!(
+        e.event,
+        Event::TurnStarted {
+            origin: Some(TurnOrigin::Automatic),
+            ..
+        }
+    )));
+    assert_eq!(
+        std::fs::read_to_string(f.temp.path().join("retry-prompts")).unwrap(),
+        "original work\nContinue\n"
+    );
+    let session = f.session;
+    let log = close(f).await;
+    assert!(log.iter().all(|e| e.session == session));
+    assert_eq!(
+        completed(&log)
+            .iter()
+            .filter_map(|(_, body)| match body {
+                Item::AgentMessage { markdown } => Some(markdown.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>(),
+        ["CONTINUED AFTER EXIT"]
+    );
+    assert!(completed(&log).iter().any(|(status, body)| matches!(
+        (status, body),
+        (ItemStatus::Failed { .. }, Item::ToolCall { call_id, .. }) if call_id == "recover-tool"
+    )));
+    assert!(completed(&log).iter().any(|(status, body)| matches!(
+        (status, body),
+        (ItemStatus::Completed, Item::ToolCall { call_id, .. }) if call_id == "foreground"
+    )));
+}
+
+#[cfg(debug_assertions)]
+#[tokio::test]
 async fn cancelled_or_replaced_interrupts_cannot_send_a_late_continue() {
     if isolated(
         "cancelled_or_replaced_interrupts_cannot_send_a_late_continue",

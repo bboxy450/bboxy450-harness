@@ -259,10 +259,20 @@ while True:
                 continue
         if SCENARIO == "question":
             assert m["params"]["clientCapabilities"]["elicitation"]["form"] == {}
-        send({"jsonrpc": "2.0", "id": rid, "result": {"protocolVersion": 1, "agentCapabilities": {}, "authMethods": [],
+        send({"jsonrpc": "2.0", "id": rid, "result": {"protocolVersion": 1, "agentCapabilities": {"loadSession": SCENARIO == "retry-cancelled-exit"}, "authMethods": [],
               "agentInfo": {"name": "claude" if SCENARIO in ("steering-claude", "unrestricted-claude") else "codex" if SCENARIO.startswith("steering-") else "fixture-agent", "version": "1.2.3"},
               "_meta": {"steering": {"supported": SCENARIO.startswith("steering-")}}}})
+    elif method == "session/load" and SCENARIO == "retry-cancelled-exit":
+        assert m["params"]["sessionId"] == SESSION
+        assert Path(m["params"]["cwd"]).resolve() == Path.cwd()
+        assert isinstance(m["params"]["mcpServers"], list)
+        Path("restored-session").write_text(SESSION)
+        # ACP replays history before acknowledging session/load.
+        chunk("agent_message_chunk", "REPLAY OF EARLIER TEXT")
+        send({"jsonrpc": "2.0", "id": rid, "result": {}})
     elif method == "session/new":
+        if SCENARIO == "retry-cancelled-exit":
+            assert not Path("retry-prompts").exists(), "recovery replaced the ACP session"
         if SCENARIO == "steering-slow":
             # Negotiation takes a while: input sent meanwhile must reach this turn.
             time.sleep(1.0)
@@ -300,6 +310,18 @@ while True:
                 visits.write(last + "\n")
             count = len(Path("retry-prompts").read_text().splitlines())
             case = SCENARIO.removeprefix("retry-")
+            if case == "cancelled-exit":
+                assert m["params"]["sessionId"] == SESSION
+                if count == 1:
+                    update({"sessionUpdate": "tool_call", "toolCallId": "recover-tool", "title": "Open tool", "kind": "execute", "status": "in_progress"})
+                    send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "cancelled"}})
+                    sys.exit(0)
+                assert Path("restored-session").read_text() == SESSION
+                assert text == last == "Continue"
+                update({"sessionUpdate": "tool_call", "toolCallId": "foreground", "title": "Run foreground command", "kind": "execute", "status": "in_progress"})
+                subprocess.run(["/bin/sh", "-c", "sleep 0.3"], check=True)
+                update({"sessionUpdate": "tool_call_update", "toolCallId": "foreground", "status": "completed"})
+                chunk("agent_message_chunk", "CONTINUED AFTER EXIT")
             if case in ("exited", "resume") and count == 1:
                 update({"sessionUpdate": "tool_call", "toolCallId": "recover-tool", "title": "Open tool", "kind": "execute", "status": "in_progress"})
                 print("fake agent exited while a tool was open", file=sys.stderr, flush=True)
