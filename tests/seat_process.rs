@@ -372,7 +372,6 @@ fn terminal_close_cannot_end_an_acp_turn_or_its_recovery() {
     let mut seat = ReportingSeat::attach(temp, pty.master, child);
     seat.until(|out| contains(out, b"session "));
     seat.write(b"start the foreground command\n");
-    seat.until(|out| contains(out, b"Open tool"));
     let wait_log =
         |seat: &ReportingSeat,
          predicate: &dyn Fn(&[bboxy450_harness::protocol::Envelope]) -> bool| {
@@ -403,6 +402,17 @@ fn terminal_close_cannot_end_an_acp_turn_or_its_recovery() {
             })
             .count()
     };
+    wait_log(&seat, &|log| {
+        log.iter().any(|e| {
+            matches!(
+                &e.event,
+                Event::ItemStarted {
+                    head: Some(bboxy450_harness::protocol::ItemHead::ToolCall { call_id, .. }),
+                    ..
+                } if call_id == "recover-tool"
+            )
+        })
+    });
     seat.write(b"\x04");
     wait_log(&seat, &|log| rejected(log) == 1);
     std::fs::write(seat.temp.path().join("cancel-foreground"), "").unwrap();
