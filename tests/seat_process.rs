@@ -151,7 +151,9 @@ impl ReportingSeat {
             assert!(Instant::now() < deadline, "seat did not close after Ctrl-D");
             std::thread::sleep(Duration::from_millis(5));
         }
-        self.log()
+        let log = self.log();
+        bboxy450_harness::protocol::laws::check_transcript(&log).unwrap();
+        log
     }
     fn log(&self) -> Vec<bboxy450_harness::protocol::Envelope> {
         let path = std::fs::read_dir(self.temp.path().join("sessions"))
@@ -159,14 +161,12 @@ impl ReportingSeat {
             .map(|e| e.unwrap().path())
             .find(|p| p.extension().is_some_and(|e| e == "jsonl"))
             .unwrap();
-        let log: Vec<_> = std::fs::read_to_string(path)
+        std::fs::read_to_string(path)
             .unwrap()
             .split_inclusive('\n')
             .take_while(|line| line.ends_with('\n'))
             .map(|line| serde_json::from_str(line).unwrap())
-            .collect();
-        bboxy450_harness::protocol::laws::check_transcript(&log).unwrap();
-        log
+            .collect()
     }
 }
 impl Drop for ReportingSeat {

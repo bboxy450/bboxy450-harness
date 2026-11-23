@@ -1860,7 +1860,11 @@ impl AcpAgentActor {
             .as_ref()
             .map(|a| a.stderr.lock().map(|s| s.clone()).unwrap_or_default())
             .unwrap_or_default();
-        let exit = if stdout_eof && let Some(mut agent) = self.agent.take() {
+        let did_exit = self
+            .agent
+            .as_ref()
+            .is_some_and(|a| a.child.exited().unwrap_or(false));
+        let exit = if (stdout_eof || did_exit) && let Some(mut agent) = self.agent.take() {
             self.wire = None;
             let last_tool = self
                 .store

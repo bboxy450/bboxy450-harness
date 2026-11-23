@@ -152,10 +152,10 @@ async fn handle(op: Admitted, store: &mut Store, hub: &Hub) -> std::io::Result<b
             false,
         ),
     };
-    let e = if event.is_durable() {
+    let e = if closing {
         store.append_close_outcome(event, id, op.face).await?
     } else {
-        store.ephemeral(event)
+        store.append(event, Some(id)).await?
     };
     hub.publish(e);
     Ok(closing)
