@@ -1187,14 +1187,29 @@ async fn acp_binary_uses_only_jsonrpc_on_real_stdio() {
 #[tokio::test]
 #[cfg(feature = "test-fixtures")]
 async fn eof_cancels_a_pending_profile_factory_without_waiting_for_its_key_command() {
-    let temp = tempfile::tempdir().unwrap();
+    let temp = tempfile::Builder::new()
+        .prefix("acp key command ")
+        .tempdir()
+        .unwrap();
     let profiles = temp.path().join(".bboxy450-harness/profiles");
     std::fs::create_dir_all(&profiles).unwrap();
     let marker = temp.path().join("key-command-started");
-    std::fs::write(profiles.join("slow.md"),format!("---\nname: slow\nmodel: mock\nendpoint: https://example.invalid/v1\napi_key: '!{} key_pipe_escape {}'\n---\n",env!("CARGO_BIN_EXE_mcp-fixture"),marker.display())).unwrap();
+    std::fs::write(
+        profiles.join("slow.md"),
+        r#"---
+name: slow
+model: mock
+endpoint: https://example.invalid/v1
+api_key: '!exec "$ACP_TEST_KEY_FIXTURE" key_pipe_escape "$HOME/key-command-started"'
+---
+"#,
+    )
+    .unwrap();
     let mut child = tokio::process::Command::new(env!("CARGO_BIN_EXE_bboxy450-harness"))
         .args(["acp", "--profile", "slow"])
+        .current_dir(temp.path())
         .env("HOME", temp.path())
+        .env("ACP_TEST_KEY_FIXTURE", env!("CARGO_BIN_EXE_mcp-fixture"))
         .env_remove("BBOXY_CAPABILITY")
         .env_remove("BBOXY_CAPABILITY_FILE")
         .stdin(std::process::Stdio::piped())

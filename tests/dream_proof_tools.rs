@@ -7,20 +7,24 @@
 //! Exercise the single recipe owner's offline byte/custody regressions.
 //! This gate does not certify a real pair or provide runtime admission.
 #[test]
-fn private_builder_source_and_publication_controls() {
+fn dream_proof_tools_preserve_private_source_and_publication_controls() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let target = root.join("target");
-    std::fs::create_dir_all(&target).unwrap();
+    let temp = tempfile::Builder::new()
+        .prefix("dream proof tools ")
+        .tempdir()
+        .unwrap();
+    let target = temp.path();
     let result = std::process::Command::new("/usr/bin/env")
         .args(["python3", "-I"])
         .arg(root.join("scripts/dream-proof-tools.py"))
         .arg("unit")
         .arg("--target")
-        .arg(&target)
+        .arg(target)
+        .current_dir(target)
         .env_clear()
         .env("PATH", "/opt/homebrew/bin:/usr/bin:/bin")
-        .env("HOME", &target)
-        .env("TMPDIR", &target)
+        .env("HOME", target)
+        .env("TMPDIR", target)
         .output()
         .unwrap();
     assert!(

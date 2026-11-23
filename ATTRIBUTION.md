@@ -12,6 +12,9 @@ License: https://github.com/bboxy450/bboxy450-harness/blob/main/LICENSE
 Chart interpreter selection and artifact-pin display are project-owned contributions.
 Their source headers carry this policy and origin with extracts.
 
+The space-bearing checkout regressions for Dream compiler logs, ACP key commands,
+and Make's landing recipe are project-owned under the policy above.
+
 ## Terms
 
 Project-owned contributions are under the Respectful Slop License 1.0-Draft

@@ -215,6 +215,21 @@ def self_test():
     assert not unmatched, f"Makefile serializes lib families land does not: {unmatched}"
     assert all(any(c in f for c in canonical) for f in mirrored), (canonical, mirrored)
 
+    # Run the real recipe with a recorder in place of the landing driver.
+    with tempfile.TemporaryDirectory(prefix="harness make paths ") as private:
+        checkout = Path(private).resolve()
+        (checkout / "scripts").mkdir()
+        shutil.copyfile(ROOT / "Makefile", checkout / "Makefile")
+        (checkout / "scripts/land.py").write_text(
+            'import json, os\nprint(json.dumps(os.environ["TARGET_DIR"]))\n'
+        )
+        target = "target with spaces"
+        env = dict(os.environ, MAKEFLAGS="", MFLAGS="")
+        for override in (target, str(checkout / target)):
+            command = ["make", "--no-print-directory", "land", f"TARGET_DIR={override}"]
+            output = subprocess.check_output(command, cwd=checkout, env=env, text=True)
+            assert json.loads(output) == str(checkout / target), output
+
 
 def gate(base):
     self_test()

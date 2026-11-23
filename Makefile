@@ -6,16 +6,19 @@
 # Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
 .PHONY: help test test-ir lock-ir test-formal test-formal-native test-formal-parity check-formal-evidence check-embedded-build smoke-live bench-budgets test-licenses test-secrets
 TARGET_DIR ?= target
+# Make's abspath treats a path with spaces as a list of paths.
+target_dir_arg = '$(subst ','"'"',$(TARGET_DIR))'
+absolute_target_dir = $$(case $(target_dir_arg) in (/*) printf '%s' $(target_dir_arg);; (*) printf '%s/%s' "$$PWD" $(target_dir_arg);; esac)
 
 .PHONY: fetch-dream-proof-tools build-dream-proof-tools test-dream-proof-tools
 fetch-dream-proof-tools:
-	python3 -I scripts/dream-proof-tools.py fetch --target '$(abspath $(TARGET_DIR))'
+	python3 -I scripts/dream-proof-tools.py fetch --target "$(absolute_target_dir)"
 
 build-dream-proof-tools:
-	python3 -I scripts/dream-proof-tools.py build --target '$(abspath $(TARGET_DIR))'
+	python3 -I scripts/dream-proof-tools.py build --target "$(absolute_target_dir)"
 
 test-dream-proof-tools:
-	python3 -I scripts/dream-proof-tools.py check --target '$(abspath $(TARGET_DIR))'
+	python3 -I scripts/dream-proof-tools.py check --target "$(absolute_target_dir)"
 
 test:
 	python3 -I scripts/test.py
@@ -63,17 +66,17 @@ check-embedded-build:
 	cargo check --offline --locked --jobs 2 --target-dir '$(TARGET_DIR)' --features acp,standalone --lib --bin bboxy450-harness
 
 test-formal-native:
-	FORMAL_OUT='$(abspath $(TARGET_DIR))/formal/models' cargo test --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --test formal_models --test formal_nonvacuity --test reactor_projection
-	python3 -I scripts/formal.py --native --target '$(abspath $(TARGET_DIR))/formal'
+	FORMAL_OUT="$(absolute_target_dir)/formal/models" cargo test --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --test formal_models --test formal_nonvacuity --test reactor_projection
+	python3 -I scripts/formal.py --native --target "$(absolute_target_dir)/formal"
 
 test-formal: test-formal-native
 
 test-formal-parity: test-formal-native
 	python3 -I scripts/test-formal.py
-	python3 -I scripts/formal.py --target '$(abspath $(TARGET_DIR))/formal'
+	python3 -I scripts/formal.py --target "$(absolute_target_dir)/formal"
 
 check-formal-evidence:
-	python3 -I scripts/formal.py --target '$(abspath $(TARGET_DIR))/formal' --verify-evidence
+	python3 -I scripts/formal.py --target "$(absolute_target_dir)/formal" --verify-evidence
 
 smoke-live:
 	python3 -I scripts/smoke-live.py
@@ -240,18 +243,18 @@ verify-ir-defaults:
 
 .PHONY: verify-gui-polish
 verify-gui-polish:
-	TARGET_DIR='$(abspath $(TARGET_DIR))' python3 -I scripts/verify-gui-polish.py
+	TARGET_DIR="$(absolute_target_dir)" python3 -I scripts/verify-gui-polish.py
 
 .PHONY: verify-profiles-pending
 verify-profiles-pending:
 	cargo test --offline --locked --jobs 2 --target-dir '$(TARGET_DIR)' --features embedded --lib gui_polish_pending -- --nocapture
-	PROFILES_PENDING_CAPTURE_DIR='$(abspath $(TARGET_DIR))/profiles-pending/captures' cargo test --offline --locked --jobs 2 --target-dir '$(TARGET_DIR)' --features embedded --test gui_render profiles_pending -- --nocapture
+	PROFILES_PENDING_CAPTURE_DIR="$(absolute_target_dir)/profiles-pending/captures" cargo test --offline --locked --jobs 2 --target-dir '$(TARGET_DIR)' --features embedded --test gui_render profiles_pending -- --nocapture
 	$(MAKE) check-embedded-lints
 	cargo check --offline --locked --jobs 2 --target-dir '$(TARGET_DIR)' --lib
 
 .PHONY: verify-acp-controls
 verify-acp-controls:
-	TARGET_DIR='$(abspath $(TARGET_DIR))' python3 -I scripts/test-acp-controls.py
+	TARGET_DIR="$(absolute_target_dir)" python3 -I scripts/test-acp-controls.py
 
 .PHONY: test-acp-steering test-acp-steering-formal
 test-rich-scroll:
@@ -259,32 +262,32 @@ test-rich-scroll:
 	cargo test --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --features embedded --test gui_scroll
 
 test-rich-scroll-formal:
-	SCROLL_FORMAL_OUT='$(abspath $(TARGET_DIR))/scroll/formal' cargo test --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --test formal_models scroll_native
-	TARGET_DIR='$(abspath $(TARGET_DIR))' python3 -I scripts/check-scroll-models.py
+	SCROLL_FORMAL_OUT="$(absolute_target_dir)/scroll/formal" cargo test --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --test formal_models scroll_native
+	TARGET_DIR="$(absolute_target_dir)" python3 -I scripts/check-scroll-models.py
 
 .PHONY: test-rich-scroll test-rich-scroll-formal
 test-acp-steering:
 	cargo test --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --features acp-agent --test acp_agent steering_ -- --test-threads=2
 
 test-acp-steering-formal:
-	ACP_STEERING_FORMAL_OUT='$(abspath $(TARGET_DIR))/acp-steering/formal' cargo test --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --test formal_models acp_steering_native
-	TARGET_DIR='$(abspath $(TARGET_DIR))' python3 -I scripts/check-acp-steering-models.py
+	ACP_STEERING_FORMAL_OUT="$(absolute_target_dir)/acp-steering/formal" cargo test --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --test formal_models acp_steering_native
+	TARGET_DIR="$(absolute_target_dir)" python3 -I scripts/check-acp-steering-models.py
 
 .PHONY: verify-harness-card-bounds
 verify-harness-card-bounds:
-	TARGET_DIR='$(abspath $(TARGET_DIR))' python3 -I scripts/verify-harness-card-bounds.py
+	TARGET_DIR="$(absolute_target_dir)" python3 -I scripts/verify-harness-card-bounds.py
 
 .PHONY: verify-quiet-code-cards
 verify-quiet-code-cards:
-	TARGET_DIR='$(abspath $(TARGET_DIR))' python3 -I scripts/verify-quiet-code-cards.py
+	TARGET_DIR="$(absolute_target_dir)" python3 -I scripts/verify-quiet-code-cards.py
 
 .PHONY: verify-harness-attachments
 verify-harness-attachments:
-	TARGET_DIR='$(abspath $(TARGET_DIR))' python3 -I scripts/verify-harness-attachments.py
+	TARGET_DIR="$(absolute_target_dir)" python3 -I scripts/verify-harness-attachments.py
 
 .PHONY: verify-harness-onboarding
 verify-harness-onboarding:
-	TARGET_DIR='$(abspath $(TARGET_DIR))' python3 -I scripts/verify-harness-onboarding.py
+	TARGET_DIR="$(absolute_target_dir)" python3 -I scripts/verify-harness-onboarding.py
 
 .PHONY: verify-onboarding-routing
 verify-onboarding-routing:
@@ -292,7 +295,7 @@ verify-onboarding-routing:
 
 .PHONY: verify-clean-start
 verify-clean-start:
-	TARGET_DIR='$(abspath $(TARGET_DIR))' python3 -I scripts/verify-clean-start.py
+	TARGET_DIR="$(absolute_target_dir)" python3 -I scripts/verify-clean-start.py
 
 .PHONY: prepare-dream-c1-worker test-dream-c1 test-dream-c1-integration
 prepare-dream-c1-worker:
@@ -307,7 +310,7 @@ prepare-dream-c1-worker:
 	python3 -I -c 'import hashlib,pathlib,shutil,sys; p=pathlib.Path(sys.argv[1]); h=hashlib.sha256(p.read_bytes()).hexdigest(); d=p.with_name("worker-"+h); shutil.copy2(p,d); print("approved bootstrap artifact",d,h)' '$(TARGET_DIR)/dream-c1-native-profile/worker'
 
 test-dream-c1-integration: prepare-dream-c1-worker
-	DREAM_C1_RUNNER='$(abspath $(TARGET_DIR))/dream-c1-native-profile/worker' cargo test --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --features test-fixtures --test dream_c1 $(DREAM_C1_TEST_FILTER) -- --test-threads=1 --nocapture
+	DREAM_C1_RUNNER="$(absolute_target_dir)/dream-c1-native-profile/worker" cargo test --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --features test-fixtures --test dream_c1 $(DREAM_C1_TEST_FILTER) -- --test-threads=1 --nocapture
 
 # Tests that start the approved worker are #[ignore]d everywhere else; run them here, by name.
 DREAM_C1_RUNNER_TESTS := bootstrap_process::bootstrap_foreign_closed_writable_and_bad_environment_descriptors_refuse bootstrap_process::bootstrap_lease_eof_after_qualifying_hello_does_not_revoke_matching_start bootstrap_process::bootstrap_malformed_partial_extra_duplicate_and_revoked_permits_refuse_actual_processes bootstrap_process::bootstrap_missing_environment_refuses_approved_ordinary_worker_before_source_or_owner bootstrap_process::bootstrap_parent_unknown_clock_or_stale_binding_closes_actual_birth_without_grant_or_retry bootstrap_process::bootstrap_probe_and_original_nonce_fences_refuse_hostile_start_before_source cancel_after_retained_state_growth_reaps_with_paced_teardown child_declared_storage_overflow_precedes_serde_and_controls_still_settle empty_closed_and_raw_crlf_origins_are_exact foreground_pause_stale_activity_cancel_eof_and_deadline_settle four_ordinary_release_workers_complete_multi_mib_with_independent_control_and_reap hello_precedes_all_source_access_and_private_bootstrap immutable_results_are_never_clobbered large_input_records_heap_rss_and_resource_rejection multiple_pages_preserve_exact_counts_and_order partial_frame_eof_wrong_nonce_and_oversize_settle_as_protocol_failure real_store_multi_mib_ir_and_typed_blob_bundle source_growth_is_source_changed
@@ -316,8 +319,8 @@ test-dream-c1: prepare-dream-c1-worker
 	cargo test --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --lib dream::bootstrap:: -- --test-threads=1
 	cargo test --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --lib dream::c1:: -- --test-threads=1
 	cargo test --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --lib dream::fingerprint:: -- --test-threads=1
-	DREAM_C1_RUNNER='$(abspath $(TARGET_DIR))/dream-c1-native-profile/worker' cargo test --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --test dream_c1 --test dream_replay --test seat_process --test acp_launch_context -- --test-threads=1 --nocapture
-	DREAM_C1_RUNNER='$(abspath $(TARGET_DIR))/dream-c1-native-profile/worker' cargo test --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --test dream_c1 -- --test-threads=1 --nocapture --ignored --exact $(DREAM_C1_RUNNER_TESTS)
+	DREAM_C1_RUNNER="$(absolute_target_dir)/dream-c1-native-profile/worker" cargo test --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --test dream_c1 --test dream_replay --test seat_process --test acp_launch_context -- --test-threads=1 --nocapture
+	DREAM_C1_RUNNER="$(absolute_target_dir)/dream-c1-native-profile/worker" cargo test --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --test dream_c1 -- --test-threads=1 --nocapture --ignored --exact $(DREAM_C1_RUNNER_TESTS)
 	cargo test --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --features test-fixtures --test dream_c1 bootstrap_earliest_gate_bypass_control -- --test-threads=1 --nocapture
 	cargo test --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --features test-fixtures --test seat_process dream_c1_retained -- --test-threads=1 --nocapture
 	cargo test --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --features test-fixtures --lib frontends::headless::dream_c1_fixture_environment_tests:: -- --test-threads=1
@@ -337,28 +340,28 @@ test-python-execute-boundaries: test-python-execute
 
 .PHONY: land
 land:
-	@set -eu; if [ -f ../../scripts/cache-env.sh ]; then . ../../scripts/cache-env.sh; fi; TARGET_DIR='$(abspath $(TARGET_DIR))' python3 -I scripts/land.py
+	@set -eu; if [ -f ../../scripts/cache-env.sh ]; then . ../../scripts/cache-env.sh; fi; TARGET_DIR="$(absolute_target_dir)" python3 -I scripts/land.py
 .PHONY: prepare-dream-read-c-probe test-dream-read-c-preparation test-dream-read-closure-codec
 DREAM_READ_C_SOURCE_COMMIT ?= HEAD
 prepare-dream-read-c-probe:
-	python3 -I tests/fixtures/dream-read/prepare-c-probe.py --target-dir '$(abspath $(TARGET_DIR))' --source-commit '$(DREAM_READ_C_SOURCE_COMMIT)'
+	python3 -I tests/fixtures/dream-read/prepare-c-probe.py --target-dir "$(absolute_target_dir)" --source-commit '$(DREAM_READ_C_SOURCE_COMMIT)'
 test-dream-read-c-preparation:
-	python3 -I tests/fixtures/dream-read/check-c-preparation.py --target-dir '$(abspath $(TARGET_DIR))'
+	python3 -I tests/fixtures/dream-read/check-c-preparation.py --target-dir "$(absolute_target_dir)"
 test-dream-read-closure-codec:
 	mkdir -p '$(TARGET_DIR)/dream-read-closure-codec'
 	/usr/bin/clang -O2 -std=c11 -Wall -Wextra -Werror tests/fixtures/dream-read/closure-codec-controls.c -o '$(TARGET_DIR)/dream-read-closure-codec/controls'
-	python3 -I tests/fixtures/dream-read/check-closure-vectors.py --binary '$(abspath $(TARGET_DIR))/dream-read-closure-codec/controls'
+	python3 -I tests/fixtures/dream-read/check-closure-vectors.py --binary "$(absolute_target_dir)/dream-read-closure-codec/controls"
 .PHONY: test-dream-read-private-controls test-dream-read-private-c-controls test-dream-read-failed-stop-formal
 test-dream-read-private-c-controls:
-	python3 -I tests/fixtures/dream-read/check-private-engine-controls.py --target-dir '$(abspath $(TARGET_DIR))'
+	python3 -I tests/fixtures/dream-read/check-private-engine-controls.py --target-dir "$(absolute_target_dir)"
 test-dream-read-private-controls: test-dream-read-private-c-controls
 	cargo test --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --test dream_read private_candidate_outer_codec_refuses_noncanonical_and_overflow_before_birth -- --exact --test-threads=1 --nocapture
 test-dream-read-failed-stop-formal:
-	DREAM_FAILED_STOP_FORMAL_OUT='$(abspath $(TARGET_DIR))/dream-read-failed-stop-formal/models' cargo test --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --test formal_models failed_stop_terminal_tests -- --test-threads=1 --nocapture
-	python3 -I tests/fixtures/dream-read/check-terminal-models.py --target '$(abspath $(TARGET_DIR))/dream-read-failed-stop-formal'
+	DREAM_FAILED_STOP_FORMAL_OUT="$(absolute_target_dir)/dream-read-failed-stop-formal/models" cargo test --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --test formal_models failed_stop_terminal_tests -- --test-threads=1 --nocapture
+	python3 -I tests/fixtures/dream-read/check-terminal-models.py --target "$(absolute_target_dir)/dream-read-failed-stop-formal"
 .PHONY: test-dream-mcp test-dream-exec-shim
 test-dream-exec-shim:
-	python3 -I tests/fixtures/dream-read/check-exec-shim.py --target-dir '$(abspath $(TARGET_DIR))'
+	python3 -I tests/fixtures/dream-read/check-exec-shim.py --target-dir "$(absolute_target_dir)"
 DREAM_READ_SOURCES := tests/fixtures/dream-read/check-exec-shim.py tests/fixtures/dream-read/exec-shim-controls.c tests/fixtures/dream-read/exec-shim-tool.c tests/fixtures/dream-read/dream-exec-shim.c tests/fixtures/dream-read/dream-exec-shim.h Makefile src/gateway/mod.rs src/gateway/unix.rs src/engine/mod.rs tests/fixtures/dream-read/closure-codec-controls.c tests/fixtures/dream-read/check-closure-vectors.py tests/fixtures/dream-read/prepare-c-probe.py tests/fixtures/dream-proof-tools/closure-boundary.schema.json tests/fixtures/dream-proof-tools/closure-boundary-vectors.json src/main.rs src/frontends/headless.rs src/dream/mod.rs src/dream/read.rs src/dream/read_wire.rs src/dream/c1_wire.rs src/dream/fingerprint.rs src/dream/entry.rs src/dream/worker.rs src/dream/c1.rs src/dream/bootstrap.rs src/dream/resolve.rs src/dream/trust.rs src/dream/audit.rs src/dream/graph.rs src/dream/recall.rs src/dream/receipt.rs src/dream/projection.rs src/dream/seal.rs tests/fixtures/dream-bootstrap/vectors.json tests/fixtures/dream-read/proof-helper-probe.c tests/fixtures/dream-read/signature-boundary-controls.c tests/fixtures/dream-read/private-input-controls.c tests/fixtures/dream-read/private-engine-controls.c tests/fixtures/dream-read/check-private-engine-controls.py tests/fixtures/dream-read/io-helper.c tests/fixtures/dream-read/root_fixture.rs tests/dream_read.rs Cargo.toml Cargo.lock
 test-dream-mcp: test-dream-read-closure-codec test-dream-read-private-controls test-dream-exec-shim
 	python3 -I tests/fixtures/dream-bootstrap/check.py
@@ -376,4 +379,4 @@ test-dream-mcp: test-dream-read-closure-codec test-dream-read-private-controls t
 	cargo test --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --lib prepared_qualification_tests -- --test-threads=1
 	cargo test --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --lib selected_helper_process_tests -- --test-threads=1
 	cargo test --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --lib dream::read::helper_tests -- --test-threads=1
-	DREAM_READ_RUNNER='$(abspath $(TARGET_DIR))/dream-read-native-profile/worker' cargo test --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --test dream_read --test dream_audit_broken --test dream_trust --test dream_seal --test dream_sinks --test dream_recall -- --test-threads=1 --nocapture
+	DREAM_READ_RUNNER="$(absolute_target_dir)/dream-read-native-profile/worker" cargo test --offline --locked --release --jobs 2 --target-dir '$(TARGET_DIR)' --test dream_read --test dream_audit_broken --test dream_trust --test dream_seal --test dream_sinks --test dream_recall -- --test-threads=1 --nocapture

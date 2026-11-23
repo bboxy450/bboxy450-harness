@@ -2422,9 +2422,11 @@ def q2_current_platform():
 
 def q2_dependency_paths(text, target):
     text = text.replace("\\\n", " ")
-    require(text.startswith(target + ":") and "\\" not in text
+    require(text.startswith(target + ":") and not re.search(r"\\(?![ \t])", text)
             and all(c not in text for c in ("\r", "\x00")), "Q2 unsupported dependency path syntax")
-    paths = text[len(target) + 1:].split()
+    # Clang -M backslash-escapes whitespace inside paths in its Make rules.
+    tokens = re.findall(r"(?:\\[ \t]|[^\s\\])+", text[len(target) + 1:])
+    paths = [re.sub(r"\\([ \t])", r"\1", token) for token in tokens]
     require(len(paths) == len(set(paths)) and len(paths) <= 4096, "Q2 dependency closure bound/duplicates")
     return set(paths)
 
@@ -3601,6 +3603,10 @@ def _synthetic_q2_reseal_receipt(selection, receipt):
     return selection
 
 
+def _synthetic_q2_dep_token(path):
+    return str(path).replace(" ", "\\ ").replace("\t", "\\\t")
+
+
 def synthetic_q2_input(root):
     """Return one explicit, inert internal-test selection dictionary.
 
@@ -3614,8 +3620,6 @@ def synthetic_q2_input(root):
         root.mkdir(mode=0o700)
     if stat.S_IMODE(root.stat().st_mode) != 0o700:
         raise AssertionError("synthetic root must be0700")
-    if any(character in str(root) for character in " \t\r\n\\"):
-        raise AssertionError("synthetic dependency fixture uses unescaped private paths")
     root_pin = dir_pin(root)
     snapshot = root / "signed-inputs-synthetic-not-signed"
     preparation_snapshot = root / "preparation-inputs-synthetic-not-signed"
@@ -3703,9 +3707,7 @@ def synthetic_q2_input(root):
     }
 
     build_argv = [str(compiler_path), *flags, str(compiled_source), "-o", str(original_output)]
-    # Exactly one quoted linker executable, followed by an unquoted archive
-    # token. This tests the actual shlex-based closure parser without running it.
-    build_stderr = '"' + str(linker_path) + '" -o ' + str(original_output) + " " + str(runtime_path) + "\n"
+    build_stderr = f'"{linker_path}" ' + shlex.join(["-o", str(original_output), str(runtime_path)]) + "\n"
     build = {
         "argv": build_argv, "cwd": str(root), "exit_code": 0,
         "input": _synthetic_q2_pin(root_pin, compiled_source),
@@ -3714,7 +3716,7 @@ def synthetic_q2_input(root):
         "stdout": "", "stdout_sha256": sha(b""),
     }
     dep_flags = [flag for flag in flags if flag != "-v"]
-    dep_stdout = "probe: " + " ".join((str(compiled_source), str(settings_path), str(header_path))) + "\n"
+    dep_stdout = "probe: " + " ".join(map(_synthetic_q2_dep_token, (compiled_source, settings_path, header_path))) + "\n"
     dependency_discovery = {
         "argv": [str(compiler_path), *dep_flags, "-M", "-MT", "probe", str(compiled_source)],
         "exit_code": 0, "stdout": dep_stdout,
@@ -3833,8 +3835,12 @@ def synthetic_q2_shim_input(selection):
              "cwd": str(root), "exit_code": 0}
     deps = {"argv": [compiler["path"], *(flag for flag in base_flags if flag != "-v"), "-M", "-MT", "dream-exec-shim", str(source_path)],
             "exit_code": 0}
-    dependency_wire = ("dream-exec-shim: " + " ".join([str(source_path), *receipt["header_inputs"]]) + "\n").encode()
-    stderr_wire = ('"' + receipt["linker"]["path"] + '" -o ' + str(executable_path) + " " + selection["build_closure"][0]["path"] + "\n").encode()
+    dependency_wire = (
+        "dream-exec-shim: " + " ".join(map(_synthetic_q2_dep_token, (source_path, *receipt["header_inputs"]))) + "\n"
+    ).encode()
+    stderr_wire = (
+        f'"{receipt["linker"]["path"]}" ' + shlex.join(["-o", str(executable_path), selection["build_closure"][0]["path"]]) + "\n"
+    ).encode()
     logs = []
     for result, stream, name, wire in ((build, "stdout", "shim-build.stdout.log", b""),
                                         (build, "stderr", "shim-build.stderr.log", stderr_wire),
@@ -3865,7 +3871,7 @@ class Q2InputAdapterIngestionTests(unittest.TestCase):
         self.selection_before = copy.deepcopy(api["ROOT_Q2_INPUT"])
         parent = Path(globals().get("TEST_TARGET", ROOT / "target/dream-proof-tools/q2-input-adapter"))
         self.assertTrue(parent.is_dir(), "parent must supply an existing private test destination")
-        self.temporary = tempfile.TemporaryDirectory(prefix="ingestion-only-", dir=parent)
+        self.temporary = tempfile.TemporaryDirectory(prefix="ingestion only ", dir=parent)
         self.addCleanup(self.temporary.cleanup)
         self.test_root = Path(self.temporary.name).resolve()
         self.fixture_number = 0
@@ -3896,6 +3902,16 @@ class Q2InputAdapterIngestionTests(unittest.TestCase):
 
     def ingest(self, selection):
         return ingest_q2_input(selection, current_platform=dict(SYNTHETIC_Q2_PLATFORM))
+
+    def test_q2_dependency_tokens_keep_escaped_whitespace_and_reject_unknown_escapes(self):
+        self.assertEqual(
+            q2_dependency_paths("probe: /first\\ path \\\n /second\\\tpath\n", "probe"),
+            {"/first path", "/second\tpath"},
+        )
+        with self.assertRaisesRegex(Refused, "unsupported dependency path syntax"):
+            q2_dependency_paths(r"probe: /literal\q", "probe")
+        with self.assertRaisesRegex(Refused, "bound/duplicates"):
+            q2_dependency_paths(r"probe: /same\ path /same\ path", "probe")
 
     def test_q2_input_inert_selection_ingests_without_launch_or_writes(self):
         selection = self.fixture("positive")
@@ -4047,6 +4063,8 @@ class Q2InputAdapterIngestionTests(unittest.TestCase):
             with self.subTest(change=change):
                 selection = self.fixture("inner-" + change)
                 receipt = _synthetic_q2_receipt(selection)
+                expected_error = None
+                log = None
                 if change == "compiler_target":
                     receipt["compiler"]["reported_target"] = "x86_64-apple-darwin27.0.0"
                 elif change == "sdk_settings_path":
@@ -4055,18 +4073,21 @@ class Q2InputAdapterIngestionTests(unittest.TestCase):
                     next(iter(receipt["header_inputs"].values()))["snapshot"] = receipt["build"]["argv"][-3]
                 elif change == "missing_dependency":
                     header = next(iter(receipt["header_inputs"]))
-                    receipt["dependency_discovery"]["stdout"] = receipt["dependency_discovery"]["stdout"].replace(" " + header, "")
-                    receipt["dependency_discovery"]["stdout_sha256"] = sha(receipt["dependency_discovery"]["stdout"].encode())
+                    log, stream = receipt["dependency_discovery"], "stdout"
+                    log[stream] = log[stream].replace(" " + _synthetic_q2_dep_token(header), "")
+                    expected_error = "incomplete dependency/header closure"
                 elif change == "unbound_header_alias":
                     header = next(iter(receipt["header_inputs"]))
                     alias = Path(header).with_name("inert-alias.h")
                     alias.symlink_to(header)
-                    receipt["dependency_discovery"]["stdout"] = receipt["dependency_discovery"]["stdout"].replace(header, str(alias))
-                    receipt["dependency_discovery"]["stdout_sha256"] = sha(receipt["dependency_discovery"]["stdout"].encode())
+                    log, stream = receipt["dependency_discovery"], "stdout"
+                    log[stream] = log[stream].replace(_synthetic_q2_dep_token(header), _synthetic_q2_dep_token(alias))
+                    expected_error = "incomplete dependency/header closure"
                 elif change == "missing_link_input":
                     path = selection["build_closure"][0]["path"]
-                    receipt["build"]["stderr"] = receipt["build"]["stderr"].replace(" " + path, "")
-                    receipt["build"]["stderr_sha256"] = sha(receipt["build"]["stderr"].encode())
+                    log, stream = receipt["build"], "stderr"
+                    log[stream] = log[stream].replace(" " + shlex.quote(path), "")
+                    expected_error = "incomplete selected archive/LTO build closure"
                 elif change == "source_claim":
                     receipt["provisioning_source"]["compiled_product_currentness_proven"] = True
                 elif change == "runtime_claim":
@@ -4075,8 +4096,19 @@ class Q2InputAdapterIngestionTests(unittest.TestCase):
                     receipt["source_commit"] = "2" * 40
                 else:
                     receipt["signer_fingerprint"] = "B" * 40
+                if log is not None:
+                    wire = log[stream].encode()
+                    log[stream + "_sha256"] = sha(wire)
+                    log_path = log["retained_" + stream]["path"]
+                    _synthetic_q2_overwrite(log_path, wire)
+                    pin = _synthetic_q2_pin(selection["root"], log_path)
+                    log["retained_" + stream] = pin
+                    receipt["retained_outputs"] = [
+                        {"kind": "file", **pin} if row["path"] == log_path else row
+                        for row in receipt["retained_outputs"]
+                    ]
                 _synthetic_q2_reseal_receipt(selection, receipt)
-                with self.offline_only(), self.assertRaises(Refused):
+                with self.offline_only(), self.assertRaisesRegex(Refused, expected_error or "."):
                     self.ingest(selection)
 
     def test_q2_input_macho_must_match_even_when_file_and_receipt_resealed(self):
