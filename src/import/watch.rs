@@ -72,10 +72,24 @@ pub(crate) async fn load(
             loop {
                 tokio::select! {biased;
                     Some(op) = recv_any(&mut control, &mut work) => {
-                        if matches!(op.env.op, Op::Close) && let Some(p) = projector.as_mut() {
-                            // the native turn may still run; our copy of it ends here
-                            for event in p.finish(StopReason::Interrupted) {
-                                publish(&mut store, &g.hub, event).await?;
+                        if matches!(op.env.op, Op::Close) {
+                            g.seal();
+                            control.close();
+                            while let Some(other) = control.recv().await {
+                                if matches!(other.env.op, Op::Close) {
+                                    let event = Event::OpRejected {
+                                        op: other.env.op_id,
+                                        reason: Rejection::Coalesced { into: op.env.op_id },
+                                    };
+                                    let e = store.append_close_outcome(event, other.env.op_id, other.face).await?;
+                                    g.hub.publish(e);
+                                }
+                            }
+                            if let Some(p) = projector.as_mut() {
+                                // The native turn may still run; our copy ends here.
+                                for event in p.finish(StopReason::Interrupted) {
+                                    publish(&mut store, &g.hub, event).await?;
+                                }
                             }
                         }
                         if handle(op, &mut store, &g.hub).await? {
@@ -139,7 +153,7 @@ async fn handle(op: Admitted, store: &mut Store, hub: &Hub) -> std::io::Result<b
         ),
     };
     let e = if event.is_durable() {
-        store.append(event, Some(id)).await?
+        store.append_close_outcome(event, id, op.face).await?
     } else {
         store.ephemeral(event)
     };

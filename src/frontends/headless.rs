@@ -646,6 +646,7 @@ async fn run_cli(
     // Set when a seat lost its terminal: the session stays open for a resume.
     let mut detached = false;
     let mut pending_interrupt = None;
+    let mut terminal_close = None;
     let mut countdown = tokio::time::interval(std::time::Duration::from_secs(1));
     countdown.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     'events: loop {
@@ -653,12 +654,12 @@ async fn run_cli(
         tokio::select! {biased;
          // A seat that loses its terminal (signal, hangup, supervisor restart) leaves
          // its session open so the next launch resumes it; only a deliberate end closes.
-         _=stop.cancelled(),if !stopping=>{if seat{detached=true;break 'events;}let _=gateway.send(op(session,Op::Close));stopping=true;},
+         _=stop.cancelled(),if seat||!stopping=>{if seat{detached=true;break 'events;}let _=gateway.for_face("headless.shutdown").send(op(session,Op::Close));stopping=true;},
          _=tokio::signal::ctrl_c()=>{input_filter.interrupt();if running||pending_interrupt.is_some(){let _=gateway.send(op(session,Op::Interrupt{turn:pending_interrupt.map(|(turn, _)| turn)}));}},
          _=tokio::time::sleep_until(heartbeat.unwrap_or_else(tokio::time::Instant::now)),if report_state&&heartbeat.is_some()=>{
           if let Some(bytes)=state.heartbeat()
               && (stdout.write_all(&bytes).await.is_err()||stdout.flush().await.is_err())
-          {stop_cli(&stop);if seat{detached=true;}else{let _=gateway.send(op(session,Op::Close));}break 'events;}
+          {stop_cli(&stop);if seat{detached=true;}else{let _=gateway.for_face("headless.stdout").send(op(session,Op::Close));}break 'events;}
          },
          _=countdown.tick(),if report_state&&pending_interrupt.is_some()=>{
           if let Some((_, deadline)) = pending_interrupt
@@ -701,7 +702,14 @@ async fn run_cli(
             }
          },
          read=input.read(&mut input_bytes),if seat&&!stopping=>{
-           if read.is_err(){stop_cli(&stop);}
+           if read.is_err() || (matches!(read, Ok(0)) && stdin_was_tty && stdin_hung_up()) {
+               stop_cli(&stop); detached=true; break 'events;
+           }
+           let origin = match read {
+               Ok(0) if stdin_was_tty => "seat.tty_eof",
+               Ok(0) => "seat.stdin_eof",
+               _ => "seat.ctrl_d",
+           };
            let actions = match read {
                Ok(n) if n > 0 => input_filter.feed(&input_bytes[..n], report_state),
                _ => input_filter.finish(),
@@ -711,21 +719,23 @@ async fn run_cli(
                 super::seat::InputAction::Line(text) => text,
                 super::seat::InputAction::Probe => {
                     if report_state && (stdout.write_all(&state.report()).await.is_err()||stdout.flush().await.is_err()) {
-                        stop_cli(&stop);if seat{detached=true;}else{let _=gateway.send(op(session,Op::Close));}break 'events;
+                        stop_cli(&stop);detached=true;break 'events;
                     }
                     continue;
                 }
                 super::seat::InputAction::Echo(bytes) => {
                     if stdout.write_all(&bytes).await.is_err()||stdout.flush().await.is_err() {
-                        stop_cli(&stop);if seat{detached=true;}else{let _=gateway.send(op(session,Op::Close));}break 'events;
+                        stop_cli(&stop);detached=true;break 'events;
                     }
                     continue;
                 }
                 super::seat::InputAction::Eof => {
-                    #[cfg(feature = "test-fixtures")]
-                    { fixture_next_session = None; }
-                    if stdin_was_tty && stdin_hung_up(){stop_cli(&stop);if seat{detached=true;break 'events;}}
-                    let _=gateway.send(op(session,Op::Close));stopping=true;
+                    let close = op(session, Op::Close);
+                    let id = close.op_id;
+                    if gateway.for_face(origin).send(close).is_ok() {
+                        terminal_close = Some(id);
+                        stopping = true;
+                    }
                     break;
                 }
             };
@@ -749,7 +759,7 @@ async fn run_cli(
                     if let Some(request)=request&&gateway.send(op(session,request)).is_err(){reply="refused\n".into();}
                     reply
                 };
-                if stdout.write_all(reply.as_bytes()).await.is_err()||stdout.flush().await.is_err(){stop_cli(&stop);if seat{detached=true;}else{let _=gateway.send(op(session,Op::Close));}break 'events;}
+                if stdout.write_all(reply.as_bytes()).await.is_err()||stdout.flush().await.is_err(){stop_cli(&stop);detached=true;break 'events;}
             }else if !text.is_empty(){let _=gateway.send(op(session,Op::UserTurn{blocks:vec![InputBlock::Text{text}],mode:TurnMode::Queue}));}}
          },
          event=subscription.recv()=>{
@@ -764,16 +774,20 @@ async fn run_cli(
                       pending_interrupt=Some((*turn, *deadline_ms));
                   }
                   failed|=matches!(reason,StopReason::Error{..});
-                  if !seat&&!stopping{let _=gateway.send(op(session,Op::Close));stopping=true;}
+                  if !seat&&!stopping{let _=gateway.for_face("headless.turn_ended").send(op(session,Op::Close));stopping=true;}
+              }
+              Event::OpRejected { op, .. } if terminal_close == Some(*op) => {
+                  terminal_close = None;
+                  stopping = false;
               }
               Event::InterruptDismissed {turn} if pending_interrupt.is_some_and(|(failed, _)| failed == *turn) => pending_interrupt=None,
               _=>{}
           }
           let bytes=if json {event.wire_bytes().map_err(|_|"event serialization failed")?}else{line_projection.render(&event)};
-          if stdout.write_all(&bytes).await.is_err()||stdout.flush().await.is_err(){stop_cli(&stop);if seat{detached=true;}else{let _=gateway.send(op(session,Op::Close));}break 'events;}
+          if stdout.write_all(&bytes).await.is_err()||stdout.flush().await.is_err(){stop_cli(&stop);if seat{detached=true;}else{let _=gateway.for_face("headless.stdout").send(op(session,Op::Close));}break 'events;}
           if report_state && let Some(bytes) = state.apply(&event.event)
               && (stdout.write_all(&bytes).await.is_err()||stdout.flush().await.is_err())
-          {stop_cli(&stop);if seat{detached=true;}else{let _=gateway.send(op(session,Op::Close));}break 'events;}
+          {stop_cli(&stop);if seat{detached=true;}else{let _=gateway.for_face("headless.stdout").send(op(session,Op::Close));}break 'events;}
           if matches!(event.event,Event::SessionClosed){
            #[cfg(feature = "test-fixtures")]
            if !stopping && !stop.is_cancelled() && let Some(next_session) = fixture_next_session.take() {

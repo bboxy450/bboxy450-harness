@@ -259,10 +259,10 @@ while True:
                 continue
         if SCENARIO == "question":
             assert m["params"]["clientCapabilities"]["elicitation"]["form"] == {}
-        send({"jsonrpc": "2.0", "id": rid, "result": {"protocolVersion": 1, "agentCapabilities": {"loadSession": SCENARIO == "retry-cancelled-exit"}, "authMethods": [],
+        send({"jsonrpc": "2.0", "id": rid, "result": {"protocolVersion": 1, "agentCapabilities": {"loadSession": SCENARIO in ("retry-cancelled-exit", "retry-terminal-close")}, "authMethods": [],
               "agentInfo": {"name": "claude" if SCENARIO in ("steering-claude", "unrestricted-claude") else "codex" if SCENARIO.startswith("steering-") else "fixture-agent", "version": "1.2.3"},
               "_meta": {"steering": {"supported": SCENARIO.startswith("steering-")}}}})
-    elif method == "session/load" and SCENARIO == "retry-cancelled-exit":
+    elif method == "session/load" and SCENARIO in ("retry-cancelled-exit", "retry-terminal-close"):
         assert m["params"]["sessionId"] == SESSION
         assert Path(m["params"]["cwd"]).resolve() == Path.cwd()
         assert isinstance(m["params"]["mcpServers"], list)
@@ -271,7 +271,7 @@ while True:
         chunk("agent_message_chunk", "REPLAY OF EARLIER TEXT")
         send({"jsonrpc": "2.0", "id": rid, "result": {}})
     elif method == "session/new":
-        if SCENARIO == "retry-cancelled-exit":
+        if SCENARIO in ("retry-cancelled-exit", "retry-terminal-close"):
             assert not Path("retry-prompts").exists(), "recovery replaced the ACP session"
         if SCENARIO == "steering-slow":
             # Negotiation takes a while: input sent meanwhile must reach this turn.
@@ -310,10 +310,21 @@ while True:
                 visits.write(last + "\n")
             count = len(Path("retry-prompts").read_text().splitlines())
             case = SCENARIO.removeprefix("retry-")
-            if case == "cancelled-exit":
+            if case in ("cancelled-exit", "terminal-close"):
                 assert m["params"]["sessionId"] == SESSION
                 if count == 1:
+                    command = subprocess.Popen(["/bin/sleep", "30"]) if case == "terminal-close" else None
                     update({"sessionUpdate": "tool_call", "toolCallId": "recover-tool", "title": "Open tool", "kind": "execute", "status": "in_progress"})
+                    if command is not None:
+                        deadline = time.monotonic() + 10
+                        try:
+                            while not Path("cancel-foreground").exists():
+                                if time.monotonic() >= deadline:
+                                    raise TimeoutError("no foreground cancellation")
+                                time.sleep(0.005)
+                        finally:
+                            command.terminate()
+                            command.wait(timeout=2)
                     send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "cancelled"}})
                     sys.exit(0)
                 assert Path("restored-session").read_text() == SESSION

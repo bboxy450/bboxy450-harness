@@ -454,6 +454,22 @@ impl Store {
     pub async fn append(&mut self, event: Event, cause: Option<OpId>) -> io::Result<Envelope> {
         self.append_at(event, cause, now_ms()).await
     }
+    /// Record the host-selected source of a Close on its durable outcome.
+    pub(crate) async fn append_close_outcome(
+        &mut self,
+        event: Event,
+        op: OpId,
+        origin: &'static str,
+    ) -> io::Result<Envelope> {
+        self.append_projected_at(
+            event,
+            Some(op),
+            now_ms(),
+            None,
+            [("origin".into(), serde_json::json!(origin))].into(),
+        )
+        .await
+    }
     /// Append with the time the event happened (an imported native record keeps its own clock).
     pub async fn append_at(
         &mut self,

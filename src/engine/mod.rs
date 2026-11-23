@@ -132,7 +132,7 @@ pub struct SessionActor {
     approvals: BTreeMap<ItemId, Pending>,
     resolved: BTreeMap<ItemId, Answerer>,
     interrupted: BTreeMap<TurnId, OpId>,
-    stopping: Option<OpId>,
+    stopping: Option<(OpId, &'static str)>,
     internal: mpsc::Receiver<Internal>,
     output: mpsc::Sender<Internal>,
     tasks: JoinSet<(TurnId, u64)>,
@@ -464,26 +464,30 @@ impl SessionActor {
                 .sanitize(&self.store.ephemeral(event))
                 .map_err(std::io::Error::other)?
         };
-        if matches!(e.event, Event::SessionClosed) {
-            self.gateway.hub.publish(e.clone());
-            #[cfg(feature = "test-fixtures")]
-            eprintln!(
-                "session_close stage=durable_published session={} seq={:?}",
-                e.session, e.seq
+        self.gateway.hub.publish(e);
+        Ok(())
+    }
+    async fn close(&mut self, op: OpId, origin: &'static str) -> std::io::Result<()> {
+        let e = self
+            .store
+            .append_close_outcome(Event::SessionClosed, op, origin)
+            .await?;
+        self.gateway.hub.publish(e.clone());
+        #[cfg(feature = "test-fixtures")]
+        eprintln!(
+            "session_close stage=durable_published session={} seq={:?}",
+            e.session, e.seq
+        );
+        // A confined trial may not start unobserved post-close Git/cache or
+        // advice jobs outside its pinned roots. Ordinary closes keep both.
+        if !self.tools.is_trial() {
+            crate::dream::session_closed(
+                self.dream_owner,
+                &self.config.sessions,
+                &e,
+                self.config.redactor.clone(),
+                self.gateway.hub.clone(),
             );
-            // A confined trial may not start unobserved post-close Git/cache or
-            // advice jobs outside its pinned roots. Ordinary closes keep both.
-            if !self.tools.is_trial() {
-                crate::dream::session_closed(
-                    self.dream_owner,
-                    &self.config.sessions,
-                    &e,
-                    self.config.redactor.clone(),
-                    self.gateway.hub.clone(),
-                );
-            }
-        } else {
-            self.gateway.hub.publish(e);
         }
         Ok(())
     }
@@ -507,13 +511,13 @@ impl SessionActor {
         let result=async {
    loop {
     if self.running.is_none()&&self.profile_pending.is_none() {
-     if let Some(op)=self.stopping {
+     if let Some((op,origin))=self.stopping {
        self.gateway.seal();self.work.close();self.control.close();
        let _=self.services.cancel_and_join().await;
        while let Some(env)=self.control.recv().await {self.op(env).await?;}
        while let Some(env)=self.work.recv().await {self.reject(env.env.op_id,Rejection::InvalidInput{detail:"session is closing".into()}).await?;}
        while let Some(work)=self.queue.pop_front(){match work {Queued::Turn(turn,_,_)=>self.publish(Event::TurnEnded{turn,reason:StopReason::Cancelled,usage:None},Some(op)).await?,Queued::Compact(id)=>self.reject(id,Rejection::NothingToCompact).await?}}
-       self.publish(Event::SessionClosed,Some(op)).await?;break;
+       self.close(op,origin).await?;break;
      }
      if let Some(work)=self.queue.pop_front(){match work{Queued::Turn(turn,blocks,cause)=>self.start(turn,blocks,cause,TurnOrigin::User).await?,Queued::Compact(id)=>{self.compact(id).await?;continue;}}}
     }
@@ -827,10 +831,15 @@ impl SessionActor {
                 }
             }
             Op::Close => {
-                if let Some(into) = self.stopping {
-                    self.reject(id, Rejection::Coalesced { into }).await?;
+                if let Some((into, _)) = self.stopping {
+                    let event = Event::OpRejected {
+                        op: id,
+                        reason: Rejection::Coalesced { into },
+                    };
+                    let e = self.store.append_close_outcome(event, id, face).await?;
+                    self.gateway.hub.publish(e);
                 } else {
-                    self.stopping = Some(id);
+                    self.stopping = Some((id, face));
                     self.services.cancel.cancel();
                     if let Some(op) = self.profile_pending.take() {
                         self.reject(
@@ -1445,7 +1454,7 @@ impl SessionActor {
     }
 }
 pub async fn stop(gateway: &InProc) {
-    let _ = gateway.send(OpEnvelope {
+    let _ = gateway.for_face("engine.stop").send(OpEnvelope {
         v: PROTOCOL,
         session: gateway.hello().meta.session,
         op_id: OpId::new(),

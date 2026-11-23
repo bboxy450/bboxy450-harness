@@ -7048,6 +7048,7 @@ fn interrupt_recovery(control: u8) -> Model {
             1 => "InterruptDuplicate",
             2 => "InterruptNoRearm",
             3 => "InterruptNoReload",
+            4 => "InterruptTerminalClose",
             _ => "InterruptRecovery",
         },
         control != 0,
@@ -7085,6 +7086,13 @@ fn interrupt_recovery(control: u8) -> Model {
         "Interrupt",
         all([eq(phase, running), Var(generation).lt(Int(8))]),
         &new_interrupt,
+    );
+    let close = [(phase, Int(stranded))];
+    act(
+        &mut m,
+        "TerminalCloseWhileBusy",
+        eq(phase, running).or(pend.clone()).or(resume.clone()),
+        if control == 4 { &close } else { &[] },
     );
     let tick = m.actions.len();
     act(
@@ -7224,6 +7232,7 @@ pub fn corpus() -> Vec<(Model, &'static str)> {
         (interrupt_recovery(1), "safety"),
         (interrupt_recovery(2), "liveness"),
         (interrupt_recovery(3), "liveness"),
+        (interrupt_recovery(4), "liveness"),
         (dream_c1::bootstrap_entry(0), "pass"),
         (dream_c1::bootstrap_entry(1), "safety"),
         (dream_c1::bootstrap_entry(2), "safety"),

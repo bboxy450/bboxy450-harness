@@ -239,7 +239,8 @@ async fn connection(
             tokio::select! {biased;
               _=cancel.cancelled()=>return Ok(()),
               f=&mut next=>{let Some(f)=f?else{return Ok(());};let op:OpEnvelope=serde_json::from_slice(&f)?;let op_id=op.op_id;
-                let response=match gateway.send(op){Ok(ack)=>serde_json::json!({"ack":ack,"op_id":op_id}),Err(refused)=>serde_json::json!({"refused":refused,"op_id":op_id})};
+                let result=if matches!(op.op,Op::Close){gateway.for_face("unix").send(op)}else{gateway.send(op)};
+                let response=match result{Ok(ack)=>serde_json::json!({"ack":ack,"op_id":op_id}),Err(refused)=>serde_json::json!({"refused":refused,"op_id":op_id})};
                 tokio::select!{_=cancel.cancelled()=>return Ok(()),r=write(&mut writer,&response)=>r?}break;
               },
               e=subscription.recv()=>{let Some(e)=e else{return Ok(());};let done=matches!(e.event,Event::Lagged{..}|Event::Reset{..}|Event::SessionClosed);

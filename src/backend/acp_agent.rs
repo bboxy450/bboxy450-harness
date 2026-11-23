@@ -179,6 +179,7 @@ enum Call {
 }
 struct Agent {
     child: OwnedChild,
+    started_at: Seq,
     /// whole lines, written in order by the writer task
     out: mpsc::UnboundedSender<String>,
     session: Option<String>,
@@ -490,6 +491,16 @@ impl AcpAgentActor {
                 .sanitize(&self.store.ephemeral(event))
                 .map_err(std::io::Error::other)?
         };
+        self.gateway.hub.publish(e);
+        Ok(())
+    }
+    async fn close_outcome(
+        &mut self,
+        event: Event,
+        id: OpId,
+        origin: &'static str,
+    ) -> std::io::Result<()> {
+        let e = self.store.append_close_outcome(event, id, origin).await?;
         if matches!(e.event, Event::SessionClosed) {
             self.gateway.hub.publish(e.clone());
             crate::dream::session_closed(
@@ -817,7 +828,23 @@ impl AcpAgentActor {
             }
             Op::Compact => self.reject(id, Rejection::NothingToCompact).await?,
             Op::Close => {
-                self.close(id).await?;
+                // Terminal EOF closes an idle prompt. During a turn or an
+                // armed recovery it must not race the agent's cancellation.
+                if matches!(face, "seat.ctrl_d" | "seat.tty_eof")
+                    && (self.running.is_some() || self.recovery.deadline().is_some())
+                {
+                    self.close_outcome(
+                        Event::OpRejected {
+                            op: id,
+                            reason: Rejection::NotIdle,
+                        },
+                        id,
+                        face,
+                    )
+                    .await?;
+                    return Ok(false);
+                }
+                self.close(id, face).await?;
                 return Ok(true);
             }
             Op::StartSession { .. } | Op::Unknown(_) => {
@@ -1000,8 +1027,18 @@ impl AcpAgentActor {
         }
         self.publish_controls(Some(op)).await
     }
-    async fn close(&mut self, id: OpId) -> std::io::Result<()> {
+    async fn close(&mut self, id: OpId, origin: &'static str) -> std::io::Result<()> {
         self.gateway.seal();
+        self.control.close();
+        while let Some(op) = self.control.recv().await {
+            if matches!(op.env.op, Op::Close) {
+                let event = Event::OpRejected {
+                    op: op.env.op_id,
+                    reason: Rejection::Coalesced { into: id },
+                };
+                self.close_outcome(event, op.env.op_id, op.face).await?;
+            }
+        }
         if self.running.is_some() {
             self.send_cancel();
             self.end_turn(StopReason::Cancelled, ItemStatus::Cancelled)
@@ -1028,7 +1065,7 @@ impl AcpAgentActor {
             .await?;
         }
         self.kill();
-        self.publish(Event::SessionClosed, Some(id)).await
+        self.close_outcome(Event::SessionClosed, id, origin).await
     }
 
     // ---------- turns ----------
@@ -1755,6 +1792,7 @@ impl AcpAgentActor {
         }
         let mut agent = Agent {
             child,
+            started_at: self.store.head(),
             out,
             session: None,
             backend: Backend {
@@ -1802,11 +1840,18 @@ impl AcpAgentActor {
         self.wire = None;
     }
     async fn agent_gone(&mut self, why: String) -> std::io::Result<()> {
+        self.lose_agent(why, false).await
+    }
+
+    async fn lose_agent(&mut self, why: String, stdout_eof: bool) -> std::io::Result<()> {
         self.expire_steering(None).await?;
         // stdout can close before stderr is drained: give the agent's last words a moment
-        if let Some(done) = self.agent.as_ref().map(|a| a.stderr_done.clone()) {
+        if let Some(agent) = &self.agent {
             let until = Instant::now() + Duration::from_millis(500);
-            while !done.load(std::sync::atomic::Ordering::Acquire) && Instant::now() < until {
+            while Instant::now() < until
+                && (!agent.stderr_done.load(std::sync::atomic::Ordering::Acquire)
+                    || (stdout_eof && !agent.child.exited().unwrap_or(false)))
+            {
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
         }
@@ -1815,14 +1860,59 @@ impl AcpAgentActor {
             .as_ref()
             .map(|a| a.stderr.lock().map(|s| s.clone()).unwrap_or_default())
             .unwrap_or_default();
-        self.kill();
+        let exit = if stdout_eof && let Some(mut agent) = self.agent.take() {
+            self.wire = None;
+            let last_tool = self
+                .store
+                .events
+                .iter()
+                .rev()
+                .take_while(|e| e.at > agent.started_at)
+                .find_map(|e| match &e.event {
+                    Event::ItemStarted {
+                        head: Some(ItemHead::ToolCall { name, call_id, .. }),
+                        ..
+                    } => Some(json!({
+                        "name": name.chars().take(120).collect::<String>(),
+                        "call_id": call_id.chars().take(120).collect::<String>(),
+                    })),
+                    _ => None,
+                });
+            let cause = match agent.child.wait().await {
+                Ok(status) => format!("{why} ({status})"),
+                Err(_) => format!("{why} (status unavailable)"),
+            };
+            Some((cause, last_tool))
+        } else {
+            self.kill();
+            None
+        };
         self.publish_controls(None).await?;
         let tail = self.config.redactor.scrub(tail.trim());
+        let cause = exit.as_ref().map_or(why.as_str(), |(cause, _)| cause);
         let message = if tail.is_empty() {
-            why
+            cause.to_owned()
         } else {
-            format!("{why}; stderr: {tail}")
+            format!("{cause}; stderr: {tail}")
         };
+        if let Some((cause, last_tool)) = &exit {
+            let item = ItemId::new();
+            let turn = self.running.as_ref().map(|r| r.turn);
+            let notice = Item::Notice {
+                level: Level::Warn,
+                text: message.clone(),
+            };
+            self.start_item(turn, item, &notice, None).await?;
+            self.projected_ext.insert(
+                "agent_exit".into(),
+                json!({
+                    "session": self.store.session,
+                    "cause": cause,
+                    "last_tool": last_tool,
+                }),
+            );
+            self.complete(item, ItemStatus::Completed, notice).await?;
+        }
         if self.running.is_some() {
             let (cause, class) = classify(None, None, None, &message, ErrorClass::MidStream);
             self.fail(cause, class, message).await
@@ -1830,7 +1920,10 @@ impl AcpAgentActor {
             if self.reload_session.is_none() {
                 self.handoff = handoff(&self.store.events);
             }
-            self.notice(Level::Warn, message).await
+            if exit.is_none() {
+                self.notice(Level::Warn, message).await?;
+            }
+            Ok(())
         }
     }
 
@@ -1845,7 +1938,7 @@ impl AcpAgentActor {
                 {
                     self.reload_session = Some(session.clone());
                 }
-                self.agent_gone("ACP agent exited".into()).await
+                self.lose_agent("ACP agent exited".into(), true).await
             }
             Wire::Bad(why) => self.agent_gone(format!("ACP agent sent {why}")).await,
             Wire::Message(m) => {

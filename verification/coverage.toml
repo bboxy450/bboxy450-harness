@@ -12,6 +12,7 @@ models = [
     "BrokenHarnessInterruptDuplicate",
     "BrokenHarnessInterruptNoRearm",
     "BrokenHarnessInterruptNoReload",
+    "BrokenHarnessInterruptTerminalClose",
     "HarnessDreamReadObserveOrTerminal",
     "BrokenHarnessDreamReadObserveOrTerminalBypassSite",
     "BrokenHarnessDreamReadVerifierEventsIgnoreChildExit",

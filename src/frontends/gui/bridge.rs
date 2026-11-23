@@ -199,6 +199,9 @@ impl ViewGateway {
             return Err(Refused::UnknownSession);
         }
         match self {
+            Self::InProc(g) if matches!(op.op, Op::Close) => {
+                g.for_face("gui").send(op).map(Submission::Admitted)
+            }
             Self::InProc(g) => g.send(op).map(Submission::Admitted),
             Self::Unix(g) => {
                 // Bound in-flight work without making Stop/approval wait for it.

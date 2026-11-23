@@ -94,6 +94,13 @@ struct ReportingSeat {
 impl ReportingSeat {
     fn spawn(script: &str, yolo: bool, json: bool) -> Self {
         let (temp, master, child) = launch_options(script, yolo, json);
+        Self::attach(temp, master, child)
+    }
+    fn attach(
+        temp: tempfile::TempDir,
+        master: Box<dyn portable_pty::MasterPty + Send>,
+        child: Box<dyn portable_pty::Child + Send + Sync>,
+    ) -> Self {
         let writer = master.take_writer().unwrap();
         let mut reader = master.try_clone_reader().unwrap();
         let (send, receive) = std::sync::mpsc::channel();
@@ -144,6 +151,9 @@ impl ReportingSeat {
             assert!(Instant::now() < deadline, "seat did not close after Ctrl-D");
             std::thread::sleep(Duration::from_millis(5));
         }
+        self.log()
+    }
+    fn log(&self) -> Vec<bboxy450_harness::protocol::Envelope> {
         let path = std::fs::read_dir(self.temp.path().join("sessions"))
             .unwrap()
             .map(|e| e.unwrap().path())
@@ -151,7 +161,8 @@ impl ReportingSeat {
             .unwrap();
         let log: Vec<_> = std::fs::read_to_string(path)
             .unwrap()
-            .lines()
+            .split_inclusive('\n')
+            .take_while(|line| line.ends_with('\n'))
             .map(|line| serde_json::from_str(line).unwrap())
             .collect();
         bboxy450_harness::protocol::laws::check_transcript(&log).unwrap();
@@ -322,6 +333,124 @@ fn piped_seat_never_emits_state_reports() {
     );
     assert_eq!(report_count(&output.stdout), 0);
 }
+#[cfg(all(feature = "acp-agent", debug_assertions))]
+#[test]
+fn terminal_close_cannot_end_an_acp_turn_or_its_recovery() {
+    use bboxy450_harness::protocol::{Event, Interrupt, Rejection, StopReason, TurnOrigin};
+
+    let temp = tempfile::tempdir_in("/tmp").unwrap();
+    let root = temp.path();
+    let profiles = root.join(".bboxy450-harness/profiles");
+    std::fs::create_dir_all(&profiles).unwrap();
+    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/acp-agent/fake_agent.py");
+    let agent = serde_json::json!(["/usr/bin/python3", "-I", fixture, "retry-terminal-close"]);
+    std::fs::write(
+        profiles.join("codex.md"),
+        format!("---\nname: Codex fixture\nprovider: acp-agent\nagent:\n  command: {agent}\n---\n"),
+    )
+    .unwrap();
+    let pty = native_pty_system()
+        .openpty(PtySize {
+            rows: 24,
+            cols: 100,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .unwrap();
+    let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_bboxy450-harness"));
+    command.env_clear();
+    command.env("HOME", root);
+    command.env("PATH", "/usr/bin:/bin");
+    command.env("BBOXY450_INTERRUPT_MINUTE_MS", "1000");
+    command.args(["seat", "--profile", "codex", "--cwd"]);
+    command.arg(root);
+    command.arg("--sessions");
+    command.arg(root.join("sessions"));
+    let child = pty.slave.spawn_command(command).unwrap();
+    drop(pty.slave);
+    let mut seat = ReportingSeat::attach(temp, pty.master, child);
+    seat.until(|out| contains(out, b"session "));
+    seat.write(b"start the foreground command\n");
+    seat.until(|out| contains(out, b"Open tool"));
+    let wait_log =
+        |seat: &ReportingSeat,
+         predicate: &dyn Fn(&[bboxy450_harness::protocol::Envelope]) -> bool| {
+            let deadline = Instant::now() + Duration::from_secs(8);
+            loop {
+                let log = seat.log();
+                assert!(
+                    !log.iter().any(|e| matches!(e.event, Event::SessionClosed)),
+                    "terminal Close cut the ACP session"
+                );
+                if predicate(&log) {
+                    return;
+                }
+                assert!(Instant::now() < deadline, "missing ACP journal witness");
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        };
+    let rejected = |log: &[bboxy450_harness::protocol::Envelope]| {
+        log.iter()
+            .filter(|e| {
+                matches!(
+                    e.event,
+                    Event::OpRejected {
+                        reason: Rejection::NotIdle,
+                        ..
+                    }
+                ) && e.ext.get("origin").and_then(serde_json::Value::as_str) == Some("seat.ctrl_d")
+            })
+            .count()
+    };
+    seat.write(b"\x04");
+    wait_log(&seat, &|log| rejected(log) == 1);
+    std::fs::write(seat.temp.path().join("cancel-foreground"), "").unwrap();
+    wait_log(&seat, &|log| {
+        log.iter().any(|e| {
+            matches!(
+                &e.event, Event::TurnEnded {
+                    reason: StopReason::Error { interrupt: Some(Interrupt { cause, .. }), .. }, ..
+                } if cause == "agent.cancelled"
+            )
+        })
+    });
+    seat.write(b"\x04");
+    wait_log(&seat, &|log| rejected(log) == 2);
+    wait_log(&seat, &|log| {
+        log.last().is_some_and(|e| {
+            matches!(
+                e.event,
+                Event::TurnEnded {
+                    reason: StopReason::EndTurn,
+                    ..
+                }
+            )
+        })
+    });
+    let prompts = std::fs::read_to_string(seat.temp.path().join("retry-prompts")).unwrap();
+    assert_eq!(prompts, "start the foreground command\nContinue\n");
+    let log = seat.close();
+    assert_eq!(
+        log.iter()
+            .filter(|e| matches!(
+                e.event,
+                Event::TurnStarted {
+                    origin: Some(TurnOrigin::Automatic),
+                    ..
+                }
+            ))
+            .count(),
+        1
+    );
+    assert!(matches!(log.last().unwrap().event, Event::SessionClosed));
+    assert_eq!(log.last().unwrap().ext["origin"], "seat.ctrl_d");
+    let exits: Vec<_> = log.iter().filter_map(|e| e.ext.get("agent_exit")).collect();
+    assert_eq!(exits.len(), 1);
+    assert_eq!(exits[0]["cause"], "ACP agent exited (exit status: 0)");
+    assert_eq!(exits[0]["last_tool"]["call_id"], "recover-tool");
+}
+
 #[test]
 fn hangup_stops_without_an_operator() {
     let (_temp, master, mut child) = launch("bash");

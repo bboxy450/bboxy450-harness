@@ -500,7 +500,6 @@ impl InProc {
                 .await;
         }
     }
-    #[cfg(feature = "acp")]
     pub(crate) fn for_face(&self, face: &'static str) -> Self {
         let mut gateway = self.clone();
         gateway.face = face;

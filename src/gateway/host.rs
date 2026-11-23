@@ -249,7 +249,7 @@ impl Host {
                 },
             })
             .await?;
-        let _ = from.send(OpEnvelope {
+        let _ = from.for_face("host.profile_switch").send(OpEnvelope {
             v: PROTOCOL,
             session: hello.meta.session,
             op_id: OpId::new(),
@@ -419,7 +419,7 @@ impl Host {
             .collect::<Vec<_>>();
         for entry in entries {
             if let Some(loaded) = &entry.lock().await.loaded {
-                let _ = loaded.gateway.send(OpEnvelope {
+                let _ = loaded.gateway.for_face("host.shutdown").send(OpEnvelope {
                     v: PROTOCOL,
                     session: loaded.gateway.session(),
                     op_id: OpId::new(),
