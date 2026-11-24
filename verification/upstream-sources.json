@@ -5,7 +5,7 @@
     {
       "source": "scripts/formal.py",
       "snapshot": "verification/upstream/scripts-formal.py",
-      "sha256": "251b984c7dd7dd91424630099ab56a955062baf90caa92b244f9727913ed11d0"
+      "sha256": "7c8f4cf7e1ab2c7ee1a1bdf95cb943454046b9ff43f6223a046404935aef59b4"
     },
     {
       "source": "scripts/test-formal.py",
