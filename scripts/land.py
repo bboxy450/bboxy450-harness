@@ -33,11 +33,13 @@ def git(*args):
 
 
 def run(args, *, cwd=ROOT, env=None, required=True):
-    print("land:", " ".join(map(str, args)), flush=True)
-    result = subprocess.run(list(map(str, args)), cwd=cwd, env=env)
-    ROWS.append({"argv": list(map(str, args)), "cwd": str(cwd), "exit": result.returncode})
+    argv = list(map(str, args))
+    command = " ".join(argv)
+    print("land:", command, flush=True)
+    result = subprocess.run(argv, cwd=cwd, env=env)
+    ROWS.append({"argv": argv, "cwd": str(cwd), "exit": result.returncode})
     if required and result.returncode:
-        raise RuntimeError(f"gate failed: {args[0]} exited {result.returncode}")
+        raise RuntimeError(f"gate failed: {command} exited {result.returncode}")
     return result.returncode
 
 
@@ -306,13 +308,9 @@ def gate(base):
         embedded = (enclosing / "scripts/formal.py").is_file()
         if embedded:
             env["BBOXY_TOOLKIT_ROOT"] = str(enclosing)
-        # Do not depend on unlanded app/workspace changes, or overwrite their
-        # aggregate evidence. Cargo uses the selected private target for formal artifacts.
-        # Formal and runtime gates share the explicitly configured build tree.
-        formal_target=TARGET
-        if run(["make", "check-formal-evidence", f"TARGET_DIR={formal_target}"], env=env, required=False):
-            run(["make", "test-formal-parity", "FORMAL_REUSE=1", f"TARGET_DIR={formal_target}"], env=env)
-        run(["make", "check-formal-evidence", f"TARGET_DIR={formal_target}"], env=env)
+        # Produce and validate evidence for this rebased HEAD before main can push.
+        run(["make", "test-formal-parity", f"TARGET_DIR={TARGET}"], env=env)
+        run(["make", "check-formal-evidence", f"TARGET_DIR={TARGET}"], env=env)
 
 
 def main():

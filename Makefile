@@ -37,6 +37,7 @@ help:
 	  'make test-formal                Native Yarn/formal checks and broken controls' \
 	  'make test-formal-parity         Native/Java TLC graph and verdict parity' \
 	  'make land                       Signed rebase, focused gates, source-bound evidence and main push' \
+	  'make test-land                  Private controls for formal landing failures' \
 	  'make test-python-execute         Real CPython, commands, current-context MCP and durable recovery' \
 	  'make test-python-signatures      Python MCP schema signature regressions; no Rust build' \
 	  'make fetch-dream-proof-tools    Authenticate seven fixed upstream source archives (HTTPS)' \
@@ -338,9 +339,11 @@ test-python-execute: test-python-signatures
 test-python-execute-boundaries: test-python-execute
 	@set -eu; if [ -f ../../scripts/cache-env.sh ]; then . ../../scripts/cache-env.sh; fi; cargo nextest run --offline --locked --jobs 2 -p bboxy450-harness --features acp-agent,test-fixtures --test mcp_client --test acp_launch_context --target-dir '$(TARGET_DIR)'
 
-.PHONY: land
+.PHONY: land test-land
 land:
 	@set -eu; if [ -f ../../scripts/cache-env.sh ]; then . ../../scripts/cache-env.sh; fi; TARGET_DIR="$(absolute_target_dir)" python3 -I scripts/land.py
+test-land:
+	python3 -I scripts/test-hardening.py TestStack.test_land_requires_formal_evidence
 .PHONY: prepare-dream-read-c-probe test-dream-read-c-preparation test-dream-read-closure-codec
 DREAM_READ_C_SOURCE_COMMIT ?= HEAD
 prepare-dream-read-c-probe:

@@ -13,7 +13,8 @@ Chart interpreter selection and artifact-pin display are project-owned contribut
 Their source headers carry this policy and origin with extracts.
 
 The space-bearing checkout regressions for Dream compiler logs, ACP key commands,
-and Make's landing recipe are project-owned under the policy above.
+and Make's landing recipe are project-owned under the policy above, as are the
+landing controls for stale formal sources and missing receipts.
 
 ## Terms
 

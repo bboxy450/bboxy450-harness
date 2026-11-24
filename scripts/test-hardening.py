@@ -6,6 +6,9 @@
 # Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
 """Black-box gates use throwaway git indexes and never print sentinel values."""
 import ast
+from contextlib import ExitStack
+import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -45,4 +48,102 @@ class TestStack(unittest.TestCase):
         native=['make','test-formal-native'];parity=['make','test-formal-parity']
         self.assertIn(native,commands);self.assertIn(parity,commands);self.assertLess(commands.index(native),commands.index(parity));self.assertIn(['python3','-I','scripts/test-hardening.py'],commands)
         control=['python3','-I','scripts/test-capability-control.py'];self.assertIn(control,commands);self.assertLess(commands.index(control),commands.index(native))
+
+    def test_land_requires_formal_evidence(self):
+        with tempfile.TemporaryDirectory(prefix="harness-land-control-", dir="/tmp") as private, ExitStack() as cleanup:
+            base = Path(private)
+            checkout, upstream, remote = (base / name for name in
+                                          ("harness checkout", "bboxy450-term", "origin"))
+            gnupg, bin_dir = base / "gnupg", base / "bin"
+            gnupg.mkdir(mode=0o700)
+            bin_dir.mkdir()
+            env = {name: value for name, value in os.environ.items()
+                   if not name.startswith(("GIT_", "BBOXY_"))
+                   and name not in {"MAKEFLAGS", "MFLAGS", "GNUMAKEFLAGS", "MAKELEVEL"}}
+            env.update(HOME=private, GNUPGHOME=str(gnupg), GIT_CONFIG_NOSYSTEM="1",
+                       GIT_CONFIG_GLOBAL=os.devnull, PATH=f"{bin_dir}:{env['PATH']}")
+
+            def run(*args, cwd=checkout):
+                return subprocess.check_output(args, cwd=cwd, env=env, text=True,
+                                               stderr=subprocess.STDOUT).strip()
+
+            for repo in (checkout, upstream):
+                run("git", "init", "-q", "-b", "main", str(repo), cwd=base)
+                run("git", "config", "user.name", "Harness land control", cwd=repo)
+                run("git", "config", "user.email", "land-control@example.invalid", cwd=repo)
+            cleanup.callback(run, "gpgconf", "--kill", "gpg-agent", cwd=base)
+            run("gpg", "--batch", "--pinentry-mode", "loopback", "--passphrase", "",
+                "--quick-generate-key", "land-control@example.invalid", "ed25519", "sign", "1d")
+            run("git", "config", "user.signingkey", "land-control@example.invalid")
+
+            pins = json.loads((ROOT / "verification/upstream-sources.json").read_text())
+            for pin in pins["pins"]:
+                snapshot = (ROOT / pin["snapshot"]).read_bytes()
+                for path, content in ((checkout / pin["snapshot"], snapshot),
+                                      (upstream / pin["source"], snapshot.split(b"\n", 6)[6])):
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_bytes(content)
+            run("git", "add", ".", cwd=upstream)
+            run("git", "commit", "-qm", "Pinned upstream", cwd=upstream)
+            upstream_formal = upstream / "scripts/formal.py"
+            matching_source = upstream_formal.read_bytes()
+            upstream_formal.write_bytes(matching_source + b"\n# stale control\n")
+            run("git", "commit", "-qam", "Change upstream formal source", cwd=upstream)
+
+            for name in ("Makefile", "scripts/land.py", "verification/upstream-sources.json",
+                         "tests/gui_rich.rs", "tests/gui_render.rs", "tests/gui_card_bounds.rs",
+                         "tests/mcp_client.rs"):
+                path = checkout / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(ROOT / name, path)
+            shutil.copyfile(ROOT / "scripts/formal.py", checkout / "scripts/real-formal.py")
+            # Formal source pin and evidence rejection are real. Builds and the
+            # parity producer are isolated so the missing-receipt case is deterministic.
+            (checkout / "scripts/formal.py").write_text(
+                'import os, runpy, sys\n'
+                'if "--verify-evidence" in sys.argv or os.getenv("STALE_FORMAL"):\n'
+                '    runpy.run_path("scripts/real-formal.py", run_name="__main__")\n'
+            )
+            for name in ("checks.py", "suite-licenses.py", "test-suite-licenses.py", "test-formal.py"):
+                (checkout / "scripts" / name).touch()
+            cargo = bin_dir / "cargo"
+            cargo.write_text("#!/bin/sh\nprintf 'running 1 test\\n'\n")
+            cargo.chmod(0o755)
+
+            run("git", "add", ".")
+            run("git", "commit", "-qm", "Harness fixture base")
+            run("git", "clone", "-q", "--bare", str(checkout), str(remote))
+            run("git", "remote", "add", "origin", str(remote))
+            initial = run("git", "rev-parse", "main", cwd=remote)
+            run("git", "commit", "-qS", "--allow-empty", "-m", "Signed landing candidate")
+
+            for stale, failed, cause in (
+                (True, "test-formal-parity", "upstream main SOURCE hash changed; re-copy scripts/formal.py"),
+                (False, "check-formal-evidence", "No such file or directory"),
+            ):
+                with self.subTest(stage=failed):
+                    if stale:
+                        env["STALE_FORMAL"] = "1"
+                    else:
+                        env.pop("STALE_FORMAL")
+                        upstream_formal.write_bytes(matching_source)
+                        run("git", "commit", "-qam", "Restore pinned upstream", cwd=upstream)
+                    target = base / failed
+                    result = subprocess.run(["make", "land", f"TARGET_DIR={target}"], cwd=checkout,
+                                            env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+                    self.assertEqual(result.returncode, 2, result.stdout)
+                    self.assertIn("formal: FAILED:", result.stdout)
+                    self.assertIn(cause, result.stdout)
+                    self.assertIn(f"land: gate failed: make {failed} ", result.stdout)
+                    receipt = json.loads((target / "harness-land-receipt.json").read_text())
+                    formal_stages = {"test-formal-parity", "check-formal-evidence"}
+                    stages = [row["argv"][1] for row in receipt["commands"]
+                              if row["argv"][0] == "make" and row["argv"][1] in formal_stages]
+                    expected = ["test-formal-parity"] if stale else ["test-formal-parity", failed]
+                    self.assertEqual(stages, expected)
+                    self.assertEqual(receipt["commands"][-1]["exit"], 2)
+                    self.assertNotIn("land: git push ", result.stdout)
+                    self.assertNotIn("landed", receipt)
+                    self.assertEqual(run("git", "rev-parse", "main", cwd=remote), initial)
+
 if __name__=='__main__':unittest.main()
