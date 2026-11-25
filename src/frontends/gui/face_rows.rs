@@ -31,7 +31,8 @@ pub(super) struct Folds {
     last: HashMap<ItemId, TurnId>,
     /// First visible item of a non-user turn carries its origin heading.
     origin_heads: HashMap<ItemId, &'static str>,
-    /// runaway loop: the repeated reply that opens the card -> everything folded after it
+    /// runaway loop: the repeated reply that opens the card -> what folds into it, through
+    /// the run's latest repeat
     loops: HashMap<ItemId, Vec<ItemId>>,
     /// turn -> replies folded into its loop (the receipt says so)
     folded: HashMap<TurnId, usize>,
@@ -101,6 +102,9 @@ fn python_cell(row: &ViewItem) -> Option<crate::frontends::face_core::PythonCell
         _ => None,
     }
 }
+/// A repeat matches one of this many previous replies of its turn; as many replies in a
+/// row without a repeat end the run.
+const LOOP_WINDOW: usize = 3;
 /// harness-spec.md "Runaway loop card": first line, lowercased, letters only, 48 chars.
 fn line_key(markdown: &str) -> String {
     let first = markdown.trim().lines().next().unwrap_or("").to_lowercase();
@@ -119,40 +123,67 @@ fn line_key(markdown: &str) -> String {
 impl Folds {
     pub fn of(model: &Transcript, faces: &super::super::rich::Faces) -> Self {
         let mut f = Self::default();
-        // A reply whose first line repeats an earlier reply of its turn opens a loop card;
-        // later replies, thoughts, tool calls and notices of that turn fold into it.
-        let mut said: HashMap<TurnId, std::collections::HashSet<String>> = HashMap::new();
-        let mut anchor: HashMap<TurnId, ItemId> = HashMap::new();
+        // Runaway loop card. A reply repeats when its first line matches one of the turn's
+        // previous `LOOP_WINDOW` replies. A run of repeats opens one card at its first
+        // repeat, and the card folds only through the run's latest repeat: what the agent
+        // does after that (its live work, a new answer) stays in the transcript.
+        #[derive(Default)]
+        struct Run {
+            recent: std::collections::VecDeque<String>,
+            anchor: Option<ItemId>,
+            /// items since the latest repeat: they fold only when the next repeat arrives
+            tail: Vec<ItemId>,
+            /// replies in `tail`
+            fresh: usize,
+        }
+        let mut runs: HashMap<TurnId, Run> = HashMap::new();
         for id in &model.order {
             let r = &model.items[id];
             let Some(t) = r.turn else { continue };
-            if let Some(a) = anchor.get(&t) {
-                if matches!(
+            let run = runs.entry(t).or_default();
+            let key = match &r.body {
+                Item::AgentMessage { markdown } if r.completed.is_some() => {
+                    Some(line_key(markdown))
+                }
+                _ => None,
+            };
+            let repeats = key
+                .as_ref()
+                .is_some_and(|k| !k.is_empty() && run.recent.contains(k));
+            if repeats {
+                let folded = match run.anchor.filter(|_| run.fresh < LOOP_WINDOW) {
+                    Some(a) => {
+                        let members = f.loops.entry(a).or_default();
+                        members.append(&mut run.tail);
+                        members.push(*id);
+                        run.fresh + 1
+                    }
+                    None => {
+                        run.anchor = Some(*id);
+                        run.tail.clear();
+                        f.loops.insert(*id, vec![]);
+                        1
+                    }
+                };
+                *f.folded.entry(t).or_default() += folded;
+                run.fresh = 0;
+            } else if run.anchor.is_some()
+                && matches!(
                     r.kind,
                     ItemKind::AgentMessage
                         | ItemKind::Reasoning
                         | ItemKind::ToolCall
                         | ItemKind::Notice
-                ) {
-                    f.loops.entry(*a).or_default().push(*id);
-                    if r.kind == ItemKind::AgentMessage {
-                        *f.folded.entry(t).or_default() += 1;
-                    }
-                }
-                continue;
-            }
-            if let Item::AgentMessage { markdown } = &r.body
-                && r.completed.is_some()
+                )
             {
-                let key = line_key(markdown);
-                let seen = said.entry(t).or_default();
-                if !key.is_empty() && seen.contains(&key) {
-                    anchor.insert(t, *id);
-                    f.loops.insert(*id, vec![]);
-                    f.folded.insert(t, 1);
-                } else {
-                    seen.insert(key);
+                run.tail.push(*id);
+                run.fresh += usize::from(key.is_some());
+            }
+            if let Some(key) = key {
+                if run.recent.len() == LOOP_WINDOW {
+                    run.recent.pop_front();
                 }
+                run.recent.push_back(key);
             }
         }
         for (a, members) in &f.loops {

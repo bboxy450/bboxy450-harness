@@ -1789,6 +1789,59 @@ fn card_x(layout: &bbt_ui::components::Layout, id: ItemId) -> f32 {
         .x
 }
 
+/// harness-spec.md "Runaway loop card": the card folds through the run's latest repeat and
+/// no further, so the agent's live work and a new answer stay in the transcript; a repeat
+/// only counts against the three replies before it.
+#[tokio::test]
+async fn loop_card_folds_through_the_latest_repeat_and_leaves_the_live_tail() {
+    use bboxy450_harness::frontends::gui::view::find;
+    let turn = TurnId::new();
+    let say = |seq: u64, text: &str| {
+        face_row(
+            turn,
+            seq,
+            Item::AgentMessage {
+                markdown: text.into(),
+            },
+        )
+    };
+    let tool = |seq: u64| {
+        face_row(
+            turn,
+            seq,
+            tool_item("Read", "read", serde_json::json!({"path": "a"}), "x"),
+        )
+    };
+    let rows = vec![
+        say(1, "Still compiling."),
+        say(3, "Still compiling."), // 1: opens the card
+        tool(5),
+        say(7, "Still compiling!"), // 3: the latest repeat; the tool between folds
+        tool(9),                    // 4: live work after it
+        say(11, "The build finished."),
+        say(13, "Tests pass."),
+        say(15, "Landed."),
+        say(17, "Still compiling."), // 8: more than three replies later: no repeat
+        say(19, "Landed."),          // 9: a new run, a card of its own
+    ];
+    let ids: Vec<ItemId> = rows.iter().map(|r| r.id).collect();
+    let layout = face_layout(rows).await;
+    let card = |i: usize| find(&layout, &format!("loop/{}", ids[i]));
+    let first = card(1).expect("the first repeat opens the card");
+    let head = bboxy450_harness::frontends::gui::view::layout_text(first);
+    assert!(head.contains("2 replies · 1 tool call"), "{head}");
+    for (i, id) in ids.iter().enumerate() {
+        assert_eq!(
+            find(&layout, &format!("item/{id}")).is_some(),
+            !matches!(i, 2 | 3),
+            "row {i}: only the tool and the repeat after the card fold into it"
+        );
+    }
+    assert!(find(&layout, &format!("tool/{}", ids[4])).is_some());
+    assert!(card(8).is_none(), "an old line is not a repeat");
+    assert!(card(9).is_some(), "a later run opens its own card");
+}
+
 /// harness.js mount(): consecutive tool cards with no other block between them share a
 /// rail and a "N CALLS · ONE ROUND" caption. One call is no group; a reasoning or message
 /// block (a new round) and a turn boundary end the run; a usage item never mounts, so it
