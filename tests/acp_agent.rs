@@ -540,7 +540,10 @@ async fn a_face_answers_an_agents_question_and_the_agent_receives_it() {
                     Op::AnswerQuestion {
                         question: *item,
                         answer: serde_json::json!({"action": "accept", "content": {"question_0": "SQLite"}}),
-                        client: Some(Client { name: "Desktop".into(), key: "desktop-test".into() }),
+                        client: Some(Client {
+                            name: "Desktop".into(),
+                            key: "desktop-test".into(),
+                        }),
                     },
                 );
                 let later = support::op(
@@ -577,12 +580,23 @@ async fn a_face_answers_an_agents_question_and_the_agent_receives_it() {
         "an unknown action is refused"
     );
     assert_eq!(log.iter().filter(|e| e.cause == Some(winner)).count(), 1);
-    let refusal = log.iter().find_map(|e| match &e.event {
-        Event::OpRejected { op, reason } if *op == later => Some(reason),
-        _ => None,
-    }).expect("a second answer must be refused");
-    let expected = Client { name: "Desktop".into(), key: "desktop-test".into() };
-    assert_eq!(refusal, &Rejection::AlreadyAnswered { by: Answerer::Client(expected.clone()) });
+    let refusal = log
+        .iter()
+        .find_map(|e| match &e.event {
+            Event::OpRejected { op, reason } if *op == later => Some(reason),
+            _ => None,
+        })
+        .expect("a second answer must be refused");
+    let expected = Client {
+        name: "Desktop".into(),
+        key: "desktop-test".into(),
+    };
+    assert_eq!(
+        refusal,
+        &Rejection::AlreadyAnswered {
+            by: Answerer::Client(expected.clone())
+        }
+    );
     assert!(items.iter().any(|(_, body)| matches!(body, Item::Question {
         answered_by: Some(by), by: None, ..
     } if by == &expected)));

@@ -768,13 +768,18 @@ impl AcpAgentActor {
                 self.resolve_by_face(id, approval, decision, Answerer::face(client, face))
                     .await?;
             }
-            Op::AnswerQuestion { question, answer, client } => {
+            Op::AnswerQuestion {
+                question,
+                answer,
+                client,
+            } => {
                 let open = self
                     .running
                     .as_ref()
                     .is_some_and(|r| r.questions.contains_key(&question));
                 if let Some(by) = self.resolved.get(&question) {
-                    self.reject(id, Rejection::AlreadyAnswered { by: by.clone() }).await?;
+                    self.reject(id, Rejection::AlreadyAnswered { by: by.clone() })
+                        .await?;
                 } else if !matches!(
                     answer.get("action").and_then(Value::as_str),
                     Some("accept" | "decline" | "cancel")
@@ -1641,8 +1646,12 @@ impl AcpAgentActor {
                     json!({"jsonrpc": "2.0", "id": rpc, "result": cancel}),
                 );
             }
-            self.complete(item, ItemStatus::Cancelled, answered(body, cancel, Resolver::Cancelled.into()))
-                .await?;
+            self.complete(
+                item,
+                ItemStatus::Cancelled,
+                answered(body, cancel, Resolver::Cancelled.into()),
+            )
+            .await?;
         }
         self.running = Some(r);
         self.flush_text().await?;
@@ -1864,7 +1873,9 @@ impl AcpAgentActor {
             .agent
             .as_ref()
             .is_some_and(|a| a.child.exited().unwrap_or(false));
-        let exit = if (stdout_eof || did_exit) && let Some(mut agent) = self.agent.take() {
+        let exit = if (stdout_eof || did_exit)
+            && let Some(mut agent) = self.agent.take()
+        {
             self.wire = None;
             let last_tool = self
                 .store
@@ -2489,13 +2500,8 @@ impl AcpAgentActor {
             .as_ref()
             .is_some_and(|r| r.permissions.contains_key(&approval))
         {
-            self.settle_permission(
-                approval,
-                Some(decision),
-                by,
-                Some(op),
-            )
-            .await
+            self.settle_permission(approval, Some(decision), by, Some(op))
+                .await
         } else {
             let reason = if let Some(by) = self.resolved.get(&approval) {
                 Rejection::AlreadyAnswered { by: by.clone() }
@@ -2657,11 +2663,12 @@ impl AcpAgentActor {
                 json!({"jsonrpc": "2.0", "id": rpc, "result": answer}),
             );
         }
-        if matches!(by, Answerer::Resolver(Resolver::Face { .. } | Resolver::Cancelled)) {
-            self.projected_ext.insert(
-                "question_answerer".into(),
-                serde_json::to_value(&by)?,
-            );
+        if matches!(
+            by,
+            Answerer::Resolver(Resolver::Face { .. } | Resolver::Cancelled)
+        ) {
+            self.projected_ext
+                .insert("question_answerer".into(), serde_json::to_value(&by)?);
         }
         self.resolved.insert(item, by.clone());
         self.publish(

@@ -803,20 +803,20 @@ impl SessionActor {
                             None,
                         )
                         .await?;
-                        self.reject(id, Rejection::AlreadyAnswered { by: Resolver::Cancelled.into() }).await?;
+                        self.reject(
+                            id,
+                            Rejection::AlreadyAnswered {
+                                by: Resolver::Cancelled.into(),
+                            },
+                        )
+                        .await?;
                     } else {
                         let (resolver, client) = Answerer::face(client, face).approval_fields();
                         if let Item::Approval { answered_by, .. } = &mut p.body {
                             *answered_by = client;
                         }
-                        self.resolve(
-                            approval,
-                            p,
-                            decision,
-                            resolver,
-                            Some(id),
-                        )
-                        .await?;
+                        self.resolve(approval, p, decision, resolver, Some(id))
+                            .await?;
                     }
                 } else {
                     self.reject(
@@ -1353,7 +1353,10 @@ impl SessionActor {
         };
         let mut answerer = Answerer::Resolver(by.clone());
         if let Item::Approval {
-            decision: d, by: b, answered_by, ..
+            decision: d,
+            by: b,
+            answered_by,
+            ..
         } = &mut p.body
         {
             *d = Some(decision);

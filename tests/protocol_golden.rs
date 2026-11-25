@@ -760,7 +760,6 @@ fn receipt_carrier_has_one_discriminator_and_defaults_without_aliasing_kind() {
     );
 }
 
-
 #[test]
 fn absent_interrupt_control_ids_never_target_a_turn() {
     let missing = TurnId(ulid::Ulid::nil());

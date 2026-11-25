@@ -5022,7 +5022,11 @@ mod progressive_prepare_tests {
         crate::runtime::blocking(move || {
             let mut view = HarnessView::default();
             view.render(&state, [900., 640.]).unwrap();
-            assert!(view.retained_prepared.as_ref().is_some_and(|p| Arc::ptr_eq(p, &old)));
+            assert!(
+                view.retained_prepared
+                    .as_ref()
+                    .is_some_and(|p| Arc::ptr_eq(p, &old))
+            );
 
             // The raw prepared pointer and transcript stayed exactly equal,
             // so ignoring image ownership in either cache admits stale rows.

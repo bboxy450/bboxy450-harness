@@ -1175,7 +1175,12 @@ impl Answerer {
     /// Keep the legacy approval resolver populated for old readers.
     pub(crate) fn approval_fields(&self) -> (Resolver, Option<Client>) {
         match self {
-            Self::Client(client) => (Resolver::Face { name: client.name.clone() }, Some(client.clone())),
+            Self::Client(client) => (
+                Resolver::Face {
+                    name: client.name.clone(),
+                },
+                Some(client.clone()),
+            ),
             Self::Resolver(resolver) => (resolver.clone(), None),
             Self::Unknown(value) => (Resolver::Unknown(value.clone()), None),
         }
@@ -1378,11 +1383,15 @@ impl Item {
                 terminal: terminal.clone(),
                 command: command.clone(),
             }),
-            Self::Question { message, schema, .. } => Some(ItemHead::Question {
+            Self::Question {
+                message, schema, ..
+            } => Some(ItemHead::Question {
                 message: message.clone(),
                 schema: schema.clone(),
             }),
-            Self::Approval { subject, options, .. } => Some(ItemHead::Approval {
+            Self::Approval {
+                subject, options, ..
+            } => Some(ItemHead::Approval {
                 message: subject.summary.clone(),
                 options: options.clone(),
             }),
@@ -1424,15 +1433,25 @@ impl Item {
                 command.clone_from(c);
             }
             (
-                Self::Question { message, schema, .. },
-                Some(ItemHead::Question { message: asked, schema: requested }),
+                Self::Question {
+                    message, schema, ..
+                },
+                Some(ItemHead::Question {
+                    message: asked,
+                    schema: requested,
+                }),
             ) => {
                 message.clone_from(asked);
                 schema.clone_from(requested);
             }
             (
-                Self::Approval { subject, options, .. },
-                Some(ItemHead::Approval { message, options: offered }),
+                Self::Approval {
+                    subject, options, ..
+                },
+                Some(ItemHead::Approval {
+                    message,
+                    options: offered,
+                }),
             ) => {
                 subject.summary.clone_from(message);
                 options.clone_from(offered);
