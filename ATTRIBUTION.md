@@ -89,8 +89,9 @@ Native text-entry dispatch witnesses and their broken controls follow this polic
   (https://github.com/bboxy450/bboxy450-harness). It keeps the two reply shapes
   with synthetic identifiers and source under the policy above.
 
-- MCP result presentation, local causal pending-prompt bubbles, shared welcome-loader
-  portrait and their focused native/formal witnesses in `src/frontends/gui/`,
+- MCP result presentation and binary-safe replay, local causal pending-prompt
+  bubbles, shared welcome-loader portrait and their focused native/formal
+  witnesses in `src/frontends/gui/`,
   `src/frontends/face_core.rs`, `src/backend/acp_agent.rs`, `tests/` and
   `scripts/verify-gui-polish.py` are project-owned under the policy above.
 

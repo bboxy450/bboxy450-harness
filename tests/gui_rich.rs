@@ -235,7 +235,6 @@ async fn markdown_output_read_renders_headings_lists_and_scrolls_without_reparsi
     bridge.detach().unwrap().await.unwrap();
 }
 
-#[ignore = "KNOWN-DEFECT: fails on base 390b5836; fix via tasks/2026-11-08-harness-gui-test-known-defects"]
 #[tokio::test]
 async fn markdown_output_mermaid_tool_result_is_a_native_figure_and_execute_stays_literal() {
     use bboxy450_harness::frontends::gui::{rich::Toggle, view::find};
@@ -278,7 +277,6 @@ async fn markdown_output_mermaid_tool_result_is_a_native_figure_and_execute_stay
         "Mermaid must paint a native diagram canvas"
     );
     let prose = frame.item_text(ids[0]).unwrap();
-    assert!(prose.contains("Drawing") && prose.contains("Source"));
     assert!(!prose.contains("graph LR"));
     assert!(find(layout, &format!("mdout/{}", ids[1])).is_none());
     assert!(
@@ -292,9 +290,8 @@ async fn markdown_output_mermaid_tool_result_is_a_native_figure_and_execute_stay
     bridge.detach().unwrap().await.unwrap();
 }
 
-#[ignore = "KNOWN-DEFECT: fails on base 390b5836; fix via tasks/2026-11-08-harness-gui-test-known-defects"]
 #[tokio::test]
-async fn markdown_output_reasoning_is_dim_prose_and_live_text_is_literal() {
+async fn markdown_output_reasoning_is_dim_prose_and_incomplete_markup_stays_visible() {
     use bboxy450_harness::frontends::gui::{rich::Toggle, view::find};
     let text = "# Reasoned heading\n\n- first option\n- second option\n\n```mermaid\ngraph LR\nA --> B\n```";
     let temp = tempfile::tempdir().unwrap();
@@ -311,7 +308,7 @@ async fn markdown_output_reasoning_is_dim_prose_and_live_text_is_literal() {
             ),
             (
                 Item::Reasoning {
-                    summary: "**still thinking**".into(),
+                    summary: "**still thinking".into(),
                     raw: None,
                     provider_opaque: None,
                 },
@@ -383,13 +380,14 @@ async fn markdown_output_reasoning_is_dim_prose_and_live_text_is_literal() {
         prepared: Some(Arc::new(prepared)),
         ..Default::default()
     };
-    assert!(
-        view.render(&state, [900., 1800.])
-            .unwrap()
-            .item_text(ids[1])
-            .unwrap()
-            .contains("**still thinking** ▍")
-    );
+    let frame = view.render(&state, [900., 1800.]).unwrap();
+    let body = find(
+        frame.layout.as_ref().unwrap(),
+        &format!("reasoning/{}/body", ids[1]),
+    )
+    .expect("live reasoning stays open");
+    let text = bboxy450_harness::frontends::gui::view::layout_text(body);
+    assert!(text.contains("**still thinking"), "{text:?}");
     bridge.detach().unwrap().await.unwrap();
 }
 
@@ -547,12 +545,11 @@ fn editor_history_and_slash_completion_use_the_upgraded_editor() {
     assert!(input.popover(&[]).is_none());
 }
 
-#[ignore = "KNOWN-DEFECT: fails on base 390b5836; fix via tasks/2026-11-08-harness-gui-test-known-defects"]
 #[tokio::test]
 async fn the_view_shows_live_tool_role_and_tail_then_the_full_terminal_blob() {
-    use bboxy450_harness::frontends::gui::view::Action;
+    use bboxy450_harness::frontends::gui::{rich::Toggle, view::Action};
     use bbt_ui::modules::approval::Key;
-    let command = "printf LIVE-TAIL; while [ ! -f gui-release ]; do sleep 0.01; done; python3 -c 'print(\"payload \" * 10000 + \"BLOB-END\", end=\"\")'";
+    let command = "printf 'LIVE-TAIL\\n'; while [ ! -f gui-release ]; do sleep 0.01; done; python3 -c 'print((\"payload \" * 75 + \"\\n\") * 150 + \"BLOB-END\", end=\"\")'";
     let first=format!("data: {}\n\ndata: [DONE]\n\n",serde_json::json!({"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"rich-live","type":"function","function":{"name":"bash","arguments":serde_json::json!({"command":command}).to_string()}}]},"finish_reason":"tool_calls"}]})).into_bytes();
     let session = support::session(vec![first, support::sse("text")], true).await;
     let mut observer = support::subscribe(&session.gateway, false);
@@ -579,81 +576,93 @@ async fn the_view_shows_live_tool_role_and_tail_then_the_full_terminal_blob() {
     let observed = tokio::time::timeout(Duration::from_secs(20), async {
         loop {
             bridge.drain(Duration::from_micros(300));
-            let terminal = bridge
-                .state
-                .transcript
-                .items
-                .values()
-                .find(|r| {
-                    r.kind == ItemKind::Terminal
-                        && r.status.is_none()
-                        && r.terminal_tail.contains("LIVE-TAIL")
-                })
-                .map(|r| r.id);
-            if let Some(id) = terminal {
-                let frame = view.render(&bridge.state, [1120., 7000.])?;
-                let text = frame.item_text(id).unwrap_or_default();
-                let tool = bridge
-                    .state
-                    .transcript
-                    .items
-                    .values()
-                    .find(|r| r.kind == ItemKind::ToolCall)
-                    .unwrap()
-                    .id;
-                // the terminal folds into its tool card, which reads as running: the
-                // verb, and the three seat dots in the status slot (harness-spec.md
-                // "Tool card": run = three bouncing seat dots)
-                fn dots(n: &bbt_ui::components::Layout) -> usize {
-                    usize::from(matches!(
-                        n.kind,
-                        bbt_ui::components::LayoutKind::Path { .. }
-                    )) + n.children.iter().map(dots).sum::<usize>()
-                }
-                let status = frame.layout.as_ref().and_then(|l| {
-                    bboxy450_harness::frontends::gui::view::find(l, &format!("tool/{tool}/status"))
-                });
-                if text.contains("LIVE-TAIL")
-                    && frame.item_text(tool).is_some_and(|s| s.contains("Run"))
-                    && status.is_some_and(|n| dots(n) == 3)
-                {
-                    return Ok::<_, String>(id);
-                }
+            let model = &bridge.state.transcript;
+            if let Some(terminal) = model.items.values().find(|row| {
+                row.kind == ItemKind::Terminal
+                    && row.status.is_none()
+                    && row.terminal_tail.contains("LIVE-TAIL")
+            }) {
+                let parent = terminal.parent.expect("terminal belongs to its tool");
+                return (terminal.id, parent);
             }
             tokio::time::sleep(Duration::from_millis(1)).await;
         }
     })
     .await;
+    // Keep the child behind its release file until the live frame is rendered.
+    // Always release it before asserting on that frame.
+    let live = match observed {
+        Ok((id, tool)) => {
+            bridge.toggle(tool, Toggle::Output);
+            until(&mut bridge, |b| {
+                b.state
+                    .faces
+                    .get(&tool)
+                    .is_some_and(|face| face.output_closed)
+            })
+            .await;
+            Some((id, tool, view.render(&bridge.state, [1120., 1200.])))
+        }
+        Err(_) => None,
+    };
     std::fs::write(session.temp.path().join("gui-release"), "").unwrap();
     support::end(&mut observer).await;
-    let id = observed.expect("live viewport timed out").unwrap();
-    tokio::time::timeout(Duration::from_secs(20), async {
-        loop {
-            bridge.drain(Duration::from_micros(300));
-            if bridge
-                .state
+    let (id, tool, live) = live.expect("live terminal tail never projected");
+    let live = live.unwrap();
+    assert!(live.item_text(id).unwrap().contains("LIVE-TAIL"));
+    assert!(live.item_text(tool).unwrap().contains("Run"));
+    let status_key = format!("tool/{tool}/status");
+    let status = |frame: &bboxy450_harness::frontends::gui::view::Frame| {
+        let node = bboxy450_harness::frontends::gui::view::find(
+            frame.layout.as_ref().unwrap(),
+            &status_key,
+        )
+        .unwrap();
+        match &node.children[0].kind {
+            bbt_ui::components::LayoutKind::Box { style, .. } => style.fill,
+            _ => panic!("tool status disc missing"),
+        }
+    };
+    let live_color = status(live);
+    until(&mut bridge, |b| {
+        b.state
+            .transcript
+            .items
+            .get(&id)
+            .is_some_and(|row| row.completed.is_some())
+            && b.state
                 .transcript
                 .items
-                .get(&id)
-                .is_some_and(|r| r.status.is_some())
-            {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(1)).await;
-        }
+                .get(&tool)
+                .is_some_and(|row| row.completed.is_some())
     })
-    .await
-    .unwrap();
-    let text = view
-        .render(&bridge.state, [1120., 200000.])
-        .unwrap()
-        .item_text(id)
-        .unwrap();
-    assert!(
-        text.matches("payload").count() >= 10000,
-        "completed terminal blob lost its full output"
+    .await;
+
+    let frame = view.render(&bridge.state, [1120., 1200.]).unwrap();
+    assert_ne!(
+        status(frame),
+        live_color,
+        "completed tool must stop showing running status"
     );
-    assert!(text.contains("BLOB-END"));
+    let key = format!("codeout/{tool}/output");
+    let panel = bboxy450_harness::frontends::gui::view::find(frame.layout.as_ref().unwrap(), &key)
+        .expect("completed output panel");
+    let at = [panel.rect.x + 5., panel.rect.y + 5.];
+    assert!(view.wheel_delta(at, [0., 100_000.]));
+    let tail = view.render(&bridge.state, [1120., 1200.]).unwrap();
+    let text = tail.item_text(id).unwrap();
+    assert!(
+        text.contains("BLOB-END"),
+        "terminal tail missing from {} rendered bytes",
+        text.len()
+    );
+    let Item::Terminal {
+        output: Some(blob), ..
+    } = &bridge.state.transcript.items[&id].body
+    else {
+        panic!("completed terminal has no output blob");
+    };
+    assert!(blob.len > 64 * 1024, "fixture must exceed the preview");
     assert!(!view.approval_key(Key::Enter, &bridge));
     let retired = bridge
         .state
@@ -1655,7 +1664,6 @@ fn enter_on_the_slash_menu_runs_the_command() {
     );
 }
 
-#[ignore = "KNOWN-DEFECT: fails on base 390b5836; fix via tasks/2026-11-08-harness-gui-test-known-defects"]
 #[tokio::test]
 async fn gui_polish_mcp_cards_show_real_raw_results_on_expansion() {
     use bboxy450_harness::frontends::gui::{

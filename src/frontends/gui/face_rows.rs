@@ -1253,9 +1253,8 @@ impl Preparer {
         };
         // the terminal's own command is authoritative over the call's arguments
         let mut d = d;
-        if crate::frontends::face_core::placeholder_output(output)
-            && let Some(value) = raw_output.as_ref().filter(|v| !v.is_null())
-        {
+        let placeholder = crate::frontends::face_core::placeholder_output(output);
+        if placeholder && let Some(value) = raw_output.as_ref().filter(|v| !v.is_null()) {
             d.out = crate::frontends::face_core::raw_tool_output(value);
         }
         if !row.terminal_tail.is_empty() {
@@ -1654,10 +1653,16 @@ impl Preparer {
                 // fences (especially a tool result consisting of one Mermaid figure).
                 let raw = output
                     .iter()
-                    .map(OutputBlock::display_text)
+                    .map(|block| match block {
+                        OutputBlock::Json { value } => {
+                            crate::frontends::face_core::raw_tool_output(value)
+                        }
+                        _ => block.display_text(),
+                    })
                     .collect::<Vec<_>>()
                     .join("\n");
-                let text = if !row.terminal_tail.is_empty()
+                let text = if placeholder
+                    || !row.terminal_tail.is_empty()
                     || raw.is_empty()
                     || raw.trim_start().starts_with("```console\n")
                 {

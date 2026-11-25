@@ -2762,15 +2762,6 @@ impl HelperGroup {
     pub(crate) fn fixture_early_original_settled(&self) -> bool {
         self.retirement_settlement_observed()
     }
-    #[cfg(test)]
-    pub(crate) fn fixture_descendant_identity(&self) -> Option<(i32, u64, u64, u32)> {
-        let m = self.members[1];
-        let token = self
-            .retired
-            .iter()
-            .find(|r| r.pid == m.pid && r.birth == m.birth && r.current)?;
-        (m.pid > 0 && m.verified).then_some((m.pid, m.birth, m.start, token.token.value[7]))
-    }
 }
 impl Control {
     fn helper_extend_debt(&self, cost: u64) -> u64 {
@@ -6098,6 +6089,22 @@ mod custody_control {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
     #[test]
+    fn oversized_source_is_refused_at_the_file_boundary() {
+        let root = tempfile::Builder::new().tempdir_in("/private/tmp").unwrap();
+        std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        let dir = Dir::open(root.path()).unwrap();
+        let file = dir
+            .openat("source", libc::O_CREAT | libc::O_WRONLY, 0o600)
+            .unwrap();
+        file.set_len(INPUT_MAX).unwrap();
+        assert_eq!(dir.file("source", INPUT_MAX).unwrap().1.len(), INPUT_MAX);
+        file.set_len(INPUT_MAX + 1).unwrap();
+        assert!(matches!(
+            dir.file("source", INPUT_MAX),
+            Err(w::Code::ResourceLimit)
+        ));
+    }
+    #[test]
     fn replaced_regular_source_is_detected_by_actual_fd_path_identity() {
         let root = tempfile::Builder::new().tempdir_in("/private/tmp").unwrap();
         std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
@@ -6317,27 +6324,34 @@ mod helper_total_budget_tests {
         assert!(!h.retirement_settlement_observed());
     }
     #[test]
-    fn helper_total_known_wait4_is_paid_before_group_proof_without_double_billing() {
-        let c = Control::fixture(Instant::now() + Duration::from_secs(30));
-        let mut h = group();
-        let first = usage(4_000, 1_000, false);
-        assert_eq!(h.reconcile_usage(&c, first), Ok(()));
-        assert!(h.own_wait4 && !h.group_gone);
-        assert!(!h.retirement_settlement_observed());
-        assert!(!h.failed && h.metrics.coverage_known);
-        assert_eq!(h.metrics.charged_ns, 7_000);
-        assert_eq!(h.metrics.debt_ns, 9_000_000);
-        let debt = c.fixture_debt_totals();
-        let mut observed = first;
-        observed.group_gone = true;
-        assert_eq!(h.reconcile_usage(&c, observed), Ok(()));
-        assert!(h.retirement_settlement_observed());
-        assert_eq!(c.fixture_debt_totals(), debt);
-        assert_eq!(c.accounting.helper_job_cpu.load(Ordering::Acquire), 7_000);
-        assert_eq!(h.metrics.wait4_reads, 1);
-        observed.user_ns += 1;
-        assert!(h.reconcile_usage(&c, observed).is_err());
-        assert_eq!(c.fixture_debt_totals(), debt);
+    fn helper_total_known_wait4_is_billed_once_with_or_without_group_proof() {
+        let billed = usage(4_000, 1_000, false);
+        let proven = super::super::resolve::HelperReapUsage {
+            group_gone: true,
+            ..billed
+        };
+        for (first, second) in [(billed, proven), (proven, billed)] {
+            let c = Control::fixture(Instant::now() + Duration::from_secs(30));
+            let mut h = group();
+            assert_eq!(h.reconcile_usage(&c, first), Ok(()));
+            assert!(h.own_wait4);
+            assert_eq!(h.retirement_settlement_observed(), first.group_gone);
+            assert!(!h.failed && h.metrics.coverage_known);
+            assert_eq!(h.metrics.charged_ns, 7_000);
+            assert_eq!(h.metrics.debt_ns, 9_000_000);
+            let debt = c.fixture_debt_totals();
+            assert_eq!(h.reconcile_usage(&c, second), Ok(()));
+            assert!(h.retirement_settlement_observed());
+            assert_eq!(c.fixture_debt_totals(), debt);
+            assert_eq!(c.accounting.helper_job_cpu.load(Ordering::Acquire), 7_000);
+            assert_eq!(h.metrics.wait4_reads, 1);
+            let changed = super::super::resolve::HelperReapUsage {
+                user_ns: proven.user_ns + 1,
+                ..proven
+            };
+            assert!(h.reconcile_usage(&c, changed).is_err());
+            assert_eq!(c.fixture_debt_totals(), debt);
+        }
     }
     #[test]
     fn helper_total_false_empty_census_never_proves_child_or_group_absence() {

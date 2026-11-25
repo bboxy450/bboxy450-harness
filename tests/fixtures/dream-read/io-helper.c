@@ -99,13 +99,14 @@ int main(int argc,char **argv) {
     if(!strcmp(argv[1],"pair")&&argc==2) {
         pid_t child=fork(); // One source-known fork; no child exec or further fork.
         if(child<0)return 81;
-        if(child==0)held();
+        if(child==0)_exit(0);
         char pid[32];int n=snprintf(pid,sizeof(pid),"%d\n",child);
         if(n<=0||(size_t)n>=sizeof(pid)||file("descendant",pid,(size_t)n))return 81;
-        if(file("ready","ready",5))return 81;
         int status=0;pid_t joined;
         do {joined=waitpid(child,&status,0);}while(joined<0&&errno==EINTR);
-        return joined==child?0:81;
+        if(joined!=child||!WIFEXITED(status)||WEXITSTATUS(status)!=0)return 81;
+        if(file("ready","ready",5))return 81;
+        held();
     }
     return 81;
 }

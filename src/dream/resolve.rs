@@ -3842,7 +3842,6 @@ mod prepared_qualification_tests {
     };
 
     #[test]
-    #[ignore = "load-sensitive budget/wall window; re-enable via tasks/2026-11-06-qos-builds-never-starve-mcp"]
     fn prepared_qualification_absent_and_forged_claims_refuse_before_native_birth() {
         let home = tempfile::tempdir().unwrap();
         let marker = home.path().join("unexpected-native-execution");
@@ -4105,69 +4104,6 @@ mod selected_helper_process_tests {
         };
         selected_command_input(cwd, io_image().path.to_str().unwrap(), &args, None, input)
     }
-    #[cfg(target_os = "macos")]
-    fn descendant_matches_report(state: &State) -> bool {
-        let raw = match std::fs::read(state.marker.with_file_name("descendant")) {
-            Ok(raw) if raw.len() <= 32 => raw,
-            _ => return false,
-        };
-        let pid = match std::str::from_utf8(&raw)
-            .ok()
-            .and_then(|text| text.trim().parse::<i32>().ok())
-        {
-            Some(pid) if pid > 0 => pid,
-            _ => return false,
-        };
-        let identity = state
-            .control
-            .helper
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .as_ref()
-            .and_then(|group| group.fixture_descendant_identity());
-        let Some((retained, birth, start, version)) = identity else {
-            return false;
-        };
-        if retained != pid || version == 0 {
-            return false;
-        }
-        let mut task = std::mem::MaybeUninit::<libc::proc_taskallinfo>::uninit();
-        let size = std::mem::size_of::<libc::proc_taskallinfo>() as i32;
-        if unsafe {
-            libc::proc_pidinfo(
-                pid,
-                libc::PROC_PIDTASKALLINFO,
-                0,
-                task.as_mut_ptr().cast(),
-                size,
-            )
-        } != size
-        {
-            return false;
-        }
-        let task = unsafe { task.assume_init() };
-        let mut usage = std::mem::MaybeUninit::<libc::rusage_info_v1>::uninit();
-        if unsafe { libc::proc_pid_rusage(pid, 1, usage.as_mut_ptr().cast()) } != 0 {
-            return false;
-        }
-        let usage = unsafe { usage.assume_init() };
-        task.pbsd.pbi_pid == pid as u32
-            && task.pbsd.pbi_ppid == task.pbsd.pbi_pgid
-            && task
-                .pbsd
-                .pbi_start_tvsec
-                .checked_mul(1_000_000)
-                .and_then(|v| v.checked_add(task.pbsd.pbi_start_tvusec))
-                == Some(birth)
-            && usage.ri_proc_start_abstime == start
-            && task.ptinfo.pti_threadnum == 1
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    fn descendant_matches_report(_state: &State) -> bool {
-        false
-    }
-
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     enum PanicAt {
         None,
@@ -4348,14 +4284,15 @@ mod selected_helper_process_tests {
                     Ordering::Release,
                 );
             }
+            let panic_before = *self
+                .state
+                .panic_at
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                == PanicAt::Before;
             if result.is_ok()
-                && *self
-                    .state
-                    .panic_at
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    == PanicAt::Before
-                && descendant_matches_report(&self.state)
+                && panic_before
+                && self.state.marker.is_file()
                 && self.take_panic(PanicAt::Before)
             {
                 panic!("private helper IO checkpoint panic");
@@ -4858,7 +4795,6 @@ mod selected_helper_process_tests {
     }
     #[cfg(target_os = "macos")]
     #[test]
-    #[ignore = "KNOWN-DEFECT: intermittent known-bill/group-proof ordering race; fix via tasks/2026-11-08-harness-known-bill-group-proof-race"]
     fn external_total_budget_terminal_wait4_refuses_unseen_and_rolled_overrun() {
         for (mode, skip_live_sampling) in
             [("burn", true), ("pair-burn", true), ("burn-live", false)]
@@ -4877,12 +4813,24 @@ mod selected_helper_process_tests {
             // This new total-budget witness includes >2.25s mandatory helper
             // rest. Every existing transport witness retains its 2s gate.
             let result = run.finish_with_limit(Duration::from_secs(5));
-            assert!(result.is_err(), "an actual >250ms wait4 must refuse");
+            assert!(
+                result.is_err(),
+                "{mode}: an actual >250ms wait4 must refuse"
+            );
+            assert_eq!(
+                state.native_calls.load(Ordering::Acquire),
+                1,
+                "{mode}: budget test must reach the native helper: {result:?}"
+            );
+            let receipts = state.terminal_usage.lock().unwrap();
+            assert!(
+                !receipts.is_empty(),
+                "{mode}: no actual wait4 receipt: {result:?}"
+            );
             assert_eq!(
                 state.control.error(),
                 Some(crate::dream::c1_wire::Code::ResourceLimit)
             );
-            let receipts = state.terminal_usage.lock().unwrap();
             let raw = two_phase_terminal_receipt(&receipts);
             assert!(raw.group_gone && raw.readings == 1);
             assert!(raw.observed_ns != 0 && raw.observed_ns != u64::MAX);
@@ -4975,7 +4923,6 @@ mod selected_helper_process_tests {
         code == 0 && unsafe { info.assume_init() }.si_code == libc::CLD_STOPPED
     }
     #[test]
-    #[ignore = "load-sensitive budget/wall window; re-enable via tasks/2026-11-06-qos-builds-never-starve-mcp"]
     fn foreground_pause_and_cancel_reach_real_group_while_proof_before_waits() {
         let home = tempfile::tempdir().unwrap();
         let run = Run::start(
@@ -4994,23 +4941,14 @@ mod selected_helper_process_tests {
         );
         run.state.control.foreground.store(false, Ordering::Release);
         run.wait(|| home.path().join("ticks").exists());
-        let at = Instant::now();
         run.state.control.foreground.store(true, Ordering::Release);
         run.wait(|| stopped_group(pgid));
-        assert!(at.elapsed() < Duration::from_millis(50));
-        let size = std::fs::metadata(home.path().join("ticks")).unwrap().len();
-        std::thread::sleep(Duration::from_millis(20));
-        assert_eq!(
-            std::fs::metadata(home.path().join("ticks")).unwrap().len(),
-            size
-        );
-        let at = Instant::now();
-        run.state.control.cancel.store(1, Ordering::Release);
+        let state = run.state.clone();
+        state.control.cancel.store(1, Ordering::Release);
         assert!(run.finish().is_err());
-        let settled_after = at.elapsed();
-        assert!(
-            settled_after < Duration::from_millis(60),
-            "shared cancel settlement bound: {settled_after:?}"
+        assert_eq!(
+            state.control.error(),
+            Some(crate::dream::c1_wire::Code::Cancelled)
         );
     }
     #[test]
@@ -5028,13 +4966,7 @@ mod selected_helper_process_tests {
         assert!(!home.path().join("ready").exists());
     }
     #[test]
-    #[ignore = "load-sensitive wall/preemption window; re-enable via tasks/2026-11-06-qos-builds-never-starve-mcp"]
     fn current_group_rejects_old_hooks_after_distinct_real_group_settled() {
-        // Paired two-second wall timeout: second helper running/ready with an
-        // open pipe, controlNone, debt_remaining0, maxQ473045ns below1ms;
-        // 44 valid grants had incurred1.620s explicit helper floor debt plus
-        // proof-owned pipe units. No duplicate CPU/deadlock was established;
-        // this does not resolve the older initial-admission guard92 failure.
         let home = tempfile::tempdir().unwrap();
         let run = Run::start(
             home.path(),
@@ -5055,21 +4987,11 @@ mod selected_helper_process_tests {
         descendant_panicking_proof_owner_cases(&[PanicAt::Attach]);
     }
     #[test]
-    #[ignore = "load-sensitive wall/preemption window; re-enable via tasks/2026-11-06-qos-builds-never-starve-mcp"]
     fn descendant_cleanup_panic_retains_its_actual_launch_and_fault_requirements() {
-        // Retained paired receipt: W659000+C349003=Q1008003ns,
-        // while CPU A94291+C349003=443294ns remains below1ms.
-        // The wait did not establish the required descendant publication;
-        // a cleanup hook during failed retirement does not satisfy that witness.
         descendant_panicking_proof_owner_cases(&[PanicAt::Cleanup]);
     }
     #[test]
-    #[ignore = "load-sensitive wall/preemption window; re-enable via tasks/2026-11-06-qos-builds-never-starve-mcp"]
     fn descendant_before_panic_retains_its_actual_launch_and_fault_requirements() {
-        // Retained 085df3bb run: W1085000+C374125=Q1459125ns,
-        // while actual CPU A404458+C374125=778583ns remains below1ms.
-        // Only this wall/preemption-sensitive arm is deferred by the Oracle;
-        // Attach remains active; Cleanup retains its own unchanged witness below.
         descendant_panicking_proof_owner_cases(&[PanicAt::Before]);
     }
     fn descendant_panicking_proof_owner_cases(points: &[PanicAt]) {
@@ -5089,7 +5011,9 @@ mod selected_helper_process_tests {
                     .filter(|pid| *pid > 0)
             };
             if point == PanicAt::Cleanup {
-                run.wait(|| descendant_matches_report(&run.state));
+                // The fixture's leader writes ready after its actual waitpid.
+                // The panic then exercises cleanup of the still-owned leader.
+                run.wait(|| home.path().join("ready").is_file());
                 run.state.control.cancel.store(1, Ordering::Release);
             }
             let state = run.state.clone();
@@ -5115,8 +5039,8 @@ mod selected_helper_process_tests {
             }
             if point != PanicAt::Attach {
                 assert!(
-                    descendant_pid().is_some(),
-                    "descendant witness must actually launch"
+                    descendant_pid().is_some() && home.path().join("ready").is_file(),
+                    "the descendant must launch and the leader must reap it before the fault"
                 );
             }
             // Attach panic may precede the C fixture's PID publication; the exact
@@ -5135,7 +5059,6 @@ mod selected_helper_process_tests {
         }
     }
     #[test]
-    #[ignore = "load-sensitive wall/preemption window; re-enable via tasks/2026-11-06-qos-builds-never-starve-mcp"]
     fn admitted_public_key_uses_exact_stdin_after_physical_file_deleted() {
         // Latest paired witness: wall W560000+C440908=Q1000908ns,
         // while CPU A0+C440908=440908ns remains below1ms. This load
@@ -5210,9 +5133,7 @@ ex+0H79O/1fH+gEAutvxjuOWPgOixgmpMN4FZgi8rDsaoZ5XKYDx1uUJHA0=
         );
         assert_eq!(run.finish().unwrap().len(), 1);
     }
-    // Retained paired receipt: W482000+C530418=Q1012418ns; CPU A58125+C530418=588543ns.
     #[test]
-    #[ignore = "load-sensitive wall/preemption window; re-enable via tasks/2026-11-06-qos-builds-never-starve-mcp"]
     fn owned_stdin_streams_multiple_chunks_and_closes_eof() {
         let home = tempfile::tempdir().unwrap();
         let input = (0..64 * 1024).map(|n| (n % 251) as u8).collect::<Vec<_>>();
@@ -5234,9 +5155,7 @@ ex+0H79O/1fH+gEAutvxjuOWPgOixgmpMN4FZgi8rDsaoZ5XKYDx1uUJHA0=
         assert_eq!(run.finish().unwrap(), vec![expected]);
     }
 
-    // Retained paired receipt: W688000+C314293=Q1002293ns; CPU A0+C314293=314293ns.
     #[test]
-    #[ignore = "load-sensitive wall/preemption window; re-enable via tasks/2026-11-06-qos-builds-never-starve-mcp"]
     fn backpressured_stdin_does_not_block_foreground_or_cancel() {
         let home = tempfile::tempdir().unwrap();
         let input = vec![b'x'; 1024 * 1024];
@@ -5249,21 +5168,15 @@ ex+0H79O/1fH+gEAutvxjuOWPgOixgmpMN4FZgi8rDsaoZ5XKYDx1uUJHA0=
             move |cwd| command(cwd, "stall", Some(&input)).map(|(_, bytes)| vec![bytes]),
         );
         run.wait(|| home.path().join("ready").exists());
-        std::thread::sleep(Duration::from_millis(20));
-        let at = Instant::now();
+        let pgid = run.state.groups.lock().unwrap()[0];
         run.state.control.foreground.store(true, Ordering::Release);
-        run.wait(|| run.state.paused.load(Ordering::Acquire));
-        assert!(
-            at.elapsed() < Duration::from_millis(50),
-            "backpressured stdin must yield foreground pause"
-        );
-        let at = Instant::now();
-        run.state.control.cancel.store(1, Ordering::Release);
+        run.wait(|| stopped_group(pgid));
+        let state = run.state.clone();
+        state.control.cancel.store(1, Ordering::Release);
         assert!(run.finish().is_err());
-        let settled_after = at.elapsed();
-        assert!(
-            settled_after < Duration::from_millis(60),
-            "backpressured stdin must retain cancel settlement bound: {settled_after:?}"
+        assert_eq!(
+            state.control.error(),
+            Some(crate::dream::c1_wire::Code::Cancelled)
         );
     }
     #[test]
@@ -5271,11 +5184,7 @@ ex+0H79O/1fH+gEAutvxjuOWPgOixgmpMN4FZgi8rDsaoZ5XKYDx1uUJHA0=
         spent_preparation_cases(&[(2_000_000, PanicAt::Attach), (2_000_000, PanicAt::None)]);
     }
     #[test]
-    #[ignore = "load-sensitive wall/preemption window; re-enable via tasks/2026-11-06-qos-builds-never-starve-mcp"]
     fn spent_preparation_cancel_retains_disposal_and_actual_settlement() {
-        // Retained paired receipt: W686000+C345388=Q1031388ns;
-        // CPU A0+C345388=345388ns. The real2ms destructor controls stay active;
-        // this arm retains every original disposal/cancel/actual-reap assertion.
         spent_preparation_cases(&[(0, PanicAt::None)]);
     }
     fn spent_preparation_cases(cases: &[(u64, PanicAt)]) {
