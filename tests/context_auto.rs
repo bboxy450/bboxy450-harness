@@ -369,13 +369,13 @@ fn thresholds_and_unicode_clipping_are_exact() {
 #[ignore]
 async fn context_crash_child() {
     let root = std::path::PathBuf::from(std::env::var_os("HARNESS_CONTEXT_CHILD_ROOT").unwrap());
-    let (s, _, config) = setup(Some(4000), false).await;
+    let (s, requests, config) = setup(Some(4000), false).await;
+    support::runtime_ready(&s.gateway).await;
     let mut sub = support::subscribe(&s.gateway, false);
     for _ in 0..8 {
         s.gateway.send(support::prompt(&s.gateway, "read")).unwrap();
         support::end(&mut sub).await;
     }
-    let mut log = sub_log(&config);
     let blobs = bboxy450_harness::store::Blobs {
         dir: config
             .sessions
@@ -383,41 +383,13 @@ async fn context_crash_child() {
             .join("blobs"),
         redactor: config.redactor.clone(),
     };
-    let tools = bboxy450_harness::tools::Registry::new()
-        .definitions()
-        .iter()
-        .map(|d| d.wire.clone())
-        .collect::<Vec<_>>();
-    let (tail, mut prefix) = context::replay(&log, &blobs).await.unwrap();
-    let system = json!({"role":"system","content":format!("You are bboxy450-harness, a coding assistant. Use the provided tools. Working directory: {}\nBuild a world agents can take apart, understand, change and put back together. Subtract before you add; minimize concepts, not lines.",config.meta.cwd.display())});
-    let mut messages = vec![system.clone()];
-    messages.extend(tail);
-    messages.push(json!({"role":"user","content":"after restart"}));
-    if auto::trigger(auto::estimate(&log, &messages, &tools), 500, 4000) {
-        let op = support::op(&s.gateway, Op::Compact);
-        let cause = op.op_id;
-        s.gateway.send(op).unwrap();
-        loop {
-            let event = sub.recv().await.unwrap();
-            if event.cause == Some(cause)
-                && matches!(
-                    event.event,
-                    Event::ItemCompleted {
-                        body: Item::Compaction { .. },
-                        ..
-                    }
-                )
-            {
-                break;
-            }
-        }
-        log = sub_log(&config);
-        let replay = context::replay(&log, &blobs).await.unwrap();
-        prefix = replay.1;
-        messages = vec![system];
-        messages.extend(replay.0);
-        messages.push(json!({"role":"user","content":"after restart"}));
-    }
+    let log = sub_log(&config);
+    let frontier = auto::ended_through(&log);
+    let (_, previous) = context::latest(&log).expect("automatic compaction before the crash");
+    assert!(
+        previous < frontier,
+        "the last completed turn must still be available to compact"
+    );
     assert!(log.iter().any(|e| matches!(
         e.event,
         Event::ItemCompleted {
@@ -425,7 +397,49 @@ async fn context_crash_child() {
             ..
         }
     )));
-    let record = json!({"meta":config.meta,"sessions":config.sessions,"profiles":config.profiles,"messages":messages,"tools":tools,"stable_prefix":prefix});
+
+    // Pin the completed-turn frontier in the log before forecasting the next
+    // request. Use the live catalogue, including the session's Python tools.
+    let op = support::op(&s.gateway, Op::Compact);
+    let cause = op.op_id;
+    s.gateway.send(op).unwrap();
+    loop {
+        let event = sub.recv().await.unwrap();
+        match event.event {
+            Event::ItemCompleted {
+                status: ItemStatus::Completed,
+                body: Item::Compaction {
+                    replaced_through, ..
+                },
+                ..
+            } if event.cause == Some(cause) => {
+                assert!(event.seq.is_some());
+                assert_eq!(replaced_through, frontier);
+                break;
+            }
+            Event::OpRejected { op, reason } if op == cause => {
+                panic!("compact refused: {reason:?}")
+            }
+            _ => {}
+        }
+    }
+    let log = sub_log(&config);
+    assert_eq!(context::latest(&log).map(|(_, seq)| seq), Some(frontier));
+    let (tail, prefix) = context::replay(&log, &blobs).await.unwrap();
+    let (system, tools) = {
+        let requests = requests.lock().unwrap();
+        let last = requests.last().unwrap();
+        (last.messages[0].clone(), last.tools.clone())
+    };
+    assert!(
+        tools
+            .iter()
+            .any(|tool| tool.name.starts_with("mcp__bboxy_python__"))
+    );
+    let mut messages = vec![system];
+    messages.extend(tail);
+    messages.push(json!({"role":"user","content":"after restart"}));
+    let record = json!({"meta":config.meta,"sessions":config.sessions,"profiles":config.profiles,"messages":messages,"tools":tools,"stable_prefix":prefix,"frontier":frontier});
     std::fs::write(
         root.join("ready.json"),
         serde_json::to_vec(&record).unwrap(),
@@ -482,9 +496,15 @@ async fn sigkill_between_rounds_rebuilds_the_identical_model_request() {
         max_rounds: 4,
         profile_error: None,
     };
+    let frontier: Seq = serde_json::from_value(ready["frontier"].clone()).unwrap();
+    assert_eq!(
+        context::latest(&sub_log(&config)).map(|(_, seq)| seq),
+        Some(frontier)
+    );
     let (gateway, task) = SessionActor::open(config.clone(), OpId::new())
         .await
         .unwrap();
+    support::runtime_ready(&gateway).await;
     let hello = gateway.hello();
     let mut sub = gateway
         .subscribe(bboxy450_harness::gateway::Subscribe {

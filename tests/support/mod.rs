@@ -70,17 +70,19 @@ pub async fn with_policy(provider: Arc<dyn Provider>, policy: Policy) -> Session
         task,
     }
 }
-/// Every non-trial session starts its own Python MCP server, whose readiness
-/// notice lands at a timing-dependent sequence. Tests start after it.
+/// Wait for this epoch's Python MCP server, including after reopening a log
+/// that still contains the previous server's readiness notice.
 pub async fn runtime_ready(g: &InProc) {
+    let epoch = g.hello().epoch;
     let mut sub = subscribe(g, false);
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {
             let event = sub.recv().await.expect("session stream");
-            if let Event::ItemCompleted {
-                body: Item::Notice { text, .. },
-                ..
-            } = &event.event
+            if event.epoch == epoch
+                && let Event::ItemCompleted {
+                    body: Item::Notice { text, .. },
+                    ..
+                } = &event.event
                 && text.starts_with("mcp bboxy_python")
                 && text.ends_with(": ready")
             {
