@@ -89,6 +89,11 @@ Native text-entry dispatch witnesses and their broken controls follow this polic
   (https://github.com/bboxy450/bboxy450-harness). It keeps the two reply shapes
   with synthetic identifiers and source under the policy above.
 
+- The `70d9cb87` and `fb27bb3b` pending IR samples in
+  `tests/fixtures/ir-v1/pending/` are **adapted from** this repository's test
+  fixtures by the IR scanner. They retain the synthetic trigger and project
+  attribution shapes under the policy above.
+
 - MCP result presentation and binary-safe replay, local causal pending-prompt
   bubbles, shared welcome-loader portrait and their focused native/formal
   witnesses in `src/frontends/gui/`,
