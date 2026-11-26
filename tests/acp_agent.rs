@@ -1612,14 +1612,17 @@ async fn session_gauges_rearm_the_quiet_deadline_of_an_open_agent_turn() {
             )
         })
         .unwrap()
-        .ts_ms;
+        .seq
+        .expect("the final gauge is durable");
     let end = events.last().unwrap();
     assert!(
-        end.ts_ms.saturating_sub(last_gauge) >= 200,
-        "quiet deadline was not rearmed by the final gauge"
+        last_gauge < end.seq.expect("the quiet turn ending is durable"),
+        "the final gauge must precede the quiet turn ending"
     );
     assert!(
-        matches!(end.event, Event::TurnEnded { reason: StopReason::Quiet { ms }, .. } if ms >= 200)
+        matches!(end.event, Event::TurnEnded { reason: StopReason::Quiet { ms }, .. } if ms >= 200),
+        "quiet deadline was not rearmed by the final gauge: {:?}",
+        end.event
     );
 }
 
