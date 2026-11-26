@@ -118,8 +118,15 @@ pub async fn cli(args: impl Iterator<Item = String>) -> Result<i32, String> {
                 .map_err(|_| "dream output unavailable")?;
             Ok(0)
         }
-        Err(_) => {
-            eprintln!("dream replay: invalid or unavailable input/cache");
+        Err(error) => {
+            if let Some(exceeded) = error
+                .get_ref()
+                .and_then(|cause| cause.downcast_ref::<d0::PollCpuExceeded>())
+            {
+                eprintln!("dream replay: {exceeded}");
+            } else {
+                eprintln!("dream replay: invalid or unavailable input/cache");
+            }
             Ok(2)
         }
     }

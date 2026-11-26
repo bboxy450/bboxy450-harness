@@ -827,6 +827,12 @@ async fn cli_inner(args: impl Iterator<Item = String>) -> Result<i32, &'static s
     ))
     .await
     .map_err(|error| {
+        if error
+            .get_ref()
+            .is_some_and(|cause| cause.is::<d0::PollCpuExceeded>())
+        {
+            return "D0 exceeded 1ms CPU between awaits";
+        }
         // Classification only: raw IO text may contain quoted source paths/data.
         eprintln!(
             "D0 replay rejected: kind={:?}, errno={:?}",
@@ -834,7 +840,6 @@ async fn cli_inner(args: impl Iterator<Item = String>) -> Result<i32, &'static s
             error.raw_os_error()
         );
         match error.to_string().as_str() {
-            "D0 exceeded 1ms CPU between awaits" => "D0 exceeded 1ms CPU between awaits",
             "invalid source transcript" => "D0 invalid source transcript",
             "cache fingerprint mismatch" => "D0 cache fingerprint mismatch",
             "unknown cache pin" => "D0 unknown cache pin",

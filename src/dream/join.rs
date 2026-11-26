@@ -195,55 +195,12 @@ async fn git_object(
     deadline: tokio::time::Instant,
 ) -> std::io::Result<Vec<u8>> {
     use std::io;
-    let timeout = deadline
-        .checked_duration_since(tokio::time::Instant::now())
-        .ok_or_else(|| io::Error::new(io::ErrorKind::TimedOut, "task pin read deadline"))?;
-    // Adapted from this project's WP2 metadata child isolation in src/vcs.rs;
-    // credit/policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
-    let mut command = Vec::new();
-    for name in std::env::vars_os()
-        .filter_map(|(name, _)| name.into_string().ok())
-        .filter(|name| name.starts_with("GIT_"))
-    {
-        command.extend(["-u".into(), name]);
-    }
-    command.extend(
-        [
-            "GIT_CONFIG_NOSYSTEM=1",
-            "GIT_CONFIG_GLOBAL=/dev/null",
-            "GIT_TERMINAL_PROMPT=0",
-            "GIT_ASKPASS=/usr/bin/false",
-            "SSH_ASKPASS=/usr/bin/false",
-            "git",
-            "--no-pager",
-            "--no-optional-locks",
-            "-c",
-            "core.fsmonitor=false",
-            "-c",
-            "core.hooksPath=/dev/null",
-            "-c",
-            "credential.helper=",
-            "-c",
-            "protocol.allow=never",
-        ]
-        .map(String::from),
-    );
-    command.extend(args.iter().map(|s| (*s).to_owned()));
     let cap = 1024 * 1024;
-    let output = crate::process::capture_stdout(
-        crate::process::Request {
-            program: "/usr/bin/env".into(),
-            args: command,
-            stdin: None,
-            cwd: cwd.into(),
-            timeout,
-            spill_dir: Default::default(),
-            cap,
-            redactor: Default::default(),
-        },
-        tokio_util::sync::CancellationToken::new(),
-    )
-    .await?;
+    let request = crate::vcs::private_git_request(cwd, args, deadline, cap)
+        .await
+        .ok_or_else(|| io::Error::new(io::ErrorKind::TimedOut, "task pin read deadline"))?;
+    let output =
+        crate::process::capture_stdout(request, tokio_util::sync::CancellationToken::new()).await?;
     if output.cancelled || output.code != Some(0) || output.bytes.len() >= cap {
         return Err(io::Error::other("committed task catalogue unavailable"));
     }

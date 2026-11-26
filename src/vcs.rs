@@ -89,56 +89,65 @@ impl Query {
         (!text.is_empty() && !text.contains(['\n', '\r', '\0'])).then_some(text)
     }
 }
+pub(crate) async fn private_git_request(
+    cwd: &Path,
+    args: &[&str],
+    deadline: Instant,
+    cap: usize,
+) -> Option<crate::process::Request> {
+    let args: Vec<_> = args.iter().map(|arg| (*arg).to_owned()).collect();
+    let prepare = crate::runtime::blocking(move || {
+        crate::runtime::assert_off_rt_worker();
+        let mut command = Vec::new();
+        // Git tracing can write parent environment secrets outside stdout
+        // capture. Scrub its entire inherited namespace off the IO workers.
+        for name in std::env::vars_os()
+            .filter_map(|(name, _)| name.into_string().ok())
+            .filter(|name| name.starts_with("GIT_"))
+        {
+            command.extend(["-u".into(), name]);
+        }
+        command.extend(
+            [
+                "GIT_CONFIG_NOSYSTEM=1",
+                "GIT_CONFIG_GLOBAL=/dev/null",
+                "GIT_TERMINAL_PROMPT=0",
+                "GIT_ASKPASS=/usr/bin/false",
+                "SSH_ASKPASS=/usr/bin/false",
+                "git",
+                "--no-pager",
+                "--no-optional-locks",
+                "-c",
+                "core.fsmonitor=false",
+                "-c",
+                "core.hooksPath=/dev/null",
+                "-c",
+                "credential.helper=",
+                "-c",
+                "protocol.allow=never",
+            ]
+            .map(String::from),
+        );
+        command.extend(args);
+        command
+    });
+    let args = tokio::time::timeout_at(deadline, prepare).await.ok()?;
+    Some(crate::process::Request {
+        program: "/usr/bin/env".into(),
+        args,
+        stdin: None,
+        cwd: cwd.into(),
+        timeout: deadline.checked_duration_since(Instant::now())?,
+        spill_dir: Default::default(),
+        cap,
+        redactor: Default::default(),
+    })
+}
 async fn git(cwd: &Path, args: &[&str], deadline: Instant) -> Option<Query> {
-    let remaining = deadline.checked_duration_since(Instant::now())?;
-    // No shell, pager, credential helper, fsmonitor hook, transport or operator
-    // configuration. Repository-local metadata is the only intended input.
-    let mut command = Vec::new();
-    // Git tracing can write parent environment secrets directly to a file or
-    // socket, bypassing stdout capture. Clear its whole inherited namespace.
-    for name in std::env::vars_os()
-        .filter_map(|(name, _)| name.into_string().ok())
-        .filter(|name| name.starts_with("GIT_"))
-    {
-        command.extend(["-u".into(), name]);
-    }
-    command.extend(
-        [
-            "GIT_CONFIG_NOSYSTEM=1",
-            "GIT_CONFIG_GLOBAL=/dev/null",
-            "GIT_TERMINAL_PROMPT=0",
-            "GIT_ASKPASS=/usr/bin/false",
-            "SSH_ASKPASS=/usr/bin/false",
-            "git",
-            "--no-pager",
-            "--no-optional-locks",
-            "-c",
-            "core.fsmonitor=false",
-            "-c",
-            "core.hooksPath=/dev/null",
-            "-c",
-            "credential.helper=",
-            "-c",
-            "protocol.allow=never",
-        ]
-        .map(String::from),
-    );
-    command.extend(args.iter().map(|s| (*s).to_owned()));
-    let output = crate::process::capture_stdout(
-        crate::process::Request {
-            program: "/usr/bin/env".into(),
-            args: command,
-            stdin: None,
-            cwd: cwd.into(),
-            timeout: remaining,
-            spill_dir: Default::default(),
-            cap: MAX_METADATA_BYTES,
-            redactor: Default::default(),
-        },
-        CancellationToken::new(),
-    )
-    .await
-    .ok()?;
+    let request = private_git_request(cwd, args, deadline, MAX_METADATA_BYTES).await?;
+    let output = crate::process::capture_stdout(request, CancellationToken::new())
+        .await
+        .ok()?;
     if output.cancelled || output.bytes.len() >= MAX_METADATA_BYTES {
         return None;
     }

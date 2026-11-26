@@ -250,7 +250,7 @@ impl Store {
         let fork_meta = redactor.sanitize(&meta).map_err(io::Error::other)?;
         let reap_expired_scratch =
             initial.is_none() && matches!(frontier, fork::Frontier::Quiescent);
-        let (file, events, created_fork, queued_fork, epoch) =
+        let (mut store, ordinary_session_started, recover_open_writer) =
             blocking(move || -> io::Result<_> {
                 std::fs::create_dir_all(path.parent().unwrap())?;
                 let created_fork = !path.exists() && fork_meta.fork.is_some();
@@ -360,36 +360,38 @@ impl Store {
                         ));
                     }
                 }
-                Ok((f, events, created_fork, queued_fork, Epoch(epoch)))
+                let empty = events.is_empty();
+                let recover_writer = !empty && !closed && (!created_fork || queued_fork);
+                let mut store = Self {
+                    file: f,
+                    session,
+                    epoch: Epoch(epoch),
+                    events,
+                    blobs: Blobs {
+                        dir: root.join(session.to_string()).join("blobs"),
+                        redactor: r,
+                    },
+                    closed,
+                    fresh: empty || created_fork,
+                    redactor,
+                };
+                let ordinary_initial = if !empty {
+                    None
+                } else if let Some((at, ext)) = initial {
+                    // Native replay opens and writes its first private record
+                    // under this same writer lease, off the caller's IO poll.
+                    crate::runtime::assert_off_rt_worker();
+                    store.append_record(Event::SessionStarted { meta }, cause, at, None, ext)?;
+                    None
+                } else {
+                    Some(meta)
+                };
+                Ok((store, ordinary_initial, recover_writer))
             })
             .await?;
-        let closed = events
-            .last()
-            .is_some_and(|e| matches!(e.event, Event::SessionClosed));
-        let fresh = events.is_empty() || created_fork;
-        let blobs = Blobs {
-            dir: root.join(session.to_string()).join("blobs"),
-            redactor: r,
-        };
-        let mut store = Self {
-            file,
-            session,
-            epoch,
-            events,
-            blobs,
-            closed,
-            fresh,
-            redactor,
-        };
-        if store.events.is_empty() {
-            if let Some((at, ext)) = initial {
-                store
-                    .append_projected_at(Event::SessionStarted { meta }, cause, at, None, ext)
-                    .await?;
-            } else {
-                store.append(Event::SessionStarted { meta }, cause).await?;
-            }
-        } else if !store.closed && (!created_fork || queued_fork) {
+        if let Some(meta) = ordinary_session_started {
+            store.append(Event::SessionStarted { meta }, cause).await?;
+        } else if recover_open_writer {
             store.recover().await?;
         }
         Ok(store)
@@ -488,7 +490,38 @@ impl Store {
         cause: Option<OpId>,
         ts_ms: u64,
         native: Option<Native>,
-        ext: std::collections::BTreeMap<String, serde_json::Value>,
+        ext: BTreeMap<String, serde_json::Value>,
+    ) -> io::Result<Envelope> {
+        let e = self.append_record(event, cause, ts_ms, native, ext)?;
+        if matches!(
+            e.event,
+            Event::TurnEnded { .. }
+                | Event::InterruptDismissed { .. }
+                | Event::TurnStarted {
+                    origin: Some(TurnOrigin::Automatic),
+                    ..
+                }
+                | Event::SessionClosed
+                | Event::ItemStarted {
+                    kind: ItemKind::Approval | ItemKind::Question,
+                    ..
+                }
+                | Event::ItemCompleted {
+                    body: Item::Approval { .. } | Item::Question { .. },
+                    ..
+                }
+        ) {
+            self.sync().await?;
+        }
+        Ok(e)
+    }
+    fn append_record(
+        &mut self,
+        event: Event,
+        cause: Option<OpId>,
+        ts_ms: u64,
+        native: Option<Native>,
+        ext: BTreeMap<String, serde_json::Value>,
     ) -> io::Result<Envelope> {
         if self.closed || !event.is_durable() {
             return Err(io::Error::other("log is closed or event is ephemeral"));
@@ -522,26 +555,6 @@ impl Store {
         self.file.write_all(&bytes)?;
         self.closed = matches!(e.event, Event::SessionClosed);
         self.events.push(e.clone());
-        if matches!(
-            e.event,
-            Event::TurnEnded { .. }
-                | Event::InterruptDismissed { .. }
-                | Event::TurnStarted {
-                    origin: Some(TurnOrigin::Automatic),
-                    ..
-                }
-                | Event::SessionClosed
-                | Event::ItemStarted {
-                    kind: ItemKind::Approval | ItemKind::Question,
-                    ..
-                }
-                | Event::ItemCompleted {
-                    body: Item::Approval { .. } | Item::Question { .. },
-                    ..
-                }
-        ) {
-            self.sync().await?;
-        }
         Ok(e)
     }
     pub async fn sync(&self) -> io::Result<()> {

@@ -793,6 +793,21 @@ fn cpu_ns() -> u64 {
     let time = unsafe { time.assume_init() };
     time.tv_sec as u64 * 1_000_000_000 + time.tv_nsec as u64
 }
+#[derive(Debug)]
+pub(crate) struct PollCpuExceeded(u64);
+
+impl std::fmt::Display for PollCpuExceeded {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "D0 exceeded 1ms CPU between awaits: {}ns in replay",
+            self.0
+        )
+    }
+}
+
+impl std::error::Error for PollCpuExceeded {}
+
 async fn budgeted(
     future: impl std::future::Future<Output = io::Result<Replay>>,
 ) -> io::Result<Replay> {
@@ -804,9 +819,7 @@ async fn budgeted(
         let used = cpu_ns().saturating_sub(start);
         maximum = maximum.max(used);
         if used > 1_000_000 {
-            return std::task::Poll::Ready(Err(io::Error::other(format!(
-                "D0 exceeded 1ms CPU between awaits: {used}ns in replay"
-            ))));
+            return std::task::Poll::Ready(Err(io::Error::other(PollCpuExceeded(used))));
         }
         poll.map(|result| {
             result.map(|mut r| {
@@ -1202,6 +1215,11 @@ mod tests {
             Ok(Replay::default())
         })
         .await;
-        assert!(result.unwrap_err().to_string().contains("1ms CPU"));
+        let error = result.unwrap_err();
+        let exceeded = error
+            .get_ref()
+            .and_then(|cause| cause.downcast_ref::<PollCpuExceeded>())
+            .expect("inline work must fail the replay poll budget");
+        assert!(exceeded.0 > 1_000_000);
     }
 }

@@ -303,15 +303,19 @@ impl Repo {
         Self { home, path, head }
     }
 }
-fn cli(home: &Path, args: &[&str], extra: impl FnOnce(&mut Command)) -> std::process::Output {
+fn private_cli(home: &Path) -> Command {
     let mut c = Command::new(env!("CARGO_BIN_EXE_bboxy450-harness"));
-    c.args(args)
-        .env("HOME", home)
+    c.env("HOME", home)
         .env("TMPDIR", home)
         .env_remove("BBOXY_CAPABILITY")
         .env_remove("BBOXY_CAPABILITY_FILE")
         .env_remove("BBOXY_SEAT_ID")
         .env_remove("BBOXY_SOCK");
+    c
+}
+fn cli(home: &Path, args: &[&str], extra: impl FnOnce(&mut Command)) -> std::process::Output {
+    let mut c = private_cli(home);
+    c.args(args);
     extra(&mut c);
     c.output().unwrap()
 }
@@ -461,11 +465,14 @@ fn cli_pins_a_moving_origin_before_any_task_read_and_never_writes_sessions() {
     let wrapper = bin.join("git");
     std::fs::write(&wrapper,"#!/bin/sh\ncase \"$*\" in\n  *ls-tree*) /usr/bin/git \"$@\" || exit $?; /usr/bin/git update-ref refs/remotes/origin/main \"$NEXT_TASK_COMMIT\"; exit $?;;\nesac\nexec /usr/bin/git \"$@\"\n").unwrap();
     std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let trace = repo.home.path().join("must-not-inherit-git-trace");
     let out = cli(
         repo.home.path(),
         &["dream", "replay", "--json", input.to_str().unwrap()],
         |c| {
-            c.env("PATH", &bin).env("NEXT_TASK_COMMIT", &next);
+            c.env("PATH", &bin)
+                .env("NEXT_TASK_COMMIT", &next)
+                .env("GIT_TRACE", &trace);
         },
     );
     assert!(
@@ -481,6 +488,10 @@ fn cli_pins_a_moving_origin_before_any_task_read_and_never_writes_sessions() {
         format!("sha256:{}", fp::digest(old))
     );
     assert_eq!(git(&repo.path, &["rev-parse", "origin/main"]), next);
+    assert!(
+        !trace.exists(),
+        "Git must not inherit trace output settings"
+    );
     assert_eq!(source, std::fs::read(input).unwrap());
     assert!(!repo.home.path().join(".bboxy450-harness/sessions").exists());
     assert_eq!(
@@ -1028,15 +1039,10 @@ fn native_two_processes_race_without_duplicate_imports_or_cache_counts() {
     let input = native_input(repo.home.path(), &repo.path, "codex", false);
     let sessions = repo.home.path().join("sessions");
     let spawn = || {
-        let mut c = Command::new(env!("CARGO_BIN_EXE_bboxy450-harness"));
+        let mut c = private_cli(repo.home.path());
         c.args(["dream", "replay", "--json", "--sessions"])
             .arg(&sessions)
             .arg(&input)
-            .env("HOME", repo.home.path())
-            .env_remove("BBOXY_CAPABILITY")
-            .env_remove("BBOXY_CAPABILITY_FILE")
-            .env_remove("BBOXY_SEAT_ID")
-            .env_remove("BBOXY_SOCK")
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
         c.spawn().unwrap()
@@ -1063,7 +1069,13 @@ fn native_two_processes_race_without_duplicate_imports_or_cache_counts() {
     ];
     let one = cli(repo.home.path(), &args, |_| {});
     let two = cli(repo.home.path(), &args, |_| {});
-    assert!(one.status.success() && two.status.success());
+    for output in [&one, &two] {
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
     let one: serde_json::Value = serde_json::from_slice(&one.stdout).unwrap();
     let two: serde_json::Value = serde_json::from_slice(&two.stdout).unwrap();
     assert_eq!(one["episodes"], two["episodes"]);
