@@ -392,6 +392,12 @@
       "type": "OpId"
      }
     },
+    "interrupt_dismissed": {
+     "turn": {
+      "required": false,
+      "type": "TurnId"
+     }
+    },
     "item_completed": {
      "body": {
       "required": true,
@@ -645,6 +651,23 @@
     },
     "unknown": {}
    }
+  },
+  "Interrupt": {
+   "fields": {
+    "attempt": {
+     "required": true,
+     "type": "uint64"
+    },
+    "cause": {
+     "required": true,
+     "type": "string"
+    },
+    "deadline_ms": {
+     "required": true,
+     "type": "uint64"
+    }
+   },
+   "shape": "struct"
   },
   "Item": {
    "shape": "union",
@@ -1265,6 +1288,12 @@
     },
     "close": {},
     "compact": {},
+    "continue": {
+     "turn": {
+      "required": false,
+      "type": "TurnId"
+     }
+    },
     "interrupt": {
      "turn": {
       "required": false,
@@ -1798,6 +1827,10 @@
       "required": true,
       "type": "ErrorClass"
      },
+     "interrupt": {
+      "required": false,
+      "type": "Interrupt|null"
+     },
      "message": {
       "required": true,
       "type": "string"
@@ -1938,6 +1971,7 @@
    "tag": "kind",
    "variants": {
     "agent": {},
+    "automatic": {},
     "unknown": {},
     "user": {}
    }
