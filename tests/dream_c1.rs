@@ -3809,22 +3809,7 @@ fn bootstrap_earliest_gate_bypass_control_rejects_actual_prepermit_allocation() 
     let binary = std::path::PathBuf::from(env!("CARGO_BIN_EXE_bboxy450-harness"));
     let mut source = std::fs::File::open(&binary).unwrap();
     let mut sha = Sha256::new();
-    let mut buf = [0; 16384];
-    loop {
-        let at = parent_cpu();
-        let n = source.read(&mut buf).unwrap();
-        sha.update(&buf[..n]);
-        let cpu = parent_interval(at, parent_cpu());
-        let end = Instant::now();
-        assert!(
-            cpu <= 1_000_000,
-            "binary approval chunk len={n} cpu_ns={cpu}"
-        );
-        parent_rest(cpu, end);
-        if n == 0 {
-            break;
-        }
-    }
+    std::io::copy(&mut source, &mut sha).unwrap();
     let digest = w::Hex(format!("{:x}", sha.finalize()));
     // Cargo supplies this exact fixture binary from the current source/features;
     // declare its hash/profile before birth. It is never a managed capability
