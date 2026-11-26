@@ -21,7 +21,8 @@ logs = Path(tempfile.mkdtemp(prefix='harness-launch-controls-',dir='/tmp'))
 rows=[]
 try:
     for name, guard, broken, assertion in [
-        ('prompt', 'if !self.launch_context.is_empty() {', 'if false {', 'missing admitted launcher context'),
+        ('prompt', 'launch_context: config.redactor.scrub(&launch.append_system_prompt),',
+         'launch_context: String::new(),', 'missing admitted launcher context'),
         ('mcp', '"mcpServers": self.mcp_servers', '"mcpServers": []', 'missing callable admitted MCP server'),
     ]:
         text=original.decode()
