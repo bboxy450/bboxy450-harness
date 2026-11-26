@@ -73,15 +73,19 @@ pub async fn cli(args: impl Iterator<Item = String>) -> Result<i32, String> {
             _ => paths.push(std::path::PathBuf::from(arg)),
         }
     }
-    let sessions =
-        sessions.unwrap_or_else(|| directory().unwrap_or_default().with_file_name("sessions"));
-    if paths.is_empty() {
-        paths.push(sessions.clone());
-    }
+    // Resolve the CLI's private root before entering the guarded replay. The
+    // first dispatch can start a blocking thread on the standalone caller.
+    let root = crate::runtime::blocking(directory).await;
     let set = crate::redact::Set::default();
     crate::capability::register(&set).await;
-    let result = match directory() {
-        Ok(root) => d0::replay_with_sessions(paths, root, sessions, rebuild, set.clone()).await,
+    let result = match root {
+        Ok(root) => {
+            let sessions = sessions.unwrap_or_else(|| root.with_file_name("sessions"));
+            if paths.is_empty() {
+                paths.push(sessions.clone());
+            }
+            d0::replay_with_sessions(paths, root, sessions, rebuild, set.clone()).await
+        }
         Err(e) => Err(e),
     };
     match result {

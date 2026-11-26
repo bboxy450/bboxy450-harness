@@ -195,6 +195,9 @@ async fn git_object(
     deadline: tokio::time::Instant,
 ) -> std::io::Result<Vec<u8>> {
     use std::io;
+    // An already-ready Git exit must not share its poll with the next
+    // supervised process's setup.
+    tokio::task::yield_now().await;
     let cap = 1024 * 1024;
     let request = crate::vcs::private_git_request(cwd, args, deadline, cap)
         .await
