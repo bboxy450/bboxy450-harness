@@ -1484,9 +1484,9 @@ fn hand_run(id: ItemId, lines: usize) -> bboxy450_harness::frontends::gui::model
     )
 }
 
-/// harness-spec.md "Tight transcript": the head carries no `auto` badge and no duration under
-/// 1s and pads 6/10; a finished, successful command folds unless its output is 6 lines or
-/// fewer, while a failed one stays open; the feed gap is 6.
+/// harness-spec.md "Tight transcript": the head carries no `auto` badge or sub-second
+/// duration. A successful command folds when its output exceeds 6 lines, while a failed
+/// one stays open. The native head keeps 5 px vertical padding and the feed gap is 6 px.
 #[tokio::test]
 async fn tight_tool_heads_fold_rule_and_feed_gap() {
     use bboxy450_harness::frontends::gui::view::{find, layout_text};
@@ -1525,13 +1525,15 @@ async fn tight_tool_heads_fold_rule_and_feed_gap() {
         text(&format!("toolhead/{slow}")).contains("2.5s"),
         "the duration shows from 1s"
     );
-    // head padding 4: the 20 px kind tile sits 4 px under the head's top edge
+    // The 20 px kind tile has 5 px of padding on both sides vertically.
     let head = find(layout, &format!("toolhead/{short}")).unwrap();
     let tile = head.children[0].children[0].rect;
     assert!(
-        (tile.y - head.rect.y - 4.).abs() < 0.01,
-        "head top padding: {}",
-        tile.y - head.rect.y
+        (tile.y - head.rect.y - 5.).abs() < 0.01
+            && (head.rect.bottom() - tile.bottom() - 5.).abs() < 0.01,
+        "head vertical padding: top {}, bottom {}",
+        tile.y - head.rect.y,
+        head.rect.bottom() - tile.bottom()
     );
     // the fold rule
     assert!(

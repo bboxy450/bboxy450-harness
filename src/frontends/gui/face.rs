@@ -1661,7 +1661,7 @@ pub fn head(h: Head, ink: &Ink) -> c::Element {
         frame(
             Frame {
                 // Compact tool header; status changes keep the same height.
-                padding: [4., 10., 4., 10.],
+                padding: [5., 10., 5., 10.],
                 gap: 8.,
                 row: true,
                 ..Default::default()
