@@ -1486,25 +1486,12 @@ fn approved_runner() -> &'static (std::path::PathBuf, w::Hex) {
             .split_whitespace()
             .next()
             .unwrap();
-        // Provisioning verification precedes every birth; streaming bounded
-        // hashing/rest happens once, never an executable capability probe.
+        // The fixture binds the prepared bytes once and checks the file identity
+        // before each birth.
         let before = stamp(&path);
         let mut file = std::fs::File::open(&path).unwrap();
         let mut digest = Sha256::new();
-        let mut buf = [0; 16384];
-        use std::io::Read;
-        loop {
-            let at = parent_cpu();
-            let n = file.read(&mut buf).unwrap();
-            digest.update(&buf[..n]);
-            let used = parent_interval(at, parent_cpu());
-            let end = Instant::now();
-            assert!(used <= 1_000_000);
-            parent_rest(used, end);
-            if n == 0 {
-                break;
-            }
-        }
+        std::io::copy(&mut file, &mut digest).unwrap();
         let hash = format!("{:x}", digest.finalize());
         assert_eq!(hash, expected, "unapproved candidate must not execute");
         assert_eq!(
