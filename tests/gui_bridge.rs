@@ -24,6 +24,28 @@ impl bbt_rt::Waker for Wake {
         self.0.fetch_add(1, Ordering::Relaxed);
     }
 }
+
+// The UI thread registration lasts for the process, just as it does in the app.
+fn in_private_ui_process(case: &str) -> bool {
+    const CASE: &str = "BBOXY_GUI_BRIDGE_TEST_CASE";
+    if std::env::var(CASE).as_deref() == Ok(case) {
+        return true;
+    }
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", case, "--nocapture"])
+        .env(CASE, case)
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success() && stdout.lines().any(|line| line == "running 1 test"),
+        "{case} in private UI process exited {}\n{stdout}\n{}",
+        output.status,
+        String::from_utf8_lossy(&output.stderr)
+    );
+    false
+}
+
 async fn wait(bridge: &mut Bridge, predicate: impl Fn(&Bridge) -> bool) {
     tokio::time::timeout(Duration::from_secs(8), async {
         loop {
@@ -231,6 +253,9 @@ async fn unix_and_inproc_views_equal_every_ir_v1_fixture() {
 #[tokio::test]
 async fn unix_bridge_dispatches_off_thread_and_detach_keeps_its_turn() {
     use bboxy450_harness::{frontends::gui::bridge::Submission, gateway::unix::UnixServer};
+    if !in_private_ui_process("unix_bridge_dispatches_off_thread_and_detach_keeps_its_turn") {
+        return;
+    }
     let mut provider =
         bboxy450_harness::provider::ScriptedProvider::new(vec![support::sse("text")]);
     provider.delay = Duration::from_millis(5);
@@ -778,6 +803,9 @@ async fn many_panes_under_resize_and_reattach_see_every_turn_end() {
     use bboxy450_harness::gateway::unix::UnixServer;
     const PANES: usize = 6;
     const TURNS: usize = 12;
+    if !in_private_ui_process("many_panes_under_resize_and_reattach_see_every_turn_end") {
+        return;
+    }
     bbt_rt::register_ui_thread();
     let own = tempfile::tempdir_in("/tmp").unwrap();
     let mut sessions = vec![];
@@ -866,6 +894,9 @@ async fn many_panes_under_resize_and_reattach_see_every_turn_end() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_view_whose_event_task_dies_reattaches_and_sees_the_turn_end() {
     use bboxy450_harness::gateway::unix::UnixServer;
+    if !in_private_ui_process("a_view_whose_event_task_dies_reattaches_and_sees_the_turn_end") {
+        return;
+    }
     let mut provider =
         bboxy450_harness::provider::ScriptedProvider::new(vec![support::sse("text")]);
     provider.delay = Duration::from_millis(5);
@@ -916,6 +947,9 @@ async fn a_view_whose_event_task_dies_reattaches_and_sees_the_turn_end() {
 async fn a_frame_that_panics_does_not_end_the_view() {
     use bboxy450_harness::frontends::gui::view::PANIC_NEXT_PREPARE;
     use std::sync::atomic::Ordering;
+    if !in_private_ui_process("a_frame_that_panics_does_not_end_the_view") {
+        return;
+    }
     let mut provider =
         bboxy450_harness::provider::ScriptedProvider::new(vec![support::sse("text")]);
     provider.delay = Duration::from_millis(5);
