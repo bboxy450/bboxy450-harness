@@ -4224,8 +4224,17 @@ fn selected(
             }
             if is_tool {
                 if !b.normalization_ready {
+                    // Cold engine construction and first search are each
+                    // measured before compiling the individual fixed masks.
+                    let mut engine = Paced::new(None::<regex::Regex>, &b.control, |engine| {
+                        engine.take().is_some()
+                    });
                     b.unit(|| {
-                        super::fingerprint::warm_normalize_engine();
+                        *engine = Some(regex::Regex::new("").expect("fixed empty regex"));
+                        Ok(())
+                    })?;
+                    b.unit(|| {
+                        let _ = engine.take_value().unwrap().is_match("");
                         Ok(())
                     })?;
                     for i in 0..super::fingerprint::NORMALIZE_MASKS {
