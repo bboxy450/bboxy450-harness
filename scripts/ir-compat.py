@@ -188,26 +188,35 @@ def corpus_hashes(paths):
     return {p: hashlib.sha256(Path(p).read_bytes()).hexdigest() for p in paths}
 
 
+def surface_with_fragment(schema, fragment):
+    # Apply to a copy, never the canonical schema or the frozen lock.
+    schema['$defs'].update(fragment['$defs'])
+    return flatten(schema)
+
+
+def verdict(lock, bad):
+    for line in bad:
+        print('FAIL', line)
+    print(f'ir-compat: {"FAIL" if bad else "PASS"} ({len(lock["surface"])} locked definitions)')
+    return 1 if bad else 0
+
+
 def check(schema_path=SCHEMA, fragment=None, require_current=False):
     lock = json.loads(LOCK.read_text())
     schema = json.loads(Path(schema_path).read_text())
-    if fragment:
-        # Apply to a copy, never the canonical schema or the frozen lock.
-        schema['$defs'].update(json.loads(Path(fragment).read_text())['$defs'])
-    bad = compare(lock, flatten(schema))
+    surface = (surface_with_fragment(schema, json.loads(Path(fragment).read_text()))
+               if fragment else flatten(schema))
+    bad = compare(lock, surface)
     if require_current and lock.get('version') != protocol_version():
         bad.append('lock version does not match PROTOCOL; run make lock-ir')
-    if require_current and not bad and lock['surface'] != flatten(schema):
+    if require_current and not bad and lock['surface'] != surface:
         bad.append('schema has unlocked additions; run make lock-ir')
     for p, h in lock.get('corpus', {}).items():
         if not Path(p).is_file():
             bad.append(f'{p}: frozen corpus file missing')
         elif corpus_hashes([p])[p] != h:
             bad.append(f'{p}: frozen corpus file changed (old logs are immutable; add a new file instead)')
-    for line in bad:
-        print('FAIL', line)
-    print(f'ir-compat: {"FAIL" if bad else "PASS"} ({len(lock["surface"])} locked definitions)')
-    return 1 if bad else 0
+    return verdict(lock, bad)
 
 
 def enum_node(s, name):
@@ -351,6 +360,12 @@ def lock():
 
 
 if __name__ == '__main__':
+    if sys.argv[1:] == ['check-fragment-stdin']:
+        # Installed harnesses check newly generated proposals against embedded
+        # schema and lock bytes. The repository gate checks its corpus files.
+        lock, schema, fragment = json.load(sys.stdin)
+        lock = json.loads(lock)
+        sys.exit(verdict(lock, compare(lock, surface_with_fragment(json.loads(schema), fragment))))
     parser = argparse.ArgumentParser()
     parser.add_argument('command', choices=['check', 'control', 'lock'])
     parser.add_argument('--schema', type=Path, default=SCHEMA)

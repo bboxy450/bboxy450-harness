@@ -265,20 +265,22 @@ fn stale_lock_requires_self_service_refresh() {
 #[test]
 fn cli_scans_fixtures_in_private_home_and_rejects_missing_pending_proposals() {
     let tmp = tempfile::tempdir().unwrap();
+    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
     let run = |pending: &Path| {
         Command::new(env!("CARGO_BIN_EXE_bboxy450-harness"))
             .args(["ir-scan", "--json", "--propose"])
             .arg(tmp.path().join("proposed"))
             .arg("--check-pending")
             .arg(pending)
-            .arg("tests/fixtures/ir-scan")
+            .arg(fixtures.join("ir-scan"))
+            .current_dir(tmp.path())
             .env("HOME", tmp.path())
             .env_remove("BBOXY_CAPABILITY_FILE")
             .env_remove("BBOXY_CAPABILITY")
             .output()
             .unwrap()
     };
-    let output = run(Path::new("tests/fixtures/ir-v1/pending"));
+    let output = run(&fixtures.join("ir-v1/pending"));
     assert!(
         output.status.success(),
         "{}",
@@ -286,6 +288,12 @@ fn cli_scans_fixtures_in_private_home_and_rejects_missing_pending_proposals() {
     );
     let scan: Scan = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(scan.entries.len(), 2);
+    assert_eq!(
+        std::fs::read_dir(tmp.path().join("proposed/proposals"))
+            .unwrap()
+            .count(),
+        4
+    );
     assert_eq!(
         std::fs::read_dir(tmp.path().join(".bboxy450-harness/ir-unknowns"))
             .unwrap()

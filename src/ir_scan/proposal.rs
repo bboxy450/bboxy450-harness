@@ -6,7 +6,11 @@
 // Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md
 use super::{Entry, Scan, tag};
 use serde_json::{Value, json};
-use std::{io, path::Path};
+use std::{
+    io,
+    path::Path,
+    process::{Command, Stdio},
+};
 
 fn snake(text: &str) -> String {
     let mut result = String::new();
@@ -104,12 +108,50 @@ fn keys(entry: &Entry) -> std::collections::BTreeSet<String> {
         .collect()
 }
 
+fn validate_fragment(fragment: &Value) -> io::Result<()> {
+    let mut gate = Command::new("python3")
+        .args([
+            "-I",
+            "-c",
+            include_str!("../../scripts/ir-compat.py"),
+            "check-fragment-stdin",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    let input = serde_json::to_writer(
+        gate.stdin.take().expect("piped validator input"),
+        &(
+            include_str!("../../verification/protocol-v1.lock.json"),
+            include_str!("../../protocol.schema.json"),
+            fragment,
+        ),
+    );
+    let output = gate.wait_with_output()?;
+    if !output.status.success() {
+        return Err(io::Error::other(format!(
+            "scanner generated a refused proposal: {}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        )));
+    }
+    input.map_err(io::Error::other)
+}
+
+#[cfg(test)]
+#[test]
+fn embedded_validator_refuses_removed_fields() {
+    let fragment = json!({"$defs": {"Usage": {"type": "object"}}});
+    let error = validate_fragment(&fragment).unwrap_err().to_string();
+    assert!(error.contains("field removed"), "{error}");
+}
+
 pub(super) async fn write(scan: &Scan, schema: &Value, dir: &Path) -> io::Result<()> {
     let scan = scan.entries.clone();
     let schema = schema.clone();
     let dir = dir.to_owned();
     bbt_rt::handle().spawn_blocking(move || {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR"));
         let fixtures = dir.join("tests/fixtures/ir-v1/pending");
         let tasks = dir.join(".bboxy/tasks");
         let proposals = dir.join("proposals");
@@ -117,11 +159,9 @@ pub(super) async fn write(scan: &Scan, schema: &Value, dir: &Path) -> io::Result
         for entry in scan.values() {
             let fingerprint = &entry.fingerprint;
             let fragment = fragment(entry, &schema);
+            validate_fragment(&fragment)?;
             let file = proposals.join(format!("{fingerprint}.schema.json"));
             std::fs::write(&file, serde_json::to_vec_pretty(&fragment)?)?;
-            let gate = std::process::Command::new("python3").args(["-I", "scripts/ir-compat.py", "check", "--fragment"])
-                .arg(&file).current_dir(root).output()?;
-            if !gate.status.success() { return Err(io::Error::other(format!("scanner generated a refused proposal: {}", String::from_utf8_lossy(&gate.stdout)))); }
             let header = "// Copyright 2026 Boxy (bboxy450) and contributors.\n// SPDX-License-Identifier: LicenseRef-Respectful-Slop-1.0-Draft\n// Project: bboxy450-harness — https://github.com/bboxy450/bboxy450-harness\n// License: https://github.com/bboxy450/bboxy450-harness/blob/main/LICENSE\n// Credit copied/adapted/translated reuse accurately; independent inspiration credit requested.\n// Policy: https://github.com/bboxy450/bboxy450-harness/blob/main/ATTRIBUTION.md\n";
             // A compiling no-op is not a projector. This is deliberately a task
             // skeleton, with the exact source identity retained as JSON literals.
